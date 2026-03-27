@@ -1,0 +1,320 @@
+---
+title: "Chat Control Plane Architecture"
+description: "A control-plane design for KiKo chat that preserves model semantic understanding while moving routing, evidence, and grounding into deterministic system layers."
+---
+
+# Chat Control Plane Architecture
+
+This document defines the next-step architecture for KiKo chat analysis and execution flows.
+
+The design goal is specific:
+
+- Keep the model-owned semantic understanding path.
+- Remove workflow control from the model.
+- Make search, evidence, and answer grounding deterministic.
+- Prevent analysis queries from falling into execution paths.
+
+## Problem
+
+The current orchestration path lets one model output influence too many downstream decisions:
+
+- Semantic understanding
+- Search gating
+- Evidence sufficiency
+- Execution-vs-analysis routing
+- Final answer claims
+
+This makes the system fragile in exactly the wrong places. A semantic drift can incorrectly:
+
+- classify a token analysis request as a swap
+- skip external evidence collection
+- reuse stale session symbols when the current turn already has an explicit contract address
+- claim web or X evidence even when no such evidence was retrieved
+
+The issue is not that the model should stop understanding user intent. The issue is that semantic understanding is currently mixed with system control.
+
+## Design Principle
+
+KiKo should use this split:
+
+- `Model = semantic parser and natural-language generator`
+- `System = planner, controller, evidence enforcer`
+
+The model may still interpret what the user means.
+
+The model must not directly decide:
+
+- whether the request enters analysis or execution
+- whether search is mandatory
+- what evidence is required before a conclusion is allowed
+- whether the current turn should inherit prior token symbols
+- whether an answer may claim public-source evidence
+
+## Layered Architecture
+
+The new chat pipeline is:
+
+1. `SemanticParse`
+2. `TaskControlDecision`
+3. `EvidenceContract`
+4. `EvidenceAcquisition`
+5. `EvidenceGraph`
+6. `GroundedAnswer`
+
+### 1. Semantic Parse
+
+`SemanticParse` is model-owned.
+
+It captures only semantic meaning:
+
+- semantic intent
+- domain
+- entities
+- time references
+- explicit action cues
+- follow-up cues
+- confidence
+
+It does not carry workflow control fields such as:
+
+- `search_mode`
+- `required_evidence`
+- `execution_candidate`
+
+Those are system concerns.
+
+### 2. Task Control Decision
+
+`TaskControlDecision` is system-owned and deterministic.
+
+It consumes `SemanticParse` and decides:
+
+- `taskType`
+- `lane`
+- `searchRequirement`
+- `searchTarget`
+- `targetScope`
+- `evidenceContract`
+- `answerGroundingPolicy`
+
+This is the first hard boundary in the architecture.
+
+Example:
+
+- `SemanticParse.intent = token_attention_analysis`
+- `SemanticParse.entities.tokenAddresses = [CA]`
+- `SemanticParse.cues.currentTurnExplicitAddress = true`
+
+The system deterministically maps this to:
+
+- `lane = analysis`
+- `taskType = token_attention_analysis`
+- `searchRequirement = required`
+- `searchTarget = x_and_web`
+- `targetScope.mode = current_turn_only`
+
+This does not override semantic understanding. It consumes it.
+
+### 3. Evidence Contract
+
+Each `taskType` owns a fixed evidence contract.
+
+Examples:
+
+`token_attention_analysis`
+- identity
+- market
+- onchain_token
+- external_attention
+
+`early_buyer_export`
+- identity
+- onchain_token
+
+`swap_execution`
+- wallet_state
+- execution_preflight
+- optional execution_quote
+
+The key rule is:
+
+The answer layer cannot bypass a missing required evidence type. It can only:
+
+- gather it
+- reuse existing valid evidence
+- or state that the evidence is missing
+
+### 4. Evidence Acquisition
+
+The planner no longer asks the model what to do next in free form.
+
+It resolves the contract requirement to concrete acquisition steps:
+
+- local tool calls
+- provider-native search
+- session-context reuse
+
+This stage can still use the model for summarization or query wording, but not for deciding whether a required evidence kind exists.
+
+### 5. Evidence Graph
+
+All gathered evidence is normalized into `EvidenceGraph`.
+
+Each node must carry:
+
+- evidence kind
+- source type
+- target ref
+- freshness
+- obtained timestamp
+- raw payload
+
+This gives KiKo one canonical surface for:
+
+- deduplication
+- freshness checks
+- replay
+- grounded answer generation
+
+### 6. Grounded Answer
+
+The answer generator receives:
+
+- `TaskControlDecision`
+- `EvidenceGraph`
+
+It may use the model to write natural language, but the grounding rules are system-owned.
+
+If there is no `external_attention` evidence node, the answer layer may not say:
+
+- “based on web/X realtime data”
+- “X shows”
+- “public sentiment confirms”
+
+Instead it must say the evidence is missing or partial.
+
+## Lane Separation
+
+The architecture requires two lanes:
+
+- `analysis lane`
+- `execution lane`
+
+They are separate state machines.
+
+### Analysis Lane
+
+Used for:
+
+- token attention analysis
+- token explanation
+- early buyers
+- creator analysis
+- market discovery
+- social discovery
+
+Analysis lane may gather evidence and synthesize results.
+
+It may never silently escalate into execution.
+
+### Execution Lane
+
+Used for:
+
+- swaps
+- copy trading
+- order placement
+
+Execution lane starts only when semantic understanding contains explicit execution intent.
+
+Contract address presence alone must never open the execution lane.
+
+## Target Scope
+
+Every turn must build a request frame.
+
+This is separate from long-session memory.
+
+The control layer owns the target scope:
+
+- `current_turn_only`
+- `followup_scoped`
+- `session_scoped`
+
+Rule:
+
+If the current turn explicitly includes a contract address, that address becomes the primary target and historical token symbols cannot participate in identity resolution.
+
+This fixes symbol bleed without changing the model’s semantic understanding path.
+
+## Migration Plan
+
+This architecture should be migrated in phases.
+
+### Phase 1
+
+Introduce standalone control-plane types and policy modules.
+
+Deliverables:
+
+- `SemanticParse`
+- `TaskControlDecision`
+- `EvidenceContract`
+- `EvidenceGraph`
+
+No runtime integration yet.
+
+### Phase 2
+
+Change canonical understanding output so it emits semantic fields only.
+
+Do not remove the model parser.
+
+Instead, stop trusting it for:
+
+- search mode
+- evidence requirements
+- execution candidacy
+
+### Phase 3
+
+Insert deterministic control-plane derivation between understanding and orchestration.
+
+The orchestrator must consume `TaskControlDecision`, not raw model intent.
+
+### Phase 4
+
+Move acquisition planning to contract-driven orchestration.
+
+The planner should satisfy evidence contracts, not free-form “think and pick tools”.
+
+### Phase 5
+
+Make final answer generation evidence-graph-backed.
+
+Claims about public evidence must depend on actual evidence nodes.
+
+## Non-Goals
+
+This design does not aim to:
+
+- remove the model from semantic interpretation
+- replace multilingual intent understanding with regexes
+- fully rewrite the chat stack in one migration
+
+The goal is narrower and stricter:
+
+Keep model understanding.
+Move system control out of the model.
+
+## Initial Code Scaffolding
+
+The first scaffolding for this architecture lives in:
+
+- `kiko-api/src/jobs/chat/control-plane/types.ts`
+- `kiko-api/src/jobs/chat/control-plane/policy.ts`
+- `kiko-api/src/jobs/chat/control-plane/policy.test.ts`
+
+These files are intentionally not wired into production orchestration yet.
+
+They define the boundary that future migrations should respect.

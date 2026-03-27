@@ -111,7 +111,6 @@ export class PythonGenerationClient {
         let terminalState: GenerationTerminalState = 'open';
         let toolCallSignalReceived = false;
         const allowVisibleStreamingAfterToolSignal = shouldAllowVisibleStreamingAfterToolSignal(params.providerOptions, params.tools);
-        const holdVisibleDeltasUntilCompletion = shouldHoldVisibleDeltasUntilCompletion(params.providerOptions, params.tools);
 
         const flushFinalCallbacks = async () => {
             if (latestUsage) {
@@ -178,13 +177,13 @@ export class PythonGenerationClient {
                 if (event.type === 'assistant_delta') {
                     const delta = String(event.payload?.text || '');
                     textBuffer += delta;
-                    if (!holdVisibleDeltasUntilCompletion && delta && (!toolCallSignalReceived || allowVisibleStreamingAfterToolSignal)) {
+                    if (delta && (!toolCallSignalReceived || allowVisibleStreamingAfterToolSignal)) {
                         await params.onTextDelta(delta);
                     }
                 } else if (event.type === 'reasoning_delta') {
                     const delta = String(event.payload?.text || '');
                     reasoningBuffer += delta;
-                    if (!holdVisibleDeltasUntilCompletion && delta && (!toolCallSignalReceived || allowVisibleStreamingAfterToolSignal)) {
+                    if (delta && (!toolCallSignalReceived || allowVisibleStreamingAfterToolSignal)) {
                         await params.onReasoningDelta(delta);
                     }
                 } else if (event.type === 'usage') {
@@ -235,14 +234,6 @@ export class PythonGenerationClient {
                     const hasToolCalls = toolCalls.length > 0;
                     const finalText = textBuffer;
                     const finalReasoning = reasoningBuffer;
-                    if (holdVisibleDeltasUntilCompletion && !hasToolCalls) {
-                        if (finalReasoning) {
-                            await params.onReasoningDelta(finalReasoning);
-                        }
-                        if (finalText) {
-                            await params.onTextDelta(finalText);
-                        }
-                    }
                     await flushFinalCallbacks();
                     logger.info(LogCode.AI_ORCHESTRATOR, 'PythonGenerationClient: message_complete received', {
                         sessionId: params.sessionId,
@@ -273,12 +264,4 @@ function shouldAllowVisibleStreamingAfterToolSignal(
     const nativeTools = providerOptions?.tool_policy?.native_tools;
     const nativeSearchEnabled = Boolean(nativeTools?.enable_search);
     return nativeSearchEnabled && Array.isArray(tools) && tools.length === 0;
-}
-
-function shouldHoldVisibleDeltasUntilCompletion(
-    providerOptions: Record<string, any> | undefined,
-    tools: any[],
-): boolean {
-    const controlPlane = String(providerOptions?.tool_policy?.control_plane || '').trim().toLowerCase();
-    return controlPlane === 'node' && Array.isArray(tools) && tools.length > 0;
 }

@@ -32,11 +32,11 @@ Doc links (Use these exact absolute URLs in your Markdown links so users can cli
 - [Chat and Commands](https://docs.kikoapp.app/user-guides/chat-and-commands)
 - [Risk and Security](https://docs.kikoapp.app/user-guides/risk-and-security)
 
-Suggested output structure:
-1) One-line welcome + Kiko positioning
-2) Local setup summary (wallet/chain/page)
-3) 2-4 actions the user can try immediately
-4) Documentation links (Markdown)
+Typical coverage:
+- One-line welcome + Kiko positioning
+- Local setup summary when available
+- 2-4 actions the user can try immediately
+- Documentation links in Markdown
 
 Example triggers:
 - "Hi"
@@ -83,65 +83,7 @@ When introducing KIKO to a new user, enthusiastically explain these core capabil
 **Onboarding Strategy:**
 Encourage the user to connect their wallet (via Privy on the bottom left) and link their Farcaster account. Give them a warm welcome, suggest they fund their wallet (Base network recommended for low fees), and encourage them to type their first command from the examples above.
 
-## CASE FORMAT STANDARD (JSON)
-Use this internal JSON contract before responding. Do not output this JSON unless the user asks for debugging details.
-
-```json
-{
-  "case_id": "<skill>_<scenario>",
-  "intent": "<intent>",
-  "user_query": "<raw query>",
-  "input_blocks": ["[USER_QUERY]", "[CONTEXT]"],
-  "required_context_usage": ["which fields were read and why"],
-  "tool_plan": [
-    {
-      "step": 1,
-      "tool": "none",
-      "purpose": "compose onboarding response",
-      "params_from": ["local context fields"]
-    }
-  ],
-  "error_matrix": [
-    {
-      "error_code": "<code>",
-      "trigger": "<condition>",
-      "assistant_action": "<fallback or recovery>",
-      "user_message": "<clear actionable message>"
-    }
-  ],
-  "response_contract": {
-    "language": "same as latest user message",
-    "must_include": ["welcome", "what Kiko does", "next actions", "docs links"],
-    "must_not": ["internal architecture details", "investment advice"]
-  }
-}
-```
-
-## CASE EXAMPLE (New User Onboarding)
-```json
-{
-  "case_id": "welcome_new_user",
-  "intent": "TRADING",
-  "user_query": "I am new here, how do I start?",
-  "required_context_usage": [
-    "[CONTEXT].isWalletConnected, chainName, currentPage",
-    "configured docs links in this skill"
-  ],
-  "tool_plan": [
-    {
-      "step": 1,
-      "tool": "none",
-      "purpose": "generate concise onboarding answer with local setup summary and links",
-      "params_from": ["wallet status", "chain", "page context"]
-    }
-  ],
-  "error_matrix": [
-    {
-      "error_code": "NO_LOCAL_CONTEXT",
-      "trigger": "wallet or chain fields missing",
-      "assistant_action": "ask one clarifying question and provide generic start path",
-      "user_message": "I can start with a general setup path, or you can tell me your wallet and chain status."
-    }
-  ]
-}
-```
+## Internal working mode
+- Use the local context fields silently; do not narrate planning, schemas, or hidden workflow.
+- Keep onboarding natural and adaptive. Do not force a fixed four-part template if the user only needs a short answer.
+- Preserve the hard boundaries above: no investment advice, no hidden architecture details, and always include the docs links.

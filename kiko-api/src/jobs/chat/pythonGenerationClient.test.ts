@@ -15,7 +15,7 @@ function makeSseResponse(events: Array<{ type: string; payload?: any }>) {
     return new Response(stream, { status: 200 });
 }
 
-test('buffers visible deltas for node-controlled tool rounds that end with tool calls', async () => {
+test('streams visible deltas before tool_call_signal for node-controlled tool rounds', async () => {
     const client = new PythonGenerationClient();
     const originalFetch = globalThis.fetch;
     const textDeltas: string[] = [];
@@ -51,14 +51,58 @@ test('buffers visible deltas for node-controlled tool rounds that end with tool 
         });
 
         assert.equal(result.toolCalls.length, 1);
-        assert.deepEqual(textDeltas, []);
+        assert.deepEqual(textDeltas, ['Draft answer that should stay hidden.']);
+        assert.deepEqual(reasoningDeltas, ['Hidden reasoning.']);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('stops forwarding post-signal deltas once a node-controlled tool round commits to tool execution', async () => {
+    const client = new PythonGenerationClient();
+    const originalFetch = globalThis.fetch;
+    const textDeltas: string[] = [];
+    const reasoningDeltas: string[] = [];
+
+    globalThis.fetch = async () => makeSseResponse([
+        { type: 'assistant_delta', payload: { text: 'Visible prefix. ' } },
+        { type: 'tool_call_signal', payload: {} },
+        { type: 'assistant_delta', payload: { text: 'Hidden suffix.' } },
+        { type: 'reasoning_delta', payload: { text: 'Hidden reasoning.' } },
+        { type: 'tool_call', payload: { id: 'tool-2', name: 'get_token_info', arguments: { chain_id: 56 } } },
+        { type: 'message_complete', payload: {} },
+    ]) as any;
+
+    try {
+        const result = await client.generate({
+            sessionId: 'session-2',
+            taskId: 'task-2',
+            model: 'grok-4-1-fast-non-reasoning',
+            messages: [],
+            tools: [{ type: 'function', function: { name: 'get_trending_tokens', description: '', parameters: {} } }],
+            providerOptions: {
+                tool_policy: {
+                    control_plane: 'node',
+                    native_tools: {
+                        enable_search: true,
+                    },
+                },
+            },
+            onTextDelta: async (text) => { textDeltas.push(text); },
+            onReasoningDelta: async (text) => { reasoningDeltas.push(text); },
+            onUsage: () => {},
+            onCitation: () => {},
+        });
+
+        assert.equal(result.toolCalls.length, 1);
+        assert.deepEqual(textDeltas, ['Visible prefix. ']);
         assert.deepEqual(reasoningDeltas, []);
     } finally {
         globalThis.fetch = originalFetch;
     }
 });
 
-test('flushes buffered visible deltas on completion when no tool calls were emitted', async () => {
+test('streams visible deltas immediately when no tool calls were emitted', async () => {
     const client = new PythonGenerationClient();
     const originalFetch = globalThis.fetch;
     const textDeltas: string[] = [];
