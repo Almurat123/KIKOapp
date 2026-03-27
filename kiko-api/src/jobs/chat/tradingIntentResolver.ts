@@ -13,6 +13,12 @@ export interface TradingIntent {
 export function parseTradingIntent(text: string, snapshot: ChatContextSnapshot, canonicalIntent?: CanonicalIntent | null): TradingIntent | null {
     const raw = String(text || '').trim();
     const confirmation = snapshot.confirmationState || {};
+    const normalizedIntent = canonicalIntent || snapshot.normalizedIntent || null;
+    const allowsTradeConfirmation = normalizedIntent
+        ? normalizedIntent.taskMode === 'confirm'
+            || normalizedIntent.taskMode === 'execute'
+            || ['swap', 'cross_chain_swap', 'copy_trade'].includes(String(normalizedIntent.intent || ''))
+        : true;
     const supersededSwap = confirmation.kind === 'swap_confirmation'
         && shouldSupersedePendingSwapConfirmation({
             text: raw,
@@ -21,7 +27,6 @@ export function parseTradingIntent(text: string, snapshot: ChatContextSnapshot, 
         })
         ? confirmation.swap || null
         : null;
-    const normalizedIntent = canonicalIntent || snapshot.normalizedIntent || null;
     const requestedChain = resolveCanonicalChainRef({
         canonicalIntent: normalizedIntent,
         requestedTokenAddresses: snapshot.requestedTokenAddresses,
@@ -32,6 +37,7 @@ export function parseTradingIntent(text: string, snapshot: ChatContextSnapshot, 
 
     if (
         confirmation.kind === 'swap_confirmation'
+        && allowsTradeConfirmation
         && !supersededSwap
     ) {
         return {
@@ -40,7 +46,7 @@ export function parseTradingIntent(text: string, snapshot: ChatContextSnapshot, 
             slots: confirmation.swap || {},
         };
     }
-    if (confirmation.kind === 'copy_trade_confirmation') {
+    if (confirmation.kind === 'copy_trade_confirmation' && allowsTradeConfirmation) {
         return {
             kind: 'trade_confirmation',
             type: 'copy_trade',

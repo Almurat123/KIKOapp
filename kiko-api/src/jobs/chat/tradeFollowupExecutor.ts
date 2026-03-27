@@ -12,6 +12,11 @@ export async function executeDirectTradeFollowup(params: {
     broker: ChatStreamBroker;
     toolExecutionEngine: ToolExecutionEngine;
 }): Promise<{ handled: boolean; toolResult?: OrchestratorToolResult }> {
+    const taskMode = params.snapshot.normalizedIntent?.taskMode;
+    if (taskMode !== 'confirm' && taskMode !== 'execute') {
+        return { handled: false };
+    }
+
     const confirmation = params.snapshot.confirmationState;
     const invalidConfirmation = resolveInvalidTradeConfirmation(params.snapshot);
     if (invalidConfirmation) {

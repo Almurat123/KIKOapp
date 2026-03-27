@@ -172,6 +172,76 @@ test('resolveTradeConfirmationState clears stale swap confirmation when latest t
     assert.equal(state, null);
 });
 
+test('applyConversationActionState clears stale swap confirmation for read-only analysis intents', () => {
+    const token = '0x3e17ee3B1895dD1A7CF993A89769C5e029584444';
+    const snapshot = applyConversationActionState({
+        sessionId: 's1',
+        taskId: 't1',
+        model: 'gpt-5.4',
+        history: [],
+        lastUserMessage: `你能告诉我${token}的早期购买者吗？`,
+        recentToolTrace: {
+            messageId: 'assistant-1',
+            toolCalls: [
+                {
+                    tool: 'simulate_swap',
+                    status: 'success',
+                    args: {
+                        token_in: 'BNB',
+                        token_out: token,
+                        amount_in: '0.001',
+                        chain_id: 56,
+                    },
+                    result: {
+                        expected_out: '52.88',
+                    },
+                },
+            ],
+        },
+        runtime: {
+            chainId: 56,
+            chainName: 'BNB Chain',
+        },
+        requestedTokenAddresses: [token.toLowerCase()],
+        requestedTokenSymbols: [],
+        normalizedIntent: {
+            domain: 'token',
+            intent: 'early_buyers',
+            taskMode: 'analyze',
+            outputMode: 'full_table',
+            searchMode: 'fallback',
+            searchTarget: 'none',
+            confidence: 0.96,
+            explanation: 'test',
+            entities: {
+                tokenAddresses: [token.toLowerCase()],
+                tokenSymbols: [],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+            requestedChain: {
+                chainId: 56,
+                chainName: 'BNB Chain',
+                source: 'llm',
+            },
+            timeContext: null,
+            evidenceRequirements: ['onchain_token_evidence'],
+            requiresRealtime: false,
+            requiresOnchainEvidence: true,
+            executionCandidate: false,
+            rowCount: null,
+            locale: 'zh',
+            needsClarification: false,
+            clarificationQuestion: null,
+            source: 'llm',
+        } as any,
+        toolDefinitions: [],
+    } as any);
+
+    assert.equal(snapshot.conversationActionState?.pendingAction, 'none');
+    assert.equal(snapshot.confirmationState, null);
+});
+
 test('resolveTradeConfirmationState extracts order confirmation from a prepared Polymarket bet', () => {
     const state = resolveTradeConfirmationState([
         {

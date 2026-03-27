@@ -89,6 +89,9 @@ export function buildConversationActionState(snapshot: ChatContextSnapshot): Con
     const raw = String(snapshot.lastUserMessage || '').trim();
     const normalizedIntent = snapshot.normalizedIntent || null;
     const wantsConfirmation = normalizedIntent?.taskMode === 'confirm' || normalizedIntent?.taskMode === 'execute';
+    const carriesMutationIntent = normalizedIntent
+        ? ['swap', 'cross_chain_swap', 'copy_trade', 'polymarket_order'].includes(String(normalizedIntent.intent || ''))
+        : true;
     const explicitChainSwitch = isExplicitChainSwitchRequest(raw, normalizedIntent);
     const toolTrace = snapshot.recentToolTrace || null;
 
@@ -104,6 +107,15 @@ export function buildConversationActionState(snapshot: ChatContextSnapshot): Con
 
     const payloadConfirmation = resolveOrderConfirmationFromToolTrace(toolTrace);
     if (payloadConfirmation) {
+        if (!wantsConfirmation && !carriesMutationIntent) {
+            return {
+                pendingAction: 'none',
+                confirmationPayload: null,
+                canExecute: false,
+                needsClarification: false,
+                clarificationQuestion: null,
+            };
+        }
         if (
             payloadConfirmation.kind === 'swap_confirmation'
             && shouldSupersedePendingSwapConfirmation({

@@ -221,3 +221,50 @@ test('parseTradingIntent prefers a fresh amount adjustment over a stale swap con
     assert.equal(intent?.slots.token_in, 'BNB');
     assert.equal(intent?.slots.token_out, token);
 });
+
+test('parseTradingIntent does not turn an analysis request into trade confirmation from stale swap context', () => {
+    const token = '0x3e17ee3B1895dD1A7CF993A89769C5e029584444';
+    const canonicalIntent = makeCanonicalIntent({
+        intent: 'early_buyers',
+        taskMode: 'analyze',
+        outputMode: 'full_table',
+        searchMode: 'fallback',
+        executionCandidate: false,
+        entities: {
+            tokenAddresses: [token.toLowerCase()],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        requestedChain: {
+            chainId: 56,
+            chainName: 'BNB Chain',
+            source: 'llm',
+        },
+    });
+
+    const intent = parseTradingIntent(
+        `你能告诉我${token}的早期购买者吗？`,
+        makeSnapshot(`你能告诉我${token}的早期购买者吗？`, {
+            requestedTokenAddresses: [token.toLowerCase()],
+            normalizedIntent: canonicalIntent,
+            confirmationState: {
+                kind: 'swap_confirmation',
+                swap: {
+                    tokenIn: 'BNB',
+                    tokenOut: token,
+                    amountIn: '0.001',
+                    chainId: 56,
+                    isCrossChain: false,
+                },
+            },
+            runtime: {
+                chainId: 56,
+                chainName: 'BNB Chain',
+            },
+        }),
+        canonicalIntent,
+    );
+
+    assert.equal(intent, null);
+});
