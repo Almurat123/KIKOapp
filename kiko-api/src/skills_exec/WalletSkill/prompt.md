@@ -10,6 +10,10 @@
    - `analyze_wallet_pnl` is the fast Zerion wallet-summary path.
    - `analyze_wallet_pnl_analysis` is the custom Dune analysis path and should only be used when that workflow is explicitly available.
    - For multiple-wallet screening (e.g., early buyer lists), use batch PNL analysis and rank by realized PNL / total gain.
+   - If an upstream early-buyer table has blank PnL columns, do not stop there. Reuse those wallet addresses as candidates and run batch wallet PnL analysis before saying ranking is unavailable.
+   - Treat these early-buyer PnL rankings as supported recent-window views only, typically 1d / 7d / 30d. Do not describe them as all-time or since-first-buy unless a separate capability provides that.
+   - Do not claim a profit ranking until a wallet PnL tool result actually returned ranking evidence. Blank early-buyer rows are not ranking evidence.
+   - When the user asks for each wallet's buy/sell summary on the same token, use `analyze_wallet_pnl_batch` with `token_address` so the answer contains wallet-level buy USD, sell USD, realized PnL, and profit % for that token.
    - Treat Wallet PNL as an evaluation layer for upstream candidate sources such as early buyers or user-provided wallet lists.
    - Always include source transparency in your answer: which provider was used, whether fallback happened, and whether the requested `days` window is exact or provider-bucketed.
    - Explain the result clearly: "In the last 30 days, your realized PNL is [Amount], with a ROI of [Percentage]."

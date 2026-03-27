@@ -94,6 +94,32 @@ test('createLeadingInternalScaffoldSuppressor suppresses leaked labeled runtime 
     assert.equal(tail, '');
 });
 
+test('createLeadingInternalScaffoldSuppressor streams ordinary text immediately', () => {
+    const suppressor = createLeadingInternalScaffoldSuppressor();
+
+    const first = suppressor.push('Sure');
+    const second = suppressor.push(', let');
+    const third = suppressor.push("'s break it down.");
+    const tail = suppressor.flush();
+
+    assert.equal(first, 'Sure');
+    assert.equal(second, ', let');
+    assert.equal(third, "'s break it down.");
+    assert.equal(tail, '');
+});
+
+test('createLeadingInternalScaffoldSuppressor only buffers ambiguous json prefix until it is safe', () => {
+    const suppressor = createLeadingInternalScaffoldSuppressor();
+
+    const first = suppressor.push('j');
+    const second = suppressor.push('ust stream normally.');
+    const tail = suppressor.flush();
+
+    assert.equal(first, '');
+    assert.equal(second, 'just stream normally.');
+    assert.equal(tail, '');
+});
+
 test('createPseudoToolCallStreamSuppressor removes ToolCall blocks with attributes while preserving surrounding text', () => {
     const suppressor = createPseudoToolCallStreamSuppressor();
 

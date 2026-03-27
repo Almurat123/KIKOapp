@@ -863,3 +863,51 @@ test('canonical generic polymarket short-window intent does not over-narrow to c
     assert.ok(resolution.preferredTools.includes('get_new_markets'));
     assert.ok(!resolution.preferredTools.includes('get_polymarket_coin_updown_markets'));
 });
+
+test('wallet PnL follow-ups reuse recent early-buyer evidence as batch candidates', () => {
+    const resolution = resolveNodeSkills(makeSnapshot('Show wallet PnL for those early buyers and rank them by profit', {
+        requestedTokenAddresses: ['0x1111111111111111111111111111111111111111'],
+        recentToolTrace: {
+            toolCalls: [
+                {
+                    tool: 'get_early_buyers',
+                    status: 'success',
+                    result: {
+                        earlyBuyers: [
+                            { address: '0xabc' },
+                            { address: '0xdef' },
+                        ],
+                    },
+                },
+            ],
+        },
+    }), null, null);
+
+    assert.ok(resolution.preferredTools.includes('analyze_wallet_pnl_batch'));
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('reuse those wallet addresses as the candidate set for batch wallet PnL analysis')));
+});
+
+test('early-buyer follow-ups asking for per-wallet buy and sell summaries force token batch PnL analysis', () => {
+    const resolution = resolveNodeSkills(makeSnapshot('Show each early buyer buy and sell summary for this token', {
+        requestedTokenAddresses: ['0x1111111111111111111111111111111111111111'],
+        recentToolTrace: {
+            toolCalls: [
+                {
+                    tool: 'get_early_buyers',
+                    status: 'success',
+                    result: {
+                        earlyBuyers: [
+                            { address: '0xabc' },
+                            { address: '0xdef' },
+                        ],
+                    },
+                },
+            ],
+        },
+    }), null, null);
+
+    assert.ok(resolution.selectedSkills.includes('wallet_portfolio'));
+    assert.ok(resolution.preferredTools.includes('analyze_wallet_pnl_batch'));
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('buy USD, sell USD, realized PnL, and profit percent')));
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('Do not answer profit ranking or per-wallet token trade summaries from the early-buyer rows alone')));
+});

@@ -239,6 +239,24 @@ export const RootLayout: React.FC = () => {
                 }
                 return merged;
             };
+            const appendUniqueText = (baseRaw: unknown, deltaRaw: unknown): string => {
+                const base = String(baseRaw || '');
+                const delta = String(deltaRaw || '');
+                if (!delta) return base;
+                if (!base) return delta;
+                if (base === delta) return base;
+                if (base.endsWith(delta)) return base;
+                if (delta.startsWith(base)) return delta;
+
+                const maxOverlap = Math.min(base.length, delta.length);
+                for (let size = maxOverlap; size > 0; size -= 1) {
+                    if (base.slice(-size) === delta.slice(0, size)) {
+                        return base + delta.slice(size);
+                    }
+                }
+
+                return base + delta;
+            };
             const schedulePendingFlush = () => {
                 const existingRaf = rafScheduledByConversationRef.current.get(targetSessionId);
                 if (existingRaf) {
@@ -258,8 +276,8 @@ export const RootLayout: React.FC = () => {
                         if (idx !== undefined) {
                             updatedMessages[idx] = {
                                 ...updatedMessages[idx],
-                                content: updatedMessages[idx].content + (pMsg.content || ''),
-                                reasoning_content: (updatedMessages[idx].reasoning_content || '') + (pMsg.reasoning_content || ''),
+                                content: appendUniqueText(updatedMessages[idx].content, pMsg.content || ''),
+                                reasoning_content: appendUniqueText(updatedMessages[idx].reasoning_content || '', pMsg.reasoning_content || ''),
                                 usage: pMsg.usage ?? updatedMessages[idx].usage,
                                 citations: mergeCitations(updatedMessages[idx].citations || [], pMsg.citations || []),
                                 data: pMsg.data ?? updatedMessages[idx].data,
@@ -352,9 +370,9 @@ export const RootLayout: React.FC = () => {
                 };
 
                 if (event.data.type === 'reasoning') {
-                    pendingMessage.reasoning_content = (pendingMessage.reasoning_content || '') + (event.data.reasoning_content || '');
+                    pendingMessage.reasoning_content = appendUniqueText(pendingMessage.reasoning_content || '', event.data.reasoning_content || '');
                 } else {
-                    pendingMessage.content = (pendingMessage.content || '') + (event.data.content || event.data.delta || '');
+                    pendingMessage.content = appendUniqueText(pendingMessage.content || '', event.data.content || event.data.delta || '');
                     if (!firstChunkLoggedRef.current.has(`${targetSessionId}:${messageId}`) && (event.data.content || event.data.delta || '')) {
                         firstChunkLoggedRef.current.add(`${targetSessionId}:${messageId}`);
                         logger.debug('[ChatStream] first content chunk received', {
@@ -475,8 +493,8 @@ export const RootLayout: React.FC = () => {
                             const baseCitations = mergeCitations(updatedMessages[idx].citations || [], pMsg.citations || []);
                             updatedMessages[idx] = {
                                 ...updatedMessages[idx],
-                                content: updatedMessages[idx].content + (pMsg.content || ''),
-                                reasoning_content: (updatedMessages[idx].reasoning_content || '') + (pMsg.reasoning_content || ''),
+                                content: appendUniqueText(updatedMessages[idx].content, pMsg.content || ''),
+                                reasoning_content: appendUniqueText(updatedMessages[idx].reasoning_content || '', pMsg.reasoning_content || ''),
                                 status: 'complete',
                                 usage: pMsg.id === completionId
                                     ? (pMsg.usage ?? event.data.usage ?? updatedMessages[idx].usage)
@@ -601,7 +619,7 @@ export const RootLayout: React.FC = () => {
                     citations: [],
                     usage: undefined,
                 };
-                pendingMessage.content = shouldReplace ? replacement : `${pendingMessage.content || ''}${replacement}`;
+                pendingMessage.content = shouldReplace ? replacement : appendUniqueText(pendingMessage.content || '', replacement);
                 if (shouldClearReasoning) {
                     pendingMessage.reasoning_content = '';
                 }
@@ -616,7 +634,7 @@ export const RootLayout: React.FC = () => {
                     if (message.id !== messageId) return message;
                     return {
                         ...message,
-                        content: shouldReplace ? replacement : `${message.content || ''}${replacement}`,
+                        content: shouldReplace ? replacement : appendUniqueText(message.content || '', replacement),
                         reasoning_content: shouldClearReasoning ? '' : message.reasoning_content,
                     };
                 });

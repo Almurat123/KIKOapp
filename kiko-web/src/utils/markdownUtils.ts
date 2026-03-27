@@ -6,6 +6,10 @@ export const preprocessMarkdown = (content: string): string => {
   if (!content) return '';
 
   let processed = content;
+  processed = processed
+    .replace(/<grok:[^>\n]+>\s*<\/grok:[^>\n]+>/gi, ' ')
+    .replace(/<grok:[^>\n]+>/gi, ' ')
+    .replace(/<\/grok:[^>\n]+>/gi, ' ');
   const nonCodeFenceLanguages = new Set(['text', 'txt', 'plain', 'plaintext']);
 
   const collapseDuplicateUrlParens = (input: string) =>

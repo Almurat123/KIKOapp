@@ -26,6 +26,38 @@ function formatPct(value: number | null | undefined): string {
     return `${value.toFixed(2)}%`;
 }
 
+function resolveEarlyBuyerExpansionMode(args: {
+    include_trade_progression?: boolean;
+    include_token_pnl?: boolean;
+}) {
+    const includeTradeProgression = args.include_trade_progression === true;
+    const includeTokenPnl = args.include_token_pnl === true;
+    return {
+        includeTradeProgression,
+        includeTokenPnl,
+        mode: includeTradeProgression || includeTokenPnl ? 'expanded' : 'fast_path' as 'expanded' | 'fast_path',
+    };
+}
+
+function resolveEarlyBuyerFollowUpCapabilities(args: {
+    chain: string;
+    includeTokenPnl: boolean;
+    tokenPnlPopulatedCount: number;
+}) {
+    const directProfitRanking =
+        args.includeTokenPnl && args.tokenPnlPopulatedCount > 0
+            ? 'ready_from_current_rows'
+            : 'not_available_from_current_rows';
+    const batchWalletPnlFollowup = args.chain === 'solana'
+        ? 'unsupported'
+        : 'requires_separate_batch_query';
+
+    return {
+        directProfitRanking,
+        batchWalletPnlFollowup,
+    } as const;
+}
+
 function buildEarlyBuyersMarkdownTable(rows: Array<{
     rank: number;
     address: string;
@@ -121,7 +153,7 @@ function buildEarlyBuyerRenderContract(rows: Array<{
 export const GetEarlyBuyersTool: Tool = {
     definition: {
         name: 'get_early_buyers',
-        description: 'Get the earliest buyers of a token, optionally within a precise time window. For EVM chains, this tool also attempts token-specific wallet PnL for the same token: total buy USD, total sell USD, realized PnL, and profit percent when provider data is available. Use this after you know the token contract and, if relevant, the event/post time window you want to analyze. If you choose this tool, emit a real structured tool call immediately. Do not narrate "Calling get_early_buyers" in plain text. Use address plus optional start_time/end_time; do not invent timestamp_range or other unofficial fields. Early-buyer queries should default to full-list output for the returned rows, not a compressed summary. When the tool result includes a renderContract, preserve the full returned row set.',
+        description: 'Get the earliest buyers of a token, optionally within a precise time window. Default behavior is a fast path: return the early-buyer rows without wallet trade progression or token PnL enrichment. Only enable trade progression or token PnL when the user explicitly asks for wallet progression, profit ranking, or token-specific PnL. Use this after you know the token contract and, if relevant, the event/post time window you want to analyze. If you choose this tool, emit a real structured tool call immediately. Do not narrate "Calling get_early_buyers" in plain text. Use address plus optional start_time/end_time; do not invent timestamp_range or other unofficial fields. Early-buyer queries should default to full-list output for the returned rows, not a compressed summary. When the tool result includes a renderContract, preserve the full returned row set.',
         parameters: {
             type: 'object',
             properties: {
@@ -153,7 +185,11 @@ export const GetEarlyBuyersTool: Tool = {
                 },
                 include_trade_progression: {
                     type: 'boolean',
-                    description: 'When true, attach first-buy / first-sell progression for each wallet by loading wallet trade history.'
+                    description: 'When true, attach first-buy / first-sell progression for each wallet by loading wallet trade history. Default false for fast-path early-buyer lookups.'
+                },
+                include_token_pnl: {
+                    type: 'boolean',
+                    description: 'When true on EVM chains, attempt token-specific wallet PnL for the same token. Use this for explicit profit-ranking / PnL follow-ups. Default false for fast-path early-buyer lookups.'
                 },
                 trade_history_limit: {
                     type: 'number',
@@ -161,7 +197,7 @@ export const GetEarlyBuyersTool: Tool = {
                 },
                 token_pnl_days: {
                     type: 'number',
-                    description: 'Lookback window in days for token-specific wallet PnL on EVM chains. Default 30, max 365.'
+                    description: 'Recent lookback window in days for token-specific wallet PnL on EVM chains. This is a recent-window metric, not since-first-buy or all-time. Default 30, max 365.'
                 },
                 min_token_amount: {
                     type: 'number',
@@ -171,7 +207,7 @@ export const GetEarlyBuyersTool: Tool = {
             required: ['address']
         }
     },
-    handler: async ({ address, chain, chain_id, limit = 10, start_time, end_time, include_trade_progression, trade_history_limit, token_pnl_days, min_token_amount }, context) => {
+    handler: async ({ address, chain, chain_id, limit = 10, start_time, end_time, include_trade_progression, include_token_pnl, trade_history_limit, token_pnl_days, min_token_amount }, context) => {
         try {
             const resolved = resolveChainInput({ chain, chain_id }, {
                 contextChainId: context?.chainId,
@@ -197,13 +233,18 @@ export const GetEarlyBuyersTool: Tool = {
             const effectiveMinTokenAmount = (typeof min_token_amount === 'number' && Number.isFinite(min_token_amount))
                 ? Number(min_token_amount)
                 : 0;
-            const includeTradeProgression = include_trade_progression !== false;
+            const expansionMode = resolveEarlyBuyerExpansionMode({
+                include_trade_progression,
+                include_token_pnl,
+            });
+            const includeTradeProgression = expansionMode.includeTradeProgression;
+            const includeTokenPnl = expansionMode.includeTokenPnl && resolved.chain !== 'solana';
             const tradeHistoryLimit = Math.max(10, Math.min(100, Number(trade_history_limit) || 25));
             const tokenPnlDays = Math.max(1, Math.min(365, Number(token_pnl_days) || 30));
 
             let buyers = await tokenAnalysis.getEarlyBuyers(address, resolved.chain, boundedLimit, {
                 includeTradeProgression,
-                includeTokenPnl: true,
+                includeTokenPnl,
                 tokenPnlDays,
                 tradeHistoryLimit,
                 startTimeMs,
@@ -229,26 +270,77 @@ export const GetEarlyBuyersTool: Tool = {
                 tokenPnl: b.tokenPnl ?? null,
                 tradeProgression: b.tradeProgression ?? null
             }));
+            const tokenPnlPopulatedCount = tableRows.filter((row) =>
+                row.tokenPnl
+                && (
+                    row.tokenPnl.totalBuyUsd !== null
+                    || row.tokenPnl.totalSellUsd !== null
+                    || row.tokenPnl.realizedPnlUsd !== null
+                    || row.tokenPnl.profitPct !== null
+                )
+            ).length;
+            const tradeProgressionPopulatedCount = tableRows.filter((row) => row.tradeProgression).length;
+            const followUpCapabilities = resolveEarlyBuyerFollowUpCapabilities({
+                chain: resolved.chain,
+                includeTokenPnl,
+                tokenPnlPopulatedCount,
+            });
 
             return {
                 success: true,
                 token: address,
                 chain: resolved.chain,
                 buyerCount: buyers.length,
+                analysisMode: expansionMode.mode,
                 presentation: {
                     outputMode: 'full_table',
                     includeTradeProgression,
-                    tradeHistoryLimit,
-                    tokenPnlDays: resolved.chain === 'solana' ? null : tokenPnlDays,
+                    includeTokenPnl,
+                    tradeHistoryLimit: includeTradeProgression ? tradeHistoryLimit : null,
+                    tokenPnlDays: includeTokenPnl ? tokenPnlDays : null,
+                    tokenPnlScope: includeTokenPnl ? 'recent_window_only' : null,
                 },
                 notes: [
+                    expansionMode.mode === 'fast_path'
+                        ? 'Fast-path mode returns the earliest buyer rows first. Request trade progression or token PnL explicitly when you need deeper wallet analysis.'
+                        : 'Expanded mode was requested for wallet-level enrichment on top of the early-buyer rows.',
                     'Early-buyer ranking still comes from first transfer timing, not profitability.',
-                    'Token PnL fields are token-specific wallet metrics for the same token when provider coverage exists.',
-                    'PnL values may be null when a provider cannot resolve token-level history for that wallet.',
-                ],
+                    includeTokenPnl
+                        ? `Token PnL fields are token-specific wallet metrics for the same token over the recent ${tokenPnlDays}-day window, not since first buy or all-time.`
+                        : 'Token PnL enrichment was not requested for this call.',
+                    includeTokenPnl
+                        ? (
+                            tokenPnlPopulatedCount === 0
+                                ? 'Token PnL enrichment was requested, but provider coverage returned no wallet-level token PnL rows for this result set.'
+                                : 'PnL values may still be null for individual wallets when a provider cannot resolve token-level history.'
+                        )
+                        : null,
+                    includeTradeProgression
+                        ? (
+                            tradeProgressionPopulatedCount === 0
+                                ? 'Trade progression enrichment was requested, but no wallet trade history rows were resolved for these returned buyers.'
+                                : 'Trade progression fields remain null for individual wallets when wallet trade history is unavailable.'
+                        )
+                        : null,
+                    followUpCapabilities.directProfitRanking === 'ready_from_current_rows'
+                        ? 'The current row set includes enough token PnL coverage to rank these wallets by recent-window profit directly.'
+                        : 'Do not rank these wallets by profit from the current early-buyer rows alone. Use a separate batch wallet PnL query first if profit ranking is needed.',
+                    followUpCapabilities.batchWalletPnlFollowup === 'unsupported'
+                        ? 'Recent-window batch wallet PnL follow-up is not supported for this chain in the current toolset.'
+                        : 'If the user asks for wallet profit/PnL next, use a separate recent-window batch wallet PnL query rather than inferring from blanks.',
+                ].filter((note): note is string => Boolean(note)),
                 filters: {
                     minTokenAmount: effectiveMinTokenAmount > 0 ? effectiveMinTokenAmount : null,
                 },
+                enrichment: {
+                    tokenPnlRequested: includeTokenPnl,
+                    tokenPnlPopulatedCount,
+                    tokenPnlScope: includeTokenPnl ? 'recent_window_only' : null,
+                    tokenPnlWindowDays: includeTokenPnl ? tokenPnlDays : null,
+                    tradeProgressionRequested: includeTradeProgression,
+                    tradeProgressionPopulatedCount,
+                },
+                followUpCapabilities,
                 markdownTable: buildEarlyBuyersMarkdownTable(tableRows),
                 renderContract: buildEarlyBuyerRenderContract(tableRows),
                 earlyBuyers: tableRows
@@ -330,4 +422,6 @@ export const AnalyzeCreatorTool: Tool = {
 export const __testOnly = {
     buildEarlyBuyersMarkdownTable,
     buildEarlyBuyerRenderContract,
+    resolveEarlyBuyerExpansionMode,
+    resolveEarlyBuyerFollowUpCapabilities,
 };

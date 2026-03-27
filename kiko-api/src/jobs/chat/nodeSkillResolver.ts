@@ -82,6 +82,8 @@ const TOKEN_LEADERBOARD_QUERY_RE = /\b(trend|trending|hot token|hot coin|top tok
 export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: TradingIntent | null, canonicalIntent?: CanonicalIntent | null): SkillResolution {
     const isGrok = String(snapshot.model || '').toLowerCase().includes('grok');
     const rawQuery = String(snapshot.lastUserMessage || '');
+    const asksProfitRankingFollowup = /\b(pnl|profit|roi|rank)\b/i.test(rawQuery) || /收益|盈利|利润|排名|排行/.test(rawQuery);
+    const asksWalletTradeSummaryFollowup = /\b(buy|sell|bought|sold|trade summary|trading summary)\b/i.test(rawQuery) || /买入|卖出|交易汇总|买卖汇总/.test(rawQuery);
     const normalizedIntent = canonicalIntent || snapshot.normalizedIntent || null;
     const availableToolNames = new Set((snapshot.toolDefinitions || []).map((definition) => String(definition.name || '').trim()).filter(Boolean));
     const blockedTools: string[] = [];
@@ -156,6 +158,12 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         }
         if (hasRequestedToken) {
             ensureSupportingSkill(selected, 'token_analysis');
+        }
+        if ((asksProfitRankingFollowup || asksWalletTradeSummaryFollowup) && sessionToolNames.includes('get_early_buyers')) {
+            ensurePrimarySkill(selected, 'wallet_portfolio');
+            if (hasRequestedToken) {
+                ensureSupportingSkill(selected, 'token_analysis');
+            }
         }
     }
 
@@ -284,7 +292,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         pushPreferred(preferredTools, 'get_token_info');
         strategyNotes.push('This request asks for on-chain buyer/holder evidence. Prefer local token-analysis tools before answering from web summaries alone.');
         if (wantsEarlyBuyerFullList) {
-            strategyNotes.push(`Early-buyer queries default to full-list output${explicitEarlyBuyerRowCount ? ` with ${explicitEarlyBuyerRowCount} rows` : ''}. Preserve full wallet addresses, include trade progression when available, and prefer the tool's structured render contract over ad hoc markdown formatting.`);
+            strategyNotes.push(`Early-buyer queries default to full-list output${explicitEarlyBuyerRowCount ? ` with ${explicitEarlyBuyerRowCount} rows` : ''}. Preserve full wallet addresses and prefer the tool's structured render contract over ad hoc markdown formatting. Do not request trade progression or wallet PnL unless the user explicitly asks for those deeper wallet details.`);
         }
     }
     if (asksCreator && hasRequestedToken) {
@@ -329,6 +337,12 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
             && sessionToolNames.some((toolName) => ['get_polymarket_coin_updown_markets', 'prepare_polymarket_bet', 'get_polymarket_market_overview'].includes(toolName))
         ) {
             strategyNotes.push('Recent Polymarket discovery/prep evidence already exists in this session. Reuse that evidence and move directly into bet preparation unless the user explicitly changed the market, side, or amount.');
+        }
+        if ((asksWalletPnl || asksProfitRankingFollowup || asksWalletTradeSummaryFollowup) && sessionToolNames.includes('get_early_buyers')) {
+            pushPreferred(preferredTools, 'analyze_wallet_pnl_batch');
+            strategyNotes.push('If recent early-buyer rows already exist and the user now asks for profit/PnL or per-wallet buy/sell summaries, reuse those wallet addresses as the candidate set for batch wallet PnL analysis.');
+            strategyNotes.push('Pass the same token_address into analyze_wallet_pnl_batch so the result reports each wallet\'s buy USD, sell USD, realized PnL, and profit percent for that token over a supported recent window (1d / 7d / 30d, default 30d).');
+            strategyNotes.push('Do not answer profit ranking or per-wallet token trade summaries from the early-buyer rows alone when those rows lack wallet PnL evidence.');
         }
     }
 

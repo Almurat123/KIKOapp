@@ -41,7 +41,6 @@ const AVG_BLOCK_TIME_MS: Record<string, number> = {
 };
 
 const QUERY_CACHE_TTL_MS = 30_000;
-const ALCHEMY_HEADSTART_MS = 450;
 const ALCHEMY_TIMEOUT_MS = 2_500;
 const BLOCKSCOUT_TIMEOUT_MS = 3_500;
 const RANGE_MARGIN_BLOCKS = 64;
@@ -289,61 +288,54 @@ async function getEvmEarlyBuyerTransfersInternal(
   }
 
   const blockRange = await resolveApproximateBlockRange(chain, options.startTimeMs, options.endTimeMs, deps);
-  const alchemyTask = fetchFromAlchemy(tokenAddress, chain, boundedLimit, blockRange, deps);
-  const blockscoutTask = deps.sleep(ALCHEMY_HEADSTART_MS).then(() =>
-    fetchFromBlockscout(tokenAddress, chain, boundedLimit, blockRange, deps)
-  );
-
-  const earlyAlchemy = await Promise.race<ProviderOutcome | null>([
-    alchemyTask,
-    deps.sleep(ALCHEMY_HEADSTART_MS).then(() => null),
-  ]);
-
-  if (earlyAlchemy && earlyAlchemy.transfers.length > 0) {
-    queryCache.set(cacheKey, {
-      expiresAt: deps.now() + QUERY_CACHE_TTL_MS,
-      transfers: dedupeTransfers(earlyAlchemy.transfers),
-      provider: 'alchemy',
-    });
-    return {
-      transfers: dedupeTransfers(earlyAlchemy.transfers),
-      provider: 'alchemy',
-      blockRange,
-      diagnostics: [earlyAlchemy],
-    };
-  }
-
-  const [alchemyOutcome, blockscoutOutcome] = await Promise.all([alchemyTask, blockscoutTask]);
-  const diagnostics = [alchemyOutcome, blockscoutOutcome];
-  const successful = diagnostics.filter((item) => item.transfers.length > 0);
-
-  if (successful.length === 0) {
-    const fallbackProvider = alchemyOutcome.transfers.length >= blockscoutOutcome.transfers.length ? 'alchemy' : 'blockscout';
-    const transfers = dedupeTransfers(
-      fallbackProvider === 'alchemy' ? alchemyOutcome.transfers : blockscoutOutcome.transfers
-    );
+  const blockscoutOutcome = await fetchFromBlockscout(tokenAddress, chain, boundedLimit, blockRange, deps);
+  if (blockscoutOutcome.transfers.length > 0) {
+    const transfers = dedupeTransfers(blockscoutOutcome.transfers);
     queryCache.set(cacheKey, {
       expiresAt: deps.now() + QUERY_CACHE_TTL_MS,
       transfers,
-      provider: fallbackProvider,
+      provider: 'blockscout',
     });
-    return { transfers, provider: fallbackProvider, blockRange, diagnostics };
+    return {
+      transfers,
+      provider: 'blockscout',
+      blockRange,
+      diagnostics: [blockscoutOutcome],
+    };
   }
 
-  const merged = dedupeTransfers(successful.flatMap((item) => item.transfers)).slice(0, boundedLimit);
-  const provider: EarlyBuyerProviderName | 'merged' = successful.length > 1
-    ? 'merged'
-    : successful[0].provider;
+  const alchemyOutcome = await fetchFromAlchemy(tokenAddress, chain, boundedLimit, blockRange, deps);
+  if (alchemyOutcome.transfers.length > 0) {
+    const transfers = dedupeTransfers(alchemyOutcome.transfers);
+    queryCache.set(cacheKey, {
+      expiresAt: deps.now() + QUERY_CACHE_TTL_MS,
+      transfers,
+      provider: 'alchemy',
+    });
+    return {
+      transfers,
+      provider: 'alchemy',
+      blockRange,
+      diagnostics: [blockscoutOutcome, alchemyOutcome],
+    };
+  }
 
+  const diagnostics = [blockscoutOutcome, alchemyOutcome];
+  const fallbackProvider: EarlyBuyerProviderName = blockscoutOutcome.durationMs <= alchemyOutcome.durationMs
+    ? 'blockscout'
+    : 'alchemy';
+  const transfers = dedupeTransfers(
+    fallbackProvider === 'blockscout' ? blockscoutOutcome.transfers : alchemyOutcome.transfers
+  );
   queryCache.set(cacheKey, {
     expiresAt: deps.now() + QUERY_CACHE_TTL_MS,
-    transfers: merged,
-    provider,
+    transfers,
+    provider: fallbackProvider,
   });
 
   return {
-    transfers: merged,
-    provider,
+    transfers,
+    provider: fallbackProvider,
     blockRange,
     diagnostics,
   };

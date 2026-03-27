@@ -35,6 +35,9 @@ const PSEUDO_TOOL_CALL_PATTERNS = [
     /(?:^|\n)\s*(?:call|using|use)\s+(?:the\s+)?tool\s+[a-z_][a-z0-9_]*(?:\b|\s*\()/i,
     /(?:^|\n)\s*calling\b[^\n]*\b(?:get_[a-z0-9_]+|analyze_[a-z0-9_]+)\b[^\n]*(?=\n|$)/i,
     /(?:^|\n)\s*i\s+will\s+fetch\b[\s\S]*?\b(?:get_[a-z0-9_]+|analyze_[a-z0-9_]+)\b/i,
+    /<grok:[^>\n]+>\s*<\/grok:[^>\n]+>/i,
+    /<grok:[^>\n]+>/i,
+    /<\/grok:[^>\n]+>/i,
 ];
 
 const REASONING_INTERNAL_PATTERNS = [
@@ -150,6 +153,13 @@ export function createLeadingInternalScaffoldSuppressor() {
                 return '';
             }
 
+            if (!looksLikePotentialLeadingInternalScaffold(trimmed)) {
+                passthrough = true;
+                const flushed = stripLeadingInternalScaffold(buffer);
+                buffer = '';
+                return flushed;
+            }
+
             if (buffer.length >= 48 || /\n/.test(buffer)) {
                 passthrough = true;
                 const flushed = stripLeadingInternalScaffold(buffer);
@@ -199,6 +209,9 @@ export function stripPseudoToolCallOutput(answer: string): string {
     next = next.replace(/<call_[^>\n]+>/gi, '\n');
     next = next.replace(/<\/call_[^>\n]+>/gi, '\n');
     next = next.replace(/<ToolCall\b[^>]*>\s*[\s\S]*?<\/ToolCall>/gi, '\n');
+    next = next.replace(/<grok:[^>\n]+>\s*<\/grok:[^>\n]+>/gi, '\n');
+    next = next.replace(/<grok:[^>\n]+>/gi, '\n');
+    next = next.replace(/<\/grok:[^>\n]+>/gi, '\n');
 
     return next.replace(/\n{3,}/g, '\n\n').trim();
 }
@@ -322,6 +335,23 @@ function startsWithInternalLabeledJsonBlock(value: string): boolean {
     return !!match && INTERNAL_LABELED_JSON_BLOCKS.has(match[1]);
 }
 
+function looksLikePotentialLeadingInternalScaffold(value: string): boolean {
+    const trimmed = String(value || '').trimStart();
+    if (!trimmed) return true;
+
+    const leadingToken = trimmed.split(/[\s\n]/, 1)[0] || '';
+    if (/^```(?:j|js|jso|json)?$/i.test(trimmed)) return true;
+    if (trimmed.startsWith('```json')) return true;
+    if (trimmed.startsWith('{')) return true;
+    if (/^(?:j|js|jso|json)$/i.test(leadingToken)) return true;
+    if (/^json(?:\s|$)/i.test(trimmed)) return true;
+
+    const firstLine = trimmed.split('\n', 1)[0] || '';
+    if (/^\[[A-Z_]*\]?$/.test(firstLine)) return true;
+
+    return false;
+}
+
 function stripLeadingInternalLabeledJsonBlock(value: string): string {
     const match = String(value || '').match(/^\[([A-Z_]+)\]\s*\n/);
     if (!match || !INTERNAL_LABELED_JSON_BLOCKS.has(match[1])) {
@@ -342,6 +372,7 @@ const STREAM_PSEUDO_BLOCKS: Array<{ openPattern: RegExp; closePattern: RegExp | 
     { openPattern: /<function_call\b[^>]*>/i, closePattern: /<\/function_call>/i },
     { openPattern: /<argument\b[^>]*>/i, closePattern: /<\/argument>/i },
     { openPattern: /<ToolCall\b[^>]*>/i, closePattern: /<\/ToolCall>/i },
+    { openPattern: /<grok:[^>\n]+>/i, closePattern: /<\/grok:[^>\n]+>/i },
     { openPattern: /```json/i, closePattern: /```/i },
 ];
 
