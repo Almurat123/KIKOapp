@@ -229,6 +229,21 @@
   color: #ef4444;
 }
 
+.footerInfo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 10px;
+  line-height: 1.2;
+  color: rgba(255, 255, 255, 0.2);
+  white-space: nowrap;
+}
+
+.footerInfo svg {
+  flex-shrink: 0;
+}
+
 /* Footer Actions */
 .footer {
   display: grid;
@@ -305,6 +320,10 @@
 
 :global(.light) .value {
   color: #000000;
+}
+
+:global(.light) .footerInfo {
+  color: #71717a;
 }
 
 :global(.light) .footer {
