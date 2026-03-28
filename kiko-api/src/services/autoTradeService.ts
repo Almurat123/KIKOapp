@@ -1309,7 +1309,10 @@ async function processBuyWithInfo(
         const turboSummary = summarizeSingleUserBuyResults(turboResults);
         logger.info(LogCode.EXE_TX_CONFIRMED, '[CopyTrade] Turbo fast lane complete', {
             userCount: turboConfigs.length,
-            success: turboSummary.executed,
+            success: turboSummary.submitted,
+            submitted: turboSummary.submitted,
+            confirmed: turboSummary.confirmed,
+            awaitingVisibility: turboSummary.awaitingVisibility,
             executed: turboSummary.executed,
             pending: turboSummary.pending,
             skipped: turboSummary.skipped,

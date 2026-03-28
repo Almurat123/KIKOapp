@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   resolveTurboMetadataFallbackInfo,
   scheduleAsyncMarketCapHydration,
+  summarizeSingleUserBuyResults,
 } from '../buy/tradeHotPathSupport.js';
 import { TRADE_METADATA_PROFILE } from '../../rpc/profile.js';
 
@@ -70,4 +71,21 @@ test('scheduleAsyncMarketCapHydration resolves market cap without blocking calle
 
   assert.equal(capturedProfilePurpose, 'trade_execution');
   assert.deepEqual(observed, [{ marketCap: 100, totalSupply: 400 }]);
+});
+
+test('summarizeSingleUserBuyResults separates submitted buys from confirmed buys', () => {
+  const summary = summarizeSingleUserBuyResults([
+    { status: 'fulfilled', value: { outcome: 'executed' } },
+    { status: 'fulfilled', value: { outcome: 'pending' } },
+    { status: 'fulfilled', value: { outcome: 'skipped' } },
+    { status: 'rejected', reason: new Error('boom') },
+  ]);
+
+  assert.equal(summary.confirmed, 1);
+  assert.equal(summary.awaitingVisibility, 1);
+  assert.equal(summary.submitted, 2);
+  assert.equal(summary.executed, 1);
+  assert.equal(summary.pending, 1);
+  assert.equal(summary.skipped, 1);
+  assert.equal(summary.failed, 1);
 });

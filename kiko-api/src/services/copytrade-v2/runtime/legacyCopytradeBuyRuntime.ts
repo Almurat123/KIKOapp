@@ -1396,6 +1396,7 @@ export async function processSingleUserBuy(params: {
                     walletAddress: effectiveConfig.user.walletAddress,
                     positionStatusCompat,
                     directFeeSettlement: swapMetadata?.directFeeSettlement || null,
+                    runtimeContext: orderRuntimeContext,
                     onMirrorSellAfterConfirm: executeMirrorSellAfterBuyConfirm,
                     onNotifySuccess: notifyBuySuccessConfirmed,
                     recoverySource,

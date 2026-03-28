@@ -19,6 +19,8 @@ import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
 import { scheduleDeferredBuyFeeRecovery } from './deferredBuyFeeRecovery.js';
 import { scheduleDeferredSellApprovalPreheat } from './deferredSellApprovalPreheat.js';
 import { recordFollowerTransactionFactByPosition } from '../data-flow/followerTransactionFactLedger.js';
+import type { OrderRuntimeContext } from '../../order-runtime/types.js';
+import type { TxLifecycleResult } from '../../txLifecycle.js';
 import {
   advanceCanonicalOrderState,
   claimOrCreateCanonicalOrder,
@@ -43,6 +45,33 @@ type PositionStatusCompatLike = {
   failedFinalStatus: string;
 };
 
+function confirmationToTxLifecycle(params: {
+  confirmation: ConfirmationOutcome;
+  chainId: number;
+  txHash: string;
+}): TxLifecycleResult | null {
+  if (params.confirmation.kind === 'confirmed_success') {
+    return {
+      status: 'confirmed_success',
+      txHash: params.txHash,
+      confirmedAt: Date.now(),
+      attempts: 1,
+      chainId: params.chainId,
+    };
+  }
+  if (params.confirmation.kind === 'confirmed_failed') {
+    return {
+      status: 'confirmed_failed',
+      txHash: params.txHash,
+      confirmedAt: Date.now(),
+      lastRpcError: params.confirmation.reason,
+      attempts: 1,
+      chainId: params.chainId,
+    };
+  }
+  return null;
+}
+
 export async function applyBuyConfirmationTransition(params: {
   confirmation: ConfirmationOutcome;
   chainId: number;
@@ -62,6 +91,7 @@ export async function applyBuyConfirmationTransition(params: {
   walletAddress: string;
   positionStatusCompat: PositionStatusCompatLike;
   directFeeSettlement?: DirectSwapFeeSettlement | null;
+  runtimeContext?: OrderRuntimeContext | null;
   onMirrorSellAfterConfirm?: (context: MirrorSellAfterConfirmContext) => Promise<void>;
   onMirrorSellAbort?: (context: MirrorSellAbortContext) => Promise<void>;
   onNotifySuccess?: () => Promise<void>;
@@ -99,6 +129,7 @@ export async function applyBuyConfirmationTransition(params: {
     walletAddress,
     positionStatusCompat,
     directFeeSettlement,
+    runtimeContext,
     onMirrorSellAfterConfirm,
     onMirrorSellAbort,
     onNotifySuccess,
@@ -120,6 +151,11 @@ export async function applyBuyConfirmationTransition(params: {
   const advanceOrderState = deps?.advanceCanonicalOrderState || advanceCanonicalOrderState;
   const recordOrderExecution = deps?.recordCanonicalOrderExecution || recordCanonicalOrderExecution;
   const resolvedTxHash = confirmation.resolvedTxHash || txHash;
+  const confirmationLifecycle = confirmationToTxLifecycle({
+    confirmation,
+    chainId,
+    txHash: resolvedTxHash,
+  });
   const canonicalOrder = leaderBuyTxHash && targetWallet && configId
     ? await claimOrder({
         userId,
@@ -283,7 +319,10 @@ export async function applyBuyConfirmationTransition(params: {
         : promoteResult.count > 0 ? 'PROMOTED_NOW' : 'POSITION_PROMOTION_SKIPPED';
       if (promotionOutcome === 'PROMOTED_NOW') {
         emitDomainAudit('BUY_CONFIRMATION_PROMOTED_OPEN', {
+          txLifecycle: confirmationLifecycle,
+          runtimeContext,
           extra: {
+            orderId: canonicalOrder?.id || runtimeContext?.orderId || null,
             positionId: persistedPositionId,
             txHash: resolvedTxHash,
             chainId,
@@ -297,7 +336,10 @@ export async function applyBuyConfirmationTransition(params: {
     } else if (promotionAction.action === 'closed_before_open') {
       promotionOutcome = 'CLOSED_BEFORE_OPEN';
       emitDomainAudit('BUY_CONFIRMATION_CLOSED_BEFORE_OPEN', {
+        txLifecycle: confirmationLifecycle,
+        runtimeContext,
         extra: {
+          orderId: canonicalOrder?.id || runtimeContext?.orderId || null,
           positionId: persistedPositionId,
           txHash: resolvedTxHash,
           chainId,

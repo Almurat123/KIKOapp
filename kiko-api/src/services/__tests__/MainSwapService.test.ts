@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   buildUserFacingSwapError,
   inferSwapReasonCode,
+  shouldDeferAcceptedCopytradeBuyFeeCollection,
   txLifecycleFromExecutionFinality,
   verifyNativeBalancePrecheck,
 } from '../MainSwapService.js';
@@ -59,4 +60,48 @@ test('txLifecycleFromExecutionFinality maps confirmed executor success into tx l
   assert.equal(lifecycle?.status, 'confirmed_success');
   assert.equal(lifecycle?.txHash, '0xabc');
   assert.equal(lifecycle?.chainId, 56);
+});
+
+test('shouldDeferAcceptedCopytradeBuyFeeCollection defers turbo buy fees until tx becomes visible', () => {
+  assert.equal(shouldDeferAcceptedCopytradeBuyFeeCollection({
+    isTurboCopytrade: true,
+    mode: 'copytrade',
+    isBuyDirection: true,
+    chainId: 8453,
+    txHash: '0xabc',
+    lifecycle: {
+      status: 'broadcasted_unseen',
+      txHash: '0xabc',
+      attempts: 1,
+      chainId: 8453,
+    },
+  }), true);
+
+  assert.equal(shouldDeferAcceptedCopytradeBuyFeeCollection({
+    isTurboCopytrade: true,
+    mode: 'copytrade',
+    isBuyDirection: true,
+    chainId: 8453,
+    txHash: '0xabc',
+    lifecycle: {
+      status: 'visible_pending',
+      txHash: '0xabc',
+      attempts: 1,
+      chainId: 8453,
+    },
+  }), false);
+
+  assert.equal(shouldDeferAcceptedCopytradeBuyFeeCollection({
+    isTurboCopytrade: false,
+    mode: 'copytrade',
+    isBuyDirection: true,
+    chainId: 8453,
+    txHash: '0xabc',
+    lifecycle: {
+      status: 'broadcasted_unseen',
+      txHash: '0xabc',
+      attempts: 1,
+      chainId: 8453,
+    },
+  }), false);
 });

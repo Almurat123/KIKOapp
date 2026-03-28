@@ -8,8 +8,8 @@ export type SingleUserBuyResult = {
 };
 
 export function summarizeSingleUserBuyResults(results: PromiseSettledResult<SingleUserBuyResult>[]) {
-  let executed = 0;
-  let pending = 0;
+  let confirmed = 0;
+  let awaitingVisibility = 0;
   let skipped = 0;
   let failed = 0;
 
@@ -18,13 +18,21 @@ export function summarizeSingleUserBuyResults(results: PromiseSettledResult<Sing
       failed++;
       continue;
     }
-    if (result.value.outcome === 'executed') executed++;
-    else if (result.value.outcome === 'pending') pending++;
+    if (result.value.outcome === 'executed') confirmed++;
+    else if (result.value.outcome === 'pending') awaitingVisibility++;
     else if (result.value.outcome === 'skipped') skipped++;
     else failed++;
   }
 
-  return { executed, pending, skipped, failed };
+  return {
+    confirmed,
+    awaitingVisibility,
+    submitted: confirmed + awaitingVisibility,
+    executed: confirmed,
+    pending: awaitingVisibility,
+    skipped,
+    failed,
+  };
 }
 
 function buildFallbackTokenInfo(

@@ -263,6 +263,40 @@ export function txLifecycleFromExecutionFinality(params: {
   return undefined;
 }
 
+export function shouldDeferAcceptedCopytradeBuyFeeCollection(params: {
+  isTurboCopytrade: boolean;
+  mode: SwapMode;
+  isBuyDirection: boolean;
+  chainId: number;
+  txHash?: string | null;
+  runtimeContext?: OrderRuntimeContext | null;
+  lifecycle?: TxLifecycleResult | null;
+}): boolean {
+  if (!params.isTurboCopytrade || params.mode !== 'copytrade' || !params.isBuyDirection) {
+    return false;
+  }
+
+  const runtimeState = String(params.runtimeContext?.state || '').trim().toLowerCase();
+  const lifecycleStatus = String(params.lifecycle?.status || '').trim().toLowerCase();
+  if (
+    lifecycleStatus === 'broadcasted_unseen'
+    || runtimeState === 'send_started'
+    || runtimeState === 'hash_accepted'
+    || runtimeState === 'rpc_uncertain'
+  ) {
+    return true;
+  }
+
+  const resolution = resolveTxFinalState({
+    runtimeContext: params.runtimeContext || undefined,
+    lifecycle: params.lifecycle || undefined,
+    chainId: params.chainId,
+    txHash: params.txHash || params.runtimeContext?.canonicalTxHash,
+  });
+
+  return resolution.accepted && !resolution.visible && !resolution.success;
+}
+
 export function inferSwapReasonCode(message?: string): string {
   const normalized = String(message || '').toLowerCase();
   if (!normalized) return 'swap_failed';
@@ -1623,24 +1657,33 @@ export class MainSwapService {
       } = {
         direct_start_at: Date.now()
       };
-      const toDirectSuccessResult = (result: Awaited<ReturnType<typeof executeDirectSwap>>): MainSwapResult => {
-        const directFeeSettlement = buildDirectSwapFeeSettlement({
-          request: {
-            userId: request.userId,
-            accessToken: request.accessToken,
+	      const toDirectSuccessResult = (result: Awaited<ReturnType<typeof executeDirectSwap>>): MainSwapResult => {
+	        const shouldDeferFeeCollection = shouldDeferAcceptedCopytradeBuyFeeCollection({
+	          isTurboCopytrade,
+	          mode: request.mode,
+	          isBuyDirection,
+	          chainId: request.chainId,
+	          txHash: result.txHash,
+	          runtimeContext: result.runtimeContext || request.runtimeContext,
+	          lifecycle: result.txLifecycle || null
+	        });
+	        const directFeeSettlement = buildDirectSwapFeeSettlement({
+	          request: {
+	            userId: request.userId,
+	            accessToken: request.accessToken,
             amountIn: request.amountIn,
             chainId: request.chainId,
             feeBpsOverride: request.feeBpsOverride,
             mode: request.mode,
             sourceTxHash: result.txHash
           },
-          normalizedTokenIn,
-          normalizedTokenOut,
-          amountOutBase: result.amountOut,
-          feeContext,
-          deferred: result.txLifecycle?.status === 'broadcasted_unseen',
-          reasonCode: result.txLifecycle?.status || 'direct_swap_result'
-        });
+	          normalizedTokenIn,
+	          normalizedTokenOut,
+	          amountOutBase: result.amountOut,
+	          feeContext,
+	          deferred: shouldDeferFeeCollection,
+	          reasonCode: result.txLifecycle?.status || 'direct_swap_result'
+	        });
         return {
           success: true,
           txHash: result.txHash,
@@ -1757,40 +1800,50 @@ export class MainSwapService {
                 runtimeContext: request.runtimeContext,
                 lifecycle: acceptedResult.txLifecycle || null
               });
-              if (acceptedInflight.adoptAcceptedTx) {
-                const adoptedResult = {
-                  ...directResult,
-                  txHash: acceptedInflight.txHash || directResult.txHash,
-                  txLifecycle: acceptedResult.txLifecycle || directResult.txLifecycle
-                };
-                const directFeeSettlement = buildDirectSwapFeeSettlement({
-                  request: {
-                    userId: request.userId,
-                    accessToken: request.accessToken,
-                    amountIn: request.amountIn,
+                if (acceptedInflight.adoptAcceptedTx) {
+                  const adoptedResult = {
+                    ...directResult,
+                    txHash: acceptedInflight.txHash || directResult.txHash,
+                    txLifecycle: acceptedResult.txLifecycle || directResult.txLifecycle
+                  };
+                  const shouldDeferFeeCollection = acceptedInflight.shouldDeferFeeCollection
+                    || shouldDeferAcceptedCopytradeBuyFeeCollection({
+                      isTurboCopytrade,
+                      mode: request.mode,
+                      isBuyDirection,
+                      chainId: request.chainId,
+                      txHash: adoptedResult.txHash,
+                      runtimeContext: adoptedResult.runtimeContext || request.runtimeContext,
+                      lifecycle: adoptedResult.txLifecycle || null
+                    });
+                  const directFeeSettlement = buildDirectSwapFeeSettlement({
+                    request: {
+                      userId: request.userId,
+                      accessToken: request.accessToken,
+                      amountIn: request.amountIn,
                     chainId: request.chainId,
                     feeBpsOverride: request.feeBpsOverride,
                     mode: request.mode,
                     sourceTxHash: adoptedResult.txHash
                   },
-                  normalizedTokenIn,
-                  normalizedTokenOut,
-                  amountOutBase: adoptedResult.amountOut,
-                  feeContext,
-                  deferred: acceptedInflight.shouldDeferFeeCollection,
-                  reasonCode: acceptedInflight.reasonCode
-                });
-                logger.warn(LogCode.SYS_INFO, trace('Direct swap accepted but still unseen; locking inflight tx and stopping buy retries'), {
-                  attempt,
-                  txHash: adoptedResult.txHash,
-                  reasonCode: acceptedInflight.reasonCode,
-                  deferFeeCollection: acceptedInflight.shouldDeferFeeCollection
-                });
-                if (!acceptedInflight.shouldDeferFeeCollection) {
-                  const runFeeCollection = async () => {
-                    try {
-                      if (!directFeeSettlement) return;
-                      await this.collectDirectSwapFeeSettlement(directFeeSettlement, request, trace);
+                      normalizedTokenIn,
+                      normalizedTokenOut,
+                      amountOutBase: adoptedResult.amountOut,
+                      feeContext,
+                      deferred: shouldDeferFeeCollection,
+                      reasonCode: acceptedInflight.reasonCode
+                  });
+                  logger.warn(LogCode.SYS_INFO, trace('Direct swap accepted but still unseen; locking inflight tx and stopping buy retries'), {
+                    attempt,
+                    txHash: adoptedResult.txHash,
+                    reasonCode: acceptedInflight.reasonCode,
+                    deferFeeCollection: shouldDeferFeeCollection
+                  });
+                  if (!shouldDeferFeeCollection) {
+                    const runFeeCollection = async () => {
+                      try {
+                        if (!directFeeSettlement) return;
+                        await this.collectDirectSwapFeeSettlement(directFeeSettlement, request, trace);
                     } catch (feeErr: any) {
                       logger.warn(LogCode.SYS_ERROR, trace('Direct swap fee transfer failed (non-fatal)'), {
                         error: feeErr?.message || String(feeErr)
@@ -1812,13 +1865,13 @@ export class MainSwapService {
                     reasonCode: acceptedInflight.reasonCode
                   });
                 }
-                const successResult = toDirectSuccessResult(adoptedResult);
-                // Ensure the settlement object matches the deferral decision
-                if (successResult.metadata.directFeeSettlement) {
-                  successResult.metadata.directFeeSettlement.deferred = true;
+                  const successResult = toDirectSuccessResult(adoptedResult);
+                  // Ensure the settlement object matches the deferral decision
+                  if (successResult.metadata.directFeeSettlement) {
+                    successResult.metadata.directFeeSettlement.deferred = shouldDeferFeeCollection;
+                  }
+                  return successResult;
                 }
-                return successResult;
-              }
               directTimeoutReason = 'visibility_timeout';
               if (attempt < DIRECT_SWAP_MAX_ATTEMPTS) {
                 logger.warn(LogCode.SYS_INFO, trace('Direct swap visibility gate failed, retrying next attempt'), {
@@ -1830,6 +1883,15 @@ export class MainSwapService {
               continue;
             }
             if (!isTurboCopytrade && checkNativeBalancePromise) await checkNativeBalancePromise;
+            const shouldDeferFeeCollection = shouldDeferAcceptedCopytradeBuyFeeCollection({
+              isTurboCopytrade,
+              mode: request.mode,
+              isBuyDirection,
+              chainId: request.chainId,
+              txHash: acceptedResult.txHash,
+              runtimeContext: acceptedResult.runtimeContext || request.runtimeContext,
+              lifecycle: acceptedResult.txLifecycle || null
+            });
             const runFeeCollection = async () => {
               try {
                 const directFeeSettlement = buildDirectSwapFeeSettlement({
@@ -1846,10 +1908,17 @@ export class MainSwapService {
                   normalizedTokenOut,
                   amountOutBase: acceptedResult.amountOut,
                   feeContext,
-                  deferred: false,
+                  deferred: shouldDeferFeeCollection,
                   reasonCode: acceptedResult.txLifecycle?.status || 'direct_swap_result'
                 });
                 if (!directFeeSettlement) return;
+                if (shouldDeferFeeCollection) {
+                  logger.warn(LogCode.SYS_INFO, trace('Direct swap fee deferred until tx visibility improves'), {
+                    txHash: acceptedResult.txHash,
+                    reasonCode: directFeeSettlement.reasonCode
+                  });
+                  return;
+                }
                 await this.collectDirectSwapFeeSettlement(directFeeSettlement, request, trace);
               } catch (feeErr: any) {
                 logger.warn(LogCode.SYS_ERROR, trace('Direct swap fee transfer failed (non-fatal)'), {
