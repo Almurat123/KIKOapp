@@ -1,5 +1,5 @@
-import { resolveTxFinalState } from '../../order-runtime/adjudicator/finalState.js';
 import type { OrderRuntimeContext } from '../../order-runtime/types.js';
+import { hydrateResolvedCopytradeBuyEvidence } from './copytradeBuyEvidence.js';
 
 export function scheduleLateBuySubmissionAdoption(params: {
   chainId: number;
@@ -11,7 +11,7 @@ export function scheduleLateBuySubmissionAdoption(params: {
     txLifecycleStatus: string;
     runtimeContext: OrderRuntimeContext;
   }) => Promise<void>;
-  onExhausted?: (resolution: ReturnType<typeof resolveTxFinalState>) => Promise<void>;
+  onExhausted?: (resolution: Awaited<ReturnType<typeof hydrateResolvedCopytradeBuyEvidence>>['resolution']) => Promise<void>;
 }): void {
   const runtimeContext = params.runtimeContext;
   if (!runtimeContext) return;
@@ -30,13 +30,13 @@ export function scheduleLateBuySubmissionAdoption(params: {
 
   const tick = async () => {
     if (finished) return;
-    const resolution = resolveTxFinalState({
+    const evidence = await hydrateResolvedCopytradeBuyEvidence({
       runtimeContext,
       chainId: params.chainId,
       txHash: runtimeContext.canonicalTxHash,
-      orderId: runtimeContext.orderId,
     });
-    const txHash = String(runtimeContext.canonicalTxHash || '').trim().toLowerCase();
+    const resolution = evidence.resolution;
+    const txHash = String(evidence.txHash || '').trim().toLowerCase();
     const hasTxHash = /^0x[a-f0-9]{64}$/.test(txHash);
 
     if (hasTxHash && resolution.accepted && !resolution.failed) {

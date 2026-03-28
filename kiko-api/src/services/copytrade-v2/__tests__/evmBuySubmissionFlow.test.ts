@@ -3,6 +3,7 @@ import test, { after } from 'node:test';
 
 import prisma from '../../../db/prisma.js';
 import type { MainSwapRequest } from '../../MainSwapService.js';
+import { reportSendAccepted } from '../../order-runtime/adjudicator/service.js';
 import { executeEvmCopytradeBuySubmissionFlow } from '../buy/evmBuySubmissionFlow.js';
 
 after(async () => {
@@ -234,6 +235,79 @@ test('evm buy submission flow preserves send-started copytrade buys instead of r
 
   assert.equal(result.status, 'submitted_unresolved');
   assert.equal(result.reasonCode, 'send_started');
+  assert.equal(result.txLifecycleStatus, 'broadcasted_unseen');
+});
+
+test('evm buy submission flow adopts accepted evidence by orderId even when runtimeContext lacks canonical tx hash', async () => {
+  const orderId = `order-accepted-by-id-${Date.now()}`;
+  const acceptedTxHash = '0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd';
+
+  const result = await executeEvmCopytradeBuySubmissionFlow(
+    {
+      userId: 'user-accepted-by-id',
+      configId: 'cfg-accepted-by-id',
+      privyUserId: 'did:privy:user-accepted-by-id',
+      walletAddress: '0x1234567890123456789012345678901234567890',
+      tokenToBuy: '0x9999999999999999999999999999999999999999',
+      chainId: 8453,
+      usdAmount: 10,
+      nativePrice: 2000,
+      baseSlippageBps: 300,
+      executionMode: 'turbo',
+      turboMode: true,
+      fastSwapMode: true,
+      checkTokenBeforeSwap: false,
+      tokenInfo: { price: 0.01 },
+    },
+    {
+      async buildCopytradeBuyPlannedArtifact() {
+        return {
+          executionContextBase: {
+            sourceTxHash: '0xleader-accepted-by-id',
+          },
+          async getExecutionPlan() {
+            return null;
+          },
+        } as any;
+      },
+      async executeSwapViaPort(request) {
+        request.runtimeContext = {
+          orderId,
+          chainId: 8453,
+          userId: 'did:privy:user-accepted-by-id',
+          walletAddress: '0x1234567890123456789012345678901234567890',
+          side: 'buy',
+          mode: 'copytrade',
+          state: 'rpc_uncertain',
+          reasonCode: 'pending_visibility',
+          relatedTxHashes: [],
+          route: {},
+          timing: { createdAt: Date.now() },
+          attempts: [],
+          fallbackUsed: true,
+          metadata: {},
+        };
+        reportSendAccepted({
+          chainId: 8453,
+          txHash: acceptedTxHash,
+          orderId,
+          source: 'privy_sendtx',
+        });
+        return {
+          success: false,
+          error: 'visibility_timeout',
+          runtimeContext: request.runtimeContext,
+          metadata: {
+            provider: 'direct-swap',
+            mode: request.mode,
+          },
+        };
+      },
+    },
+  );
+
+  assert.equal(result.status, 'submitted');
+  assert.equal(result.txHash, acceptedTxHash);
   assert.equal(result.txLifecycleStatus, 'broadcasted_unseen');
 });
 

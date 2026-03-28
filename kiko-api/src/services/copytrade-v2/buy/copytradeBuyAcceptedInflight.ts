@@ -1,6 +1,6 @@
 import type { OrderRuntimeContext } from '../../order-runtime/types.js';
 import type { TxLifecycleResult } from '../../txLifecycle.js';
-import { resolveTxFinalState } from '../../order-runtime/adjudicator/finalState.js';
+import { resolveCopytradeBuyEvidence } from './copytradeBuyEvidence.js';
 
 export interface CopytradeBuyAcceptedInflightDecision {
   adoptAcceptedTx: boolean;
@@ -27,14 +27,15 @@ export function evaluateCopytradeBuyAcceptedInflight(params: {
     };
   }
 
-  const resolution = resolveTxFinalState({
+  const evidence = resolveCopytradeBuyEvidence({
     runtimeContext: params.runtimeContext,
     lifecycle: params.lifecycle || undefined,
     chainId: params.chainId,
     txHash: params.txHash || params.runtimeContext?.canonicalTxHash
   });
+  const resolution = evidence.resolution;
 
-  const acceptedTxHash = params.runtimeContext?.canonicalTxHash || params.txHash || undefined;
+  const acceptedTxHash = evidence.txHash;
   const runtimeState = String(params.runtimeContext?.state || '').trim().toLowerCase();
   const lifecycleStatus = String(params.lifecycle?.status || '').trim().toLowerCase();
   const hasSendStartedEvidence = runtimeState === 'send_started'

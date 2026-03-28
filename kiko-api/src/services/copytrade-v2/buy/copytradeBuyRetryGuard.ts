@@ -1,5 +1,5 @@
 import type { OrderRuntimeContext } from '../../order-runtime/types.js';
-import { resolveTxFinalState } from '../../order-runtime/adjudicator/finalState.js';
+import { resolveCopytradeBuyEvidence } from './copytradeBuyEvidence.js';
 
 export interface CopytradeBuyRetryDecision {
   shouldAbortRetry: boolean;
@@ -11,11 +11,12 @@ export function shouldAbortCopytradeBuyRetry(params: {
   chainId: number;
   runtimeContext?: OrderRuntimeContext | null;
 }): CopytradeBuyRetryDecision {
-  const resolution = resolveTxFinalState({
+  const evidence = resolveCopytradeBuyEvidence({
     runtimeContext: params.runtimeContext,
     chainId: params.chainId,
-    txHash: params.runtimeContext?.canonicalTxHash
+    txHash: params.runtimeContext?.canonicalTxHash,
   });
+  const resolution = evidence.resolution;
 
   if (!resolution.accepted || resolution.failed) {
     return {
@@ -26,7 +27,7 @@ export function shouldAbortCopytradeBuyRetry(params: {
 
   return {
     shouldAbortRetry: true,
-    txHash: params.runtimeContext?.canonicalTxHash,
+    txHash: evidence.txHash,
     reasonCode: resolution.reasonCode || resolution.state || 'send_accepted'
   };
 }
