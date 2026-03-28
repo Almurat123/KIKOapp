@@ -218,6 +218,7 @@ test('runNodeOrchestration blocks place_polymarket_order until token_id is verif
     beginRound() {},
     async bootstrapRuntime() {},
     async applyModelPlan() {},
+    hasVisibleArtifact() { return false; },
     async markPlanPhase() {},
     async ensurePlanStep() {},
     async focusPlanStep() {},

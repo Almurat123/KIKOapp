@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { normalizeCanonicalIntent } from './canonicalIntentNormalizer.js';
+import { normalizeCanonicalIntent, resolveNormalizationModel } from './canonicalIntentNormalizer.js';
 import type { ChatContextSnapshot } from './contracts.js';
 
 function makeSnapshot(message: string): ChatContextSnapshot {
@@ -197,4 +197,11 @@ test('normalizeCanonicalIntent accepts multilingual requests as long as the cano
         assert.equal(result.snapshot.normalizedIntent?.intent, 'early_buyers');
         assert.equal(result.snapshot.normalizedIntent?.rowCount, 30);
     }
+});
+
+test('resolveNormalizationModel follows the selected model unless an override is configured', () => {
+    assert.equal(resolveNormalizationModel('grok-4-1-fast-reasoning'), 'grok-4-1-fast-reasoning');
+    assert.equal(resolveNormalizationModel('grok-4-1-fast-non-reasoning'), 'grok-4-1-fast-non-reasoning');
+    assert.equal(resolveNormalizationModel('deepseek-chat'), 'deepseek-chat');
+    assert.equal(resolveNormalizationModel('gpt-5-mini'), 'gpt-5-mini');
 });

@@ -63,6 +63,9 @@ export class PythonGenerationClient {
         onReasoningDelta: (text: string) => Promise<void>;
         onUsage: (usage: Record<string, any>) => void;
         onCitation: (citation: any) => void;
+        onClientAction?: (action: any) => Promise<void> | void;
+        onProviderProgress?: (progress: { status?: string; toolBatch?: Record<string, any> }) => Promise<void> | void;
+        onLatencyMetrics?: (metrics: Record<string, any>) => Promise<void> | void;
         onProviderState?: (state: { previousResponseId?: string }) => Promise<void> | void;
     }): Promise<{ toolCalls: GenerationToolCall[]; text: string; reasoning: string; providerState?: { previousResponseId?: string } }> {
         const headers = buildHeaders();
@@ -202,6 +205,22 @@ export class PythonGenerationClient {
                         previousResponseId: event.payload?.previous_response_id ? String(event.payload.previous_response_id) : undefined,
                     };
                     await params.onProviderState?.(providerState);
+                } else if (event.type === 'client_action') {
+                    const actions = Array.isArray(event.payload?.client_actions)
+                        ? event.payload.client_actions
+                        : [];
+                    for (const action of actions) {
+                        await params.onClientAction?.(action);
+                    }
+                } else if (event.type === 'tool_progress') {
+                    await params.onProviderProgress?.({
+                        status: event.payload?.status ? String(event.payload.status) : undefined,
+                        toolBatch: event.payload?.tool_batch && typeof event.payload.tool_batch === 'object'
+                            ? event.payload.tool_batch
+                            : undefined,
+                    });
+                } else if (event.type === 'latency_metrics') {
+                    await params.onLatencyMetrics?.(event.payload || {});
                 } else if (event.type === 'tool_call') {
                     const name = String(event.payload?.name || '').trim();
                     if (!name) {

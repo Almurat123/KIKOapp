@@ -20,11 +20,13 @@ export async function normalizeCanonicalIntent(args: {
 }> {
     const { snapshot, generationClient, shouldCancel } = args;
     const messages: GenerationMessage[] = buildNormalizationMessages(snapshot);
+    const normalizationModel = resolveNormalizationModel(snapshot.model);
 
     logger.info(LogCode.AI_ORCHESTRATOR, 'Canonical intent normalization: start', {
         sessionId: snapshot.sessionId,
         taskId: snapshot.taskId,
         model: snapshot.model,
+        normalizationModel,
         requestedTokenAddresses: snapshot.requestedTokenAddresses.length,
         requestedTokenSymbols: snapshot.requestedTokenSymbols,
     });
@@ -33,7 +35,7 @@ export async function normalizeCanonicalIntent(args: {
         const result = await generationClient.generate({
             sessionId: snapshot.sessionId,
             taskId: `${snapshot.taskId}:normalize`,
-            model: snapshot.model,
+            model: normalizationModel,
             messages,
             tools: [],
             providerOptions: {
@@ -91,6 +93,12 @@ export async function normalizeCanonicalIntent(args: {
             undefined,
         );
     }
+}
+
+export function resolveNormalizationModel(model: string): string {
+    const override = String(process.env.CANONICAL_INTENT_NORMALIZER_MODEL || '').trim();
+    if (override) return override;
+    return model;
 }
 
 function invalidResult(

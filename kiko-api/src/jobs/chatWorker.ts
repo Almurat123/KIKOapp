@@ -17,7 +17,7 @@ import { PythonGenerationClient } from './chat/pythonGenerationClient.js';
 import { runNodeOrchestration } from './chat/nodeOrchestrator.js';
 import { parseTradingIntent } from './chat/tradingIntentResolver.js';
 import { resolveNodeSkills } from './chat/nodeSkillResolver.js';
-import { buildTaskPlanningContext } from './chat/taskPlanner.js';
+import { buildTaskPlanningContext, buildWarmupPlan, materializePlanCard } from './chat/taskPlanner.js';
 import { buildControlPolicySnapshot } from './chat/controlPolicy.js';
 import { normalizeCanonicalIntent } from './chat/canonicalIntentNormalizer.js';
 import { buildCanonicalIntentClarification } from './chat/canonicalIntent.js';
@@ -30,8 +30,13 @@ import { isExplicitChainSwitchRequest } from './chat/chainIntent.js';
 
 type AITask = Awaited<ReturnType<typeof chatRepo.getTask>>;
 
-export function isEmptyAssistantCompletion(content: string, toolResults: Array<{ name: string }> = []): boolean {
-    return String(content || '').trim().length === 0 && toolResults.length === 0;
+export function isEmptyAssistantCompletion(
+    content: string,
+    options: {
+        hasVisibleArtifact?: boolean;
+    } = {},
+): boolean {
+    return String(content || '').trim().length === 0 && !options.hasVisibleArtifact;
 }
 
 export class ChatWorker {
@@ -117,9 +122,11 @@ export class ChatWorker {
                 model: task.model,
             });
             broker.start();
+            const messages = await messagesPromise;
+            const lastUserMessage = [...messages].reverse().find((msg) => msg.role === 'user')?.content || '';
+            await broker.bootstrapRuntime(buildWarmupPlan(lastUserMessage));
             this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'running', message: 'Loading wallet and context' });
 
-            const messages = await messagesPromise;
             const hydrationStartedAt = Date.now();
             await this.hydrateWalletSnapshotIfNeeded(task, messages);
             const hydrationMs = Date.now() - hydrationStartedAt;
@@ -133,7 +140,6 @@ export class ChatWorker {
                 hydrationMs,
             });
 
-            const lastUserMessage = [...messages].reverse().find((msg) => msg.role === 'user')?.content || '';
             const moderation = await moderationClient.moderateInput(lastUserMessage, {}, userId, task.sessionId, task.model);
             if (!moderation.safe) {
                 throw new Error(moderation.checks?.intent?.reason || 'Message blocked by moderation');
@@ -190,7 +196,7 @@ export class ChatWorker {
                 tradingIntent,
                 skillResolution,
             });
-            await broker.bootstrapRuntime(buildTaskPlanningContext(snapshot, skillResolution).plan);
+            await broker.applyModelPlan(materializePlanCard(buildTaskPlanningContext(snapshot, skillResolution)));
 
             if (!isExplicitChainSwitchRequest(lastUserMessage, snapshot.normalizedIntent)) {
                 const directFollowup = await executeDirectTradeFollowup({
@@ -302,8 +308,8 @@ export class ChatWorker {
                 toolCalls: broker.getToolResults().map((item) => item.name),
             });
 
-            const toolResults = broker.getToolResults().map((item) => ({ name: item.name }));
-            if (isEmptyAssistantCompletion(broker.getContent(), toolResults)) {
+            const hasVisibleArtifact = broker.hasVisibleArtifact();
+            if (isEmptyAssistantCompletion(broker.getContent(), { hasVisibleArtifact })) {
                 const error = new Error('I could not produce a stable response for that turn. Please retry.');
                 (error as any).code = 'EMPTY_ASSISTANT_RESPONSE';
                 throw error;
@@ -318,7 +324,7 @@ export class ChatWorker {
                 throw error;
             }
             const finalContent = moderated.filtered_text || broker.getContent();
-            if (isEmptyAssistantCompletion(finalContent, toolResults)) {
+            if (isEmptyAssistantCompletion(finalContent, { hasVisibleArtifact })) {
                 const error = new Error('I could not produce a stable response for that turn. Please retry.');
                 (error as any).code = 'EMPTY_ASSISTANT_RESPONSE';
                 throw error;

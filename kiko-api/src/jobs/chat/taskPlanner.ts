@@ -2,14 +2,75 @@ import { randomUUID } from 'node:crypto';
 import type { ChatContextSnapshot, PlanCard, PlanStep } from './contracts.js';
 import type { SkillResolution } from './nodeSkillResolver.js';
 import type { CanonicalIntent } from './canonicalIntent.js';
+import { resolveBinaryLocale } from './runtimeLocale.js';
 
 export interface TaskPlanningContext {
     plan: PlanCard;
+    planHints: {
+        title: string;
+        summary: string;
+        steps: Array<{
+            id: string;
+            title: string;
+            description: string;
+        }>;
+    };
     asksRealtimeSocial: boolean;
     asksOnChainEvidence: boolean;
     asksCreatorEvidence: boolean;
     requestedToken: boolean;
     locale: 'en' | 'zh';
+}
+
+export function materializePlanCard(planning: TaskPlanningContext): PlanCard {
+    const hintedStepMap = new Map(planning.planHints.steps.map((step) => [step.id, step]));
+    return {
+        ...planning.plan,
+        title: planning.planHints.title,
+        summary: planning.planHints.summary,
+        locale: planning.locale,
+        steps: planning.plan.steps.map((step) => {
+            const hinted = hintedStepMap.get(step.id);
+            return {
+                ...step,
+                title: hinted?.title || step.title,
+                description: hinted?.description || step.description,
+            };
+        }),
+    };
+}
+
+export function buildWarmupPlan(query: string): PlanCard {
+    const locale = detectLocale(String(query || ''), null);
+    const steps: PlanStep[] = [
+        makeStep(
+            'step-understand',
+            locale === 'zh' ? '理解请求' : 'Understand the request',
+            locale === 'zh'
+                ? '先快速判断当前问题要走哪条路径。'
+                : 'Quickly determine the right path for this request.',
+            [],
+        ),
+        makeStep(
+            'step-summary',
+            locale === 'zh' ? '生成回答' : 'Generate answer',
+            locale === 'zh'
+                ? '在拿到足够结果后给出回答。'
+                : 'Answer once enough real results are available.',
+            [],
+        ),
+    ];
+    steps[0].status = 'in_progress';
+    return {
+        planId: randomUUID(),
+        title: resolvePlanTitle(locale, false, false, false),
+        summary: resolvePlanSummary(locale, false, false, false),
+        locale,
+        status: 'in_progress',
+        currentStepId: steps[0].id,
+        steps,
+        activity: [],
+    };
 }
 
 export function buildTaskPlanningContext(
@@ -111,16 +172,34 @@ export function buildTaskPlanningContext(
 
     steps[0].status = 'in_progress';
 
+    const hintedTitle = resolvePlanTitle(locale, asksRealtimeSocial, asksOnChainEvidence || asksCreatorEvidence, isAssistantMetaDebug);
+    const hintedSummary = resolvePlanSummary(locale, asksRealtimeSocial, asksOnChainEvidence || asksCreatorEvidence, isAssistantMetaDebug);
+    const hintedSteps = steps.map((step) => ({
+        id: step.id,
+        title: step.title,
+        description: step.description || '',
+    }));
+    const structuralSteps = steps.map((step) => ({
+        ...step,
+        title: '',
+        description: '',
+    }));
+
     return {
         plan: {
             planId: randomUUID(),
-            title: resolvePlanTitle(locale, asksRealtimeSocial, asksOnChainEvidence || asksCreatorEvidence, isAssistantMetaDebug),
-            summary: resolvePlanSummary(locale, asksRealtimeSocial, asksOnChainEvidence || asksCreatorEvidence, isAssistantMetaDebug),
-            locale,
+            title: '',
+            summary: '',
+            locale: undefined,
             status: 'in_progress',
-            currentStepId: steps[0]?.id,
-            steps,
+            currentStepId: structuralSteps[0]?.id,
+            steps: structuralSteps,
             activity: [],
+        },
+        planHints: {
+            title: hintedTitle,
+            summary: hintedSummary,
+            steps: hintedSteps,
         },
         asksRealtimeSocial,
         asksOnChainEvidence,
@@ -221,6 +300,11 @@ export function resolvePlanStepForTool(
                 status: 'in_progress',
                 steps: [],
             },
+            planHints: {
+                title: '',
+                summary: '',
+                steps: [],
+            },
             asksRealtimeSocial: false,
             asksOnChainEvidence: false,
             asksCreatorEvidence: false,
@@ -269,10 +353,9 @@ function preferredPlanTools(skillResolution: SkillResolution, fallbacks: string[
 }
 
 function isChinese(text: string): boolean {
-    return /[\u4e00-\u9fff]/.test(text);
+    return resolveBinaryLocale(text) === 'zh';
 }
 
 export function detectLocale(text: string, canonicalIntent?: CanonicalIntent | null): 'en' | 'zh' {
-    if (canonicalIntent?.locale === 'zh') return 'zh';
-    return isChinese(text) ? 'zh' : 'en';
+    return resolveBinaryLocale(text, canonicalIntent?.locale);
 }

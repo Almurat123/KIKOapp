@@ -142,3 +142,50 @@ test('streams visible deltas immediately when no tool calls were emitted', async
         globalThis.fetch = originalFetch;
     }
 });
+
+test('forwards Grok progress, client actions, and latency metrics without losing the final answer', async () => {
+    const client = new PythonGenerationClient();
+    const originalFetch = globalThis.fetch;
+    const providerProgress: Array<{ status?: string; toolBatch?: Record<string, any> }> = [];
+    const clientActions: any[] = [];
+    const latencyMetrics: Record<string, any>[] = [];
+    const textDeltas: string[] = [];
+
+    globalThis.fetch = async () => makeSseResponse([
+        { type: 'tool_progress', payload: { status: 'Running 2 tools', tool_batch: { phase: 'started', count: 2, tools: ['web_search', 'x_search'] } } },
+        { type: 'client_action', payload: { client_actions: [{ type: 'show_polymarket_card', data: { slug: 'btc-up-down' } }] } },
+        { type: 'assistant_delta', payload: { text: 'Final Grok answer.' } },
+        { type: 'latency_metrics', payload: { first_token_ms: 420, end_to_end_ms: 1800 } },
+        { type: 'message_complete', payload: {} },
+    ]) as any;
+
+    try {
+        const result = await client.generate({
+            sessionId: 'session-3',
+            taskId: 'task-3',
+            model: 'grok-4-1-fast-non-reasoning',
+            messages: [],
+            tools: [],
+            providerOptions: {},
+            onTextDelta: async (text) => { textDeltas.push(text); },
+            onReasoningDelta: async () => {},
+            onUsage: () => {},
+            onCitation: () => {},
+            onClientAction: async (action) => { clientActions.push(action); },
+            onProviderProgress: async (progress) => { providerProgress.push(progress); },
+            onLatencyMetrics: async (metrics) => { latencyMetrics.push(metrics); },
+        });
+
+        assert.equal(result.text, 'Final Grok answer.');
+        assert.deepEqual(textDeltas, ['Final Grok answer.']);
+        assert.equal(providerProgress.length, 1);
+        assert.equal(providerProgress[0]?.status, 'Running 2 tools');
+        assert.equal(providerProgress[0]?.toolBatch?.phase, 'started');
+        assert.equal(clientActions.length, 1);
+        assert.equal(clientActions[0]?.type, 'show_polymarket_card');
+        assert.equal(latencyMetrics.length, 1);
+        assert.equal(latencyMetrics[0]?.first_token_ms, 420);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});

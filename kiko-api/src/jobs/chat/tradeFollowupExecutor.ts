@@ -4,6 +4,7 @@ import type { ChatContextSnapshot, OrchestratorToolResult } from './contracts.js
 import { ChatStreamBroker } from './streamBroker.js';
 import type { ToolExecutionEngine } from './toolExecutionEngine.js';
 import { computeConfirmationToken } from './executionGate.js';
+import { resolveBinaryLocale } from './runtimeLocale.js';
 
 export async function executeDirectTradeFollowup(params: {
     snapshot: ChatContextSnapshot;
@@ -295,6 +296,5 @@ function resolveInvalidTradeConfirmation(snapshot: ChatContextSnapshot): {
 }
 
 function detectLocale(snapshot: ChatContextSnapshot): 'en' | 'zh' {
-    if (snapshot.normalizedIntent?.locale === 'zh') return 'zh';
-    return /[\u4e00-\u9fff]/.test(String(snapshot.lastUserMessage || '')) ? 'zh' : 'en';
+    return resolveBinaryLocale(String(snapshot.lastUserMessage || ''), snapshot.normalizedIntent?.locale);
 }

@@ -8,11 +8,15 @@ test('ChatWorker starts the broker and emits progress before wallet hydration be
     const events: string[] = [];
     const worker = new ChatWorker() as any;
     const originalBrokerStart = ChatStreamBroker.prototype.start;
+    const originalBootstrapRuntime = ChatStreamBroker.prototype.bootstrapRuntime;
     const originalBrokerFail = ChatStreamBroker.prototype.fail;
     const originalHydrate = worker.hydrateWalletSnapshotIfNeeded;
 
     ChatStreamBroker.prototype.start = function startPatched() {
         events.push('broker:start');
+    };
+    ChatStreamBroker.prototype.bootstrapRuntime = async function bootstrapRuntimePatched() {
+        events.push('broker:runtime');
     };
     ChatStreamBroker.prototype.fail = async function failPatched() {
         events.push('broker:fail');
@@ -68,13 +72,16 @@ test('ChatWorker starts the broker and emits progress before wallet hydration be
         });
 
         const brokerStartIndex = events.indexOf('broker:start');
+        const brokerRuntimeIndex = events.indexOf('broker:runtime');
         const hydrationIndex = events.indexOf('hydrate:start');
         const loadingStatusIndex = events.indexOf('status:Loading wallet and context');
 
         assert.ok(brokerStartIndex >= 0, 'expected broker.start to be called');
+        assert.ok(brokerRuntimeIndex >= 0, 'expected broker.bootstrapRuntime to be called');
         assert.ok(hydrationIndex >= 0, 'expected wallet hydration to run');
         assert.ok(loadingStatusIndex >= 0, 'expected loading status to be broadcast');
         assert.ok(brokerStartIndex < hydrationIndex, 'broker.start should happen before hydration');
+        assert.ok(brokerRuntimeIndex < hydrationIndex, 'runtime bootstrap should happen before hydration');
         assert.ok(loadingStatusIndex < hydrationIndex, 'loading status should be broadcast before hydration');
         assert.equal(repoCalls.getSession, 1);
         assert.equal(repoCalls.getSessionMessages, 1);
@@ -84,15 +91,17 @@ test('ChatWorker starts the broker and emits progress before wallet hydration be
         assert.ok(events.includes('broker:fail'));
     } finally {
         ChatStreamBroker.prototype.start = originalBrokerStart;
+        ChatStreamBroker.prototype.bootstrapRuntime = originalBootstrapRuntime;
         ChatStreamBroker.prototype.fail = originalBrokerFail;
         worker.hydrateWalletSnapshotIfNeeded = originalHydrate;
         mock.restoreAll();
     }
 });
 
-test('empty assistant completion is rejected when there are no tool results', () => {
-    assert.equal(isEmptyAssistantCompletion('', []), true);
-    assert.equal(isEmptyAssistantCompletion('   ', []), true);
-    assert.equal(isEmptyAssistantCompletion('answer', []), false);
-    assert.equal(isEmptyAssistantCompletion('', [{ name: 'get_trending_tokens' }]), false);
+test('empty assistant completion is rejected unless there is a visible user-facing artifact', () => {
+    assert.equal(isEmptyAssistantCompletion(''), true);
+    assert.equal(isEmptyAssistantCompletion('   '), true);
+    assert.equal(isEmptyAssistantCompletion('answer'), false);
+    assert.equal(isEmptyAssistantCompletion('', { hasVisibleArtifact: false }), true);
+    assert.equal(isEmptyAssistantCompletion('', { hasVisibleArtifact: true }), false);
 });

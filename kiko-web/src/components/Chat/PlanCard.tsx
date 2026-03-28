@@ -31,7 +31,14 @@ interface PlanCardData {
   planId?: string;
   title?: string;
   summary?: string;
-  locale?: 'en' | 'zh';
+  locale?: string;
+  uiText?: {
+    eyebrow?: string;
+    reasoningLabel?: string;
+    statusLabels?: Partial<Record<PlanStepStatus, string>>;
+    completedStepFeedback?: string;
+    stoppedStepFeedback?: string;
+  };
   status?: PlanStepStatus;
   currentStepId?: string;
   steps?: PlanStep[];
@@ -50,8 +57,8 @@ type DetailEntry = {
 };
 
 export const PlanCard: React.FC<PlanCardProps> = ({ plan, reasoningText, isStreaming = false, messageStatus }) => {
-  const locale: 'en' | 'zh' = plan.locale === 'zh' ? 'zh' : 'en';
-  const resolvedPlan = useMemo(() => normalizePlanForMessageStatus(plan, messageStatus, locale), [plan, messageStatus, locale]);
+  const resolvedPlan = useMemo(() => normalizePlanForMessageStatus(plan, messageStatus), [plan, messageStatus]);
+  const uiText = resolvedPlan.uiText || plan.uiText || {};
   const steps = Array.isArray(resolvedPlan.steps) ? resolvedPlan.steps : [];
   const liveReasoning = normalizeReasoning(reasoningText || '');
   const visualStatus: PlanStepStatus = isStreaming && (resolvedPlan.status === 'pending' || resolvedPlan.status === 'in_progress')
@@ -83,18 +90,20 @@ export const PlanCard: React.FC<PlanCardProps> = ({ plan, reasoningText, isStrea
     <div className={clsx(planStyles.card, isActive && planStyles.cardActive)}>
       <div className={planStyles.header}>
         <div className={planStyles.headerMain}>
-          <div className={planStyles.eyebrow}>Todo-list</div>
-          <div className={planStyles.title}>{plan.title || 'Task execution'}</div>
-          {plan.summary ? <div className={planStyles.summary}>{plan.summary}</div> : null}
+          {uiText.eyebrow ? <div className={planStyles.eyebrow}>{uiText.eyebrow}</div> : null}
+          {resolvedPlan.title ? <div className={planStyles.title}>{resolvedPlan.title}</div> : null}
+          {resolvedPlan.summary ? <div className={planStyles.summary}>{resolvedPlan.summary}</div> : null}
         </div>
-        <div className={clsx(planStyles.statusPill, planStyles[`status_${visualStatus}`], isActive && planStyles.statusPillActive)}>
-          {labelForStatus(visualStatus, locale)}
-        </div>
+        {labelForStatus(visualStatus, uiText.statusLabels) ? (
+          <div className={clsx(planStyles.statusPill, planStyles[`status_${visualStatus}`], isActive && planStyles.statusPillActive)}>
+            {labelForStatus(visualStatus, uiText.statusLabels)}
+          </div>
+        ) : null}
       </div>
 
       {liveReasoning ? (
         <div className={planStyles.reasoningBlock}>
-          <div className={planStyles.reasoningLabel}>Reasoning</div>
+          {uiText.reasoningLabel ? <div className={planStyles.reasoningLabel}>{uiText.reasoningLabel}</div> : null}
           <div className={planStyles.reasoningText}>
             {liveReasoning}
             {isStreaming ? <span className={planStyles.reasoningCaret} aria-hidden="true" /> : null}
@@ -152,7 +161,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ plan, reasoningText, isStrea
                         <div key={execution.id} className={planStyles.execution}>
                           <div className={planStyles.executionHeader}>
                             <span className={clsx(planStyles.executionState, planStyles[`status_${execution.status}`])}>
-                              {labelForStatus(execution.status, locale)}
+                              {labelForStatus(execution.status, uiText.statusLabels)}
                             </span>
                             <span className={planStyles.executionSummary}>{compactSentence(execution.summary)}</span>
                           </div>
@@ -192,17 +201,11 @@ function iconForStatus(status: PlanStepStatus) {
   return <Circle size={12} />;
 }
 
-function labelForStatus(status: PlanStepStatus, locale: 'en' | 'zh'): string {
-  if (locale === 'zh') {
-    if (status === 'completed') return '完成';
-    if (status === 'failed') return '失败';
-    if (status === 'in_progress') return '进行中';
-    return '待处理';
-  }
-  if (status === 'completed') return 'Done';
-  if (status === 'failed') return 'Error';
-  if (status === 'in_progress') return 'Loading';
-  return 'Pending';
+function labelForStatus(
+  status: PlanStepStatus,
+  customLabels?: Partial<Record<PlanStepStatus, string>>,
+): string {
+  return customLabels?.[status] || '';
 }
 
 function compactSentence(value: string): string {
@@ -216,7 +219,6 @@ function normalizeReasoning(value: string): string {
 function normalizePlanForMessageStatus(
   plan: PlanCardData,
   messageStatus: string | undefined,
-  locale: 'en' | 'zh',
 ): PlanCardData {
   const resolved: PlanCardData = {
     ...plan,
@@ -240,9 +242,7 @@ function normalizePlanForMessageStatus(
       return {
         ...step,
         status: 'failed',
-        feedback: step.feedback || (locale === 'zh'
-          ? '由于任务已终止，此步骤未继续执行。'
-          : 'This step did not continue because the task already stopped.'),
+        feedback: step.feedback || plan.uiText?.stoppedStepFeedback,
       };
     });
   } else if (resolved.status === 'completed') {
@@ -251,9 +251,7 @@ function normalizePlanForMessageStatus(
       return {
         ...step,
         status: 'completed',
-        feedback: step.feedback || (locale === 'zh'
-          ? '任务已完成，此步骤无需继续执行。'
-          : 'The task completed without needing additional work for this step.'),
+        feedback: step.feedback || plan.uiText?.completedStepFeedback,
       };
     });
   }

@@ -1,4 +1,5 @@
 import type { ChatContextSnapshot } from './contracts.js';
+import { resolveBinaryLocale } from './runtimeLocale.js';
 
 export type CanonicalDomain =
     | 'assistant_meta'
@@ -154,7 +155,7 @@ function normalizeLocale(value: unknown, snapshot: ChatContextSnapshot): 'en' | 
     const raw = String(value || '').trim().toLowerCase();
     if (raw === 'zh' || raw === 'cn' || raw === 'zh-cn') return 'zh';
     if (raw === 'en') return 'en';
-    return /[\u4e00-\u9fff]/.test(String(snapshot.lastUserMessage || '')) ? 'zh' : 'en';
+    return resolveBinaryLocale(String(snapshot.lastUserMessage || ''));
 }
 
 function normalizeRequestedChain(value: unknown): CanonicalRequestedChain | null {
@@ -361,7 +362,7 @@ export function buildCanonicalIntentClarification(params: {
     snapshot: ChatContextSnapshot;
     reasonCode?: NormalizationReasonCode;
 }): string {
-    const locale = /[\u4e00-\u9fff]/.test(String(params.snapshot.lastUserMessage || '')) ? 'zh' : 'en';
+    const locale = resolveBinaryLocale(String(params.snapshot.lastUserMessage || ''));
     if (locale === 'zh') {
         if (params.reasonCode === 'normalization_entity_conflict') {
             return '我识别到你的请求里有冲突的链或实体信息。请明确告诉我要分析哪个链、哪个地址或哪个市场。';

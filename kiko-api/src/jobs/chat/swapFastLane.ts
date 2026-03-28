@@ -3,10 +3,10 @@ import type { ChatContextSnapshot, OrchestratorToolCall, OrchestratorToolResult 
 import type { ToolExecutionEngine } from './toolExecutionEngine.js';
 import type { ChatStreamBroker } from './streamBroker.js';
 import { normalizeChainAlias, resolveCanonicalChainRef } from './chainIntent.js';
+import { resolveBinaryLocale } from './runtimeLocale.js';
 
 function detectLocale(snapshot: ChatContextSnapshot): 'en' | 'zh' {
-    if (snapshot.normalizedIntent?.locale === 'zh') return 'zh';
-    return /[\u4e00-\u9fff]/.test(String(snapshot.lastUserMessage || '')) ? 'zh' : 'en';
+    return resolveBinaryLocale(String(snapshot.lastUserMessage || ''), snapshot.normalizedIntent?.locale);
 }
 
 function parseStructuredSwapRequest(snapshot: ChatContextSnapshot): {

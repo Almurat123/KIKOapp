@@ -78,6 +78,7 @@ export class ChatWebSocketClient {
 
     // Sequence tracking: sessionId -> last received sequence number
     private lastReceivedSeq: Map<string, number> = new Map();
+    private trackedSessions: Set<string> = new Set();
 
     constructor() { }
 
@@ -162,6 +163,9 @@ export class ChatWebSocketClient {
                 }
                 const data = this.normalizeIncomingEvent(raw);
                 if (!data) return;
+                if (data.sessionId) {
+                    this.trackSession(data.sessionId);
+                }
 
                 // Track sequence number and send ACK
                 if (data.seq !== undefined && data.sessionId) {
@@ -308,6 +312,22 @@ export class ChatWebSocketClient {
                 }
             });
         }
+        if (t === 'agent_runtime') {
+            return withEnvelope({
+                type: 'agent_runtime',
+                sessionId,
+                seq,
+                data: {
+                    message_id: payload.message_id || payload.messageId || messageId,
+                    messageId: payload.message_id || payload.messageId || messageId,
+                    snapshot: payload.snapshot,
+                    event: payload.event,
+                    planId: payload.planId || payload.plan_id,
+                    kind: payload.kind || 'agent_runtime',
+                    scope: payload.scope || 'chat_task',
+                }
+            });
+        }
         if (t === 'usage') {
             return withEnvelope({ type: 'usage', sessionId, seq, data: { message_id: messageId, messageId, usage: payload.usage || payload } });
         }
@@ -406,6 +426,15 @@ export class ChatWebSocketClient {
         return () => this.listeners.delete(listener);
     }
 
+    public trackSession(sessionId: string) {
+        const normalized = String(sessionId || '').trim();
+        if (!normalized) return;
+        this.trackedSessions.add(normalized);
+        if (!this.lastReceivedSeq.has(normalized)) {
+            this.lastReceivedSeq.set(normalized, 0);
+        }
+    }
+
     /**
      * Clear all listeners
      */
@@ -456,6 +485,7 @@ export class ChatWebSocketClient {
      * Request sync for a specific session
      */
     public requestSync(sessionId: string) {
+        this.trackSession(sessionId);
         const lastSeq = this.lastReceivedSeq.get(sessionId) || 0;
         if (this.socket?.readyState === WebSocket.OPEN) {
             console.log(`[ChatWS] Requesting sync for session ${sessionId} from seq ${lastSeq}`);
@@ -471,7 +501,7 @@ export class ChatWebSocketClient {
      * Request sync for all tracked sessions after reconnection
      */
     private requestSyncForAllSessions() {
-        this.lastReceivedSeq.forEach((_lastSeq, sessionId) => {
+        this.trackedSessions.forEach((sessionId) => {
             this.requestSync(sessionId);
         });
     }

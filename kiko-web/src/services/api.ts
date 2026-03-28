@@ -1007,12 +1007,16 @@ export const chatApi = {
             model: requestedModel || null,
             contentLength: content.trim().length,
         });
+        chatWSClient.trackSession(sessionId);
         const streamReady = await ensureChatStreamReady();
         const response = await chatFetch<{ success: boolean; userMessage: ChatMessage; assistantMessage: ChatMessage; task: ChatTask }>(`/api/chat/sessions/${sessionId}/messages`, {
             method: 'POST',
             signal,
             body: JSON.stringify({ content, ...payload }),
         });
+        if (response?.success) {
+            chatWSClient.requestSync(sessionId);
+        }
         logger.debug('[chatApi] sendMessage response', {
             sessionId,
             model: requestedModel || null,

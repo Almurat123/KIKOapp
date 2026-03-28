@@ -243,9 +243,41 @@ async def _stream_sse(provider: str, url: str, headers: dict[str, str], body: di
                                 first_token_at = int((time.time() - started_at) * 1000)
                             yield GatewayEvent(event_type="delta_reasoning", provider=provider, provider_request_id=provider_request_id, payload={"text": str(rc)})
 
+                        tool_status = delta.get("tool_status")
+                        if tool_status:
+                            if first_token_at is None:
+                                first_token_at = int((time.time() - started_at) * 1000)
+                            yield GatewayEvent(
+                                event_type="delta_reasoning",
+                                provider=provider,
+                                provider_request_id=provider_request_id,
+                                payload={"text": str(tool_status)},
+                            )
+
+                        tool_batch = data.get("tool_batch")
+                        if tool_batch:
+                            yield GatewayEvent(
+                                event_type="tool_progress",
+                                provider=provider,
+                                provider_request_id=provider_request_id,
+                                payload={
+                                    "tool_batch": tool_batch,
+                                    "status": str(tool_status) if tool_status else "",
+                                },
+                            )
+
                         tool_calls = delta.get("tool_calls")
                         if tool_calls:
                             yield GatewayEvent(event_type="tool_call", provider=provider, provider_request_id=provider_request_id, payload={"tool_calls": tool_calls})
+
+                        client_actions = delta.get("client_actions") or data.get("client_actions")
+                        if client_actions:
+                            yield GatewayEvent(
+                                event_type="client_action",
+                                provider=provider,
+                                provider_request_id=provider_request_id,
+                                payload={"client_actions": client_actions},
+                            )
 
                         usage = data.get("usage")
                         if usage:
@@ -255,6 +287,9 @@ async def _stream_sse(provider: str, url: str, headers: dict[str, str], body: di
                         citations = msg.get("citations")
                         if citations:
                             yield GatewayEvent(event_type="citation", provider=provider, provider_request_id=provider_request_id, payload={"citations": citations})
+                        inline_citations = msg.get("inline_citations") or data.get("inline_citations")
+                        if inline_citations:
+                            yield GatewayEvent(event_type="citation", provider=provider, provider_request_id=provider_request_id, payload={"citations": inline_citations})
                     total_ms = int((time.time() - started_at) * 1000)
                     yield GatewayEvent(event_type="latency_metrics", provider=provider, provider_request_id=provider_request_id, payload={"end_to_end_ms": total_ms, "first_token_ms": first_token_at})
                     yield GatewayEvent(event_type="done", provider=provider, provider_request_id=provider_request_id, payload={})

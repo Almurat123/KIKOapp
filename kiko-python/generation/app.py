@@ -72,6 +72,15 @@ async def stream_generation(body: GenerationRequest):
                 if not tool_call_signal_sent:
                     tool_call_signal_sent = True
                     yield encode_event("tool_call_signal", {})
+            elif event_type == "tool_progress":
+                yield encode_event("tool_progress", {
+                    "tool_batch": payload.get("tool_batch") or {},
+                    "status": payload.get("status") or "",
+                })
+            elif event_type == "client_action":
+                yield encode_event("client_action", {
+                    "client_actions": payload.get("client_actions") or [],
+                })
             elif event_type == "error":
                 raw_detail = payload.get("raw")
                 request_tail = payload.get("request_tail")
@@ -119,6 +128,8 @@ async def stream_generation(body: GenerationRequest):
                     })
                 yield encode_event("message_complete", {})
                 return
+            elif event_type == "latency_metrics":
+                yield encode_event("latency_metrics", payload)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

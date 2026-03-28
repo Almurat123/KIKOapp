@@ -210,11 +210,20 @@ export interface AgentRuntimeEnvelope {
     event: AgentRuntimeEvent | null;
 }
 
+export interface PlanCardUiText {
+    eyebrow?: string;
+    reasoningLabel?: string;
+    statusLabels?: Partial<Record<PlanStepStatus, string>>;
+    completedStepFeedback?: string;
+    stoppedStepFeedback?: string;
+}
+
 export interface PlanCard {
     planId: string;
     title: string;
     summary: string;
-    locale?: 'en' | 'zh';
+    locale?: string;
+    uiText?: PlanCardUiText;
     status: 'pending' | 'in_progress' | 'completed' | 'failed';
     runtimeState?: PlanRuntimeState;
     currentStepId?: string;

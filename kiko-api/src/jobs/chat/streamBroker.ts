@@ -33,6 +33,7 @@ export class ChatStreamBroker {
     private citationKeys = new Set<string>();
     private usage: OrchestratorUsage | null = null;
     private toolResults: OrchestratorToolResult[] = [];
+    private visibleArtifacts: Array<{ kind: string; target: 'assistant_message' | 'dedicated_message' }> = [];
     private lastPersistMs = 0;
     private planCard: PlanCard | null = null;
     private assistantData: Record<string, any> = {};
@@ -227,6 +228,44 @@ export class ChatStreamBroker {
         await this.persistPlanCard(next);
     }
 
+    async noteProviderProgress(progress: { status?: string; toolBatch?: Record<string, any> }) {
+        const status = String(progress.status || '').trim();
+        const toolBatch = progress.toolBatch && typeof progress.toolBatch === 'object'
+            ? progress.toolBatch
+            : undefined;
+        const summary = status
+            || (typeof toolBatch?.phase === 'string' ? `Provider progress: ${toolBatch.phase}` : '');
+        const history = Array.isArray(this.assistantData.providerProgressHistory)
+            ? this.assistantData.providerProgressHistory
+            : [];
+        const nextEntry = {
+            status: status || undefined,
+            toolBatch,
+            recordedAt: new Date().toISOString(),
+        };
+        this.assistantData = {
+            ...this.assistantData,
+            providerProgressHistory: [...history.slice(-9), nextEntry],
+        };
+        await chatRepo.updateMessage(this.params.assistantMessageId, {
+            data: this.assistantData,
+            status: 'streaming',
+        });
+        this.broadcastAssistantDataPatch({
+            providerProgressHistory: this.assistantData.providerProgressHistory,
+        });
+        if (!this.planCard || !summary) return;
+        const next = this.clonePlan(this.planCard);
+        next.activity = this.appendRuntimeEvent(
+            next.activity,
+            this.makeRuntimeEvent('runtime_note', summary, {
+                detail: toolBatch ? { toolBatch } : undefined,
+                status: 'in_progress',
+            }),
+        );
+        await this.persistPlanCard(next);
+    }
+
     async ensurePlanStep(step: PlanStep) {
         if (!this.planCard) return;
         const next = this.clonePlan(this.planCard);
@@ -395,6 +434,7 @@ export class ChatStreamBroker {
             if (renderContract) {
                 data.renderContracts = mergeRenderContracts(this.assistantData.renderContracts || [], renderContract);
                 liveDataPatch.renderContracts = data.renderContracts;
+                this.registerVisibleArtifact('render_contract', 'assistant_message');
             }
             const nextPolymarketSelection = extractPolymarketSelectionState(result.name, normalizedResult);
             if (nextPolymarketSelection) {
@@ -426,6 +466,10 @@ export class ChatStreamBroker {
 
     getToolResults() {
         return [...this.toolResults];
+    }
+
+    hasVisibleArtifact() {
+        return this.visibleArtifacts.length > 0;
     }
 
     getContent() {
@@ -561,6 +605,68 @@ export class ChatStreamBroker {
         const clientAction = this.resolveClientAction(result.name, rawResult);
         if (!clientAction) return;
 
+        const txMessageId = await this.persistClientAction(clientAction, rawResult);
+        if (txMessageId && this.params.userId) {
+            try {
+                const txMessage = await chatRepo.getMessage(txMessageId);
+                const txData = txMessage?.data || clientAction.data || clientAction.payload || {};
+                const actionType = clientAction.type === 'show_cross_chain_status_card'
+                    ? 'show_cross_chain_status_card'
+                    : 'show_transaction_status_card';
+                chatWS.broadcastToUser(this.params.userId, {
+                    type: 'client_action',
+                    sessionId: this.params.sessionId,
+                    data: {
+                        message_id: this.params.assistantMessageId,
+                        targetMessageId: txMessageId,
+                        action: {
+                            type: actionType,
+                            data: txData,
+                        },
+                    },
+                });
+            } catch (error: any) {
+                logger.warn(LogCode.WS_ERROR, 'ChatStreamBroker: failed to rebroadcast dedicated transaction card', {
+                    assistantMessageId: this.params.assistantMessageId,
+                    txMessageId,
+                    error: error?.message || String(error),
+                });
+            }
+        }
+    }
+
+    async emitProviderClientAction(clientAction: any) {
+        if (!clientAction || typeof clientAction !== 'object' || !clientAction.type) return;
+        await this.persistClientAction(clientAction, null);
+    }
+
+    recordProviderLatencyMetrics(metrics: Record<string, any>) {
+        const next = {
+            ...(this.assistantData.providerLatencyMetrics || {}),
+            ...metrics,
+            recordedAt: new Date().toISOString(),
+        };
+        this.assistantData = {
+            ...this.assistantData,
+            providerLatencyMetrics: next,
+        };
+        if (this.params.userId) {
+            chatWS.broadcastToUser(this.params.userId, {
+                type: 'latency_metrics',
+                sessionId: this.params.sessionId,
+                data: {
+                    messageId: this.params.assistantMessageId,
+                    ...next,
+                },
+            });
+        }
+        void chatRepo.updateMessage(this.params.assistantMessageId, {
+            data: this.assistantData,
+            status: 'streaming',
+        });
+    }
+
+    private async persistClientAction(clientAction: any, rawResult: any): Promise<string | null> {
         if (this.params.userId) {
             chatWS.broadcastToUser(this.params.userId, {
                 type: 'client_action',
@@ -586,6 +692,12 @@ export class ChatStreamBroker {
         const hasDedicatedTxMessage = dbMessageType === 'transaction-status-card'
             && rawResult?.messageId
             && rawResult.messageId !== this.params.assistantMessageId;
+        if (dbMessageType !== 'text') {
+            this.registerVisibleArtifact(
+                dbMessageType,
+                hasDedicatedTxMessage ? 'dedicated_message' : 'assistant_message',
+            );
+        }
         if (!hasDedicatedTxMessage) {
             this.assistantData = {
                 ...this.assistantData,
@@ -598,35 +710,7 @@ export class ChatStreamBroker {
                 transactionHash: dbMessageType === 'transaction-status-card' ? actionData?.txHash : undefined,
             });
         }
-
-        const txMessageId = rawResult?.messageId;
-        if (txMessageId && this.params.userId) {
-            try {
-                const txMessage = await chatRepo.getMessage(txMessageId);
-                const txData = txMessage?.data || actionData || {};
-                const actionType = clientAction.type === 'show_cross_chain_status_card'
-                    ? 'show_cross_chain_status_card'
-                    : 'show_transaction_status_card';
-                chatWS.broadcastToUser(this.params.userId, {
-                    type: 'client_action',
-                    sessionId: this.params.sessionId,
-                    data: {
-                        message_id: this.params.assistantMessageId,
-                        targetMessageId: txMessageId,
-                        action: {
-                            type: actionType,
-                            data: txData,
-                        },
-                    },
-                });
-            } catch (error: any) {
-                logger.warn(LogCode.WS_ERROR, 'ChatStreamBroker: failed to rebroadcast dedicated transaction card', {
-                    assistantMessageId: this.params.assistantMessageId,
-                    txMessageId,
-                    error: error?.message || String(error),
-                });
-            }
-        }
+        return rawResult?.messageId ? String(rawResult.messageId) : null;
     }
 
     private resolveClientAction(toolName: string, result: any): any {
@@ -922,6 +1006,7 @@ export class ChatStreamBroker {
             title: incoming.title || current.title,
             summary: incoming.summary || current.summary,
             locale: incoming.locale || current.locale,
+            uiText: incoming.uiText || current.uiText,
             steps: mergedSteps,
         };
     }
@@ -964,6 +1049,13 @@ export class ChatStreamBroker {
     private isCompletionLike(text: string | undefined): boolean {
         const value = String(text || '').toLowerCase();
         return value.includes('completed') || value.includes('done') || value.includes('已完成');
+    }
+
+    private registerVisibleArtifact(kind: string, target: 'assistant_message' | 'dedicated_message') {
+        if (!kind) return;
+        const exists = this.visibleArtifacts.some((artifact) => artifact.kind === kind && artifact.target === target);
+        if (exists) return;
+        this.visibleArtifacts.push({ kind, target });
     }
 }
 

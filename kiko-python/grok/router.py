@@ -99,6 +99,22 @@ def normalize_citations_for_client(citations: List[Any]) -> List[Dict[str, str]]
     return normalized
 
 
+def merge_citations_unique(collected: List[Any], incoming: List[Any]) -> List[Any]:
+    seen_urls = set()
+    merged: List[Any] = []
+    for item in list(collected or []) + list(incoming or []):
+        normalized = normalize_citations_for_client([item])
+        if not normalized:
+            continue
+        cite = normalized[0]
+        url = str(cite.get("url") or "").strip()
+        if not url or url in seen_urls:
+            continue
+        seen_urls.add(url)
+        merged.append(cite)
+    return merged
+
+
 def get_kb():
     """
     Lazy-load the RAG KnowledgeBase when RAG is explicitly enabled.
@@ -2165,8 +2181,10 @@ async def chat_completions(
                                 # Also check inline_citations if available
                                 if response and hasattr(response, 'inline_citations') and response.inline_citations:
                                     log_citations(f"[Citations] Found inline_citations: {len(response.inline_citations)}")
-                                    # Fallback: if we have inline citations but no regular ones, try to use them
-                                    # (Logic implementation depends on inline_citations structure, usually they correspond to text ranges)
+                                    collected_citations = merge_citations_unique(
+                                        collected_citations,
+                                        list(response.inline_citations),
+                                    )
                                     
                                 # Log critical state variables for debugging blank messages
                                 

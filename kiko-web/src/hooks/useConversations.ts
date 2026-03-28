@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { chatApi } from '../services/api';
 import { usePrivy } from '@privy-io/react-auth';
 import { mergeTransactionCardData } from '../utils/transactionCardState';
+import { chatWSClient } from '../utils/chatWebSocket';
 
 export interface Message {
   id: string;
@@ -192,6 +193,7 @@ export const useConversations = () => {
       return null;
     }
 
+    chatWSClient.trackSession(id);
     setActiveConversationId(id);
 
     const inFlight = inFlightConversationLoadsRef.current.get(id);
@@ -389,6 +391,8 @@ export const useConversations = () => {
             pendingLocalUserMessagesRef.current.delete(id);
           }
         }
+
+        chatWSClient.requestSync(id);
 
         // Return activeTask if exists for UI state restoration
         return resp.activeTask || null;

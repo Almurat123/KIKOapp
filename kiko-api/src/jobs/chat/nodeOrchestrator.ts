@@ -12,9 +12,11 @@ import type { ChatStreamBroker } from './streamBroker.js';
 import type { PythonGenerationClient } from './pythonGenerationClient.js';
 import {
     buildChainEvidencePlanStep,
+    materializePlanCard,
     buildSocialPlanStep,
     buildSummaryPlanStep,
     buildTaskPlanningContext,
+    buildWarmupPlan,
     resolvePlanStepForTool,
 } from './taskPlanner.js';
 import { generateModelPlan } from './modelPlanGenerator.js';
@@ -41,6 +43,7 @@ export async function runNodeOrchestration(params: {
     onProviderState?: (state: { previousResponseId?: string }) => Promise<void> | void;
 }) {
     const providerInfo = resolveProviderInfo(params.snapshot.model);
+    await params.broker.bootstrapRuntime(buildWarmupPlan(params.snapshot.lastUserMessage));
     let normalizedSnapshot = tryBuildFastLaneSwapIntent(params.snapshot).snapshot;
     if (!normalizedSnapshot.normalizedIntent && !normalizedSnapshot.normalizationState) {
         const normalization = await normalizeCanonicalIntent({
@@ -93,7 +96,24 @@ export async function runNodeOrchestration(params: {
         ? params.snapshot.policySnapshot.allowedTools
         : skillResolution.allowedTools;
     const planning = buildTaskPlanningContext(params.snapshot, skillResolution);
-    let plan = planning.plan;
+    let plan = materializePlanCard(planning);
+    void generateModelPlan({
+        snapshot: params.snapshot,
+        planning,
+        skillResolution,
+        generationClient: params.generationClient,
+        shouldCancel: params.shouldCancel,
+    }).then(async (modelPlan) => {
+        if (!modelPlan) return;
+        plan = modelPlan;
+        await params.broker.applyModelPlan(modelPlan);
+    }).catch((error) => {
+        logger.warn(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: async model plan update failed', {
+            sessionId: params.snapshot.sessionId,
+            taskId: params.snapshot.taskId,
+            error: error instanceof Error ? error.message : String(error),
+        });
+    });
     const executedToolResults = new Map<string, {
         name: string;
         arguments: Record<string, any>;
@@ -112,27 +132,6 @@ export async function runNodeOrchestration(params: {
     let lastRoundPolicyMessage = '';
     let forceAnswerFromEvidence = false;
     const isReadOnlyTask = (params.snapshot.policySnapshot?.actionClass || 'READ_ONLY') === 'READ_ONLY';
-
-    await params.broker.bootstrapRuntime(plan);
-
-    if (String(params.snapshot.model || '').trim().toLowerCase() !== 'deepseek-reasoner') {
-        void generateModelPlan({
-            snapshot: params.snapshot,
-            planning,
-            skillResolution,
-            generationClient: params.generationClient,
-            shouldCancel: params.shouldCancel,
-        }).then(async (modelPlan) => {
-            if (!modelPlan) return;
-            await params.broker.applyModelPlan(modelPlan);
-        }).catch((error) => {
-            logger.warn(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: async model plan update failed', {
-                sessionId: params.snapshot.sessionId,
-                taskId: params.snapshot.taskId,
-                error: error instanceof Error ? error.message : String(error),
-            });
-        });
-    }
 
     const messages: GenerationMessage[] = assembleGenerationMessages(
         params.snapshot,
@@ -301,6 +300,15 @@ export async function runNodeOrchestration(params: {
                     },
                     onUsage: params.broker.pushUsage.bind(params.broker),
                     onCitation: params.broker.pushCitation.bind(params.broker),
+                    onClientAction: async (action) => {
+                        await params.broker.emitProviderClientAction(action);
+                    },
+                    onProviderProgress: async (progress) => {
+                        await params.broker.noteProviderProgress(progress);
+                    },
+                    onLatencyMetrics: async (metrics) => {
+                        params.broker.recordProviderLatencyMetrics(metrics);
+                    },
                     onProviderState: async (state) => {
                         let forwardedState = state;
                         if (state.previousResponseId) {
@@ -381,6 +389,16 @@ export async function runNodeOrchestration(params: {
         }
 
         if (roundResult.toolCalls.length === 0) {
+            const hasVisibleArtifact = params.broker.hasVisibleArtifact();
+            const hasUserFacingText = (roundResult.text || '').trim().length > 0;
+            if (!hasUserFacingText && !hasVisibleArtifact) {
+                throw createOrchestrationError(
+                    'NO_FINAL_USER_FACING_OUTPUT',
+                    planning.locale === 'zh'
+                        ? '模型没有返回可见的最终回答，也没有生成任何可展示卡片'
+                        : 'The model returned no visible final answer and produced no displayable artifact',
+                );
+            }
             const summaryStep = buildSummaryPlanStep(params.snapshot.lastUserMessage);
             await params.broker.markAnswerStarted(summaryStep);
             await params.broker.setRuntimeState?.(undefined);
@@ -439,7 +457,7 @@ export async function runNodeOrchestration(params: {
                     );
                     continue;
                 }
-                if (evidenceSnapshot && (roundResult.text || '').trim().length > 0) {
+                if (evidenceSnapshot && ((roundResult.text || '').trim().length > 0 || params.broker.hasVisibleArtifact())) {
                     const summaryStep = buildSummaryPlanStep(params.snapshot.lastUserMessage);
                     await params.broker.markAnswerStarted(summaryStep);
                     await params.broker.markPlanPhase(
@@ -466,7 +484,7 @@ export async function runNodeOrchestration(params: {
                 continue;
             }
 
-            if ((roundResult.text || '').trim().length > 0 || (roundResult.reasoning || '').trim().length > 0) {
+            if ((roundResult.text || '').trim().length > 0 || params.broker.hasVisibleArtifact()) {
                 const summaryStep = buildSummaryPlanStep(params.snapshot.lastUserMessage);
                 await params.broker.markAnswerStarted(summaryStep);
                 await params.broker.setRuntimeState?.(undefined);

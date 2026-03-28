@@ -1,6 +1,6 @@
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
-import type { ChatContextSnapshot, PlanCard, PlanStep } from './contracts.js';
+import type { ChatContextSnapshot, PlanCard, PlanCardUiText, PlanStep } from './contracts.js';
 import type { SkillResolution } from './nodeSkillResolver.js';
 import type { PythonGenerationClient } from './pythonGenerationClient.js';
 import type { GenerationMessage } from './nodePromptAssembler.js';
@@ -8,8 +8,21 @@ import { orderPlanSteps } from './planOrdering.js';
 import type { TaskPlanningContext } from './taskPlanner.js';
 
 type ModelPlanPayload = {
+    locale?: string;
     title?: string;
     summary?: string;
+    uiText?: {
+        eyebrow?: string;
+        reasoningLabel?: string;
+        statusLabels?: {
+            pending?: string;
+            in_progress?: string;
+            completed?: string;
+            failed?: string;
+        };
+        completedStepFeedback?: string;
+        stoppedStepFeedback?: string;
+    };
     steps?: Array<{
         id?: string;
         title?: string;
@@ -35,7 +48,9 @@ export async function generateModelPlan(args: {
             content: [
                 'You generate a compact task plan for an AI runtime card.',
                 'Return JSON only. No markdown. No prose before or after the JSON.',
-                `Respond in ${planning.locale === 'zh' ? 'Chinese' : 'English'}.`,
+                'Write every user-facing string in the same language as the latest user message.',
+                'Preserve the user script when possible instead of translating into Chinese or English.',
+                'Set locale to a short language tag like en, zh, or ja when clear.',
                 'Use only the provided step ids. Do not invent new ids.',
                 'Keep titles short and user-facing. Keep descriptions to one sentence.',
             ].join(' '),
@@ -44,14 +59,31 @@ export async function generateModelPlan(args: {
             role: 'user',
             content: JSON.stringify({
                 task: snapshot.lastUserMessage,
-                locale: planning.locale,
                 available_step_ids: allowedStepIds,
+                plan_hints: {
+                    title: planning.planHints.title,
+                    summary: planning.planHints.summary,
+                    steps: planning.planHints.steps,
+                },
                 preferred_tools: preferredTools,
                 requested_token_addresses: snapshot.requestedTokenAddresses || [],
                 requested_token_symbols: snapshot.requestedTokenSymbols || [],
                 return_schema: {
+                    locale: 'optional_language_tag_string',
                     title: 'string',
                     summary: 'string',
+                    uiText: {
+                        eyebrow: 'string',
+                        reasoningLabel: 'string',
+                        statusLabels: {
+                            pending: 'string',
+                            in_progress: 'string',
+                            completed: 'string',
+                            failed: 'string',
+                        },
+                        completedStepFeedback: 'string',
+                        stoppedStepFeedback: 'string',
+                    },
                     steps: [
                         {
                             id: 'one of available_step_ids',
@@ -133,10 +165,52 @@ function mergePlan(plan: PlanCard, payload: ModelPlanPayload, fallbackPreferredT
 
     return {
         ...plan,
+        locale: String(payload.locale || '').trim() || plan.locale,
         title: String(payload.title || '').trim() || plan.title,
         summary: String(payload.summary || '').trim() || plan.summary,
+        uiText: mergeUiText(plan.uiText, payload.uiText),
         steps: orderPlanSteps(nextSteps),
     };
+}
+
+function mergeUiText(
+    existing: PlanCardUiText | undefined,
+    incoming: ModelPlanPayload['uiText'],
+): PlanCardUiText | undefined {
+    if (!incoming || typeof incoming !== 'object') return existing;
+    const statusLabels = normalizeStatusLabels(incoming.statusLabels, existing?.statusLabels);
+    const merged: PlanCardUiText = {
+        ...existing,
+        eyebrow: String(incoming.eyebrow || '').trim() || existing?.eyebrow,
+        reasoningLabel: String(incoming.reasoningLabel || '').trim() || existing?.reasoningLabel,
+        statusLabels,
+        completedStepFeedback: String(incoming.completedStepFeedback || '').trim() || existing?.completedStepFeedback,
+        stoppedStepFeedback: String(incoming.stoppedStepFeedback || '').trim() || existing?.stoppedStepFeedback,
+    };
+    return Object.values(merged).some((value) => {
+        if (!value) return false;
+        if (typeof value === 'object') return Object.keys(value).length > 0;
+        return true;
+    }) ? merged : existing;
+}
+
+function normalizeStatusLabels(
+    incoming: ModelPlanPayload['uiText'] extends { statusLabels?: infer T } ? T | undefined : Record<string, unknown> | undefined,
+    existing: PlanCardUiText['statusLabels'] | undefined,
+): PlanCardUiText['statusLabels'] {
+    const record = incoming && typeof incoming === 'object'
+        ? incoming as Record<string, unknown>
+        : {};
+    const next: PlanCardUiText['statusLabels'] = {
+        ...existing,
+    };
+    for (const key of ['pending', 'in_progress', 'completed', 'failed'] as const) {
+        const value = String(record[key] || '').trim();
+        if (value) {
+            next[key] = value;
+        }
+    }
+    return Object.keys(next).length > 0 ? next : existing;
 }
 
 function normalizeTools(tools: unknown, fallbackPreferredTools: string[], existing: string[]): string[] {

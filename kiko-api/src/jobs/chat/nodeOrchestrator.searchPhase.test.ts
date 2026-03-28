@@ -80,6 +80,7 @@ function makeBroker() {
         providerNativeEvidence,
         async bootstrapRuntime() {},
         async applyModelPlan() {},
+        hasVisibleArtifact() { return false; },
         async markPlanPhase() {},
         async ensurePlanStep() {},
         async focusPlanStep() {},
