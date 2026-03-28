@@ -40,6 +40,7 @@ const PROVIDER_NATIVE_TOOLS = [
     'web_search',
     'x_search',
     'web_search_with_snippets',
+    'x_user_search',
     'x_keyword_search',
     'x_semantic_search',
     'x_thread_fetch',
@@ -152,7 +153,7 @@ export function isMutationTool(toolName: string): boolean {
 
 export function isProviderNativeTool(toolName: string, policy: ControlPolicySnapshot | null | undefined): boolean {
     const native = policy?.providerNativeTools || PROVIDER_NATIVE_TOOLS;
-    return native.includes(String(toolName || ''));
+    return matchesProviderNativeToolName(toolName, native);
 }
 
 export function resolvePolicyToolBudget(policy: ControlPolicySnapshot | null | undefined, toolName: string): number {
@@ -255,4 +256,20 @@ function incrementPolicyCounterForCode(code: PolicyReasonCode) {
 
 function incrementCounter(key: string) {
     POLICY_COUNTERS.set(key, (POLICY_COUNTERS.get(key) || 0) + 1);
+}
+
+function matchesProviderNativeToolName(toolName: string, nativeTools: string[]): boolean {
+    const normalized = String(toolName || '').trim();
+    if (!normalized) return false;
+    if (nativeTools.includes(normalized)) return true;
+    if (normalized === 'browse_page' || normalized === 'open_page' || normalized === 'code_execution' || normalized === 'collections_search' || normalized === 'mcp') {
+        return true;
+    }
+    if (normalized.startsWith('x_') && (normalized.endsWith('_search') || normalized.endsWith('_fetch'))) {
+        return true;
+    }
+    if (normalized.startsWith('web_') && normalized.endsWith('_search')) {
+        return true;
+    }
+    return false;
 }

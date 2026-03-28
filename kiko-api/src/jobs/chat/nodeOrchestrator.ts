@@ -6,7 +6,7 @@ import { buildProviderOptions, resolveProviderInfo } from './providerPolicyBuild
 import { resolveNodeSkills } from './nodeSkillResolver.js';
 import { assembleGenerationMessages, buildRoundToolPolicySystemMessage, sanitizeProviderHistory, type GenerationMessage } from './nodePromptAssembler.js';
 import { parseTradingIntent } from './tradingIntentResolver.js';
-import { checkToolAgainstPolicy, resolvePolicyToolBudget } from './controlPolicy.js';
+import { checkToolAgainstPolicy, isProviderNativeTool, resolvePolicyToolBudget } from './controlPolicy.js';
 import type { ToolExecutionEngine } from './toolExecutionEngine.js';
 import type { ChatStreamBroker } from './streamBroker.js';
 import type { PythonGenerationClient } from './pythonGenerationClient.js';
@@ -856,7 +856,7 @@ export function normalizeToolCallForProvider(
 
 function isProviderManagedNativeTool(toolName: string, provider: 'openai' | 'deepseek' | 'grok') {
     if (provider !== 'grok') return false;
-    return ['web_search', 'web_search_with_snippets', 'x_search', 'x_keyword_search', 'x_semantic_search', 'x_thread_fetch', 'browse_page', 'open_page', 'code_execution', 'collections_search', 'mcp'].includes(toolName);
+    return isProviderNativeTool(toolName, null);
 }
 
 function isSuspiciousProviderResponseId(value: string): boolean {
