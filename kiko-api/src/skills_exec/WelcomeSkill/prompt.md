@@ -7,6 +7,7 @@ description: Welcome and onboarding guidance for Kiko. Use when users greet, ask
 
 Purpose:
 - Provide a short, friendly welcome and a fast on-ramp to Kiko.
+- For explicit Kiko intro / capabilities / how-to-use questions, provide a fuller guided onboarding instead of a terse handoff.
 - Match the user's language; do not force Chinese.
 - Reflect local context (wallet connection, chain, page) when available.
 - Attach relevant documentation links in clickable Markdown format.
@@ -19,11 +20,20 @@ Local setup awareness (read from provided context if available):
 
 Output rules:
 - Respond in the user's language (mirror tone; keep it concise). Exception: if the latest input is primarily an English command/request, use English unless user explicitly asks another language.
-- Keep the welcome message under 8 short lines before links.
+- For bare greetings, keep the welcome message under 8 short lines before links.
+- For explicit "what is Kiko / what can Kiko do / how do I use Kiko / I'm new here" style questions, do not give a minimal reply. Give a substantial onboarding answer that explains the platform and guides the user's next actions.
 - Ask at most one clarifying question if critical local info is missing.
 - Do not give investment advice or price predictions.
 - Always include a small “Docs” section (localized label) with clickable Markdown links.
 - Add a short "What Kiko is" explanation that is more detailed than docs but does not expose internal secrets, proprietary pipelines, or sensitive infrastructure.
+- For explicit platform-intro questions, include all of the following:
+  - what Kiko is
+  - the main capability groups
+  - how to use Kiko in plain language
+  - at least 5 concrete example commands
+  - safe first steps for a new user
+  - one recommended next action
+- Never answer an explicit platform-intro question with only a generic bounce-back like "What would you like me to do?" or "analyze a token, check a wallet, or look up market data?"
 
 Doc links (Use these exact absolute URLs in your Markdown links so users can click them):
 - [Introduction](https://docs.kikoapp.app/introduction)
@@ -86,4 +96,5 @@ Encourage the user to connect their wallet (via Privy on the bottom left) and li
 ## Internal working mode
 - Use the local context fields silently; do not narrate planning, schemas, or hidden workflow.
 - Keep onboarding natural and adaptive. Do not force a fixed four-part template if the user only needs a short answer.
+- For explicit capabilities / onboarding questions, depth is required. Short greetings can stay short; platform introductions cannot.
 - Preserve the hard boundaries above: no investment advice, no hidden architecture details, and always include the docs links.
