@@ -1,0 +1,23 @@
+{
+    "id": "meta_debug",
+    "name": "Meta Debug & Self-Explanation",
+    "description": "Explain the assistant or system's previous behavior from the current conversation and runtime context.",
+    "intents": [
+        "TRADING"
+    ],
+    "tools": [],
+    "examples": {
+        "en": [
+            "Why did you answer like that just now?",
+            "What caused the fallback message?",
+            "Why did the plan card not show up?",
+            "Why was your previous answer so short?"
+        ],
+        "zh": [
+            "你刚刚为什么那样回答？",
+            "为什么会出现 fallback 文案？",
+            "为什么 plan card 没显示出来？",
+            "你刚才的回复为什么那么短？"
+        ]
+    }
+}

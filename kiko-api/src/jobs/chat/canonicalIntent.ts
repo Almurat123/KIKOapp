@@ -1,6 +1,7 @@
 import type { ChatContextSnapshot } from './contracts.js';
 
 export type CanonicalDomain =
+    | 'assistant_meta'
     | 'general'
     | 'token'
     | 'wallet'
@@ -82,6 +83,7 @@ export interface CanonicalIntent {
     requiresRealtime: boolean;
     requiresOnchainEvidence: boolean;
     executionCandidate: boolean;
+    inheritEntitiesFromContext?: boolean;
     rowCount: number | null;
     locale: 'en' | 'zh';
     needsClarification: boolean;
@@ -98,6 +100,7 @@ export interface CanonicalIntentNormalizationState {
 }
 
 const DOMAIN_VALUES = new Set<CanonicalDomain>([
+    'assistant_meta',
     'general',
     'token',
     'wallet',
@@ -183,16 +186,26 @@ function normalizeTimeContext(value: unknown): CanonicalTimeContext | null {
     };
 }
 
-function normalizeEntities(value: unknown, snapshot: ChatContextSnapshot): CanonicalEntities {
+function normalizeEntities(
+    value: unknown,
+    snapshot: ChatContextSnapshot,
+    options?: { inheritEntitiesFromContext?: boolean },
+): CanonicalEntities {
     const record = (value && typeof value === 'object') ? value as Record<string, unknown> : {};
+    const inheritedTokenAddresses = options?.inheritEntitiesFromContext
+        ? (snapshot.requestedTokenAddresses || []).map((item) => String(item || '').trim()).filter(Boolean)
+        : [];
+    const inheritedTokenSymbols = options?.inheritEntitiesFromContext
+        ? (snapshot.requestedTokenSymbols || []).map((item) => String(item || '').trim()).filter(Boolean)
+        : [];
     return {
         tokenAddresses: Array.from(new Set([
             ...asStringArray(record.token_addresses ?? record.tokenAddresses),
-            ...(snapshot.requestedTokenAddresses || []).map((item) => String(item || '').trim()).filter(Boolean),
+            ...inheritedTokenAddresses,
         ])),
         tokenSymbols: Array.from(new Set([
             ...asStringArray(record.token_symbols ?? record.tokenSymbols),
-            ...(snapshot.requestedTokenSymbols || []).map((item) => String(item || '').trim()).filter(Boolean),
+            ...inheritedTokenSymbols,
         ])),
         walletAddresses: Array.from(new Set(asStringArray(record.wallet_addresses ?? record.walletAddresses))),
         marketIdentifiers: Array.from(new Set(asStringArray(record.market_identifiers ?? record.marketIdentifiers))),
@@ -247,7 +260,13 @@ export function validateCanonicalIntentPayload(payload: unknown, snapshot: ChatC
 
     const evidenceRequirements = asStringArray(record.evidence_requirements ?? record.evidenceRequirements)
         .filter((item): item is CanonicalEvidenceRequirement => EVIDENCE_VALUES.has(item as CanonicalEvidenceRequirement));
-    const entities = normalizeEntities(record.entities, snapshot);
+    const inheritEntitiesFromContext = Boolean(
+        record.inherit_entities_from_context
+        ?? record.inheritEntitiesFromContext,
+    );
+    const entities = normalizeEntities(record.entities, snapshot, {
+        inheritEntitiesFromContext,
+    });
     const requestedChain = normalizeRequestedChain(record.requested_chain ?? record.requestedChain);
     const timeContext = normalizeTimeContext(record.requested_time_window ?? record.timeContext);
     const explanation = String(record.explanation ?? '').trim();
@@ -284,6 +303,7 @@ export function validateCanonicalIntentPayload(payload: unknown, snapshot: ChatC
             requiresRealtime: Boolean(record.requires_realtime ?? record.requiresRealtime),
             requiresOnchainEvidence: Boolean(record.requires_onchain_evidence ?? record.requiresOnchainEvidence),
             executionCandidate: Boolean(record.execution_candidate ?? record.executionCandidate),
+            inheritEntitiesFromContext,
             rowCount,
             locale,
             needsClarification,
@@ -310,19 +330,25 @@ export function summarizeCanonicalIntent(intent: CanonicalIntent | null | undefi
         evidence_requirements: intent.evidenceRequirements,
         requires_realtime: intent.requiresRealtime,
         requires_onchain_evidence: intent.requiresOnchainEvidence,
+        inherit_entities_from_context: intent.inheritEntitiesFromContext ?? true,
     };
 }
 
 export function applyCanonicalIntentToSnapshot(snapshot: ChatContextSnapshot, intent: CanonicalIntent | null | undefined): ChatContextSnapshot {
     if (!intent) return snapshot;
-    const requestedTokenAddresses = Array.from(new Set([
-        ...(snapshot.requestedTokenAddresses || []),
-        ...intent.entities.tokenAddresses,
-    ]));
-    const requestedTokenSymbols = Array.from(new Set([
-        ...(snapshot.requestedTokenSymbols || []),
-        ...intent.entities.tokenSymbols,
-    ]));
+    const inheritEntitiesFromContext = intent.inheritEntitiesFromContext ?? true;
+    const requestedTokenAddresses = inheritEntitiesFromContext
+        ? Array.from(new Set([
+            ...(snapshot.requestedTokenAddresses || []),
+            ...intent.entities.tokenAddresses,
+        ]))
+        : [...intent.entities.tokenAddresses];
+    const requestedTokenSymbols = inheritEntitiesFromContext
+        ? Array.from(new Set([
+            ...(snapshot.requestedTokenSymbols || []),
+            ...intent.entities.tokenSymbols,
+        ]))
+        : [...intent.entities.tokenSymbols];
     return {
         ...snapshot,
         requestedTokenAddresses,

@@ -8,6 +8,7 @@ export type SearchMode = 'forbidden' | 'fallback' | 'required';
 
 export type NormalizedIntent =
     | 'WELCOME'
+    | 'META_DEBUG'
     | 'SWAP'
     | 'CROSS_CHAIN'
     | 'COPY_TRADE'
@@ -22,6 +23,7 @@ export type NormalizedIntent =
 
 export interface QuerySignals {
     welcome: boolean;
+    metaDebug: boolean;
     explicitSearch: boolean;
     realtime: boolean;
     timeContext: boolean;
@@ -62,9 +64,12 @@ export interface SkillMatchResult {
 const STRONG_MATCH_THRESHOLD = 60;
 const MIN_MATCH_THRESHOLD = 35;
 const MAX_SKILL_MATCHES = 3;
+const GREETING_QUERY_RE = /^(?:\s)*(?:hi|hello|hey|yo|gm|gn|good\s+morning|good\s+afternoon|good\s+evening|你好|您好|嗨|哈喽)(?:\s|!|\.|,|$)/i;
+const PLATFORM_ONBOARDING_QUERY_RE = /\b(?:new here|how do i start|how to start|how do i use|how to use|get(?:ting)? started|intro(?:duction)? to kiko|about kiko|what is kiko|what can\b.{0,24}\bkiko\b|what can\b.{0,24}\byou\b.{0,24}\bkiko\b|what can kiko do|who are you)\b|怎么使用\s*kiko|如何使用\s*kiko|kiko\s*怎么用|kiko\s*如何用|介绍一下\s*kiko|kiko\s*是什么|kiko\s*能做什么|你能做什么|我是新手|新手怎么开始/i;
 
 const SKILL_INTENT_MAP: Record<string, NormalizedIntent[]> = {
     welcome_onboarding: ['WELCOME'],
+    meta_debug: ['META_DEBUG'],
     swap: ['SWAP'],
     cross_chain_swap: ['CROSS_CHAIN'],
     copy_trade: ['COPY_TRADE'],
@@ -80,6 +85,7 @@ const SKILL_INTENT_MAP: Record<string, NormalizedIntent[]> = {
 
 const INTENT_SIGNAL_MAP: Record<NormalizedIntent, keyof QuerySignals> = {
     WELCOME: 'welcome',
+    META_DEBUG: 'metaDebug',
     SWAP: 'swap',
     CROSS_CHAIN: 'crossChain',
     COPY_TRADE: 'copyTrade',
@@ -134,6 +140,16 @@ export function matchSkillsForQuery(params: {
             querySignals,
             searchMode: 'forbidden',
             searchReason: 'welcome_or_capabilities_query',
+        };
+    }
+    if (querySignals.metaDebug) {
+        const metaOnly = rankedMatches.find((match) => match.skillId === 'meta_debug');
+        return {
+            rankedMatches: metaOnly ? [metaOnly] : [],
+            rejectedMatches: scored.filter((match) => !metaOnly || match.skillId !== metaOnly.skillId),
+            querySignals,
+            searchMode: canonicalIntent?.searchMode || 'forbidden',
+            searchReason: 'assistant_meta_debug_query',
         };
     }
 
@@ -252,9 +268,13 @@ export function detectQuerySignals(query: string, snapshot: ChatContextSnapshot,
         return deriveQuerySignalsFromCanonicalIntent(snapshot, tradingIntent, canonicalIntent);
     }
     const hasRequestedToken = (snapshot.requestedTokenAddresses || []).length > 0 || (snapshot.requestedTokenSymbols || []).length > 0;
+    const welcomeQuery = !tradingIntent
+        && !hasRequestedToken
+        && (GREETING_QUERY_RE.test(query) || PLATFORM_ONBOARDING_QUERY_RE.test(query));
 
     return {
-        welcome: false,
+        welcome: welcomeQuery,
+        metaDebug: false,
         explicitSearch: false,
         realtime: false,
         timeContext: false,
@@ -283,14 +303,22 @@ function deriveQuerySignalsFromCanonicalIntent(
     tradingIntent: TradingIntent | null,
     canonicalIntent: CanonicalIntent,
 ): QuerySignals {
+    const inheritsEntitiesFromContext = canonicalIntent.inheritEntitiesFromContext ?? true;
+    const isAssistantMeta = canonicalIntent.intent === 'assistant_meta' || canonicalIntent.domain === 'assistant_meta';
     const hasRequestedToken = canonicalIntent.entities.tokenAddresses.length > 0
         || canonicalIntent.entities.tokenSymbols.length > 0
-        || (snapshot.requestedTokenAddresses || []).length > 0
-        || (snapshot.requestedTokenSymbols || []).length > 0;
+        || (
+            inheritsEntitiesFromContext
+            && (
+                (snapshot.requestedTokenAddresses || []).length > 0
+                || (snapshot.requestedTokenSymbols || []).length > 0
+            )
+        );
     const requiredEvidence = new Set(canonicalIntent.evidenceRequirements || []);
 
     return {
-        welcome: canonicalIntent.intent === 'assistant_meta',
+        welcome: isAssistantMeta && canonicalIntent.taskMode === 'discover',
+        metaDebug: isAssistantMeta && canonicalIntent.taskMode === 'analyze',
         explicitSearch: canonicalIntent.searchMode === 'required',
         realtime: canonicalIntent.requiresRealtime,
         timeContext: Boolean(canonicalIntent.timeContext),
@@ -338,7 +366,11 @@ function scoreCanonicalIntentBoost(
     };
 
     if (skillId === 'welcome_onboarding' && intent === 'assistant_meta') {
+        if (canonicalIntent.taskMode !== 'discover') return 0;
         return boost(140, 'canonical:intent=assistant_meta', 'WELCOME');
+    }
+    if (skillId === 'meta_debug' && intent === 'assistant_meta' && canonicalIntent.taskMode === 'analyze') {
+        return boost(140, 'canonical:intent=assistant_meta_analyze', 'META_DEBUG');
     }
     if (skillId === 'swap' && intent === 'swap') {
         return boost(140, 'canonical:intent=swap', 'SWAP');

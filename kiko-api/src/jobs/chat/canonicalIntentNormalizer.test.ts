@@ -96,6 +96,56 @@ test('normalizeCanonicalIntent marks invalid JSON explicitly', async () => {
     assert.equal(result.snapshot.normalizedIntent, null);
 });
 
+test('normalizeCanonicalIntent accepts assistant_meta domain and clears stale token carry-over when the model disables inheritance', async () => {
+    const snapshot = makeSnapshot('Why did you reply like that just now?');
+    snapshot.requestedTokenSymbols = ['WHAT', 'KIKO'];
+
+    const result = await normalizeCanonicalIntent({
+        snapshot,
+        generationClient: {
+            async generate() {
+                return {
+                    text: JSON.stringify({
+                        domain: 'assistant_meta',
+                        intent: 'assistant_meta',
+                        task_mode: 'analyze',
+                        output_mode: 'narrative',
+                        search_mode: 'forbidden',
+                        search_target: 'none',
+                        confidence: 0.97,
+                        explanation: 'The user is asking about the assistant behavior itself.',
+                        entities: {
+                            token_addresses: [],
+                            token_symbols: [],
+                            wallet_addresses: [],
+                            market_identifiers: [],
+                        },
+                        requested_chain: null,
+                        requested_time_window: null,
+                        evidence_requirements: [],
+                        requires_realtime: false,
+                        requires_onchain_evidence: false,
+                        execution_candidate: false,
+                        inherit_entities_from_context: false,
+                        row_count: null,
+                        locale: 'en',
+                        needs_clarification: false,
+                        clarification_question: null,
+                    }),
+                    reasoning: '',
+                    toolCalls: [],
+                };
+            },
+        } as any,
+    });
+
+    assert.equal(result.state.status, 'ok');
+    assert.equal(result.snapshot.normalizedIntent?.domain, 'assistant_meta');
+    assert.equal(result.snapshot.normalizedIntent?.intent, 'assistant_meta');
+    assert.equal(result.snapshot.normalizedIntent?.inheritEntitiesFromContext, false);
+    assert.deepEqual(result.snapshot.requestedTokenSymbols, []);
+});
+
 test('normalizeCanonicalIntent accepts multilingual requests as long as the canonical schema is valid', async () => {
     const messages = [
         '查这个代币前30个早期买家',

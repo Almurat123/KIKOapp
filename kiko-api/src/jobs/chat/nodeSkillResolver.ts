@@ -14,6 +14,7 @@ import {
 import type { TradingIntent } from './tradingIntentResolver.js';
 
 export type IntentPrimaryIntent =
+    | 'meta_debug'
     | 'search_discovery'
     | 'social_discovery'
     | 'token_analysis'
@@ -28,6 +29,7 @@ export type IntentPrimaryIntent =
 export type IntentTaskMode = 'discover' | 'analyze' | 'execute' | 'confirm';
 export type IntentSearchTarget = 'x' | 'web' | 'x_and_web' | 'none';
 export type IntentDomain = 'x' | 'farcaster' | 'token' | 'wallet' | 'polymarket' | 'general' | 'zora' | 'market';
+export type IntentMetaDomain = 'assistant_meta';
 export type IntentExecutionRisk = 'read_only' | 'mutation';
 export type ToolPhase = 'native_search_only' | 'local_analysis' | 'execution';
 
@@ -36,7 +38,7 @@ export interface IntentEnvelope {
     task_mode: IntentTaskMode;
     search_mode: SearchMode;
     search_target: IntentSearchTarget;
-    domain: IntentDomain;
+    domain: IntentDomain | IntentMetaDomain;
     execution_risk: IntentExecutionRisk;
     required_evidence: string[];
 }
@@ -78,13 +80,22 @@ const LOCAL_TOKEN_LEADERBOARD_TOOLS = new Set([
 const EXPLICIT_SOCIAL_SOURCE_QUERY_RE = /\b(x|twitter|tweet|tweets|farcaster|cast|casts)\b/i;
 const EXPLICIT_SEARCH_QUERY_RE = /\b(search|look\s*up|lookup|find on|search on|from x|from twitter|from farcaster)\b/i;
 const TOKEN_LEADERBOARD_QUERY_RE = /\b(trend|trending|hot token|hot coin|top token|top coin|pumping|top gainers|gainers|movers)\b/i;
+const DETAILED_ONBOARDING_QUERY_RE = /\b(new here|how do i start|how to start|how do i use|how to use|get(?:ting)? started|intro(?:duction)? to kiko|about kiko|what is kiko|what can\b.{0,24}\bkiko\b|what can kiko do|who are you)\b|怎么使用\s*kiko|如何使用\s*kiko|kiko\s*怎么用|kiko\s*如何用|介绍一下\s*kiko|kiko\s*是什么|kiko\s*能做什么|你能做什么|我是新手|新手怎么开始/i;
 
 export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: TradingIntent | null, canonicalIntent?: CanonicalIntent | null): SkillResolution {
     const isGrok = String(snapshot.model || '').toLowerCase().includes('grok');
     const rawQuery = String(snapshot.lastUserMessage || '');
+    const asksDetailedOnboarding = DETAILED_ONBOARDING_QUERY_RE.test(rawQuery);
     const asksProfitRankingFollowup = /\b(pnl|profit|roi|rank)\b/i.test(rawQuery) || /收益|盈利|利润|排名|排行/.test(rawQuery);
     const asksWalletTradeSummaryFollowup = /\b(buy|sell|bought|sold|trade summary|trading summary)\b/i.test(rawQuery) || /买入|卖出|交易汇总|买卖汇总/.test(rawQuery);
     const normalizedIntent = canonicalIntent || snapshot.normalizedIntent || null;
+    const inheritsEntitiesFromContext = normalizedIntent?.inheritEntitiesFromContext ?? true;
+    const effectiveRequestedTokenAddresses = inheritsEntitiesFromContext
+        ? (snapshot.requestedTokenAddresses || [])
+        : (normalizedIntent?.entities?.tokenAddresses || []);
+    const effectiveRequestedTokenSymbols = inheritsEntitiesFromContext
+        ? (snapshot.requestedTokenSymbols || [])
+        : (normalizedIntent?.entities?.tokenSymbols || []);
     const availableToolNames = new Set((snapshot.toolDefinitions || []).map((definition) => String(definition.name || '').trim()).filter(Boolean));
     const blockedTools: string[] = [];
     const preferredTools: string[] = [];
@@ -96,7 +107,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
             .map((call) => String(call?.tool || '').trim())
             .filter((toolName) => toolName && availableToolNames.has(toolName)),
     ));
-    const hasRequestedTokenAddress = Array.isArray(snapshot.requestedTokenAddresses) && snapshot.requestedTokenAddresses.length > 0;
+    const hasRequestedTokenAddress = effectiveRequestedTokenAddresses.length > 0;
 
     const matchResult = matchSkillsForQuery({ snapshot: normalizedIntent ? { ...snapshot, normalizedIntent } : snapshot, tradingIntent });
     const querySignals = matchResult.querySignals;
@@ -106,8 +117,8 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const requiresSocialChainEvidence = querySignals.socialChainEvidence;
     const requestedChain = resolveCanonicalChainRef({
         canonicalIntent: normalizedIntent,
-        requestedTokenAddresses: snapshot.requestedTokenAddresses,
-        requestedTokenSymbols: snapshot.requestedTokenSymbols,
+        requestedTokenAddresses: effectiveRequestedTokenAddresses,
+        requestedTokenSymbols: effectiveRequestedTokenSymbols,
         runtimeChainId: snapshot.runtime.chainId,
         runtimeChainName: snapshot.runtime.chainName,
     });
@@ -123,8 +134,8 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const normalizedTokenSymbols = Array.isArray(normalizedIntent?.entities?.tokenSymbols)
         ? normalizedIntent!.entities.tokenSymbols.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
         : [];
-    const requestedTokenSymbols = Array.isArray(snapshot.requestedTokenSymbols)
-        ? snapshot.requestedTokenSymbols.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    const requestedTokenSymbols = Array.isArray(effectiveRequestedTokenSymbols)
+        ? effectiveRequestedTokenSymbols.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
         : [];
     const hasExplicitPolymarketCoinSelection = normalizedTokenSymbols.length > 0 || requestedTokenSymbols.length > 0;
     const asksCreator = normalizedIntent?.intent === 'creator_analysis';
@@ -132,7 +143,14 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     let selected = matchResult.rankedMatches.map((item) => item.skillId);
     if (querySignals.welcome) {
         strategyNotes.push('This is a greeting, self-introduction, or capabilities question. Answer directly without tools unless the user explicitly asks for live data or on-chain evidence.');
+        if (asksDetailedOnboarding) {
+            strategyNotes.push('For explicit Kiko intro / capabilities / how-to-use questions, give a real onboarding answer: explain what Kiko is, group the main capabilities, show concrete example commands, explain safe first steps, and recommend the next action. Do not bounce back with "what do you want me to do?" as the main answer.');
+        }
         selected = selected.filter((skillId) => skillId === 'welcome_onboarding');
+    } else if (querySignals.metaDebug) {
+        strategyNotes.push('This turn is about the assistant or system behavior itself. Explain the previous behavior directly from the current conversation and runtime context instead of switching back into a token or market answer.');
+        strategyNotes.push('When explaining what went wrong, distinguish between observed facts from the current conversation/runtime and informed inferences. If some evidence is missing, say exactly what is missing instead of fabricating certainty.');
+        selected = selected.filter((skillId) => skillId === 'meta_debug');
     }
 
     if (tradingIntent) {
@@ -184,7 +202,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         }
     }
 
-    if (selected.length === 0 && !querySignals.welcome) {
+    if (selected.length === 0 && !querySignals.welcome && !querySignals.metaDebug) {
         selected = ['market_macro'];
     }
 
@@ -500,6 +518,10 @@ function buildIntentEnvelope(params: {
     if (canonicalIntent) {
         const canonicalPrimary = (() => {
             switch (canonicalIntent.intent) {
+                case 'assistant_meta':
+                    return canonicalIntent.taskMode === 'analyze'
+                        ? 'meta_debug' as const
+                        : 'general_answer' as const;
                 case 'copy_trade':
                     return 'copytrade_execution' as const;
                 case 'swap':
@@ -528,11 +550,13 @@ function buildIntentEnvelope(params: {
             }
         })();
 
-        const canonicalDomain: IntentDomain = canonicalIntent.domain === 'market'
+        const canonicalDomain: IntentDomain | IntentMetaDomain = canonicalIntent.domain === 'market'
             ? 'market'
             : canonicalIntent.domain === 'zora'
                 ? 'zora'
-                : canonicalIntent.domain;
+                : canonicalIntent.domain === 'assistant_meta'
+                    ? 'assistant_meta'
+                    : canonicalIntent.domain;
 
         return {
             primary_intent: canonicalPrimary,

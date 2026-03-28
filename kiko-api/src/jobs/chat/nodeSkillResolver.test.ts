@@ -146,6 +146,38 @@ test('routes capabilities questions to welcome skill without search', () => {
     assert.equal(resolution.searchMode, 'forbidden');
 });
 
+test('routes malformed Kiko capability questions to welcome skill even without canonical intent', () => {
+    const resolution = resolveNodeSkills(makeSnapshot('What can you doing Kiko?'), null);
+    assert.deepEqual(resolution.selectedSkills, ['welcome_onboarding']);
+    assert.equal(resolution.searchMode, 'forbidden');
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('real onboarding answer')));
+});
+
+test('routes assistant meta debugging turns to meta_debug without pulling stale token context back into skill selection', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'assistant_meta',
+        intent: 'assistant_meta',
+        taskMode: 'analyze',
+        entities: {
+            tokenAddresses: [],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        inheritEntitiesFromContext: false,
+    });
+    const resolution = resolveNodeSkills(makeSnapshot('Why did you fall back to that clarification message?', {
+        normalizedIntent: canonicalIntent,
+        requestedTokenSymbols: ['WHAT', 'KIKO'],
+    }), null, canonicalIntent);
+    assert.deepEqual(resolution.selectedSkills, ['meta_debug']);
+    assert.equal(resolution.searchMode, 'forbidden');
+    assert.ok(!resolution.selectedSkills.includes('token_analysis'));
+    assert.equal(resolution.intentEnvelope.primary_intent, 'meta_debug');
+    assert.equal(resolution.intentEnvelope.domain, 'assistant_meta');
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('assistant or system behavior itself')));
+});
+
 test('routes wallet pnl queries to wallet skill and keeps pnl tools', () => {
     const canonicalIntent = makeCanonicalIntent({
         domain: 'wallet',

@@ -40,16 +40,44 @@ export function buildTaskPlanningContext(
     const asksCreatorEvidence = canonicalIntent?.intent === 'creator_analysis';
     const requestedToken = (snapshot.requestedTokenAddresses || []).length > 0 || (snapshot.requestedTokenSymbols || []).length > 0;
     const needsEvidence = asksRealtimeSocial || asksOnChainEvidence || asksCreatorEvidence || requestedToken;
-    const steps: PlanStep[] = [
-        makeStep(
-            'step-understand',
-            locale === 'zh' ? '理解请求' : 'Understand the request',
-            locale === 'zh'
-                ? '先明确用户当前这一轮真正要解决的问题。'
-                : 'Clarify what the user is actually trying to accomplish on this turn.',
-            [],
-        ),
-    ];
+    const isAssistantMetaDebug = canonicalIntent?.intent === 'assistant_meta' && canonicalIntent.taskMode === 'analyze';
+    const steps: PlanStep[] = isAssistantMetaDebug
+        ? [
+            makeStep(
+                'step-review-runtime',
+                locale === 'zh' ? '回看上一轮行为' : 'Review the previous behavior',
+                locale === 'zh'
+                    ? '先回看上一轮回复、运行状态和当前轮真正关注的问题。'
+                    : 'Review the previous reply, runtime state, and what this turn is actually asking about.',
+                [],
+            ),
+            makeStep(
+                'step-explain-cause',
+                locale === 'zh' ? '解释原因' : 'Explain the cause',
+                locale === 'zh'
+                    ? '把已观察到的事实和推断分开说明，解释为什么会出现刚才的行为。'
+                    : 'Separate observed facts from inferences and explain why the previous behavior happened.',
+                [],
+            ),
+            makeStep(
+                'step-summary',
+                locale === 'zh' ? '生成回答' : 'Generate answer',
+                locale === 'zh'
+                    ? '基于当前会话里已经看到的真实信息，给出清晰解释。'
+                    : 'Give a clear explanation grounded in the evidence already visible in this conversation.',
+                [],
+            ),
+        ]
+        : [
+            makeStep(
+                'step-understand',
+                locale === 'zh' ? '理解请求' : 'Understand the request',
+                locale === 'zh'
+                    ? '先明确用户当前这一轮真正要解决的问题。'
+                    : 'Clarify what the user is actually trying to accomplish on this turn.',
+                [],
+            ),
+        ];
     if (needsEvidence) {
         steps.push(makeStep(
             'step-evidence',
@@ -70,22 +98,24 @@ export function buildTaskPlanningContext(
             preferredPlanTools(skillResolution, skillResolution.preferredTools || []),
         ));
     }
-    steps.push(makeStep(
-        'step-summary',
-        locale === 'zh' ? '生成回答' : 'Generate answer',
-        locale === 'zh'
-            ? '基于已拿到的真实结果给出回答。'
-            : 'Answer from the evidence and tool results already gathered.',
-        [],
-    ));
+    if (!steps.some((step) => step.id === 'step-summary')) {
+        steps.push(makeStep(
+            'step-summary',
+            locale === 'zh' ? '生成回答' : 'Generate answer',
+            locale === 'zh'
+                ? '基于已拿到的真实结果给出回答。'
+                : 'Answer from the evidence and tool results already gathered.',
+            [],
+        ));
+    }
 
     steps[0].status = 'in_progress';
 
     return {
         plan: {
             planId: randomUUID(),
-            title: resolvePlanTitle(locale, asksRealtimeSocial, asksOnChainEvidence || asksCreatorEvidence),
-            summary: resolvePlanSummary(locale, asksRealtimeSocial, asksOnChainEvidence || asksCreatorEvidence),
+            title: resolvePlanTitle(locale, asksRealtimeSocial, asksOnChainEvidence || asksCreatorEvidence, isAssistantMetaDebug),
+            summary: resolvePlanSummary(locale, asksRealtimeSocial, asksOnChainEvidence || asksCreatorEvidence, isAssistantMetaDebug),
             locale,
             status: 'in_progress',
             currentStepId: steps[0]?.id,
@@ -100,7 +130,10 @@ export function buildTaskPlanningContext(
     };
 }
 
-function resolvePlanTitle(locale: 'en' | 'zh', asksRealtimeSocial: boolean, asksChainEvidence: boolean): string {
+function resolvePlanTitle(locale: 'en' | 'zh', asksRealtimeSocial: boolean, asksChainEvidence: boolean, isAssistantMetaDebug: boolean): string {
+    if (isAssistantMetaDebug) {
+        return locale === 'zh' ? '解释上一轮行为' : 'Explain the previous behavior';
+    }
     if (locale === 'zh') {
         if (asksRealtimeSocial || asksChainEvidence) return '收集相关证据';
         return '正在处理你的请求';
@@ -109,7 +142,12 @@ function resolvePlanTitle(locale: 'en' | 'zh', asksRealtimeSocial: boolean, asks
     return 'Working on your request';
 }
 
-function resolvePlanSummary(locale: 'en' | 'zh', asksRealtimeSocial: boolean, asksChainEvidence: boolean): string {
+function resolvePlanSummary(locale: 'en' | 'zh', asksRealtimeSocial: boolean, asksChainEvidence: boolean, isAssistantMetaDebug: boolean): string {
+    if (isAssistantMetaDebug) {
+        return locale === 'zh'
+            ? '我会先回看刚才的回复和运行状态，再解释真正的原因。'
+            : 'I will review the previous reply and runtime state first, then explain the real cause.';
+    }
     if (locale === 'zh') {
         if (asksRealtimeSocial || asksChainEvidence) return '我会先收集必要证据，再基于真实结果回答。';
         return '我会逐步查看信息并在拿到结果后继续。';
