@@ -109,7 +109,7 @@ function makeBroker() {
     };
 }
 
-test('buildGenerationTools no longer hides local tools during native search phase', () => {
+test('buildGenerationTools remains a generic formatter and respects the provided allow-list', () => {
     const definitions = [
         { name: 'get_token_info', description: '', parameters: {} },
         { name: 'get_early_buyers', description: '', parameters: {} },
@@ -117,7 +117,7 @@ test('buildGenerationTools no longer hides local tools during native search phas
     ];
     const tools = buildGenerationTools(
         definitions,
-        ['get_token_info', 'get_early_buyers', 'prepare_swap_transaction'],
+        ['get_token_info'],
         [],
         ['get_token_info'],
         false,
@@ -125,7 +125,7 @@ test('buildGenerationTools no longer hides local tools during native search phas
         'native_search_only',
     );
     const names = tools.map((item: any) => item.function.name);
-    assert.deepEqual(names.sort(), ['get_early_buyers', 'get_token_info', 'prepare_swap_transaction']);
+    assert.deepEqual(names, ['get_token_info']);
 });
 
 test('buildGenerationTools no longer hides non-execution tools in execution phase', () => {
@@ -147,7 +147,7 @@ test('buildGenerationTools no longer hides non-execution tools in execution phas
     assert.deepEqual(names.sort(), ['get_token_info', 'place_polymarket_order', 'prepare_swap_transaction']);
 });
 
-test('Grok social queries keep native search enabled without hiding local tools', async () => {
+test('Grok social queries keep native search phase free of local tools, then hand off to local analysis', async () => {
     const snapshot = makeSnapshot('Search X for BTC sentiment, then analyze holders', {
         requestedTokenSymbols: ['BTC'],
         normalizedIntent: makeCanonicalIntent({
@@ -227,14 +227,14 @@ test('Grok social queries keep native search enabled without hiding local tools'
     });
 
     assert.equal(seenRounds[0]?.enableSearch, true);
-    assert.ok((seenRounds[0]?.tools || []).includes('get_token_info'));
-    assert.equal(seenRounds[1]?.enableSearch, true);
+    assert.deepEqual(seenRounds[0]?.tools || [], []);
+    assert.equal(seenRounds[1]?.enableSearch, false);
     assert.ok(seenRounds[1]?.tools.includes('get_token_info'));
     assert.ok(broker.providerNativeEvidence.length >= 1);
     assert.equal(broker.texts.at(-1), 'Based on X sentiment and on-chain context, BTC holders are still active.');
 });
 
-test('search-capable queries can still return a direct answer without forced retry loops even when local tools remain visible', async () => {
+test('search-capable queries can still return a direct answer without forced retry loops in native search phase', async () => {
     const snapshot = makeSnapshot("What's trending on X right now?", {
         normalizedIntent: makeCanonicalIntent({}),
     });
@@ -267,7 +267,7 @@ test('search-capable queries can still return a direct answer without forced ret
     });
 
     assert.equal(seenRounds[0]?.enableSearch, true);
-    assert.ok((seenRounds[0]?.tools || []).includes('external_web_search'));
+    assert.deepEqual(seenRounds[0]?.tools || [], []);
     assert.equal(seenRounds.length, 1);
     assert.equal(broker.texts.at(-1), 'Here is a concise answer without using tools.');
 });
@@ -416,7 +416,7 @@ test('duplicate-only read-only rounds force a no-tool final answer from cached e
     assert.equal(executeCalls, 1);
     assert.equal(generationRound, 3);
     assert.equal(seenRounds[0]?.enableSearch, true);
-    assert.ok((seenRounds[0]?.tools || []).includes('get_trending_tokens'));
+    assert.deepEqual(seenRounds[0]?.tools || [], []);
     assert.equal(seenRounds[2]?.enableSearch, false);
     assert.deepEqual(seenRounds[2]?.tools || [], []);
     assert.equal(broker.texts.join(''), 'The top cached trending token on BSC is VIRTUAL.');
@@ -601,7 +601,7 @@ test('plain-text answers are allowed without the removed hard evidence gate', as
     assert.equal(broker.texts.join(''), 'I found the buyers already and can summarize them now.');
 });
 
-test('function_call-style pseudo tool output is sanitized but does not trigger a forced retry', async () => {
+test('function_call-style pseudo tool output is sanitized and rejected when no user-facing answer remains', async () => {
     const tokenAddress = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
     const snapshot = makeSnapshot('2026-03-10上架的alpha，然后你能查询当天的early buyer吗？', {
         model: 'deepseek-reasoner',
@@ -647,17 +647,19 @@ test('function_call-style pseudo tool output is sanitized but does not trigger a
         },
     };
 
-    await runNodeOrchestration({
-        snapshot,
-        generationClient: generationClient as any,
-        toolExecutionEngine: { async execute() { throw new Error('no tool execution expected'); } } as any,
-        broker: broker as any,
-        toolContext: {},
-    });
+    await assert.rejects(
+        () => runNodeOrchestration({
+            snapshot,
+            generationClient: generationClient as any,
+            toolExecutionEngine: { async execute() { throw new Error('no tool execution expected'); } } as any,
+            broker: broker as any,
+            toolContext: {},
+        }),
+        (error: any) => error?.code === 'NO_FINAL_USER_FACING_OUTPUT',
+    );
 
     assert.equal(generationRound, 1);
     assert.deepEqual(broker.replacements, ['']);
-    assert.equal(broker.texts.join(''), '');
 });
 
 test('prose-style pseudo tool narration is sanitized but does not trigger a forced retry', async () => {
@@ -781,6 +783,38 @@ test('pure early-buyer tool-name narration ends with the model response and does
     assert.equal(
         broker.texts.join(''),
         `I will fetch on-chain token info and early-buyer data now for ${tokenAddress} on BNB Chain (chain id 56). Proceeding to gather evidence.`,
+    );
+});
+
+test('artifact-only rounds fail when the model returns no final answer text', async () => {
+    const snapshot = makeSnapshot('Show a market card and explain it', {
+        normalizedIntent: makeCanonicalIntent({}),
+    });
+    const broker = makeBroker();
+    broker.hasVisibleArtifact = () => true;
+
+    const generationClient = {
+        async generate(params: any) {
+            if (String(params?.taskId || '').endsWith(':plan')) {
+                return { text: '', reasoning: '', toolCalls: [] };
+            }
+            return {
+                text: '',
+                reasoning: '',
+                toolCalls: [],
+            };
+        },
+    };
+
+    await assert.rejects(
+        () => runNodeOrchestration({
+            snapshot,
+            generationClient: generationClient as any,
+            toolExecutionEngine: { async execute() { throw new Error('unexpected tool execution'); } } as any,
+            broker: broker as any,
+            toolContext: {},
+        }),
+        (error: any) => error?.code === 'NO_FINAL_USER_FACING_OUTPUT',
     );
 });
 

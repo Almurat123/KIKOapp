@@ -424,7 +424,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         asksWalletPnl,
         hasRequestedToken,
     });
-    if (isGrok && shouldPreferLocalTokenLeaderboard(snapshot, intentEnvelope)) {
+    if (!normalizedIntent && isGrok && shouldPreferLocalTokenLeaderboard(snapshot, intentEnvelope)) {
         effectiveSearchMode = 'forbidden';
         effectiveSearchReason = 'local_token_leaderboard_preferred';
         intentEnvelope.search_mode = 'forbidden';
@@ -447,7 +447,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         preferredTools.splice(0, preferredTools.length, ...preferredTools.filter((toolName) => !GROK_BLOCKED_FARCASTER_TOOLS.has(toolName)));
         strategyNotes.push('Grok path does not expose local Farcaster cache/search tools. Use provider-native search instead for social discovery.');
     }
-    const toolPhasePolicy = buildToolPhasePolicy(snapshot, tradingIntent, intentEnvelope);
+    const toolPhasePolicy = buildToolPhasePolicy(snapshot, tradingIntent, intentEnvelope, Boolean(normalizedIntent));
     if (!isGrok && intentEnvelope.search_mode === 'required') {
         strategyNotes.push('This provider does not support provider-native X/web search in the current orchestration path. Use only relevant local tools if they truly match the request, otherwise state the limitation plainly.');
     }
@@ -607,6 +607,7 @@ function buildToolPhasePolicy(
     snapshot: ChatContextSnapshot,
     tradingIntent: TradingIntent | null,
     intentEnvelope: IntentEnvelope,
+    hasCanonicalIntent: boolean,
 ): ToolPhasePolicy {
     const supportsNativeSearch = String(snapshot.model || '').toLowerCase().includes('grok');
     const confirmationKind = String(snapshot.confirmationState?.kind || '');
@@ -627,7 +628,7 @@ function buildToolPhasePolicy(
         };
     }
 
-    if (supportsNativeSearch && shouldPreferLocalTokenLeaderboard(snapshot, intentEnvelope)) {
+    if (!hasCanonicalIntent && supportsNativeSearch && shouldPreferLocalTokenLeaderboard(snapshot, intentEnvelope)) {
         return {
             initialPhase: 'local_analysis',
             nextPhaseAfterNativeSearch: null,

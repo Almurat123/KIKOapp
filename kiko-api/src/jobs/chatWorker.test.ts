@@ -98,10 +98,8 @@ test('ChatWorker starts the broker and emits progress before wallet hydration be
     }
 });
 
-test('empty assistant completion is rejected unless there is a visible user-facing artifact', () => {
+test('empty assistant completion is always rejected for orchestrated assistant turns', () => {
     assert.equal(isEmptyAssistantCompletion(''), true);
     assert.equal(isEmptyAssistantCompletion('   '), true);
     assert.equal(isEmptyAssistantCompletion('answer'), false);
-    assert.equal(isEmptyAssistantCompletion('', { hasVisibleArtifact: false }), true);
-    assert.equal(isEmptyAssistantCompletion('', { hasVisibleArtifact: true }), false);
 });

@@ -32,11 +32,8 @@ type AITask = Awaited<ReturnType<typeof chatRepo.getTask>>;
 
 export function isEmptyAssistantCompletion(
     content: string,
-    options: {
-        hasVisibleArtifact?: boolean;
-    } = {},
 ): boolean {
-    return String(content || '').trim().length === 0 && !options.hasVisibleArtifact;
+    return String(content || '').trim().length === 0;
 }
 
 export class ChatWorker {
@@ -308,8 +305,7 @@ export class ChatWorker {
                 toolCalls: broker.getToolResults().map((item) => item.name),
             });
 
-            const hasVisibleArtifact = broker.hasVisibleArtifact();
-            if (isEmptyAssistantCompletion(broker.getContent(), { hasVisibleArtifact })) {
+            if (isEmptyAssistantCompletion(broker.getContent())) {
                 const error = new Error('I could not produce a stable response for that turn. Please retry.');
                 (error as any).code = 'EMPTY_ASSISTANT_RESPONSE';
                 throw error;
@@ -324,7 +320,7 @@ export class ChatWorker {
                 throw error;
             }
             const finalContent = moderated.filtered_text || broker.getContent();
-            if (isEmptyAssistantCompletion(finalContent, { hasVisibleArtifact })) {
+            if (isEmptyAssistantCompletion(finalContent)) {
                 const error = new Error('I could not produce a stable response for that turn. Please retry.');
                 (error as any).code = 'EMPTY_ASSISTANT_RESPONSE';
                 throw error;

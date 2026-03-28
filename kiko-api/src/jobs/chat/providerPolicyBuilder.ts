@@ -117,7 +117,8 @@ export function buildProviderOptions(
     const hardMutationPolicy = snapshot.policySnapshot?.enforcementLevel === 'hard' && actionClass !== 'READ_ONLY';
     const nativeSearchEnabled = !hardMutationPolicy
         && requiresRealtimeSocialSearch
-        && currentPhase !== 'execution';
+        && currentPhase === 'native_search_only';
+    const nativeSearchRequired = nativeSearchEnabled && currentPhase === 'native_search_only';
     const enabledNativeTools = nativeSearchEnabled
         ? resolveEnabledNativeTools(intentEnvelope)
         : [];
@@ -143,8 +144,10 @@ export function buildProviderOptions(
             native_tools: {
                 enable_search: nativeSearchEnabled,
                 enabled_tools: enabledNativeTools,
-                required: false,
-                preferred_required_tool: null,
+                required: nativeSearchRequired,
+                preferred_required_tool: nativeSearchRequired
+                    ? resolvePreferredRequiredNativeTool(enabledNativeTools, intentEnvelope)
+                    : null,
                 include_options: nativeSearchEnabled
                     ? ['inline_citations', ...(requiresRealtimeSocialSearch ? ['web_search_call_output', 'x_search_call_output'] : [])]
                     : [],
@@ -194,6 +197,20 @@ function resolveEnabledNativeTools(intentEnvelope?: IntentEnvelope): string[] {
     if (target === 'x_and_web') return ['x_search', 'web_search'];
     if (target === 'web') return ['web_search'];
     return ['web_search', 'x_search'];
+}
+
+function resolvePreferredRequiredNativeTool(
+    enabledNativeTools: string[],
+    intentEnvelope?: IntentEnvelope,
+): string | null {
+    const target = intentEnvelope?.search_target || 'web';
+    if ((target === 'x' || target === 'x_and_web') && enabledNativeTools.includes('x_search')) {
+        return 'x_search';
+    }
+    if (enabledNativeTools.includes('web_search')) {
+        return 'web_search';
+    }
+    return enabledNativeTools[0] || null;
 }
 
 function assertNodeControlledGrokPolicy(options: Record<string, any>) {

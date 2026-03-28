@@ -223,7 +223,7 @@ test('explicit X search keeps native search required while preserving local toke
         resolution,
     );
     assert.equal(providerOptions.enable_search, true);
-    assert.equal(providerOptions.tool_policy?.native_tools.required, false);
+    assert.equal(providerOptions.tool_policy?.native_tools.required, true);
     assert.equal(providerOptions.tool_policy?.native_tools.preferred_required_tool, 'x_search');
 });
 
@@ -267,12 +267,12 @@ test('DeepSeek X trending queries stay out of native-search-only while keeping f
     assert.ok(resolution.strategyNotes.some((note) => note.includes('native X search')));
 });
 
-test('Grok token leaderboard questions prefer local KiKo rankings over native search', () => {
+test('Grok keeps canonical token-discovery intent authoritative instead of forcing local leaderboard fallback', () => {
     const canonicalIntent = makeCanonicalIntent({
         domain: 'token',
         intent: 'social_discovery',
         searchMode: 'required',
-        searchTarget: 'none',
+        searchTarget: 'web',
         requiresRealtime: true,
     });
     const snapshot = makeSnapshot("What's the trending token on BSC?", {
@@ -280,13 +280,11 @@ test('Grok token leaderboard questions prefer local KiKo rankings over native se
     });
     const resolution = resolveNodeSkills(snapshot, null, canonicalIntent);
 
-    assert.equal(resolution.toolPhasePolicy.initialPhase, 'local_analysis');
-    assert.equal(resolution.searchMode, 'forbidden');
-    assert.equal(resolution.searchReason, 'local_token_leaderboard_preferred');
-    assert.equal(resolution.allowAllTools, false);
-    assert.ok(resolution.allowedTools.includes('get_trending_tokens'));
-    assert.ok(resolution.preferredTools.includes('get_trending_tokens'));
-    assert.ok(!resolution.allowedTools.includes('prepare_swap_transaction'));
+    assert.equal(resolution.toolPhasePolicy.initialPhase, 'native_search_only');
+    assert.equal(resolution.searchMode, 'required');
+    assert.notEqual(resolution.searchReason, 'local_token_leaderboard_preferred');
+    assert.equal(resolution.intentEnvelope.search_mode, 'required');
+    assert.equal(resolution.intentEnvelope.search_target, 'web');
 
     const providerOptions = buildProviderOptions(
         snapshot,
@@ -294,8 +292,17 @@ test('Grok token leaderboard questions prefer local KiKo rankings over native se
         snapshot.lastUserMessage,
         resolution,
     );
-    assert.equal(providerOptions.enable_search, false);
-    assert.equal(resolution.intentEnvelope.search_mode, 'forbidden');
+    assert.equal(providerOptions.enable_search, true);
+    assert.equal(providerOptions.tool_policy?.native_tools.required, true);
+});
+
+test('Grok no-canonical leaderboard-like queries may stay local without overriding any canonical intent', () => {
+    const snapshot = makeSnapshot("What's the trending token on BSC?");
+    const resolution = resolveNodeSkills(snapshot, null);
+
+    assert.equal(resolution.toolPhasePolicy.initialPhase, 'local_analysis');
+    assert.equal(resolution.searchMode, 'forbidden');
+    assert.ok(resolution.allowedTools.includes('get_trending_tokens'));
 });
 
 test('DeepSeek X plus contract-and-time queries require external search plus chain tools', () => {

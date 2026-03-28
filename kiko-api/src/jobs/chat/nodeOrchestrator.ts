@@ -389,14 +389,13 @@ export async function runNodeOrchestration(params: {
         }
 
         if (roundResult.toolCalls.length === 0) {
-            const hasVisibleArtifact = params.broker.hasVisibleArtifact();
             const hasUserFacingText = (roundResult.text || '').trim().length > 0;
-            if (!hasUserFacingText && !hasVisibleArtifact) {
+            if (!hasUserFacingText) {
                 throw createOrchestrationError(
                     'NO_FINAL_USER_FACING_OUTPUT',
                     planning.locale === 'zh'
-                        ? '模型没有返回可见的最终回答，也没有生成任何可展示卡片'
-                        : 'The model returned no visible final answer and produced no displayable artifact',
+                        ? '模型没有返回可见的最终回答'
+                        : 'The model returned no visible final answer',
                 );
             }
             const summaryStep = buildSummaryPlanStep(params.snapshot.lastUserMessage);
@@ -457,7 +456,7 @@ export async function runNodeOrchestration(params: {
                     );
                     continue;
                 }
-                if (evidenceSnapshot && ((roundResult.text || '').trim().length > 0 || params.broker.hasVisibleArtifact())) {
+                if (evidenceSnapshot && (roundResult.text || '').trim().length > 0) {
                     const summaryStep = buildSummaryPlanStep(params.snapshot.lastUserMessage);
                     await params.broker.markAnswerStarted(summaryStep);
                     await params.broker.markPlanPhase(
@@ -484,7 +483,7 @@ export async function runNodeOrchestration(params: {
                 continue;
             }
 
-            if ((roundResult.text || '').trim().length > 0 || params.broker.hasVisibleArtifact()) {
+            if ((roundResult.text || '').trim().length > 0) {
                 const summaryStep = buildSummaryPlanStep(params.snapshot.lastUserMessage);
                 await params.broker.markAnswerStarted(summaryStep);
                 await params.broker.setRuntimeState?.(undefined);
@@ -1097,6 +1096,9 @@ function resolvePhaseAllowedTools(
     provider: 'openai' | 'deepseek' | 'grok',
     phase: 'native_search_only' | 'local_analysis' | 'execution',
 ): string[] {
+    if (provider === 'grok' && phase === 'native_search_only') {
+        return [];
+    }
     return allowedTools;
 }
 
@@ -1106,6 +1108,9 @@ function resolvePhaseAllowAllTools(
     phase: 'native_search_only' | 'local_analysis' | 'execution',
     defaultAllowAllTools: boolean,
 ): boolean {
+    if (provider === 'grok' && phase === 'native_search_only') {
+        return false;
+    }
     return defaultAllowAllTools;
 }
 
