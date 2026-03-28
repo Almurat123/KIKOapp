@@ -8,6 +8,7 @@ import { CopyTradeToastTest } from './CopyTradeToastTest';
 import { CopyTradeToastSequence } from './CopyTradeToastSequence';
 
 import { FarcasterSupportVideo } from './FarcasterSupportVideo';
+import { KikoTokenOrbitOutro } from './KikoTokenOrbitOutro';
 
 export const RemotionRoot = () => {
     return (
@@ -56,6 +57,14 @@ export const RemotionRoot = () => {
                 id="CopyTradeToastSequence"
                 component={CopyTradeToastSequence}
                 durationInFrames={480}
+                fps={30}
+                width={1920}
+                height={1080}
+            />
+            <Composition
+                id="KikoTokenOrbitOutro"
+                component={KikoTokenOrbitOutro}
+                durationInFrames={180}
                 fps={30}
                 width={1920}
                 height={1080}

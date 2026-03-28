@@ -12,6 +12,7 @@ import { TRADE_QUOTE_PROFILE } from '../../rpc/profile.js';
 // Guard-level total budget is ~1200ms, so keep direct Solana liquidity bounded.
 const COPYTRADE_SOL_LIQ_TIMEOUT_MS = Number(process.env.COPYTRADE_SOL_LIQ_TIMEOUT_MS || '650');
 const COPYTRADE_SOL_LIQUIDITY_SCAN_ALL_POOLS = (process.env.COPYTRADE_SOL_LIQUIDITY_SCAN_ALL_POOLS || 'false') === 'true';
+const COPYTRADE_EVM_LIQ_FULL_SCAN_BUDGET_MS = Number(process.env.COPYTRADE_EVM_LIQ_FULL_SCAN_BUDGET_MS || '1200');
 
 export type LiquidityGuardSnapshot = {
     liquidityUsd: number;
@@ -78,6 +79,9 @@ async function loadTargetInteractedPools(
     chainId: number,
     deps: TargetPoolDeps = { getV2PoolInfo, getV3PoolInfo, getV4PoolInfo }
 ): Promise<PoolInfo[]> {
+    const routeHopCount = Number(swap?.routeHopCount || swap?.routeHops?.length || 0);
+    const multiHopRoute = routeHopCount > 1;
+    const allowResolvedHintCandidate = swap?.canUseResolvedPoolFastPath !== false && !multiHopRoute;
     const candidates = new Map<string, TargetPoolCandidate>();
     const pushCandidate = (poolAddress: unknown, kind: unknown, v4PoolKey?: V4PoolKey) => {
         const address = String(poolAddress || '').trim();
@@ -96,12 +100,16 @@ async function loadTargetInteractedPools(
         }
         : undefined;
 
-    pushCandidate(swap?.resolvedPoolHint?.poolAddress, swap?.resolvedPoolHint?.kind, resolvedV4PoolKey);
-    for (const hop of swap?.routeHops || []) {
-        pushCandidate(hop?.poolAddress, hop?.kind, resolveV4PoolKeyForCandidate({
-            poolAddress: String(hop?.poolAddress || ''),
-            kind: String(hop?.kind || ''),
-        }, swap, chainId));
+    if (allowResolvedHintCandidate) {
+        pushCandidate(swap?.resolvedPoolHint?.poolAddress, swap?.resolvedPoolHint?.kind, resolvedV4PoolKey);
+    }
+    if (!multiHopRoute) {
+        for (const hop of swap?.routeHops || []) {
+            pushCandidate(hop?.poolAddress, hop?.kind, resolveV4PoolKeyForCandidate({
+                poolAddress: String(hop?.poolAddress || ''),
+                kind: String(hop?.kind || ''),
+            }, swap, chainId));
+        }
     }
 
     const pools = await Promise.all(Array.from(candidates.values()).map(async ({ poolAddress, kind, v4PoolKey }) => {
@@ -178,6 +186,7 @@ export async function resolveBuyLiquidityGuardSnapshot(
         swap?: DecodedSwap;
         stopAtLiquidityUsd?: number;
         allowTokenInfoFallback?: boolean;
+        fullScanBudgetMs?: number;
     },
     deps: LiquidityGuardDeps = {
         getV2PoolInfo,
@@ -274,6 +283,7 @@ export async function resolveBuyLiquidityGuardSnapshot(
 
     try {
         const targetPools = await loadTargetInteractedPools(options?.swap, chainId, deps).catch(() => []);
+        const fullScanBudgetMs = normalizeFinitePositive(options?.fullScanBudgetMs) || COPYTRADE_EVM_LIQ_FULL_SCAN_BUDGET_MS;
         if (targetPools.length > 0) {
             const targetPoolLiquidity = await deps.getLiquidityFromCandidatePools(tokenAddress, chainId, targetPools, {
                 budgetMs: 700,
@@ -299,7 +309,9 @@ export async function resolveBuyLiquidityGuardSnapshot(
             }
         }
 
-        const directLiquidity = await deps.getTokenLiquidity(tokenAddress, chainId);
+        const directLiquidity = await deps.getTokenLiquidity(tokenAddress, chainId, {
+            budgetMs: fullScanBudgetMs,
+        });
         const directLiquidityUsd = normalizeFinitePositive(directLiquidity?.totalTvlUsd);
         const poolCount = Array.isArray(directLiquidity?.pools) ? directLiquidity.pools.length : 0;
 
@@ -314,6 +326,7 @@ export async function resolveBuyLiquidityGuardSnapshot(
                     mode: targetPools.length > 0 ? 'full_scan_after_target_pool_miss' : 'full_scan',
                     targetPoolCount: targetPools.length,
                     stopAtLiquidityUsd: normalizeFinitePositive(options?.stopAtLiquidityUsd) || undefined,
+                    budgetMs: fullScanBudgetMs,
                 }
             };
         }

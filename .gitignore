@@ -45,3 +45,11 @@ kiko-python/chroma_db/
 # 额外的编译器缓存
 .cache/
 .eslintcache
+
+# Generated video renders
+**/out/*.mp4
+**/out/*.mov
+**/out/*.webm
+**/renders/*.mp4
+**/renders/*.mov
+**/renders/*.webm

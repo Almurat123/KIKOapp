@@ -27,3 +27,10 @@ test
 # Remotion
 out/
 src/remotion/
+!src/remotion/
+src/remotion/*
+!src/remotion/KikoTokenOrbitOutro.tsx
+!src/remotion/Root.outro.tsx
+!src/remotion/generated/
+src/remotion/generated/*
+!src/remotion/generated/kikoTrendingTokenSnapshot.ts

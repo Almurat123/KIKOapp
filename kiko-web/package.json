@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && NODE_OPTIONS=--max-old-space-size=4096 vite build",
+    "remotion:outro:list": "remotion compositions src/remotion/Root.outro.tsx",
+    "remotion:outro:render": "remotion render src/remotion/Root.outro.tsx KikoTokenOrbitOutro out/kiko-token-orbit-outro.mp4",
     "test:swap": "node --test test/swap-*.test.js",
     "lint": "eslint .",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,md}\"",

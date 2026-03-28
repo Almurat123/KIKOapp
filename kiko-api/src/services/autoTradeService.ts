@@ -107,6 +107,7 @@ import {
     persistTargetSellEventAndSchedulePositions
 } from './copytrade-v2/exit/positionExitIntentScheduler.js';
 import { getCopytradeBuySharedWarmup } from './copytrade-v2/buy/buySharedWarmup.js';
+import { preparePerConfigBuyLiquidity } from './copytrade-v2/buy/perConfigBuyLiquidity.js';
 import { shouldDeferStrongRpcMonitoring } from './copytrade-v2/buy/preConfirmationRpcPolicy.js';
 import {
     evaluateCopyTradeDelay,
@@ -1107,22 +1108,11 @@ async function processBuyWithInfo(
     let strictTargetSwapValueReliable = targetValueSnapshot.strictTargetSwapValueReliable;
     let strictTargetSwapValueSource = targetValueSnapshot.strictTargetSwapValueSource;
     const strictMinGuardRequired = targetValueSnapshot.strictMinGuardRequired;
-    const stopAtLiquidityUsd = configs.reduce((max, config) => {
-        const next = Number(config?.minLiquidityUsd || 0);
-        return Number.isFinite(next) && next > max ? next : max;
-    }, 0);
-    const liquidityGuardSnapshot = await resolveBuyLiquidityGuardSnapshot(tokenToBuy, chainId, tokenInfo, {
-        swap,
-        stopAtLiquidityUsd,
-    });
-    tokenInfo.guardLiquidityUsd = liquidityGuardSnapshot.liquidityUsd;
-    tokenInfo.guardLiquiditySource = liquidityGuardSnapshot.source;
-    tokenInfo.guardLiquidityReliable = liquidityGuardSnapshot.reliable;
-    tokenInfo.guardLiquidityPoolCount = liquidityGuardSnapshot.poolCount;
-    tokenInfo.guardLiquidityMeta = liquidityGuardSnapshot.metadata || null;
-    if (liquidityGuardSnapshot.liquidityUsd > 0) {
-        tokenInfo.liquidity = liquidityGuardSnapshot.liquidityUsd;
-    }
+    const preparedBuyLiquidity = await preparePerConfigBuyLiquidity({ tokenToBuy, chainId, swap, tokenInfo, configs });
+    tokenInfo = preparedBuyLiquidity.sharedTokenInfo;
+    const liquidityGuardSnapshot = preparedBuyLiquidity.sharedLiquidityGuardSnapshot;
+    const tokenInfoByConfigId = preparedBuyLiquidity.tokenInfoByConfigId;
+    const liquidityGuardSnapshotByConfigId = preparedBuyLiquidity.liquidityGuardSnapshotByConfigId;
 
     logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Processing configurations for buy', {
         count: configs.length,
@@ -1299,7 +1289,7 @@ async function processBuyWithInfo(
                     tokenToBuy,
                     swap,
                     chainId,
-                    tokenInfo,
+                    tokenInfoByConfigId.get(config.id) || tokenInfo,
                     targetSwapValueUsd,
                     strictTargetSwapValueUsd,
                     strictTargetSwapValueReliable,
@@ -1357,6 +1347,8 @@ async function processBuyWithInfo(
     const filterResults = await Promise.all(
         workingConfigs.map(async (config) => {
             const userSettings = userSettingsMap.get(config.userId);
+            const guardedTokenInfo = tokenInfoByConfigId.get(config.id) || tokenInfo;
+            const guardedLiquiditySnapshot = liquidityGuardSnapshotByConfigId.get(config.id) || liquidityGuardSnapshot;
             const universalSlippageBps = resolveCopytradeSlippageBps(config, userSettings);
             const executionMode = resolveExecutionModeForConfig(config);
             const entryDeviationPolicy = resolveEntryDeviationModePolicy(config, executionMode);
@@ -1374,16 +1366,16 @@ async function processBuyWithInfo(
             };
 
             const filterResult = await evaluateStaticBuyGuards(
-                tokenInfo,
+                guardedTokenInfo,
                 effectiveConfig,
                 targetSwapValueUsd,
                 resolveBuyGuardPolicy(executionMode),
                 {
                     targetValueSnapshot,
-                    liquidityGuardSnapshot
+                    liquidityGuardSnapshot: guardedLiquiditySnapshot
                 }
             );
-            return { config, filterResult, effectiveConfig, userSettings };
+            return { config, filterResult, effectiveConfig, userSettings, guardedTokenInfo };
         })
     );
     const filterMs = Date.now() - filterStart;
@@ -1453,7 +1445,10 @@ async function processBuyWithInfo(
 
     // Calculate total volume for ELIGIBLE users only
     const totalVolumeUsd = eligibleConfigs.reduce((sum, c) => sum + (c.buyAmountUsd || 0), 0);
-    const liquidity = tokenInfo.liquidity || 0;
+    const liquidity = eligibleConfigs.reduce((max, config) => {
+        const guardedLiquidity = Number((tokenInfoByConfigId.get(config.id) || tokenInfo).liquidity || 0);
+        return Number.isFinite(guardedLiquidity) && guardedLiquidity > max ? guardedLiquidity : max;
+    }, 0);
 
     // 🛡️ LIQUIDITY PROTECTION: Limit total buy to 30% of liquidity
     const MAX_LIQUIDITY_IMPACT_PERCENT = 30;
@@ -1526,7 +1521,7 @@ async function processBuyWithInfo(
                     tokenToBuy,
                     swap,
                     chainId,
-                    tokenInfo,
+                    tokenInfoByConfigId.get(config.id) || tokenInfo,
                     targetSwapValueUsd,
                     strictTargetSwapValueUsd,
                     strictTargetSwapValueReliable,

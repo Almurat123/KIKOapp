@@ -1,11 +1,12 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useContext, useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { useCurrentFrame, useVideoConfig } from 'remotion';
-import { useThemeContext } from '../contexts/ThemeContext';
+import ThemeContext from '../contexts/ThemeContext';
 
 export const StardustBackground: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
-    const { resolvedTheme } = useThemeContext();
+    const themeContext = useContext(ThemeContext);
+    const resolvedTheme = themeContext?.resolvedTheme || 'dark';
     const frame = useCurrentFrame();
     const { fps, width, height } = useVideoConfig();
 

@@ -59,7 +59,8 @@
     "replay:webhook:10k": "tsx src/scripts/replayWebhook10k.ts",
     "backfill:copytrade-ledger": "tsx src/scripts/backfillCopytradeLedger.ts",
     "migrate:copytrade-v2": "tsx src/scripts/migrateCopytradeV2Orders.ts",
-    "validate:copytrade-v2": "tsx src/scripts/validateCopytradeV2Migration.ts"
+    "validate:copytrade-v2": "tsx src/scripts/validateCopytradeV2Migration.ts",
+    "export:remotion:trending-tokens": "node scripts/export-remotion-trending-token-snapshot.mjs"
   },
   "dependencies": {
     "@coinbase/cdp-sdk": "^1.40.0",

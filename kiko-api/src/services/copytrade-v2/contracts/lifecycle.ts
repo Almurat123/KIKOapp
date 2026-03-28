@@ -69,6 +69,8 @@ export type CopytradeReasonCode =
   | 'forbidden_asset_native_like'
   | 'forbidden_asset_wrapped_native'
   | 'buy_skipped_insufficient_gas_buffer'
+  | 'copytrade_delay_exceeded_dispatch'
+  | 'copytrade_delay_exceeded_hard_cap'
   | 'sell_preempted_before_buy_confirm'
   | 'exit_armed_from_target_sell'
   | 'projection_missing_but_order_authoritative'

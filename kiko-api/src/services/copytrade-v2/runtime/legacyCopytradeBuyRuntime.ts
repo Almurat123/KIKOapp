@@ -259,6 +259,9 @@ export async function processSingleUserBuy(params: {
                     turboMode,
                     hint: 'dispatch delay is from dispatchEligibleAt/swapReadyAt; hard cap still uses firstSeenAt'
                 });
+                await advanceOrder('FAILED_TERMINAL', delayCheck.reasonCode || 'failed_terminal', 'ORDER_BUY_SKIPPED', {
+                    skipReason: 'copytrade_delay_exceeded', delayMs: delayCheck.delayMs, hardDelayMs: delayCheck.hardDelayMs, maxDelayMs: delayCheck.maxDelayMs, delayAnchor: delayCheck.delayAnchor
+                });
                 return { outcome: 'skipped' };
             }
 
