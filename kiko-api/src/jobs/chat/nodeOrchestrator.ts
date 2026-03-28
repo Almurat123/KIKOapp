@@ -126,7 +126,7 @@ export async function runNodeOrchestration(params: {
     const toolUsageCount = new Map<string, number>();
     const knownToolNames = new Set(params.snapshot.toolDefinitions.map((item) => item.name));
     const providerNativeEvidence: ProviderNativeEvidenceSnapshot[] = [];
-    let providerCitationCursor = 0;
+    const deferredProviderCitations: any[] = [];
     let currentPhase = skillResolution.currentPhase;
     let previousResponseId: string | null | undefined = params.snapshot.previousResponseId;
     let lastRoundPolicyMessage = '';
@@ -177,6 +177,13 @@ export async function runNodeOrchestration(params: {
             if (tail) {
                 await emit(tail);
             }
+        }
+    };
+
+    const flushDeferredProviderCitations = () => {
+        if (deferredProviderCitations.length === 0) return;
+        for (const citation of deferredProviderCitations.splice(0, deferredProviderCitations.length)) {
+            params.broker.pushCitation(citation);
         }
     };
 
@@ -329,6 +336,9 @@ export async function runNodeOrchestration(params: {
                         await params.onProviderState?.(forwardedState);
                     },
                 });
+                if (roundResult.bufferedVisibleOutput && Array.isArray(roundResult.citations) && roundResult.citations.length > 0) {
+                    deferredProviderCitations.push(...roundResult.citations);
+                }
                 break;
             } catch (error: any) {
                 const errorMessage = error?.message || String(error);
@@ -406,6 +416,7 @@ export async function runNodeOrchestration(params: {
                     ? '已完成证据整理，正在生成回答'
                     : 'Evidence gathered, generating the answer'
             );
+            flushDeferredProviderCitations();
             await emitMissingTail(roundResult.reasoning || '', streamedRoundReasoning, (text) => params.broker.pushReasoning(text));
             await emitMissingTail(roundResult.text || '', streamedRoundText, (text) => params.broker.pushText(text));
             logger.info(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: generation loop complete', {
@@ -436,10 +447,9 @@ export async function runNodeOrchestration(params: {
                 round,
                 query: params.snapshot.lastUserMessage,
                 toolCalls: normalizedToolCalls,
-                citations: params.broker.getCitations().slice(providerCitationCursor),
+                citations: roundResult.citations || [],
                 finalText: roundResult.text || '',
             });
-            providerCitationCursor = params.broker.getCitations().length;
             if (evidenceSnapshot) {
                 providerNativeEvidence.push(evidenceSnapshot);
                 await params.broker.recordProviderNativeEvidence?.(evidenceSnapshot);
@@ -464,6 +474,7 @@ export async function runNodeOrchestration(params: {
                             ? '已完成证据整理，正在生成回答'
                             : 'Evidence gathered, generating the answer'
                     );
+                    flushDeferredProviderCitations();
                     await emitMissingTail(roundResult.reasoning || '', streamedRoundReasoning, (text) => params.broker.pushReasoning(text));
                     await emitMissingTail(roundResult.text || '', streamedRoundText, (text) => params.broker.pushText(text));
                     logger.info(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: native search phase completed with final answer', {
@@ -492,6 +503,7 @@ export async function runNodeOrchestration(params: {
                         ? '已完成证据整理，正在生成回答'
                     : 'Evidence gathered, generating the answer'
                 );
+                flushDeferredProviderCitations();
                 await emitMissingTail(roundResult.reasoning || '', streamedRoundReasoning, (text) => params.broker.pushReasoning(text));
                 await emitMissingTail(roundResult.text || '', streamedRoundText, (text) => params.broker.pushText(text));
                 logger.info(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: provider-managed tool round already produced answer text', {

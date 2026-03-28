@@ -2,7 +2,16 @@
  * Utility functions for handling source URLs and logos
  */
 
-export type Citation = string | { url?: string; avatar_url?: string; avatarUrl?: string; [key: string]: any };
+export type Citation = string | {
+  url?: string;
+  avatar_url?: string;
+  avatarUrl?: string;
+  citation_id?: string | number;
+  citation_ids?: Array<string | number>;
+  source_id?: string | number;
+  source_ids?: Array<string | number>;
+  [key: string]: any;
+};
 
 /**
  * Extract URL from citation (string or object)

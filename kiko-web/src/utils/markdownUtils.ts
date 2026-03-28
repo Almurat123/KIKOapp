@@ -1,8 +1,10 @@
+import { getCitationUrl, parseCitation, type Citation } from './sourceUtils';
+
 /**
  * Preprocesses markdown content to fix common LLM formatting issues.
  * Particularly helpful for models like Grok that might output loose markdown.
  */
-export const preprocessMarkdown = (content: string): string => {
+export const preprocessMarkdown = (content: string, citations: Citation[] = []): string => {
   if (!content) return '';
 
   let processed = content;
@@ -10,6 +12,7 @@ export const preprocessMarkdown = (content: string): string => {
     .replace(/<grok:[^>\n]+>\s*<\/grok:[^>\n]+>/gi, ' ')
     .replace(/<grok:[^>\n]+>/gi, ' ')
     .replace(/<\/grok:[^>\n]+>/gi, ' ');
+  processed = replaceInlineCitationTags(processed, citations);
   const nonCodeFenceLanguages = new Set(['text', 'txt', 'plain', 'plaintext']);
 
   const collapseDuplicateUrlParens = (input: string) =>
@@ -129,6 +132,70 @@ export const preprocessMarkdown = (content: string): string => {
 
   return processed;
 };
+
+type InlineCitationRef = {
+  href: string;
+  label: string;
+};
+
+function replaceInlineCitationTags(content: string, citations: Citation[]): string {
+  if (!content || !/citation_id/i.test(content)) return content;
+
+  const refs = buildInlineCitationRefs(citations);
+  if (refs.size === 0) {
+    return content.replace(/<argument\s+name=["']citation_id["']\s*>\s*([^<]+?)\s*<\/argument>/gi, '');
+  }
+
+  return content.replace(/<argument\s+name=["']citation_id["']\s*>\s*([^<]+?)\s*<\/argument>/gi, (_match, rawId) => {
+    const citationId = String(rawId || '').trim();
+    const ref = refs.get(citationId);
+    if (!ref) return '';
+    if (!ref.href) return `[${ref.label}]`;
+    return `[${ref.label}](${ref.href})`;
+  });
+}
+
+function buildInlineCitationRefs(citations: Citation[]): Map<string, InlineCitationRef> {
+  const refs = new Map<string, InlineCitationRef>();
+
+  citations.forEach((citation, index) => {
+    const parsed = parseCitation(citation) as Record<string, unknown>;
+    const href = getCitationUrl(parsed as Citation);
+    const label = String(index + 1);
+    const ids = extractCitationIds(parsed);
+    for (const id of ids) {
+      if (!refs.has(id)) {
+        refs.set(id, { href, label });
+      }
+    }
+  });
+
+  return refs;
+}
+
+function extractCitationIds(citation: Record<string, unknown>): string[] {
+  const ids: string[] = [];
+  const append = (value: unknown) => {
+    if (Array.isArray(value)) {
+      value.forEach(append);
+      return;
+    }
+    const normalized = String(value || '').trim();
+    if (!normalized) return;
+    if (!ids.includes(normalized)) {
+      ids.push(normalized);
+    }
+  };
+
+  append(citation.citation_id);
+  append(citation.citationId);
+  append(citation.citation_ids);
+  append(citation.source_id);
+  append(citation.sourceId);
+  append(citation.source_ids);
+
+  return ids;
+}
 
 export const stripMarkdownTables = (content: string): string => {
   if (!content) return '';

@@ -272,6 +272,67 @@ test('search-capable queries can still return a direct answer without forced ret
     assert.equal(broker.texts.at(-1), 'Here is a concise answer without using tools.');
 });
 
+test('native-search phase buffers provisional prose until the final turn is ready', async () => {
+    const snapshot = makeSnapshot('Search X for BTC sentiment, then analyze holders', {
+        requestedTokenSymbols: ['BTC'],
+        normalizedIntent: makeCanonicalIntent({
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: ['BTC'],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+            evidenceRequirements: ['native_search_results', 'onchain_token_evidence'],
+            requiresOnchainEvidence: true,
+        }),
+    });
+    const broker = makeBroker();
+    let generationRound = 0;
+
+    const generationClient = {
+        async generate(params: any) {
+            if (String(params?.taskId || '').endsWith(':plan')) {
+                return { text: '', reasoning: '', citations: [], toolCalls: [] };
+            }
+            generationRound += 1;
+            if (generationRound === 1) {
+                return {
+                    text: 'Provisional native-search answer that should stay hidden.',
+                    reasoning: 'Hidden native-search reasoning.',
+                    citations: [{ url: 'https://x.com/example/status/1' }],
+                    bufferedVisibleOutput: true,
+                    toolCalls: [
+                        {
+                            id: 'native-x',
+                            name: 'x_search',
+                            arguments: { query: 'BTC sentiment today' },
+                        },
+                    ],
+                };
+            }
+            return {
+                text: 'Final answer after chain-side follow-up.',
+                reasoning: '',
+                citations: [],
+                bufferedVisibleOutput: false,
+                toolCalls: [],
+            };
+        },
+    };
+
+    await runNodeOrchestration({
+        snapshot,
+        generationClient: generationClient as any,
+        toolExecutionEngine: { async execute() { throw new Error('no local tool execution expected'); } } as any,
+        broker: broker as any,
+        toolContext: {},
+    });
+
+    assert.equal(generationRound, 2);
+    assert.equal(broker.getContent(), 'Final answer after chain-side follow-up.');
+    assert.deepEqual(broker.citations, [{ url: 'https://x.com/example/status/1' }]);
+});
+
 test('explicit structured swap requests use the fast swap lane without generation', async () => {
     const snapshot = makeSnapshot('Buy 0x0bc61768132aa1484e2b09301284b7def78a4444 for 0.001 BNB on BSC', {
         requestedTokenAddresses: ['0x0bc61768132aa1484e2b09301284b7def78a4444'],

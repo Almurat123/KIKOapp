@@ -20,7 +20,7 @@ export const CitationRenderer: React.FC<CitationRendererProps> = ({
   className,
   components,
 }) => {
-  const processedContent = preprocessMarkdown(content);
+  const processedContent = preprocessMarkdown(content, citations);
   const hasCitations = citations.length > 0;
 
   return (

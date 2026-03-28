@@ -189,3 +189,54 @@ test('forwards Grok progress, client actions, and latency metrics without losing
         globalThis.fetch = originalFetch;
     }
 });
+
+test('buffers native-search prose and citations until the orchestrator decides the turn is final', async () => {
+    const client = new PythonGenerationClient();
+    const originalFetch = globalThis.fetch;
+    const textDeltas: string[] = [];
+    const reasoningDeltas: string[] = [];
+    const citations: any[] = [];
+
+    globalThis.fetch = async () => makeSseResponse([
+        { type: 'tool_progress', payload: { status: 'Searching X', tool_batch: { phase: 'started', count: 1, tools: ['x_search'] } } },
+        { type: 'assistant_delta', payload: { text: 'This should not be shown yet.' } },
+        { type: 'reasoning_delta', payload: { text: 'Interim reasoning.' } },
+        { type: 'citation', payload: { citations: [{ url: 'https://x.com/example/status/1' }] } },
+        { type: 'tool_call_signal', payload: {} },
+        { type: 'tool_call', payload: { id: 'native-x', name: 'x_search', arguments: { query: 'token sentiment' } } },
+        { type: 'message_complete', payload: {} },
+    ]) as any;
+
+    try {
+        const result = await client.generate({
+            sessionId: 'session-native-buffer',
+            taskId: 'task-native-buffer',
+            model: 'grok-4-1-fast-non-reasoning',
+            messages: [],
+            tools: [],
+            providerOptions: {
+                tool_policy: {
+                    control_plane: 'node',
+                    native_tools: {
+                        enable_search: true,
+                    },
+                },
+            },
+            onTextDelta: async (text) => { textDeltas.push(text); },
+            onReasoningDelta: async (text) => { reasoningDeltas.push(text); },
+            onUsage: () => {},
+            onCitation: (citation) => { citations.push(citation); },
+        });
+
+        assert.equal(result.bufferedVisibleOutput, true);
+        assert.equal(result.text, 'This should not be shown yet.');
+        assert.equal(result.reasoning, 'Interim reasoning.');
+        assert.equal(result.toolCalls.length, 1);
+        assert.deepEqual(textDeltas, []);
+        assert.deepEqual(reasoningDeltas, []);
+        assert.deepEqual(citations, []);
+        assert.deepEqual(result.citations, [{ url: 'https://x.com/example/status/1' }]);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});

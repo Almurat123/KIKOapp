@@ -67,7 +67,14 @@ export class PythonGenerationClient {
         onProviderProgress?: (progress: { status?: string; toolBatch?: Record<string, any> }) => Promise<void> | void;
         onLatencyMetrics?: (metrics: Record<string, any>) => Promise<void> | void;
         onProviderState?: (state: { previousResponseId?: string }) => Promise<void> | void;
-    }): Promise<{ toolCalls: GenerationToolCall[]; text: string; reasoning: string; providerState?: { previousResponseId?: string } }> {
+    }): Promise<{
+        toolCalls: GenerationToolCall[];
+        text: string;
+        reasoning: string;
+        citations: any[];
+        providerState?: { previousResponseId?: string };
+        bufferedVisibleOutput?: boolean;
+    }> {
         const headers = buildHeaders();
         const startedAt = Date.now();
         logger.info(LogCode.AI_ORCHESTRATOR, 'PythonGenerationClient: opening generation stream', {
@@ -113,7 +120,9 @@ export class PythonGenerationClient {
         let providerState: { previousResponseId?: string } | undefined;
         let terminalState: GenerationTerminalState = 'open';
         let toolCallSignalReceived = false;
-        const allowVisibleStreamingAfterToolSignal = shouldAllowVisibleStreamingAfterToolSignal(params.providerOptions, params.tools);
+        const bufferVisibleOutput = shouldBufferVisibleOutputForNativeSearchPhase(params.providerOptions, params.tools);
+        const allowVisibleStreamingAfterToolSignal = !bufferVisibleOutput
+            && shouldAllowVisibleStreamingAfterToolSignal(params.providerOptions, params.tools);
 
         const flushFinalCallbacks = async () => {
             if (latestUsage) {
@@ -180,20 +189,20 @@ export class PythonGenerationClient {
                 if (event.type === 'assistant_delta') {
                     const delta = String(event.payload?.text || '');
                     textBuffer += delta;
-                    if (delta && (!toolCallSignalReceived || allowVisibleStreamingAfterToolSignal)) {
+                    if (delta && !bufferVisibleOutput && (!toolCallSignalReceived || allowVisibleStreamingAfterToolSignal)) {
                         await params.onTextDelta(delta);
                     }
                 } else if (event.type === 'reasoning_delta') {
                     const delta = String(event.payload?.text || '');
                     reasoningBuffer += delta;
-                    if (delta && (!toolCallSignalReceived || allowVisibleStreamingAfterToolSignal)) {
+                    if (delta && !bufferVisibleOutput && (!toolCallSignalReceived || allowVisibleStreamingAfterToolSignal)) {
                         await params.onReasoningDelta(delta);
                     }
                 } else if (event.type === 'usage') {
                     latestUsage = event.payload?.usage || {};
                 } else if (event.type === 'citation') {
                     const citation = event.payload?.citation ?? event.payload?.citations;
-                    if (allowVisibleStreamingAfterToolSignal) {
+                    if (!bufferVisibleOutput && allowVisibleStreamingAfterToolSignal) {
                         params.onCitation(citation);
                     } else {
                         bufferedCitations.push(citation);
@@ -253,7 +262,11 @@ export class PythonGenerationClient {
                     const hasToolCalls = toolCalls.length > 0;
                     const finalText = textBuffer;
                     const finalReasoning = reasoningBuffer;
-                    await flushFinalCallbacks();
+                    if (!bufferVisibleOutput) {
+                        await flushFinalCallbacks();
+                    } else if (latestUsage) {
+                        params.onUsage(latestUsage);
+                    }
                     logger.info(LogCode.AI_ORCHESTRATOR, 'PythonGenerationClient: message_complete received', {
                         sessionId: params.sessionId,
                         taskId: params.taskId,
@@ -263,8 +276,16 @@ export class PythonGenerationClient {
                         toolCallSignalReceived,
                         finalTextLength: finalText.length,
                         toolCalls: toolCalls.map((item) => item.name),
+                        bufferedVisibleOutput: bufferVisibleOutput,
                     });
-                    return { toolCalls, text: finalText, reasoning: finalReasoning, providerState };
+                    return {
+                        toolCalls,
+                        text: finalText,
+                        reasoning: finalReasoning,
+                        citations: flattenCitations(bufferedCitations),
+                        providerState,
+                        bufferedVisibleOutput: bufferVisibleOutput,
+                    };
                 }
             }
         }
@@ -283,4 +304,17 @@ function shouldAllowVisibleStreamingAfterToolSignal(
     const nativeTools = providerOptions?.tool_policy?.native_tools;
     const nativeSearchEnabled = Boolean(nativeTools?.enable_search);
     return nativeSearchEnabled && Array.isArray(tools) && tools.length === 0;
+}
+
+function shouldBufferVisibleOutputForNativeSearchPhase(
+    providerOptions: Record<string, any> | undefined,
+    tools: any[],
+): boolean {
+    const nativeTools = providerOptions?.tool_policy?.native_tools;
+    const nativeSearchEnabled = Boolean(nativeTools?.enable_search);
+    return nativeSearchEnabled && Array.isArray(tools) && tools.length === 0;
+}
+
+function flattenCitations(citations: any[]): any[] {
+    return citations.flatMap((item) => Array.isArray(item) ? item : [item]).filter(Boolean);
 }
