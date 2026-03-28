@@ -179,6 +179,54 @@ test('assembleGenerationMessages marks requested chain separately from connected
     assert.match(String(userMessage?.content || ''), /requested_chain.name: BNB Chain/);
 });
 
+test('assembleGenerationMessages nudges shortlist research tasks toward multi-source evidence and official links', () => {
+    const snapshot: ChatContextSnapshot = {
+        sessionId: 'session-research',
+        taskId: 'task-research',
+        model: 'grok-4-1-fast-non-reasoning',
+        history: [],
+        lastUserMessage: '结合 X 搜索、网络搜索和 Polymarket，给我找马上要 TGE 和空投的项目，并附上教程链接',
+        runtime: {
+            contextBlocks: {},
+            userSettings: {},
+        },
+        requestedTokenAddresses: [],
+        requestedTokenSymbols: [],
+        toolDefinitions: [],
+    };
+
+    const providerInfo: ProviderInfo = {
+        provider: 'grok',
+        model: snapshot.model,
+        supportsNativeSearch: true,
+        supportsPreviousResponse: true,
+    };
+
+    const messages = assembleGenerationMessages(snapshot, [], providerInfo, {
+        searchMode: 'required',
+        searchReason: 'realtime_social_context',
+        allowAllTools: true,
+        toolPhase: 'native_search_only',
+        intentEnvelope: {
+            primary_intent: 'search_discovery',
+            task_mode: 'discover',
+            search_mode: 'required',
+            search_target: 'x_and_web',
+            domain: 'market',
+            execution_risk: 'read_only',
+            required_evidence: ['native_search_results'],
+        },
+    });
+
+    const systemMessage = messages.find((message) => message.role === 'system');
+    assert.match(String(systemMessage?.content || ''), /do not stop after one partial lead/i);
+    assert.match(String(systemMessage?.content || ''), /usable shortlist with concrete links/i);
+
+    const userMessage = messages.find((message) => message.role === 'user');
+    assert.match(String(userMessage?.content || ''), /research\/discovery\/list-building tasks/i);
+    assert.match(String(userMessage?.content || ''), /usable shortlist or guide/i);
+});
+
 test('assembleGenerationMessages exposes persisted polymarket selection state to the model', () => {
     const snapshot: ChatContextSnapshot = {
         sessionId: 'session-poly',
@@ -311,8 +359,8 @@ test('assembleGenerationMessages carries early-buyer evidence requirements throu
     });
 
     const userMessage = messages.find((message) => message.role === 'user');
-    assert.match(String(userMessage?.content || ''), /\[TOOL_POLICY\]/);
-    assert.match(String(userMessage?.content || ''), /required evidence before final execution\/conclusion: native_search_results, onchain_token_evidence/i);
+    assert.match(String(userMessage?.content || ''), /\[TOOL_CONTEXT\]/);
+    assert.match(String(userMessage?.content || ''), /required evidence before final answer\/conclusion: native_search_results, onchain_token_evidence/i);
 });
 
 test('assembleGenerationMessages uses compact execution mode guidance for swap execution flows', () => {

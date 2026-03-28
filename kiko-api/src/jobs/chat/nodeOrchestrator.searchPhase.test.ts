@@ -73,11 +73,13 @@ function makeBroker() {
     const texts: string[] = [];
     const replacements: string[] = [];
     const providerNativeEvidence: any[] = [];
+    const recordedToolResults: any[] = [];
     return {
         texts,
         replacements,
         citations,
         providerNativeEvidence,
+        recordedToolResults,
         async bootstrapRuntime() {},
         async applyModelPlan() {},
         hasVisibleArtifact() { return false; },
@@ -86,7 +88,7 @@ function makeBroker() {
         async focusPlanStep() {},
         async noteToolSelected() {},
         async markPlanStepStarted() {},
-        async recordToolResult() {},
+        async recordToolResult(result: any) { recordedToolResults.push(result); },
         async markAnswerStarted() {},
         async setRuntimeState() {},
         async complete(overrides?: { content?: string }) {
@@ -231,6 +233,11 @@ test('Grok social queries keep native search phase free of local tools, then han
     assert.equal(seenRounds[1]?.enableSearch, false);
     assert.ok(seenRounds[1]?.tools.includes('get_token_info'));
     assert.ok(broker.providerNativeEvidence.length >= 1);
+    assert.ok(broker.recordedToolResults.some((item: any) => item.name === 'x_search'));
+    assert.equal(
+        broker.recordedToolResults.find((item: any) => item.name === 'x_search')?.metadata?.source,
+        'provider_native',
+    );
     assert.equal(broker.texts.at(-1), 'Based on X sentiment and on-chain context, BTC holders are still active.');
 });
 

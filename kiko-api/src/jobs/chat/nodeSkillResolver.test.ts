@@ -227,6 +227,67 @@ test('explicit X search keeps native search required while preserving local toke
     assert.equal(providerOptions.tool_policy?.native_tools.preferred_required_tool, 'x_search');
 });
 
+test('Grok mixed X, web, and Polymarket discovery queries still start native-first before local Polymarket tools', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'polymarket',
+        intent: 'polymarket_discovery',
+        searchMode: 'required',
+        searchTarget: 'x_and_web',
+        requiresRealtime: true,
+        evidenceRequirements: ['native_search_results', 'connected_chain_evidence'],
+    });
+    const snapshot = makeSnapshot('Use X search, web search, and Polymarket detection to find imminent TGE and airdrop opportunities', {
+        normalizedIntent: canonicalIntent,
+    });
+    const resolution = resolveNodeSkills(snapshot, null, canonicalIntent);
+
+    assert.equal(resolution.toolPhasePolicy.initialPhase, 'native_search_only');
+    assert.equal(resolution.toolPhasePolicy.nextPhaseAfterNativeSearch, 'local_analysis');
+    assert.equal(resolution.searchMode, 'required');
+    assert.equal(resolution.intentEnvelope.search_target, 'x_and_web');
+    assert.ok(resolution.allowedTools.includes('search_polymarket'));
+    assert.ok(resolution.allowedTools.includes('get_polymarket_market_overview'));
+
+    const providerOptions = buildProviderOptions(
+        snapshot,
+        resolveProviderInfo(snapshot.model),
+        snapshot.lastUserMessage,
+        resolution,
+    );
+    assert.equal(providerOptions.enable_search, true);
+    assert.deepEqual(providerOptions.tool_policy?.native_tools.enabled_tools, ['x_search', 'web_search']);
+    assert.equal(providerOptions.tool_policy?.native_tools.preferred_required_tool, 'x_search');
+});
+
+test('Grok web-first discovery intents execute the declared web search target before local tools', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'market',
+        intent: 'market_macro',
+        searchMode: 'fallback',
+        searchTarget: 'web',
+        requiresRealtime: true,
+        evidenceRequirements: ['native_search_results'],
+    });
+    const resolution = resolveNodeSkills(makeSnapshot('Use web search first, then summarize the market setup', {
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
+
+    assert.equal(resolution.toolPhasePolicy.initialPhase, 'native_search_only');
+    assert.equal(resolution.toolPhasePolicy.nextPhaseAfterNativeSearch, null);
+
+    const providerOptions = buildProviderOptions(
+        makeSnapshot('Use web search first, then summarize the market setup', {
+            normalizedIntent: canonicalIntent,
+        }),
+        resolveProviderInfo('grok-4.1-fast'),
+        'Use web search first, then summarize the market setup',
+        resolution,
+    );
+    assert.equal(providerOptions.enable_search, true);
+    assert.deepEqual(providerOptions.tool_policy?.native_tools.enabled_tools, ['web_search']);
+    assert.equal(providerOptions.tool_policy?.native_tools.preferred_required_tool, 'web_search');
+});
+
 test('X trending queries keep X-first intent but no longer lock tool exposure', () => {
     const canonicalIntent = makeCanonicalIntent({
         domain: 'x',

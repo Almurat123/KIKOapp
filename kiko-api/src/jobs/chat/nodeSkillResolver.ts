@@ -653,6 +653,7 @@ function buildToolPhasePolicy(
         && (
         intentEnvelope.search_mode === 'required'
         || intentEnvelope.domain === 'x'
+        || intentEnvelope.search_target === 'web'
         || intentEnvelope.search_target === 'x'
         || intentEnvelope.search_target === 'x_and_web'
         )

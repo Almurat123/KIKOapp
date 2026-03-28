@@ -1114,6 +1114,9 @@ function mergeProviderNativeResults(existing: ProviderNativeEvidenceSnapshot['re
 function describeToolAction(toolName: string, locale: 'en' | 'zh' = 'en'): string {
     const labels: Record<string, { en: string; zh: string }> = {
         external_web_search: { en: 'check web and social context', zh: '获取网页与社交上下文' },
+        web_search: { en: 'search the web', zh: '搜索网页' },
+        x_search: { en: 'search X', zh: '搜索 X' },
+        browse_page: { en: 'open source page', zh: '打开来源页面' },
         get_token_info: { en: 'inspect token info', zh: '查询代币信息' },
         get_early_buyers: { en: 'find early buyers', zh: '查询早期买家' },
         analyze_creator: { en: 'inspect creator evidence', zh: '分析创建者地址' },

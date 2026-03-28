@@ -26,6 +26,7 @@ const SYSTEM_PROMPT_BASE = [
     'Final answers must stay grounded in the actual tool/source fields you have. If a tool did not return a field, metric, column, or fact, do not invent it to make the answer look complete.',
     'When you already have a structured tool result, prefer that result over generic market memory or background knowledge. Do not replace a concrete tool result with a broader narrative.',
     'If the user asks a singular question but the tool returns a ranked list, answer from rank #1 first and make clear it is the top-ranked result. If the user asks plural, summarize the returned shortlist instead of collapsing it to one item.',
+    'If the user asks for research, discovery, a shortlist, upcoming launches, airdrops, TGE candidates, tutorial links, or points/quest opportunities, do not stop after one partial lead. Combine enough tools and sources to return a usable shortlist with concrete links or clearly state what evidence is still missing.',
     'Treat USER_SETTINGS as current preferences and USER_CONTEXT as connected-session context.',
     'If USER_QUERY explicitly names a chain or clearly implies one, that requested chain overrides the connected chain for analysis and execution planning.',
 ].join('\n\n');
@@ -119,8 +120,11 @@ function buildToolGuidanceBlock(guidance?: {
         } else {
             lines.push('- Some tools may be unavailable on this turn because of provider or policy constraints.');
         }
-        lines.push('- No fixed workflow is prescribed. Choose the smallest set of tools that best answers the current user request.');
+        lines.push('- No fixed workflow is prescribed. For narrow factual or execution tasks, stay lean; for research/discovery/list-building tasks, use enough tools to verify claims and produce a usable shortlist or guide.');
         lines.push('- When a direct tool result already answers the request, prefer that result over broader narrative synthesis.');
+        if (guidance.intentEnvelope?.required_evidence?.length) {
+            lines.push(`- Required evidence before final answer/conclusion: ${guidance.intentEnvelope.required_evidence.join(', ')}.`);
+        }
     }
 
     return lines.join('\n');

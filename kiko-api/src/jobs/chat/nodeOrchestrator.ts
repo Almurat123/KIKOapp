@@ -450,6 +450,16 @@ export async function runNodeOrchestration(params: {
                 citations: roundResult.citations || [],
                 finalText: roundResult.text || '',
             });
+            await recordProviderManagedToolRound({
+                broker: params.broker,
+                toolCalls: normalizedToolCalls,
+                planning,
+                skillResolution,
+                query: params.snapshot.lastUserMessage,
+                round,
+                provider: providerInfo.provider,
+                evidenceSnapshot,
+            });
             if (evidenceSnapshot) {
                 providerNativeEvidence.push(evidenceSnapshot);
                 await params.broker.recordProviderNativeEvidence?.(evidenceSnapshot);
@@ -1178,6 +1188,83 @@ function buildProviderNativeEvidenceSnapshot(params: {
         retrievedAt,
         round: params.round,
     };
+}
+
+async function recordProviderManagedToolRound(params: {
+    broker: ChatStreamBroker;
+    toolCalls: Array<{ id: string; name: string; arguments: Record<string, any> }>;
+    planning: ReturnType<typeof buildTaskPlanningContext>;
+    skillResolution: ReturnType<typeof resolveNodeSkills>;
+    query: string;
+    round: number;
+    provider: 'openai' | 'deepseek' | 'grok';
+    evidenceSnapshot: ProviderNativeEvidenceSnapshot | null;
+}) {
+    if (params.provider !== 'grok' || params.toolCalls.length === 0) {
+        return;
+    }
+    for (const call of params.toolCalls) {
+        const plannedStep = resolvePlanStepForProviderManagedTool(call.name, params.planning, params.skillResolution, params.query);
+        await params.broker.noteToolSelected(call, plannedStep || undefined);
+        await params.broker.markPlanStepStarted(call, plannedStep || undefined);
+        await params.broker.recordToolResult(
+            buildProviderManagedToolResult(call, params.round, params.evidenceSnapshot),
+        );
+    }
+}
+
+function resolvePlanStepForProviderManagedTool(
+    toolName: string,
+    planning: ReturnType<typeof buildTaskPlanningContext>,
+    skillResolution: ReturnType<typeof resolveNodeSkills>,
+    query: string,
+) {
+    if (isProviderManagedNativeTool(toolName, 'grok')) {
+        return buildSocialPlanStep(skillResolution, query);
+    }
+    return resolvePlanStepForTool(toolName, planning, skillResolution, query);
+}
+
+function buildProviderManagedToolResult(
+    call: { id: string; name: string; arguments: Record<string, any> },
+    round: number,
+    evidenceSnapshot: ProviderNativeEvidenceSnapshot | null,
+): { id: string; name: string; arguments: Record<string, any>; ok: boolean; result: Record<string, any>; metadata: Record<string, any> } {
+    const sourceType = normalizeProviderNativeSourceType(call.name);
+    const matchingResults = sourceType && evidenceSnapshot
+        ? (evidenceSnapshot.results || []).filter((item) => item.sourceType === sourceType)
+        : [];
+    return {
+        id: call.id,
+        name: call.name,
+        arguments: call.arguments || {},
+        ok: true,
+        result: {
+            source: 'provider_native',
+            provider: 'grok',
+            round,
+            query: extractProviderManagedToolQuery(call.arguments || {}),
+            source_type: sourceType || 'provider_native',
+            result_count: matchingResults.length,
+            preview: matchingResults.slice(0, 3).map((item) => ({
+                title: item.title || null,
+                url: item.url || null,
+            })),
+        },
+        metadata: {
+            source: 'provider_native',
+            provider: 'grok',
+            round,
+        },
+    };
+}
+
+function extractProviderManagedToolQuery(args: Record<string, any>): string | null {
+    for (const key of ['query', 'q', 'search_query', 'keyword']) {
+        const value = String(args?.[key] || '').trim();
+        if (value) return value;
+    }
+    return null;
 }
 
 function normalizeProviderNativeCitation(
