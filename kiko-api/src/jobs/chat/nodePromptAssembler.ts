@@ -125,6 +125,12 @@ function buildToolGuidanceBlock(guidance?: {
         if (guidance.intentEnvelope?.required_evidence?.length) {
             lines.push(`- Required evidence before final answer/conclusion: ${guidance.intentEnvelope.required_evidence.join(', ')}.`);
         }
+        if (guidance.toolPhase === 'native_search_only') {
+            lines.push('- In this provider-native search phase, start with the smallest search set that can satisfy the required evidence.');
+            lines.push('- Prefer one broad X search, one broad web search, then open only the strongest pages needed to confirm the shortlist.');
+            lines.push('- Do not fan out into many near-duplicate searches or page opens. If you already have enough evidence to answer or hand off, stop searching.');
+            lines.push('- Budget guideline: usually stay within about 6 provider-native search/open actions in this phase unless a required evidence type is still missing.');
+        }
     }
 
     return lines.join('\n');

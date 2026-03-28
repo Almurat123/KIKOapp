@@ -147,6 +147,7 @@ async def _stream_sse(provider: str, url: str, headers: dict[str, str], body: di
     first_token_at = None
     started_sent = False
     provider_request_id = None
+    last_finish_reason = None
 
     timeout = httpx.Timeout(connect=8, read=70, write=15, pool=8)
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -176,7 +177,12 @@ async def _stream_sse(provider: str, url: str, headers: dict[str, str], body: di
                         if raw == "[DONE]":
                             total_ms = int((time.time() - started_at) * 1000)
                             yield GatewayEvent(event_type="latency_metrics", provider=provider, provider_request_id=provider_request_id, payload={"end_to_end_ms": total_ms, "first_token_ms": first_token_at})
-                            yield GatewayEvent(event_type="done", provider=provider, provider_request_id=provider_request_id, payload={})
+                            yield GatewayEvent(
+                                event_type="done",
+                                provider=provider,
+                                provider_request_id=provider_request_id,
+                                payload={"finish_reason": last_finish_reason},
+                            )
                             return
                         try:
                             data = json.loads(raw)
@@ -215,6 +221,9 @@ async def _stream_sse(provider: str, url: str, headers: dict[str, str], body: di
                             yield GatewayEvent(event_type="message_start", provider=provider, provider_request_id=provider_request_id, payload={})
 
                         choice = (data.get("choices") or [{}])[0]
+                        finish_reason = choice.get("finish_reason")
+                        if finish_reason is not None:
+                            last_finish_reason = str(finish_reason)
                         choice_error = choice.get("error")
                         if isinstance(choice_error, dict) and choice_error:
                             yield GatewayEvent(
@@ -292,7 +301,12 @@ async def _stream_sse(provider: str, url: str, headers: dict[str, str], body: di
                             yield GatewayEvent(event_type="citation", provider=provider, provider_request_id=provider_request_id, payload={"citations": inline_citations})
                     total_ms = int((time.time() - started_at) * 1000)
                     yield GatewayEvent(event_type="latency_metrics", provider=provider, provider_request_id=provider_request_id, payload={"end_to_end_ms": total_ms, "first_token_ms": first_token_at})
-                    yield GatewayEvent(event_type="done", provider=provider, provider_request_id=provider_request_id, payload={})
+                    yield GatewayEvent(
+                        event_type="done",
+                        provider=provider,
+                        provider_request_id=provider_request_id,
+                        payload={"finish_reason": last_finish_reason},
+                    )
                     return
             except Exception as e:
                 if attempt == retries - 1:

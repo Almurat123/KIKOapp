@@ -340,6 +340,78 @@ test('native-search phase buffers provisional prose until the final turn is read
     assert.deepEqual(broker.citations, [{ url: 'https://x.com/example/status/1' }]);
 });
 
+test('truncated Grok final answers continue once without duplicating the visible prefix', async () => {
+    const snapshot = makeSnapshot('Find upcoming TGE and airdrop projects with tutorials.', {
+        normalizedIntent: makeCanonicalIntent({
+            domain: 'market',
+            searchTarget: 'x_and_web',
+            evidenceRequirements: ['native_search_results'],
+            requiresOnchainEvidence: false,
+        }),
+    });
+    const broker = makeBroker();
+    const seenRounds: Array<{ tools: string[]; enableSearch: boolean; bufferVisibleOutput: boolean; previousResponseId?: string }> = [];
+    let generationRound = 0;
+
+    const generationClient = {
+        async generate(params: any) {
+            if (String(params?.taskId || '').endsWith(':plan')) {
+                return { text: '', reasoning: '', citations: [], toolCalls: [] };
+            }
+            generationRound += 1;
+            seenRounds.push({
+                tools: (params.tools || []).map((item: any) => item.function?.name).filter(Boolean),
+                enableSearch: Boolean(params.providerOptions?.enable_search),
+                bufferVisibleOutput: Boolean(params.providerOptions?.buffer_visible_output),
+                previousResponseId: params.providerOptions?.previous_response_id,
+            });
+            if (generationRound === 1) {
+                await params.onTextDelta?.('Project shortlist: Katana, Backpack, ');
+                await params.onProviderState?.({ previousResponseId: 'resp-continue-1', finishReason: 'length' });
+                return {
+                    text: 'Project shortlist: Katana, Backpack, ',
+                    reasoning: '',
+                    citations: [],
+                    providerState: { previousResponseId: 'resp-continue-1', finishReason: 'length' },
+                    bufferedVisibleOutput: false,
+                    toolCalls: [],
+                };
+            }
+            return {
+                text: 'Backpack, Polymarket, and others. Use the linked guides to complete quests and trading tasks.',
+                reasoning: '',
+                citations: [],
+                providerState: { previousResponseId: 'resp-continue-1', finishReason: 'stop' },
+                bufferedVisibleOutput: true,
+                toolCalls: [],
+            };
+        },
+    };
+
+    await runNodeOrchestration({
+        snapshot,
+        generationClient: generationClient as any,
+        toolExecutionEngine: { async execute() { throw new Error('no local tool execution expected'); } } as any,
+        broker: broker as any,
+        toolContext: {},
+    });
+
+    assert.equal(generationRound, 2);
+    assert.deepEqual(seenRounds[0], {
+        tools: [],
+        enableSearch: true,
+        bufferVisibleOutput: false,
+        previousResponseId: undefined,
+    });
+    assert.equal(seenRounds[1]?.enableSearch, false);
+    assert.equal(seenRounds[1]?.bufferVisibleOutput, true);
+    assert.equal(seenRounds[1]?.previousResponseId, 'resp-continue-1');
+    assert.equal(
+        broker.getContent(),
+        'Project shortlist: Katana, Backpack, Polymarket, and others. Use the linked guides to complete quests and trading tasks.',
+    );
+});
+
 test('explicit structured swap requests use the fast swap lane without generation', async () => {
     const snapshot = makeSnapshot('Buy 0x0bc61768132aa1484e2b09301284b7def78a4444 for 0.001 BNB on BSC', {
         requestedTokenAddresses: ['0x0bc61768132aa1484e2b09301284b7def78a4444'],

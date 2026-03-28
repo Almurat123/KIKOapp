@@ -240,3 +240,43 @@ test('buffers native-search prose and citations until the orchestrator decides t
         globalThis.fetch = originalFetch;
     }
 });
+
+test('captures provider finish_reason and explicit buffering for continuation rounds', async () => {
+    const client = new PythonGenerationClient();
+    const originalFetch = globalThis.fetch;
+    const textDeltas: string[] = [];
+    const providerStates: any[] = [];
+
+    globalThis.fetch = async () => makeSseResponse([
+        { type: 'assistant_delta', payload: { text: 'Partial answer that should stay buffered.' } },
+        { type: 'provider_state', payload: { previous_response_id: 'resp-1', finish_reason: 'length' } },
+        { type: 'message_complete', payload: {} },
+    ]) as any;
+
+    try {
+        const result = await client.generate({
+            sessionId: 'session-native-continuation',
+            taskId: 'task-native-continuation',
+            model: 'grok-4-1-fast-non-reasoning',
+            messages: [],
+            tools: [],
+            providerOptions: {
+                buffer_visible_output: true,
+            },
+            onTextDelta: async (text) => { textDeltas.push(text); },
+            onReasoningDelta: async () => {},
+            onUsage: () => {},
+            onCitation: () => {},
+            onProviderState: async (state) => { providerStates.push(state); },
+        });
+
+        assert.equal(result.bufferedVisibleOutput, true);
+        assert.equal(result.text, 'Partial answer that should stay buffered.');
+        assert.equal(result.providerState?.previousResponseId, 'resp-1');
+        assert.equal(result.providerState?.finishReason, 'length');
+        assert.deepEqual(textDeltas, []);
+        assert.equal(providerStates[0]?.finishReason, 'length');
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});

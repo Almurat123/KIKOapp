@@ -25,6 +25,11 @@ export interface GenerationToolCall {
     arguments: Record<string, any>;
 }
 
+export interface GenerationProviderState {
+    previousResponseId?: string;
+    finishReason?: string;
+}
+
 type GenerationTerminalState = 'open' | 'completed' | 'errored';
 
 function createGenerationStreamError(args: {
@@ -66,13 +71,13 @@ export class PythonGenerationClient {
         onClientAction?: (action: any) => Promise<void> | void;
         onProviderProgress?: (progress: { status?: string; toolBatch?: Record<string, any> }) => Promise<void> | void;
         onLatencyMetrics?: (metrics: Record<string, any>) => Promise<void> | void;
-        onProviderState?: (state: { previousResponseId?: string }) => Promise<void> | void;
+        onProviderState?: (state: GenerationProviderState) => Promise<void> | void;
     }): Promise<{
         toolCalls: GenerationToolCall[];
         text: string;
         reasoning: string;
         citations: any[];
-        providerState?: { previousResponseId?: string };
+        providerState?: GenerationProviderState;
         bufferedVisibleOutput?: boolean;
     }> {
         const headers = buildHeaders();
@@ -117,7 +122,7 @@ export class PythonGenerationClient {
         let reasoningBuffer = '';
         let latestUsage: Record<string, any> | null = null;
         const bufferedCitations: any[] = [];
-        let providerState: { previousResponseId?: string } | undefined;
+        let providerState: GenerationProviderState | undefined;
         let terminalState: GenerationTerminalState = 'open';
         let toolCallSignalReceived = false;
         const bufferVisibleOutput = shouldBufferVisibleOutputForNativeSearchPhase(params.providerOptions, params.tools);
@@ -212,6 +217,7 @@ export class PythonGenerationClient {
                 } else if (event.type === 'provider_state') {
                     providerState = {
                         previousResponseId: event.payload?.previous_response_id ? String(event.payload.previous_response_id) : undefined,
+                        finishReason: event.payload?.finish_reason ? String(event.payload.finish_reason) : undefined,
                     };
                     await params.onProviderState?.(providerState);
                 } else if (event.type === 'client_action') {
@@ -301,6 +307,9 @@ function shouldAllowVisibleStreamingAfterToolSignal(
     providerOptions: Record<string, any> | undefined,
     tools: any[],
 ): boolean {
+    if (providerOptions?.buffer_visible_output === true) {
+        return false;
+    }
     const nativeTools = providerOptions?.tool_policy?.native_tools;
     const nativeSearchEnabled = Boolean(nativeTools?.enable_search);
     return nativeSearchEnabled && Array.isArray(tools) && tools.length === 0;
@@ -310,6 +319,9 @@ function shouldBufferVisibleOutputForNativeSearchPhase(
     providerOptions: Record<string, any> | undefined,
     tools: any[],
 ): boolean {
+    if (providerOptions?.buffer_visible_output === true) {
+        return true;
+    }
     const nativeTools = providerOptions?.tool_policy?.native_tools;
     const nativeSearchEnabled = Boolean(nativeTools?.enable_search);
     return nativeSearchEnabled && Array.isArray(tools) && tools.length === 0;

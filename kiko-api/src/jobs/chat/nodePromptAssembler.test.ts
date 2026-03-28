@@ -225,6 +225,8 @@ test('assembleGenerationMessages nudges shortlist research tasks toward multi-so
     const userMessage = messages.find((message) => message.role === 'user');
     assert.match(String(userMessage?.content || ''), /research\/discovery\/list-building tasks/i);
     assert.match(String(userMessage?.content || ''), /usable shortlist or guide/i);
+    assert.match(String(userMessage?.content || ''), /smallest search set that can satisfy the required evidence/i);
+    assert.match(String(userMessage?.content || ''), /about 6 provider-native search\/open actions/i);
 });
 
 test('assembleGenerationMessages exposes persisted polymarket selection state to the model', () => {

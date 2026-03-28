@@ -36,6 +36,7 @@ async def stream_generation(body: GenerationRequest):
     async def event_stream():
         tool_deltas: dict[str, dict[str, Any]] = {}
         provider_request_id: str | None = None
+        finish_reason: str | None = None
         tool_call_signal_sent = False
         async for event in stream_llm_with_options(
             messages=[item.model_dump(exclude_none=True) for item in body.messages],
@@ -103,8 +104,18 @@ async def stream_generation(body: GenerationRequest):
                 })
                 return
             elif event_type == "done":
+                raw_finish_reason = payload.get("finish_reason")
+                finish_reason = str(raw_finish_reason) if raw_finish_reason not in (None, "") else None
                 if provider_request_id:
-                    yield encode_event("provider_state", {"previous_response_id": provider_request_id})
+                    yield encode_event(
+                        "provider_state",
+                        {
+                            "previous_response_id": provider_request_id,
+                            "finish_reason": finish_reason,
+                        },
+                    )
+                elif finish_reason:
+                    yield encode_event("provider_state", {"finish_reason": finish_reason})
                 salvage_tool_call_arguments(tool_deltas)
                 for tool_call in tool_deltas.values():
                     tool_name = str(((tool_call.get("function") or {}).get("name")) or "").strip()

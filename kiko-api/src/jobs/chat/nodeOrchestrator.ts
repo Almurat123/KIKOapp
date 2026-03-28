@@ -9,7 +9,7 @@ import { parseTradingIntent } from './tradingIntentResolver.js';
 import { checkToolAgainstPolicy, isProviderNativeTool, resolvePolicyToolBudget } from './controlPolicy.js';
 import type { ToolExecutionEngine } from './toolExecutionEngine.js';
 import type { ChatStreamBroker } from './streamBroker.js';
-import type { PythonGenerationClient } from './pythonGenerationClient.js';
+import type { GenerationProviderState, PythonGenerationClient } from './pythonGenerationClient.js';
 import {
     buildChainEvidencePlanStep,
     materializePlanCard,
@@ -40,7 +40,7 @@ export async function runNodeOrchestration(params: {
     toolContext: Record<string, any>;
     shouldCancel?: () => Promise<boolean>;
     onToolStatus?: (toolName: string) => Promise<void> | void;
-    onProviderState?: (state: { previousResponseId?: string }) => Promise<void> | void;
+    onProviderState?: (state: GenerationProviderState) => Promise<void> | void;
 }) {
     const providerInfo = resolveProviderInfo(params.snapshot.model);
     await params.broker.bootstrapRuntime(buildWarmupPlan(params.snapshot.lastUserMessage));
@@ -131,6 +131,9 @@ export async function runNodeOrchestration(params: {
     let previousResponseId: string | null | undefined = params.snapshot.previousResponseId;
     let lastRoundPolicyMessage = '';
     let forceAnswerFromEvidence = false;
+    let forceBufferedVisibleOutput = false;
+    let truncationContinuationCount = 0;
+    let visibleFinalAnswerText = '';
     const isReadOnlyTask = (params.snapshot.policySnapshot?.actionClass || 'READ_ONLY') === 'READ_ONLY';
 
     const messages: GenerationMessage[] = assembleGenerationMessages(
@@ -261,7 +264,10 @@ export async function runNodeOrchestration(params: {
                 effectivePhase,
             );
         const roundProviderOptions = forceAnswerFromEvidence
-            ? buildEvidenceOnlyProviderOptions(params.snapshot, providerInfo)
+            ? buildEvidenceOnlyProviderOptions(params.snapshot, providerInfo, {
+                previousResponseId,
+                bufferVisibleOutput: forceBufferedVisibleOutput,
+            })
             : buildProviderOptions(
                 params.snapshot,
                 providerInfo,
@@ -281,6 +287,7 @@ export async function runNodeOrchestration(params: {
         const roundPreviousResponseId = typeof (roundProviderOptions as any)?.previous_response_id === 'string'
             ? String((roundProviderOptions as any).previous_response_id)
             : '';
+        const roundBufferedVisibleOutput = Boolean((roundProviderOptions as any)?.buffer_visible_output);
         let roundResult;
         let streamedRoundText = '';
         let streamedRoundReasoning = '';
@@ -408,6 +415,27 @@ export async function runNodeOrchestration(params: {
                         : 'The model returned no visible final answer',
                 );
             }
+            if (
+                shouldContinueTruncatedProviderAnswer(roundResult.providerState, providerInfo.provider)
+                && String(previousResponseId || '').trim().length > 0
+                && truncationContinuationCount < 2
+            ) {
+                truncationContinuationCount += 1;
+                forceAnswerFromEvidence = true;
+                forceBufferedVisibleOutput = true;
+                currentPhase = 'local_analysis';
+                visibleFinalAnswerText = appendNonOverlappingText(visibleFinalAnswerText, roundResult.text || '');
+                messages.push({
+                    role: 'system',
+                    content: buildTruncationContinuationInstruction(planning.locale),
+                });
+                await params.broker.markPlanPhase(
+                    planning.locale === 'zh'
+                        ? '答案过长被截断，正在续写剩余内容'
+                        : 'Answer hit the output limit; continuing the remaining content',
+                );
+                continue;
+            }
             const summaryStep = buildSummaryPlanStep(params.snapshot.lastUserMessage);
             await params.broker.markAnswerStarted(summaryStep);
             await params.broker.setRuntimeState?.(undefined);
@@ -418,7 +446,16 @@ export async function runNodeOrchestration(params: {
             );
             flushDeferredProviderCitations();
             await emitMissingTail(roundResult.reasoning || '', streamedRoundReasoning, (text) => params.broker.pushReasoning(text));
-            await emitMissingTail(roundResult.text || '', streamedRoundText, (text) => params.broker.pushText(text));
+            if (roundBufferedVisibleOutput) {
+                const tail = sliceNonOverlappingTail(roundResult.text || '', visibleFinalAnswerText);
+                if (tail) {
+                    await params.broker.pushText(tail);
+                }
+                visibleFinalAnswerText = appendNonOverlappingText(visibleFinalAnswerText, roundResult.text || '');
+            } else {
+                await emitMissingTail(roundResult.text || '', streamedRoundText, (text) => params.broker.pushText(text));
+                visibleFinalAnswerText = appendNonOverlappingText(visibleFinalAnswerText, roundResult.text || '');
+            }
             logger.info(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: generation loop complete', {
                 sessionId: params.snapshot.sessionId,
                 taskId: params.snapshot.taskId,
@@ -486,7 +523,16 @@ export async function runNodeOrchestration(params: {
                     );
                     flushDeferredProviderCitations();
                     await emitMissingTail(roundResult.reasoning || '', streamedRoundReasoning, (text) => params.broker.pushReasoning(text));
-                    await emitMissingTail(roundResult.text || '', streamedRoundText, (text) => params.broker.pushText(text));
+                    if (roundBufferedVisibleOutput) {
+                        const tail = sliceNonOverlappingTail(roundResult.text || '', visibleFinalAnswerText);
+                        if (tail) {
+                            await params.broker.pushText(tail);
+                        }
+                        visibleFinalAnswerText = appendNonOverlappingText(visibleFinalAnswerText, roundResult.text || '');
+                    } else {
+                        await emitMissingTail(roundResult.text || '', streamedRoundText, (text) => params.broker.pushText(text));
+                        visibleFinalAnswerText = appendNonOverlappingText(visibleFinalAnswerText, roundResult.text || '');
+                    }
                     logger.info(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: native search phase completed with final answer', {
                         sessionId: params.snapshot.sessionId,
                         taskId: params.snapshot.taskId,
@@ -515,7 +561,16 @@ export async function runNodeOrchestration(params: {
                 );
                 flushDeferredProviderCitations();
                 await emitMissingTail(roundResult.reasoning || '', streamedRoundReasoning, (text) => params.broker.pushReasoning(text));
-                await emitMissingTail(roundResult.text || '', streamedRoundText, (text) => params.broker.pushText(text));
+                if (roundBufferedVisibleOutput) {
+                    const tail = sliceNonOverlappingTail(roundResult.text || '', visibleFinalAnswerText);
+                    if (tail) {
+                        await params.broker.pushText(tail);
+                    }
+                    visibleFinalAnswerText = appendNonOverlappingText(visibleFinalAnswerText, roundResult.text || '');
+                } else {
+                    await emitMissingTail(roundResult.text || '', streamedRoundText, (text) => params.broker.pushText(text));
+                    visibleFinalAnswerText = appendNonOverlappingText(visibleFinalAnswerText, roundResult.text || '');
+                }
                 logger.info(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: provider-managed tool round already produced answer text', {
                     sessionId: params.snapshot.sessionId,
                     taskId: params.snapshot.taskId,
@@ -743,9 +798,17 @@ function buildEvidenceOnlyAnswerInstruction(locale: 'en' | 'zh'): string {
     return 'Use the tool results, cached evidence, and public-source evidence already gathered in this conversation, then answer the user directly.';
 }
 
+function buildTruncationContinuationInstruction(locale: 'en' | 'zh'): string {
+    if (locale === 'zh') {
+        return '你上一条最终回答因为输出长度限制被截断了。请从刚才停止的位置继续，不要重复已经写过的内容，不要重新开头，也不要再调用任何工具。只补全剩余答案并自然收尾。';
+    }
+    return 'Your previous final answer was cut off by the output limit. Continue exactly where you stopped. Do not repeat earlier text, do not restart the answer, and do not call any tools. Only finish the remaining content and close naturally.';
+}
+
 function buildEvidenceOnlyProviderOptions(
     snapshot: ChatContextSnapshot,
     providerInfo: { provider: 'openai' | 'deepseek' | 'grok' },
+    options?: { previousResponseId?: string | null; bufferVisibleOutput?: boolean },
 ) {
     if (providerInfo.provider !== 'grok') {
         return {
@@ -755,6 +818,7 @@ function buildEvidenceOnlyProviderOptions(
             },
             tool_context: snapshot.runtime.toolContext || {},
             enable_search: false,
+            ...(options?.bufferVisibleOutput ? { buffer_visible_output: true } : {}),
         };
     }
 
@@ -765,6 +829,8 @@ function buildEvidenceOnlyProviderOptions(
         },
         tool_context: snapshot.runtime.toolContext || {},
         enable_search: false,
+        ...(options?.previousResponseId ? { previous_response_id: String(options.previousResponseId) } : {}),
+        ...(options?.bufferVisibleOutput ? { buffer_visible_output: true } : {}),
         tool_policy: {
             control_plane: 'node',
             action_class: snapshot.policySnapshot?.actionClass || 'READ_ONLY',
@@ -785,6 +851,37 @@ function buildEvidenceOnlyProviderOptions(
             },
         },
     };
+}
+
+function shouldContinueTruncatedProviderAnswer(
+    providerState: GenerationProviderState | undefined,
+    provider: 'openai' | 'deepseek' | 'grok',
+): boolean {
+    if (provider !== 'grok') {
+        return false;
+    }
+    const finishReason = String(providerState?.finishReason || '').trim().toLowerCase();
+    return finishReason === 'length' || finishReason === 'max_tokens';
+}
+
+function sliceNonOverlappingTail(candidate: string, alreadyVisible: string): string {
+    if (!candidate) return '';
+    if (!alreadyVisible) return candidate;
+    if (candidate.startsWith(alreadyVisible)) {
+        return candidate.slice(alreadyVisible.length);
+    }
+    const maxOverlap = Math.min(candidate.length, alreadyVisible.length);
+    for (let size = maxOverlap; size > 0; size -= 1) {
+        if (alreadyVisible.endsWith(candidate.slice(0, size))) {
+            return candidate.slice(size);
+        }
+    }
+    return candidate;
+}
+
+function appendNonOverlappingText(existing: string, incoming: string): string {
+    if (!incoming) return existing;
+    return `${existing}${sliceNonOverlappingTail(incoming, existing)}`;
 }
 
 function isStalePreviousResponseError(message: string): boolean {
