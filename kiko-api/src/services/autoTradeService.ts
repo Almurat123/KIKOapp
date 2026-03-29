@@ -107,7 +107,10 @@ import {
     persistTargetSellEventAndSchedulePositions
 } from './copytrade-v2/exit/positionExitIntentScheduler.js';
 import { getCopytradeBuySharedWarmup } from './copytrade-v2/buy/buySharedWarmup.js';
-import { preparePerConfigBuyLiquidity } from './copytrade-v2/buy/perConfigBuyLiquidity.js';
+import {
+    applyPreparedTokenInfoPatch,
+    preparePerConfigBuyLiquidity
+} from './copytrade-v2/buy/perConfigBuyLiquidity.js';
 import { shouldDeferStrongRpcMonitoring } from './copytrade-v2/buy/preConfirmationRpcPolicy.js';
 import {
     evaluateCopyTradeDelay,
@@ -1108,22 +1111,6 @@ async function processBuyWithInfo(
     let strictTargetSwapValueReliable = targetValueSnapshot.strictTargetSwapValueReliable;
     let strictTargetSwapValueSource = targetValueSnapshot.strictTargetSwapValueSource;
     const strictMinGuardRequired = targetValueSnapshot.strictMinGuardRequired;
-    const preparedBuyLiquidity = await preparePerConfigBuyLiquidity({ tokenToBuy, chainId, swap, tokenInfo, configs });
-    tokenInfo = preparedBuyLiquidity.sharedTokenInfo;
-    const liquidityGuardSnapshot = preparedBuyLiquidity.sharedLiquidityGuardSnapshot;
-    const tokenInfoByConfigId = preparedBuyLiquidity.tokenInfoByConfigId;
-    const liquidityGuardSnapshotByConfigId = preparedBuyLiquidity.liquidityGuardSnapshotByConfigId;
-
-    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Processing configurations for buy', {
-        count: configs.length,
-        price: tokenInfo.price,
-        fallback: isFallbackMode,
-        guardLiquidityUsd: liquidityGuardSnapshot.liquidityUsd,
-        guardLiquiditySource: liquidityGuardSnapshot.source,
-        guardLiquidityReliable: liquidityGuardSnapshot.reliable,
-        guardLiquidityPoolCount: liquidityGuardSnapshot.poolCount,
-        guardLiquidityMeta: liquidityGuardSnapshot.metadata || undefined,
-    });
 
     let judgeDecisionId: string | null = null;
 
@@ -1237,6 +1224,29 @@ async function processBuyWithInfo(
             logger.warn(LogCode.DATA_CORRUPTION, 'Failed to derive implied price', { error: err });
         }
     }
+
+    const preparedBuyLiquidity = await preparePerConfigBuyLiquidity({ tokenToBuy, chainId, swap, tokenInfo, configs });
+    applyPreparedTokenInfoPatch(preparedBuyLiquidity, {
+        price: tokenInfo.price,
+        marketCap: tokenInfo.marketCap,
+        fdv: tokenInfo.fdv,
+        provider: tokenInfo.provider
+    });
+    tokenInfo = preparedBuyLiquidity.sharedTokenInfo;
+    const liquidityGuardSnapshot = preparedBuyLiquidity.sharedLiquidityGuardSnapshot;
+    const tokenInfoByConfigId = preparedBuyLiquidity.tokenInfoByConfigId;
+    const liquidityGuardSnapshotByConfigId = preparedBuyLiquidity.liquidityGuardSnapshotByConfigId;
+
+    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Processing configurations for buy', {
+        count: configs.length,
+        price: tokenInfo.price,
+        fallback: isFallbackMode,
+        guardLiquidityUsd: liquidityGuardSnapshot.liquidityUsd,
+        guardLiquiditySource: liquidityGuardSnapshot.source,
+        guardLiquidityReliable: liquidityGuardSnapshot.reliable,
+        guardLiquidityPoolCount: liquidityGuardSnapshot.poolCount,
+        guardLiquidityMeta: liquidityGuardSnapshot.metadata || undefined,
+    });
 
     if (chainId === 900 && tokenInfo.price > 0 && (!tokenInfo.marketCap || tokenInfo.marketCap <= 0)) {
         try {

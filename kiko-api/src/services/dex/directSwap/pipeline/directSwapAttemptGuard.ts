@@ -5,6 +5,7 @@ import type { DirectSwapResult } from '../types.js';
 export type DirectSwapSendGuardDecision = {
   blocked: boolean;
   reasonCode:
+    | 'fallback_owned'
     | 'send_started'
     | 'tx_hash_present'
     | 'tx_visible_pending'
@@ -34,6 +35,18 @@ export function evaluateDirectSwapSendGuard(params: {
     || params.runtimeContext?.canonicalTxHash
     || ''
   ).trim().toLowerCase() || null;
+  const fallbackOwned = runtimeState === 'fallback_started'
+    || runtimeState === 'fallback_succeeded'
+    || runtimeState === 'fallback_failed';
+  if (fallbackOwned) {
+    return {
+      blocked: true,
+      reasonCode: 'fallback_owned',
+      txHash,
+      runtimeState: runtimeState || null,
+      lifecycleStatus: lifecycleStatus || null,
+    };
+  }
   const hasSendStarted = runtimeState === 'send_started'
     || params.runtimeContext?.attempts?.some((attempt) => attempt.state === 'sending') === true;
 

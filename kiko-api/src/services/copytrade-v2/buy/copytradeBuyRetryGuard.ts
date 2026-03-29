@@ -1,5 +1,5 @@
 import type { OrderRuntimeContext } from '../../order-runtime/types.js';
-import { resolveCopytradeBuyEvidence } from './copytradeBuyEvidence.js';
+import { evaluateCopytradeBuySendState } from './copytradeBuySendState.js';
 
 export interface CopytradeBuyRetryDecision {
   shouldAbortRetry: boolean;
@@ -11,23 +11,23 @@ export function shouldAbortCopytradeBuyRetry(params: {
   chainId: number;
   runtimeContext?: OrderRuntimeContext | null;
 }): CopytradeBuyRetryDecision {
-  const evidence = resolveCopytradeBuyEvidence({
+  const decision = evaluateCopytradeBuySendState({
+    mode: params.runtimeContext?.mode || 'copytrade',
+    isBuyDirection: params.runtimeContext?.side === 'buy',
     runtimeContext: params.runtimeContext,
     chainId: params.chainId,
     txHash: params.runtimeContext?.canonicalTxHash,
   });
-  const resolution = evidence.resolution;
-
-  if (!resolution.accepted || resolution.failed) {
+  if (!decision.adoptAcceptedTx || !decision.txHash) {
     return {
       shouldAbortRetry: false,
-      reasonCode: resolution.reasonCode || 'no_accepted_evidence'
+      reasonCode: decision.reasonCode || 'no_accepted_evidence'
     };
   }
 
   return {
     shouldAbortRetry: true,
-    txHash: evidence.txHash,
-    reasonCode: resolution.reasonCode || resolution.state || 'send_accepted'
+    txHash: decision.txHash,
+    reasonCode: decision.reasonCode || 'send_accepted'
   };
 }

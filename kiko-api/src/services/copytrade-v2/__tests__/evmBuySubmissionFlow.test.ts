@@ -89,7 +89,7 @@ test('evm buy submission flow preserves unresolved turbo submissions for later r
   assert.equal(result.txLifecycleStatus, 'broadcasted_unseen');
 });
 
-test('evm buy submission flow preserves visibility-timeout turbo failures when order context exists', async () => {
+test('evm buy submission flow does not preserve no-send-evidence turbo timeouts as unresolved submissions', async () => {
   const result = await executeEvmCopytradeBuySubmissionFlow(
     {
       userId: 'user-visibility-timeout',
@@ -159,9 +159,8 @@ test('evm buy submission flow preserves visibility-timeout turbo failures when o
     },
   );
 
-  assert.equal(result.status, 'submitted_unresolved');
-  assert.equal(result.reasonCode, 'visibility_timeout');
-  assert.equal(result.txLifecycleStatus, 'dropped_timeout');
+  assert.equal(result.status, 'aborted');
+  assert.equal(result.reasonCode, 'turbo_step1_failed');
 });
 
 test('evm buy submission flow preserves send-started copytrade buys instead of retrying another send', async () => {

@@ -229,6 +229,13 @@ function syncLifecycleIntoRuntimeContext(tx: TransactionRequest, lifecycle: TxLi
     recordLifecycleOnOrder(tx.runtimeContext, lifecycle, { reasonCode });
 }
 
+function isFallbackOwnedRuntimeState(runtimeContext?: OrderRuntimeContext | null): boolean {
+    const runtimeState = String(runtimeContext?.state || '').trim().toLowerCase();
+    return runtimeState === 'fallback_started'
+        || runtimeState === 'fallback_succeeded'
+        || runtimeState === 'fallback_failed';
+}
+
 function reportAcceptedEvidence(tx: TransactionRequest, txHash: string, source: 'privy_sendtx' | 'raw_broadcast'): void {
     const orderId = tx.runtimeContext?.orderId;
     if (orderId) bindOrderToTxHash(orderId, tx.chainId, txHash);
@@ -863,6 +870,16 @@ export async function sendTransactionLifecycle(
         // === SIMULATION MODE ===
         try {
             const runtimeContext = tx.runtimeContext;
+            if (isFallbackOwnedRuntimeState(runtimeContext)) {
+                const disownedLifecycle: TxLifecycleResult = {
+                    status: 'dropped_timeout',
+                    attempts: 1,
+                    chainId: tx.chainId,
+                    lastRpcError: 'copytrade_send_disowned_by_fallback',
+                };
+                syncLifecycleIntoRuntimeContext(tx, disownedLifecycle, 'duplicate_lock');
+                return disownedLifecycle;
+            }
             if (runtimeContext) {
                 markOrderPrepared(runtimeContext);
                 markOrderSendStarted(runtimeContext);

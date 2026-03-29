@@ -2,6 +2,7 @@ import { buildRecoverablePendingEntryTxHash } from '../buy/pendingProtectionPoli
 import { resolveEntryDeviationCurrentPrice } from '../buy/entryDeviationPriceSelection.js';
 import { releaseMirrorSellAfterBuyConfirm } from '../buy/buyConfirmationMirrorSellRelease.js';
 import { scheduleLateBuySubmissionAdoption } from '../buy/lateBuySubmissionAdoption.js';
+import { cancelPendingAttributedPosition } from '../positions/pendingAttributedPositionLedger.js';
 import {
     advanceCanonicalOrderState as advanceCanonicalOrderStateFallback,
     claimOrCreateCanonicalOrder as claimOrCreateCanonicalOrderFallback,
@@ -1226,11 +1227,44 @@ export async function processSingleUserBuy(params: {
                                     });
                                 },
                                 onExhausted: async (resolution) => {
+                                    const exhaustedReasonCode = resolution.reasonCode && resolution.reasonCode !== 'none'
+                                        ? resolution.reasonCode
+                                        : 'submission_unresolved_exhausted';
+                                    if (pendingPositionId) {
+                                        const deleted = await prisma.position.deleteMany({
+                                            where: {
+                                                id: pendingPositionId,
+                                                status: positionStatusCompat.pendingCreateStatus as any,
+                                            }
+                                        }).catch((error: any) => {
+                                            logger.warn(LogCode.SYS_ERROR, 'Failed to cleanup pending buy position after late submission adoption exhaustion', {
+                                                userId: config.userId,
+                                                token: tokenToBuy,
+                                                chainId,
+                                                pendingPositionId,
+                                                error: error?.message || String(error)
+                                            });
+                                            return { count: 0 };
+                                        });
+                                        if ((deleted?.count || 0) > 0) {
+                                            await cancelPendingAttributedPosition({
+                                                positionId: pendingPositionId,
+                                                reasonCode: exhaustedReasonCode,
+                                            }).catch(() => 0);
+                                        }
+                                    }
+                                    await advanceOrder('FAILED_TERMINAL', exhaustedReasonCode, 'ORDER_BUY_FAILED', {
+                                        positionIdLegacy: pendingPositionId,
+                                        runtimeOrderId: orderRuntimeContext?.orderId || null,
+                                        runtimeCanonicalTxHash: orderRuntimeContext?.canonicalTxHash || null,
+                                        lastKnownExposureSource: 'buy_submission_failed',
+                                    });
                                     logger.warn(LogCode.SYS_INFO, 'Late buy submission adoption exhausted without tx evidence', {
                                         userId: config.userId,
                                         token: tokenToBuy,
                                         chainId,
                                         pendingPositionId,
+                                        exhaustedReasonCode,
                                         resolutionState: resolution.state,
                                         resolutionReasonCode: resolution.reasonCode,
                                         ...buildOrderAuditFields(orderRuntimeContext)

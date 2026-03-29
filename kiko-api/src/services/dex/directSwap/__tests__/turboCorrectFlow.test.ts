@@ -443,3 +443,17 @@ test('direct swap send guard blocks additional send when runtime is already send
   assert.equal(decision.blocked, true);
   assert.equal(decision.reasonCode, 'send_started');
 });
+
+test('direct swap send guard blocks late sends after fallback ownership starts', () => {
+  const decision = evaluateDirectSwapSendGuard({
+    runtimeContext: {
+      state: 'fallback_started',
+      canonicalTxHash: undefined,
+      lastLifecycle: undefined,
+      attempts: [],
+    } as any,
+  });
+
+  assert.equal(decision.blocked, true);
+  assert.equal(decision.reasonCode, 'fallback_owned');
+});

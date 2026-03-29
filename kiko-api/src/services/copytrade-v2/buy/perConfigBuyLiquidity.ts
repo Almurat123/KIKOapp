@@ -15,6 +15,18 @@ export type PreparedPerConfigBuyLiquidity<T> = {
   liquidityGuardSnapshotByConfigId: Map<string, LiquidityGuardSnapshot>;
 };
 
+export function applyPreparedTokenInfoPatch<T extends Record<string, any>>(
+  prepared: PreparedPerConfigBuyLiquidity<T>,
+  patch: Partial<T>
+): void {
+  if (!patch || Object.keys(patch).length === 0) return;
+  Object.assign(prepared.sharedTokenInfo, patch);
+  for (const tokenInfo of prepared.tokenInfoByConfigId.values()) {
+    if (!tokenInfo || tokenInfo === prepared.sharedTokenInfo) continue;
+    Object.assign(tokenInfo, patch);
+  }
+}
+
 function normalizeLiquidityThreshold(config: any): number {
   const value = Number(config?.minLiquidityUsd || 0);
   return Number.isFinite(value) && value > 0 ? value : 0;

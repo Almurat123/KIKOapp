@@ -8,8 +8,9 @@ import { buildOrderAuditFields } from '../../order-runtime/sinks/persistence.js'
 import type { CopyTradeExecutionMode } from '../../copyTradeExecutionMode.js';
 import { buildCopytradeBuyPlannedArtifact } from './plannedExecutionArtifact.js';
 import { shouldAbortCopytradeBuyRetry } from './copytradeBuyRetryGuard.js';
-import { resolveTxFinalState, type TxFinalStateResolution } from '../../order-runtime/adjudicator/finalState.js';
+import { resolveTxFinalState } from '../../order-runtime/adjudicator/finalState.js';
 import { evaluateCopytradeBuyAdmission } from './buyAdmissionGuard.js';
+import { evaluateCopytradeBuySendState } from './copytradeBuySendState.js';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -28,41 +29,6 @@ function inferCopyTradeBugHint(error: any): string {
   if (msg.includes('quote') || msg.includes('liquidity')) return 'quote_liquidity';
   if (msg.includes('revert')) return 'onchain_revert';
   return 'unknown';
-}
-
-function shouldPreserveTimeoutDrivenSubmission(params: {
-  pendingPositionId?: string | null;
-  runtimeContext?: OrderRuntimeContext | null;
-  lifecycleStatus?: string | null;
-  errorText: string;
-  resolution: TxFinalStateResolution;
-}): boolean {
-  const runtimeState = String(params.runtimeContext?.state || '').trim().toLowerCase();
-  const lifecycleStatus = String(params.lifecycleStatus || '').trim().toLowerCase();
-  const hasSharedOrderContext = Boolean(
-    params.pendingPositionId
-    || params.runtimeContext?.orderId
-    || params.runtimeContext?.metadata?.copytradePendingPositionId
-  );
-  if (!hasSharedOrderContext) return false;
-  if (params.resolution.success) return false;
-
-  const timeoutLikeError = params.errorText.includes('timeout')
-    || params.errorText.includes('visibility')
-    || params.errorText.includes('network')
-    || params.errorText.includes('rpc');
-  const lifecycleSuggestsObservationGap = lifecycleStatus === 'dropped_timeout'
-    || lifecycleStatus === 'broadcasted_unseen'
-    || lifecycleStatus === 'visible_pending';
-  const runtimeSuggestsObservationGap = runtimeState === 'created'
-    || runtimeState === 'route_selected'
-    || runtimeState === 'tx_prepared'
-    || runtimeState === 'send_started'
-    || runtimeState === 'hash_accepted'
-    || runtimeState === 'rpc_uncertain'
-    || runtimeState === 'mempool_visible';
-
-  return timeoutLikeError || lifecycleSuggestsObservationGap || runtimeSuggestsObservationGap;
 }
 
 export type EvmCopytradeBuySubmissionResult =
@@ -222,41 +188,41 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
       orderId: runtimeContext.orderId,
     });
     const errorText = compactCopyTradeError(failedResult?.error || failedResult?.metadata?.txLifecycleStatus || reasonCode).toLowerCase();
-    const runtimeState = String(runtimeContext.state || '').trim().toLowerCase();
     const lifecycleStatus = String(failedResult?.txLifecycle?.status || runtimeContext.lastLifecycle?.status || '').trim().toLowerCase();
-    const preserveTimeoutDrivenSubmission = shouldPreserveTimeoutDrivenSubmission({
-      pendingPositionId: params.pendingPositionId,
+    const hasSharedOrderContext = Boolean(
+      params.pendingPositionId
+      || runtimeContext.orderId
+      || runtimeContext.metadata?.copytradePendingPositionId
+    );
+    const sendState = evaluateCopytradeBuySendState({
+      mode: 'copytrade',
+      isBuyDirection: true,
+      chainId: params.chainId,
+      txHash: failedResult?.txHash || runtimeContext.canonicalTxHash,
       runtimeContext,
-      lifecycleStatus,
-      errorText,
-      resolution,
+      lifecycle: failedResult?.txLifecycle || runtimeContext.lastLifecycle || null,
     });
-    if ((resolution.failed && !preserveTimeoutDrivenSubmission) || resolution.success) return null;
-    const looksUnresolved =
-      errorText.includes('timeout')
-      || errorText.includes('rpc')
-      || errorText.includes('network')
-      || errorText.includes('send_inflight')
-      || runtimeState === 'send_started'
-      || resolution.state === 'rpc_uncertain'
-      || resolution.state === 'send_accepted'
-      || preserveTimeoutDrivenSubmission;
-    if (!looksUnresolved) return null;
-    const unresolvedReasonCode = runtimeState === 'send_started'
+    if (!hasSharedOrderContext || resolution.success || sendState.sendState === 'no_send_evidence') {
+      return null;
+    }
+    const unresolvedReasonCode = sendState.reasonCode === 'send_started'
       ? 'send_started'
       : errorText.includes('send_inflight')
         ? 'copytrade_buy_send_inflight'
         : lifecycleStatus === 'dropped_timeout' || errorText.includes('visibility_timeout')
           ? 'visibility_timeout'
-        : (resolution.reasonCode && resolution.reasonCode !== 'none'
-          ? resolution.reasonCode
-          : 'submission_unresolved');
+          : (sendState.reasonCode && sendState.reasonCode !== 'none'
+            ? sendState.reasonCode
+            : resolution.reasonCode && resolution.reasonCode !== 'none'
+              ? resolution.reasonCode
+              : 'submission_unresolved');
     logger.warn(LogCode.SYS_INFO, reasonCode, {
       userId: params.userId,
       token: params.tokenToBuy,
       chainId: params.chainId,
       runtimeState: runtimeContext.state,
       canonicalTxHash: runtimeContext.canonicalTxHash || null,
+      sendState: sendState.sendState,
       resolutionState: resolution.state,
       resolutionReasonCode: resolution.reasonCode,
     });

@@ -60,6 +60,7 @@ import { resolveTxFinalState } from './order-runtime/adjudicator/finalState.js';
 import { describeVisibilityFailure, shouldPassVisibilityGate } from './rpc/visibilityPolicy.js';
 import { evaluateCopytradeBuyAcceptedInflight } from './copytrade-v2/buy/copytradeBuyAcceptedInflight.js';
 import { evaluateCopytradeBuyAdmission } from './copytrade-v2/buy/buyAdmissionGuard.js';
+import { evaluateCopytradeBuySendState } from './copytrade-v2/buy/copytradeBuySendState.js';
 import type { ExecutionPlanV1, ReplayDriftDiagnosis, ReplayPrecheckResult } from './copytrade-v2/planner/types.js';
 import { isP2ExecutorEnabled, isP2SampleLearningEnabled, isP2ShadowRunEnabled } from './copytrade-v2/planner/featureFlags.js';
 import {
@@ -1479,6 +1480,14 @@ export class MainSwapService {
     };
     const runtimeAcceptedDirectTxHash = (): string | undefined =>
       request.runtimeContext?.canonicalTxHash || undefined;
+    const evaluateTurboCopytradeSendState = (lifecycle?: TxLifecycleResult | null) => evaluateCopytradeBuySendState({
+      mode: request.mode,
+      isBuyDirection,
+      chainId: request.chainId,
+      txHash: runtimeAcceptedDirectTxHash(),
+      runtimeContext: request.runtimeContext,
+      lifecycle: lifecycle || request.runtimeContext?.lastLifecycle || null,
+    });
 
     const normalizedTokenIn = this.normalizeEvmTokenInput(request.tokenIn, request.chainId);
     const normalizedTokenOut = this.normalizeEvmTokenInput(request.tokenOut, request.chainId);
@@ -1998,77 +2007,99 @@ export class MainSwapService {
         }
       }
 
+      let skipDirectFallbackProbe = false;
       if (isTurboCopytrade && isTimeoutError(lastDirectError)) {
         const chainDegraded = getChainRpcDegradeState(request.chainId);
         const runtimeTxHash = runtimeAcceptedDirectTxHash();
+        const timeoutSendState = evaluateTurboCopytradeSendState(lastDirectResult?.txLifecycle || null);
         const observedTxStates = runtimeTxHash
           ? [{ hash: runtimeTxHash, state: getTxLifecycleState(request.chainId, runtimeTxHash) }]
               .filter((item) => Boolean(item.state))
           : [];
-        if (inflightDirectPromise) {
-          const lateSettled = await settleWithin(inflightDirectPromise, TURBO_DIRECT_LATE_SETTLE_MS);
-          if (lateSettled) {
-            lastDirectResult = lateSettled;
-            if (lateSettled.success && lateSettled.txHash) {
-              logger.warn(LogCode.SYS_INFO, trace('Turbo timeout recovered by late direct settle; lock direct and skip fallback'), {
-                txHash: lateSettled.txHash,
-                provider: lateSettled.provider,
-                late_settle_ms: TURBO_DIRECT_LATE_SETTLE_MS,
-                direct_timeout_reason: directTimeoutReason || 'send_failure',
-                chain_rpc_degraded: chainDegraded.degraded,
-                observed_tx_states: observedTxStates.map((item) => ({
-                  txHash: item.hash,
-                  status: item.state?.status || null,
-                  updatedAt: item.state?.updatedAt || null
-                }))
-              });
-              return toDirectSuccessResult(lateSettled);
-            }
-          }
-        }
-        const txHash = runtimeAcceptedDirectTxHash();
-        if (txHash && runtimeHasAcceptedDirectState()) {
-          logger.warn(LogCode.SYS_INFO, trace('Turbo timeout but direct state already accepted by order runtime; lock direct and skip fallback'), {
-            txHash,
-            provider: lastDirectResult?.provider || 'direct-swap',
+        if (timeoutSendState.sendState === 'no_send_evidence') {
+          skipDirectFallbackProbe = true;
+          logger.warn(LogCode.SYS_INFO, trace('Turbo timeout without any direct send evidence; admit immediate fallback'), {
+            error: lastDirectError?.message,
             order_runtime_state: request.runtimeContext?.state || null,
             direct_timeout_reason: directTimeoutReason || 'send_failure',
             chain_rpc_degraded: chainDegraded.degraded,
             chain_rpc_error: chainDegraded.lastError || null,
+            sendState: timeoutSendState.sendState,
+            sendReasonCode: timeoutSendState.reasonCode,
             observed_tx_states: observedTxStates.map((item) => ({
               txHash: item.hash,
               status: item.state?.status || null,
               updatedAt: item.state?.updatedAt || null
             }))
           });
-          return {
-            success: true,
-            txHash,
-            amountOut: lastDirectResult?.amountOut,
-            txLifecycle: lastDirectResult?.txLifecycle,
-            runtimeContext: request.runtimeContext,
-            metadata: {
-              provider: lastDirectResult?.provider || 'direct-swap',
-              mode: request.mode,
-              txLifecycleStatus: lastDirectResult?.txLifecycle?.status
+        } else {
+          if (inflightDirectPromise) {
+            const lateSettled = await settleWithin(inflightDirectPromise, TURBO_DIRECT_LATE_SETTLE_MS);
+            if (lateSettled) {
+              lastDirectResult = lateSettled;
+              if (lateSettled.success && lateSettled.txHash) {
+                logger.warn(LogCode.SYS_INFO, trace('Turbo timeout recovered by late direct settle; lock direct and skip fallback'), {
+                  txHash: lateSettled.txHash,
+                  provider: lateSettled.provider,
+                  late_settle_ms: TURBO_DIRECT_LATE_SETTLE_MS,
+                  direct_timeout_reason: directTimeoutReason || 'send_failure',
+                  chain_rpc_degraded: chainDegraded.degraded,
+                  observed_tx_states: observedTxStates.map((item) => ({
+                    txHash: item.hash,
+                    status: item.state?.status || null,
+                    updatedAt: item.state?.updatedAt || null
+                  }))
+                });
+                return toDirectSuccessResult(lateSettled);
+              }
             }
-          };
+          }
+          const txHash = runtimeAcceptedDirectTxHash();
+          if (txHash && runtimeHasAcceptedDirectState()) {
+            logger.warn(LogCode.SYS_INFO, trace('Turbo timeout but direct state already accepted by order runtime; lock direct and skip fallback'), {
+              txHash,
+              provider: lastDirectResult?.provider || 'direct-swap',
+              order_runtime_state: request.runtimeContext?.state || null,
+              direct_timeout_reason: directTimeoutReason || 'send_failure',
+              chain_rpc_degraded: chainDegraded.degraded,
+              chain_rpc_error: chainDegraded.lastError || null,
+              observed_tx_states: observedTxStates.map((item) => ({
+                txHash: item.hash,
+                status: item.state?.status || null,
+                updatedAt: item.state?.updatedAt || null
+              }))
+            });
+            return {
+              success: true,
+              txHash,
+              amountOut: lastDirectResult?.amountOut,
+              txLifecycle: lastDirectResult?.txLifecycle,
+              runtimeContext: request.runtimeContext,
+              metadata: {
+                provider: lastDirectResult?.provider || 'direct-swap',
+                mode: request.mode,
+                txLifecycleStatus: lastDirectResult?.txLifecycle?.status
+              }
+            };
+          }
+          logger.warn(LogCode.SYS_INFO, trace('Turbo timeout with direct send evidence still unresolved; lock further sends and evaluate ownership'), {
+            error: lastDirectError?.message,
+            order_runtime_state: request.runtimeContext?.state || null,
+            direct_timeout_reason: directTimeoutReason || 'send_failure',
+            chain_rpc_degraded: chainDegraded.degraded,
+            chain_rpc_error: chainDegraded.lastError || null,
+            sendState: timeoutSendState.sendState,
+            sendReasonCode: timeoutSendState.reasonCode,
+            observed_tx_states: observedTxStates.map((item) => ({
+              txHash: item.hash,
+              status: item.state?.status || null,
+              updatedAt: item.state?.updatedAt || null
+            }))
+          });
         }
-        logger.warn(LogCode.SYS_INFO, trace('Turbo timeout without adopted direct tx; evaluating fallback eligibility'), {
-          error: lastDirectError?.message,
-          order_runtime_state: request.runtimeContext?.state || null,
-          direct_timeout_reason: directTimeoutReason || 'send_failure',
-          chain_rpc_degraded: chainDegraded.degraded,
-          chain_rpc_error: chainDegraded.lastError || null,
-          observed_tx_states: observedTxStates.map((item) => ({
-            txHash: item.hash,
-            status: item.state?.status || null,
-            updatedAt: item.state?.updatedAt || null
-          }))
-        });
       }
 
-      if (inflightDirectPromise) {
+      if (inflightDirectPromise && !skipDirectFallbackProbe) {
         const fallbackProbeMs = isTurboCopytrade ? 1800 : 1200;
         const settledBeforeFallback = await settleWithin(inflightDirectPromise, fallbackProbeMs);
         if (settledBeforeFallback) {
@@ -2115,23 +2146,16 @@ export class MainSwapService {
         }
       }
 
-      const acceptedBeforeFallback = evaluateCopytradeBuyAcceptedInflight({
-        mode: request.mode,
-        isBuyDirection,
-        chainId: request.chainId,
-        txHash: runtimeAcceptedDirectTxHash(),
-        runtimeContext: request.runtimeContext,
-        lifecycle: lastDirectResult?.txLifecycle || null
-      });
-      if (acceptedBeforeFallback.adoptAcceptedTx && runtimeAcceptedDirectTxHash()) {
+      const sendStateBeforeFallback = evaluateTurboCopytradeSendState(lastDirectResult?.txLifecycle || null);
+      if (sendStateBeforeFallback.adoptAcceptedTx && sendStateBeforeFallback.txHash) {
         logger.warn(LogCode.SYS_INFO, trace('Direct swap has accepted buy evidence before fallback; locking tx and skipping fallback path'), {
-          txHash: acceptedBeforeFallback.txHash,
-          reasonCode: acceptedBeforeFallback.reasonCode,
-          deferFeeCollection: acceptedBeforeFallback.shouldDeferFeeCollection
+          txHash: sendStateBeforeFallback.txHash,
+          reasonCode: sendStateBeforeFallback.reasonCode,
+          deferFeeCollection: sendStateBeforeFallback.shouldDeferFeeCollection
         });
         return {
           success: true,
-          txHash: acceptedBeforeFallback.txHash,
+          txHash: sendStateBeforeFallback.txHash,
           amountOut: lastDirectResult?.amountOut,
           txLifecycle: lastDirectResult?.txLifecycle,
           runtimeContext: request.runtimeContext,
@@ -2142,10 +2166,10 @@ export class MainSwapService {
           }
         };
       }
-      if (acceptedBeforeFallback.blockAdditionalSend) {
+      if (sendStateBeforeFallback.blockAdditionalSend) {
         logger.warn(LogCode.SYS_INFO, trace('Direct swap send already started; blocking fallback resend for copytrade buy'), {
-          txHash: acceptedBeforeFallback.txHash || undefined,
-          reasonCode: acceptedBeforeFallback.reasonCode,
+          txHash: sendStateBeforeFallback.txHash || undefined,
+          reasonCode: sendStateBeforeFallback.reasonCode,
           runtimeState: request.runtimeContext?.state || null,
           lifecycleStatus: lastDirectResult?.txLifecycle?.status || request.runtimeContext?.lastLifecycle?.status || null,
         });
@@ -2178,7 +2202,7 @@ export class MainSwapService {
         isBuyDirection,
         directFailureReason: directTimeoutReason,
         directFailureMessage,
-        acceptedDirectEvidence: Boolean(acceptedBeforeFallback.adoptAcceptedTx && runtimeAcceptedDirectTxHash()),
+        acceptedDirectEvidence: Boolean(sendStateBeforeFallback.adoptAcceptedTx && sendStateBeforeFallback.txHash),
         hasGuardContext: Boolean(request.executionContext?.copytradeFallbackPricingGuard),
         skipExternalFallback: turboSkip0xFallback,
         skipNoLiquidity: turboSkip0xBuyNoLiq,

@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { preparePerConfigBuyLiquidity } from '../buy/perConfigBuyLiquidity.js';
+import {
+  applyPreparedTokenInfoPatch,
+  preparePerConfigBuyLiquidity,
+} from '../buy/perConfigBuyLiquidity.js';
 
 test('preparePerConfigBuyLiquidity escalates only configs whose minLiquidity exceeds shared result', async () => {
   const calls: number[] = [];
@@ -63,4 +66,55 @@ test('preparePerConfigBuyLiquidity escalates only configs whose minLiquidity exc
     prepared.liquidityGuardSnapshotByConfigId.get('strict-a')?.metadata?.stopAtLiquidityUsd,
     1000
   );
+});
+
+test('applyPreparedTokenInfoPatch propagates shared market data to escalated config token infos', async () => {
+  const prepared = await preparePerConfigBuyLiquidity({
+    tokenToBuy: '0xtoken',
+    chainId: 8453,
+    swap: {
+      tokenIn: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+      tokenOut: '0xtoken',
+      amountIn: '1',
+      amountOut: '1',
+      router: '0xrouter',
+      dexName: 'test',
+    },
+    tokenInfo: {
+      price: 0,
+      symbol: 'TOK',
+      name: 'Token',
+      decimals: 18,
+      liquidity: 0,
+      marketCap: 0,
+      fdv: 0,
+    },
+    configs: [
+      { id: 'shared-user', minLiquidityUsd: 0 },
+      { id: 'strict-user', minLiquidityUsd: 1000 },
+    ],
+  }, {
+    async resolveBuyLiquidityGuardSnapshot(_token, _chainId, _tokenInfo, options) {
+      const stopAtLiquidityUsd = Number(options?.stopAtLiquidityUsd || 0);
+      return {
+        liquidityUsd: 0,
+        source: 'unavailable',
+        reliable: false,
+        poolCount: 0,
+        fallbackUsed: false,
+        metadata: { stopAtLiquidityUsd },
+      };
+    },
+  });
+
+  applyPreparedTokenInfoPatch(prepared, {
+    price: 0.452485568,
+    marketCap: 123456,
+    fdv: 123456,
+  });
+
+  assert.equal(prepared.sharedTokenInfo.price, 0.452485568);
+  assert.equal(prepared.tokenInfoByConfigId.get('shared-user')?.price, 0.452485568);
+  assert.equal(prepared.tokenInfoByConfigId.get('strict-user')?.price, 0.452485568);
+  assert.equal(prepared.tokenInfoByConfigId.get('strict-user')?.marketCap, 123456);
 });
