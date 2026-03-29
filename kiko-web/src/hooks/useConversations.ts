@@ -71,6 +71,39 @@ function normalizeActiveTaskStatus(status: unknown): ConversationActiveTaskStatu
   return 'cancelled';
 }
 
+function getPlanActivityLength(data: any): number {
+  const activity = data?.agentRuntime?.plan?.activity;
+  return Array.isArray(activity) ? activity.length : 0;
+}
+
+function mergeAgentRuntimeData(dbData: any, localData: any) {
+  const dbRuntime = dbData?.agentRuntime;
+  const localRuntime = localData?.agentRuntime;
+  if (!localRuntime) return dbData;
+  if (!dbRuntime) {
+    return {
+      ...(dbData || {}),
+      ...(localData || {}),
+      agentRuntime: localRuntime,
+    };
+  }
+
+  const dbPlanId = dbRuntime?.plan?.planId;
+  const localPlanId = localRuntime?.plan?.planId;
+  const samePlan = dbPlanId && localPlanId && dbPlanId === localPlanId;
+  const localHasMoreActivity = getPlanActivityLength(localData) > getPlanActivityLength(dbData);
+
+  if (samePlan && localHasMoreActivity) {
+    return {
+      ...(dbData || {}),
+      ...(localData || {}),
+      agentRuntime: localRuntime,
+    };
+  }
+
+  return dbData;
+}
+
 export const useConversations = () => {
   const { authenticated, ready, getAccessToken } = usePrivy();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -262,7 +295,7 @@ export const useConversations = () => {
             dbMessages[i] = {
               ...dbMsg,
               type: localMsg.type,
-              data: localMsg.data ?? dbMsg.data,
+              data: mergeAgentRuntimeData(localMsg.data ?? dbMsg.data, localMsg.data),
             };
             continue;
           }
@@ -270,7 +303,19 @@ export const useConversations = () => {
             dbMessages[i] = {
               ...dbMsg,
               type: localMsg.type,
-              data: mergeTransactionCardData(dbMsg.data ?? {}, localMsg.data ?? {}),
+              data: mergeAgentRuntimeData(
+                mergeTransactionCardData(dbMsg.data ?? {}, localMsg.data ?? {}),
+                localMsg.data,
+              ),
+            };
+            continue;
+          }
+
+          const mergedRuntimeData = mergeAgentRuntimeData(dbMsg.data, localMsg.data);
+          if (mergedRuntimeData !== dbMsg.data) {
+            dbMessages[i] = {
+              ...dbMsg,
+              data: mergedRuntimeData,
             };
           }
         }
@@ -304,8 +349,9 @@ export const useConversations = () => {
           // - If DB has NO assistant message, preserve local placeholder for streaming
           if (localMsg.role === 'assistant') {
             const hasContent = localMsg.content && localMsg.content.length > 0;
+            const hasLocalRuntime = !!localMsg.data?.agentRuntime?.plan;
             // If DB has the real message (any assistant message), and local is empty/placeholder, skip it
-            if (!hasContent && hasAssistantInDb) {
+            if (!hasContent && !hasLocalRuntime && hasAssistantInDb) {
               console.log('[useConversations] Skipping empty assistant placeholder (DB has msg):', localMsg.id);
               continue;
             }

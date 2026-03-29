@@ -6,9 +6,9 @@
 import { DuneClient, QueryParameter } from '@duneanalytics/client-sdk';
 import * as dotenv from 'dotenv';
 import { env } from '../config/env.js';
-import { CHAINS } from '../config/chainConfig.js';
 import { logger } from '../utils/logger.js';
 import { LogCode, LogRole } from '../config/logRegistry.js';
+import { isQuoteToken, normalizeDuneChain } from './dunePnlCommon.js';
 
 dotenv.config();
 
@@ -17,48 +17,6 @@ const DUNE_API_KEY = env.duneQueries?.apiKey || env.apiKeys.dune || process.env.
 // Saved Query ID in Dune (EVM only)
 const EVM_PNL_QUERY_ID = 6506445;
 
-// Chain name mapping for Dune query
-const CHAIN_MAP: Record<string, string> = {
-    'eth': 'ethereum',
-    'ethereum': 'ethereum',
-    '1': 'ethereum',
-    'base': 'base',
-    '8453': 'base',
-    'bsc': 'bnb',
-    'bnb': 'bnb',
-    '56': 'bnb',
-    'polygon': 'polygon',
-    '137': 'polygon',
-    'arbitrum': 'arbitrum',
-    '42161': 'arbitrum',
-    'optimism': 'optimism',
-    '10': 'optimism',
-    'avalanche': 'avalanche_c',
-    '43114': 'avalanche_c'
-};
-
-const CHAIN_ID_MAP: Record<string, number> = {
-    'ethereum': 1,
-    'eth': 1,
-    '1': 1,
-    'base': 8453,
-    '8453': 8453,
-    'bnb': 56,
-    'bsc': 56,
-    '56': 56,
-    'polygon': 137,
-    'matic': 137,
-    '137': 137,
-    'arbitrum': 42161,
-    '42161': 42161,
-    'optimism': 10,
-    'op': 10,
-    '10': 10,
-    'avalanche_c': 43114,
-    'avalanche': 43114,
-    '43114': 43114
-};
-
 export interface DunePnlResult {
     tokenAddress: string;
     tokenSymbol?: string;
@@ -66,31 +24,6 @@ export interface DunePnlResult {
     soldUsd: number;
     pnlUsd: number;
     profitPct: number | null;
-}
-
-// Tokens to exclude from PNL calculation (Quote/Gas/Stable tokens)
-const QUOTE_TOKENS = new Set([
-    'WBNB', 'BNB', 'ETH', 'WETH', 'USDT', 'USDC', 'DAI', 'FDUSD', 'BUSD', 'USDE',
-    'wBNB', 'bnb', 'eth', 'weth', 'usdt', 'usdc', 'dai', 'fdusd', 'busd', 'usde',
-    'SOL', 'WSOL', 'USDC.e', 'USDT.e', 'sol', 'wsol'
-]);
-
-function getExcludedTokenAddresses(chain: string): Set<string> {
-    const key = chain.toLowerCase();
-    const chainId = CHAIN_ID_MAP[key];
-    if (!chainId || !CHAINS[chainId]) return new Set();
-    const config = CHAINS[chainId];
-    const addresses = [config.wrappedNativeAddress, ...(config.stablecoins || [])]
-        .filter(Boolean)
-        .map(addr => addr.toLowerCase());
-    return new Set(addresses);
-}
-
-function isQuoteToken(tokenSymbol?: string, tokenAddress?: string, chain?: string): boolean {
-    if (tokenSymbol && QUOTE_TOKENS.has(tokenSymbol)) return true;
-    if (!tokenAddress || !chain) return false;
-    const excluded = getExcludedTokenAddresses(chain);
-    return excluded.has(tokenAddress.toLowerCase());
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -137,7 +70,7 @@ export async function getWalletPnlFromDune(
         return null;
     }
 
-    const duneChain = CHAIN_MAP[chain.toLowerCase()] || chain.toLowerCase();
+    const duneChain = normalizeDuneChain(chain);
 
     logger.debug(LogCode.AI_API_CALL, `[Dune PNL] Fetching PNL`, {
         wallet: walletAddress.slice(0, 10),

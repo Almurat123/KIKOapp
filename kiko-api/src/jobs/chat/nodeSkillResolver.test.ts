@@ -1011,3 +1011,28 @@ test('early-buyer follow-ups asking for per-wallet buy and sell summaries force 
     assert.ok(resolution.strategyNotes.some((note) => note.includes('buy USD, sell USD, realized PnL, and profit percent')));
     assert.ok(resolution.strategyNotes.some((note) => note.includes('Do not answer profit ranking or per-wallet token trade summaries from the early-buyer rows alone')));
 });
+
+test('Chinese early-buyer follow-up about token profit stays on token batch PnL path', () => {
+    const resolution = resolveNodeSkills(makeSnapshot('这些钱包在这个代币上的利润是怎么样的？', {
+        requestedTokenAddresses: ['0x1111111111111111111111111111111111111111'],
+        recentToolTrace: {
+            toolCalls: [
+                {
+                    tool: 'get_early_buyers',
+                    status: 'success',
+                    result: {
+                        earlyBuyers: [
+                            { address: '0xabc' },
+                            { address: '0xdef' },
+                        ],
+                    },
+                },
+            ],
+        },
+    }), null, null);
+
+    assert.ok(resolution.selectedSkills.includes('wallet_portfolio'));
+    assert.ok(resolution.preferredTools.includes('analyze_wallet_pnl_batch'));
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('reuse those wallet addresses as the candidate set for batch wallet PnL analysis')));
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('Pass the same token_address into analyze_wallet_pnl_batch')));
+});
