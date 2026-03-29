@@ -1,7 +1,9 @@
+import { ethers } from 'ethers';
+
 import { getChainConfig } from '../../../config/chainConfig.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
-import { getTransactionByHash, getTransactionReceipt } from '../../rpcManager.js';
+import { callRpc, getTransactionByHash, getTransactionReceipt } from '../../rpcManager.js';
 import { parseSwapTransaction, type DecodedSwap } from '../../txDecoder.js';
 import { createTimedCache } from './cache.js';
 import type { DirectSwapHint, HintedSourcePool } from '../directSwapTypes.js';
@@ -19,6 +21,12 @@ const EXTRA_NATIVE_ALIASES_BY_CHAIN: Record<number, string[]> = {
 const PARSER_CACHE_TTL_MS = Number(process.env.DIRECT_SWAP_SUPPLY_PARSER_CACHE_TTL_MS || '30000');
 const HINT_TX_PARSE_TIMEOUT_MS = Math.max(200, Number.parseInt(String(process.env.DIRECT_SWAP_HINT_PARSE_TIMEOUT_MS || '2200'), 10) || 2200);
 const HINT_V4_FALLBACK_TIMEOUT_MS = Math.max(200, Number.parseInt(String(process.env.DIRECT_SWAP_HINT_V4_FALLBACK_TIMEOUT_MS || '1400'), 10) || 1400);
+const HINT_POOL_PAIR_TIMEOUT_MS = Math.max(150, Number.parseInt(String(process.env.DIRECT_SWAP_HINT_POOL_PAIR_TIMEOUT_MS || '900'), 10) || 900);
+
+const poolTokenInterface = new ethers.Interface([
+  'function token0() view returns (address)',
+  'function token1() view returns (address)'
+]);
 
 type ParserCacheEntry = {
   value: DecodedSwap | null;
@@ -129,6 +137,25 @@ function pickPairMatchedRouteHint(params: {
   return null;
 }
 
+function isRequestedPairMatch(params: {
+  tokenIn: string;
+  tokenOut: string;
+  pairToken0?: string | null;
+  pairToken1?: string | null;
+  chainId: number;
+}): boolean {
+  const token0 = String(params.pairToken0 || '').toLowerCase();
+  const token1 = String(params.pairToken1 || '').toLowerCase();
+  if (!token0 || !token1) return false;
+  return matchesRequestedPair(
+    params.tokenIn,
+    params.tokenOut,
+    token0,
+    token1,
+    params.chainId
+  );
+}
+
 function pickPairMatchedDecodedRouteHint(params: {
   decoded: DecodedSwap;
   tokenIn: string;
@@ -144,6 +171,92 @@ function pickPairMatchedDecodedRouteHint(params: {
     if (mapped) return mapped;
   }
   return null;
+}
+
+export function resolvePairSafeResolvedHintFromDecodedSwap(params: {
+  decoded: DecodedSwap;
+  tokenIn: string;
+  tokenOut: string;
+  chainId: number;
+}): NonNullable<DirectSwapHint['resolvedPoolHint']> | null {
+  const { decoded, tokenIn, tokenOut, chainId } = params;
+  if (decoded.resolvedPoolHint && decoded.canUseResolvedPoolFastPath !== false) {
+    return decoded.resolvedPoolHint;
+  }
+  const fromDecodedRoute = pickPairMatchedDecodedRouteHint({ decoded, tokenIn, tokenOut, chainId });
+  if (fromDecodedRoute) return fromDecodedRoute;
+  return null;
+}
+
+async function readPoolPairTokens(
+  chainId: number,
+  poolAddress: string
+): Promise<{ token0: string; token1: string } | null> {
+  if (!poolAddress || !/^0x[a-fA-F0-9]{40}$/.test(poolAddress)) return null;
+  try {
+    const [token0Hex, token1Hex] = await Promise.all([
+      callRpcPoolToken(chainId, poolAddress, 'token0'),
+      callRpcPoolToken(chainId, poolAddress, 'token1')
+    ]);
+    return {
+      token0: token0Hex,
+      token1: token1Hex
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function callRpcPoolToken(
+  chainId: number,
+  poolAddress: string,
+  method: 'token0' | 'token1'
+): Promise<string> {
+  const raw = await callRpc<string>(
+    chainId,
+    'eth_call',
+    [{ to: poolAddress, data: poolTokenInterface.encodeFunctionData(method, []) }, 'latest'],
+    {
+      strategy: TRADE_QUOTE_PROFILE.strategy,
+      importance: TRADE_QUOTE_PROFILE.importance,
+      purpose: TRADE_QUOTE_PROFILE.purpose,
+      exhaustiveFailover: true,
+    }
+  );
+  return ethers.getAddress(`0x${String(raw).slice(-40)}`).toLowerCase();
+}
+
+export function buildPairValidatedNonV4HintedSourcePool(params: {
+  resolved: NonNullable<DirectSwapHint['resolvedPoolHint']>;
+  tokenIn: string;
+  tokenOut: string;
+  chainId: number;
+  actualPoolTokens?: { token0: string; token1: string } | null;
+}): HintedSourcePool | null {
+  const { resolved, tokenIn, tokenOut, chainId, actualPoolTokens } = params;
+  if ((resolved.kind !== 'v2' && resolved.kind !== 'v3') || !resolved.poolAddress) return null;
+  if (!isRequestedPairMatch({
+    tokenIn,
+    tokenOut,
+    pairToken0: actualPoolTokens?.token0,
+    pairToken1: actualPoolTokens?.token1,
+    chainId
+  })) {
+    return null;
+  }
+
+  const pool = {
+    poolAddress: String(resolved.poolAddress || '').toLowerCase(),
+    token0: String(actualPoolTokens?.token0 || '').toLowerCase(),
+    token1: String(actualPoolTokens?.token1 || '').toLowerCase(),
+    fee: Number(resolved.fee || (resolved.kind === 'v3' ? 3000 : 0)),
+    version: resolved.kind,
+    dex: (resolved.dex === 'pancake' ? 'pancake' : 'uniswap') as 'pancake' | 'uniswap'
+  } satisfies PoolInfo;
+
+  return resolved.kind === 'v3'
+    ? { kind: 'v3', dex: mapHintedDex(resolved.dex), pool }
+    : { kind: 'v2', dex: resolved.dex || (chainId === 56 ? 'pancake' : 'uniswap'), pool };
 }
 
 export async function parseSwapSupplyFromSourceTx(params: {
@@ -206,22 +319,6 @@ export async function parseSwapSupplyFromSourceTx(params: {
 
 function mapHintedDex(raw?: string): 'uniswap' | 'pancake' {
   return raw === 'pancake' ? 'pancake' : 'uniswap';
-}
-
-function buildPoolInfo(
-  kind: 'v2' | 'v3',
-  tokenIn: string,
-  tokenOut: string,
-  hint: NonNullable<DirectSwapHint['resolvedPoolHint']>
-): PoolInfo {
-  return {
-    poolAddress: String(hint.poolAddress || '').toLowerCase(),
-    token0: tokenIn,
-    token1: tokenOut,
-    fee: Number(hint.fee || (kind === 'v3' ? 3000 : 0)),
-    version: kind,
-    dex: hint.dex === 'pancake' ? 'pancake' : 'uniswap'
-  };
 }
 
 function mapV4ResolvedHintToSelectedPool(
@@ -393,12 +490,7 @@ export async function resolvePoolHintFromSwapSupply(params: {
     return null;
   });
   if (!decoded) return null;
-  if (decoded.resolvedPoolHint && decoded.canUseResolvedPoolFastPath !== false) {
-    return decoded.resolvedPoolHint;
-  }
-  const fromDecodedRoute = pickPairMatchedDecodedRouteHint({ decoded, tokenIn, tokenOut, chainId });
-  if (fromDecodedRoute) return fromDecodedRoute;
-  return decoded.resolvedPoolHint || null;
+  return resolvePairSafeResolvedHintFromDecodedSwap({ decoded, tokenIn, tokenOut, chainId });
 }
 
 export async function resolveHintedPoolFromSwapSupply(params: {
@@ -460,19 +552,33 @@ export async function resolveHintedPoolFromSwapSupply(params: {
   }
 
   if (resolved.kind === 'v3') {
-    return {
-      kind: 'v3',
-      dex: mapHintedDex(resolved.dex),
-      pool: buildPoolInfo('v3', tokenIn, tokenOut, resolved)
-    };
+    const poolTokens = await withTimeout(
+      readPoolPairTokens(chainId, String(resolved.poolAddress || '').toLowerCase()),
+      HINT_POOL_PAIR_TIMEOUT_MS,
+      `DIRECT_HINT_POOL_PAIR_TIMEOUT:${HINT_POOL_PAIR_TIMEOUT_MS}ms`
+    ).catch(() => null);
+    return buildPairValidatedNonV4HintedSourcePool({
+      resolved,
+      tokenIn,
+      tokenOut,
+      chainId,
+      actualPoolTokens: poolTokens
+    });
   }
 
   if (resolved.kind === 'v2') {
-    return {
-      kind: 'v2',
-      dex: resolved.dex || (chainId === 56 ? 'pancake' : 'uniswap'),
-      pool: buildPoolInfo('v2', tokenIn, tokenOut, resolved)
-    };
+    const poolTokens = await withTimeout(
+      readPoolPairTokens(chainId, String(resolved.poolAddress || '').toLowerCase()),
+      HINT_POOL_PAIR_TIMEOUT_MS,
+      `DIRECT_HINT_POOL_PAIR_TIMEOUT:${HINT_POOL_PAIR_TIMEOUT_MS}ms`
+    ).catch(() => null);
+    return buildPairValidatedNonV4HintedSourcePool({
+      resolved,
+      tokenIn,
+      tokenOut,
+      chainId,
+      actualPoolTokens: poolTokens
+    });
   }
 
   return null;

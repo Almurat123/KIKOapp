@@ -958,6 +958,28 @@ function extractRouteHops(logs: Array<{ address: string; topics: string[]; data:
     return dedupeRouteHops(routeHops);
 }
 
+export function deriveEffectiveRouteHopCount(params: {
+    swapTokenIn: string;
+    swapTokenOut: string;
+    routeHops?: NonNullable<DecodedSwap['routeHops']>;
+    chainId: number;
+}): number {
+    const routeHops = params.routeHops || [];
+    if (!routeHops.length) return 0;
+    if (routeHops.length > 1) return routeHops.length;
+
+    const onlyHop = routeHops[0];
+    if (!onlyHop?.tokenIn || !onlyHop?.tokenOut) return routeHops.length;
+    const directPairMatch = isSamePoolPair(
+        params.swapTokenIn,
+        params.swapTokenOut,
+        onlyHop.tokenIn,
+        onlyHop.tokenOut,
+        params.chainId
+    );
+    return directPairMatch ? 1 : 2;
+}
+
 function attachRouteContext(
     swap: DecodedSwap,
     logs: Array<{ address: string; topics: string[]; data: string }>,
@@ -982,10 +1004,16 @@ function attachRouteContext(
         return swap;
     }
 
-    swap.routeHopCount = routeHops.length;
+    const effectiveRouteHopCount = deriveEffectiveRouteHopCount({
+        swapTokenIn: swap.tokenIn,
+        swapTokenOut: swap.tokenOut,
+        routeHops,
+        chainId
+    });
+    swap.routeHopCount = effectiveRouteHopCount;
     swap.routeHops = routeHops;
 
-    if (routeHops.length === 1 && routeHops[0]?.poolAddress) {
+    if (routeHops.length === 1 && effectiveRouteHopCount === 1 && routeHops[0]?.poolAddress) {
         const inferredPoolFlow = inferSwapFromPoolTransfers(logs, routeHops[0].poolAddress);
         if (inferredPoolFlow && isSamePoolPair(
             swap.tokenIn,
@@ -1020,7 +1048,7 @@ function attachRouteContext(
 
     // Multi-hop router paths (OKX/aggregators) often expose only a tail pool in resolvedPoolHint.
     // Disable resolved-pool fast-path to avoid executing ETH->token against a USDC->token tail pool.
-    if (routeHops.length > 1) {
+    if (effectiveRouteHopCount > 1) {
         swap.canUseResolvedPoolFastPath = false;
         return swap;
     }
