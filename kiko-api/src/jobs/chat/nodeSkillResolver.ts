@@ -310,7 +310,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         pushPreferred(preferredTools, 'get_token_info');
         strategyNotes.push('This request asks for on-chain buyer/holder evidence. Prefer local token-analysis tools before answering from web summaries alone.');
         if (wantsEarlyBuyerFullList) {
-            strategyNotes.push(`Early-buyer queries default to full-list output${explicitEarlyBuyerRowCount ? ` with ${explicitEarlyBuyerRowCount} rows` : ''}. Preserve full wallet addresses and prefer the tool's structured render contract over ad hoc markdown formatting. Do not request trade progression or wallet PnL unless the user explicitly asks for those deeper wallet details.`);
+            strategyNotes.push(`Early-buyer queries default to full-list output${explicitEarlyBuyerRowCount ? ` with ${explicitEarlyBuyerRowCount} rows` : ''}. Preserve full wallet addresses and render the returned rows directly as a clean markdown table instead of compressing them into a short summary. Do not request trade progression or wallet PnL unless the user explicitly asks for those deeper wallet details.`);
         }
     }
     if (asksCreator && hasRequestedToken) {

@@ -2,7 +2,6 @@ import { Tool } from '../../../tooling/registry.js';
 import * as tokenAnalysis from '../../../services/tokenAnalysis.js';
 import * as creatorAnalysis from '../../../services/creatorAnalysis.js';
 import { resolveChainInput } from '../../../utils/chainParam.js';
-import type { RenderContract } from '../../../jobs/chat/contracts.js';
 
 function escapeMarkdownCell(value: unknown): string {
     return String(value ?? '')
@@ -96,64 +95,13 @@ function buildEarlyBuyersMarkdownTable(rows: Array<{
     return [...header, ...body].join('\n');
 }
 
-function buildEarlyBuyerRenderContract(rows: Array<{
-    rank: number;
-    address: string;
-    timestamp?: string;
-    amount?: string;
-    txHash?: string;
-    transferCount?: number | null;
-    tokenPnl?: {
-        source?: string | null;
-        totalBuyUsd?: number | null;
-        totalSellUsd?: number | null;
-        realizedPnlUsd?: number | null;
-        profitPct?: number | null;
-    } | null;
-    tradeProgression?: unknown;
-}>): RenderContract {
-    return {
-        id: 'early_buyers_table',
-        renderMode: 'table',
-        title: 'Early buyers',
-        rowCount: rows.length,
-        columns: [
-            { key: 'rank', label: 'Rank', valueType: 'number' },
-            { key: 'address', label: 'Wallet Address', valueType: 'wallet_address' },
-            { key: 'timestamp', label: 'First Buy Time (UTC)', valueType: 'datetime' },
-            { key: 'amount', label: 'Buy Amount', valueType: 'text' },
-            { key: 'txHash', label: 'TX Hash', valueType: 'tx_hash' },
-            { key: 'transferCount', label: 'Transfer Count', valueType: 'number' },
-            { key: 'tokenBuyUsd', label: 'Buy USD', valueType: 'number' },
-            { key: 'tokenSellUsd', label: 'Sell USD', valueType: 'number' },
-            { key: 'tokenRealizedPnlUsd', label: 'Realized PnL', valueType: 'number' },
-            { key: 'tokenProfitPct', label: 'Profit %', valueType: 'number' },
-            { key: 'tokenPnlSource', label: 'PnL Source', valueType: 'text' },
-        ],
-        rows: rows.map((row) => ({
-            rank: row.rank,
-            address: row.address,
-            timestamp: row.timestamp || '',
-            amount: row.amount || '',
-            txHash: row.txHash || '',
-            transferCount: row.transferCount ?? '',
-            tokenBuyUsd: row.tokenPnl?.totalBuyUsd ?? '',
-            tokenSellUsd: row.tokenPnl?.totalSellUsd ?? '',
-            tokenRealizedPnlUsd: row.tokenPnl?.realizedPnlUsd ?? '',
-            tokenProfitPct: row.tokenPnl?.profitPct ?? '',
-            tokenPnlSource: row.tokenPnl?.source || '',
-        })),
-        markdownFallback: buildEarlyBuyersMarkdownTable(rows),
-    };
-}
-
 /**
  * Tool to get early buyers of a token
  */
 export const GetEarlyBuyersTool: Tool = {
     definition: {
         name: 'get_early_buyers',
-        description: 'Get the earliest buyers of a token, optionally within a precise time window. Default behavior is a fast path: return the early-buyer rows without wallet trade progression or token PnL enrichment. Only enable trade progression or token PnL when the user explicitly asks for wallet progression, profit ranking, or token-specific PnL. Use this after you know the token contract and, if relevant, the event/post time window you want to analyze. If you choose this tool, emit a real structured tool call immediately. Do not narrate "Calling get_early_buyers" in plain text. Use address plus optional start_time/end_time; do not invent timestamp_range or other unofficial fields. Early-buyer queries should default to full-list output for the returned rows, not a compressed summary. When the tool result includes a renderContract, preserve the full returned row set.',
+        description: 'Get the earliest buyers of a token, optionally within a precise time window. Default behavior is a fast path: return the early-buyer rows without wallet trade progression or token PnL enrichment. Only enable trade progression or token PnL when the user explicitly asks for wallet progression, profit ranking, or token-specific PnL. Use this after you know the token contract and, if relevant, the event/post time window you want to analyze. If you choose this tool, emit a real structured tool call immediately. Do not narrate "Calling get_early_buyers" in plain text. Use address plus optional start_time/end_time; do not invent timestamp_range or other unofficial fields. Early-buyer queries should default to full-list output for the returned rows, not a compressed summary. Use the returned rows or markdownTable to format the answer directly.',
         parameters: {
             type: 'object',
             properties: {
@@ -342,7 +290,6 @@ export const GetEarlyBuyersTool: Tool = {
                 },
                 followUpCapabilities,
                 markdownTable: buildEarlyBuyersMarkdownTable(tableRows),
-                renderContract: buildEarlyBuyerRenderContract(tableRows),
                 earlyBuyers: tableRows
             };
         } catch (error: any) {
@@ -421,7 +368,6 @@ export const AnalyzeCreatorTool: Tool = {
 
 export const __testOnly = {
     buildEarlyBuyersMarkdownTable,
-    buildEarlyBuyerRenderContract,
     resolveEarlyBuyerExpansionMode,
     resolveEarlyBuyerFollowUpCapabilities,
 };

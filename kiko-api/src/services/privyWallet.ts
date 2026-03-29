@@ -236,6 +236,14 @@ function isFallbackOwnedRuntimeState(runtimeContext?: OrderRuntimeContext | null
         || runtimeState === 'fallback_failed';
 }
 
+function shouldSuppressSendForFallbackOwnership(params: {
+    runtimeContext?: OrderRuntimeContext | null;
+    executionBranch?: TransactionRequest['executionBranch'];
+}): boolean {
+    if (!isFallbackOwnedRuntimeState(params.runtimeContext)) return false;
+    return params.executionBranch !== 'fallback';
+}
+
 function reportAcceptedEvidence(tx: TransactionRequest, txHash: string, source: 'privy_sendtx' | 'raw_broadcast'): void {
     const orderId = tx.runtimeContext?.orderId;
     if (orderId) bindOrderToTxHash(orderId, tx.chainId, txHash);
@@ -571,6 +579,7 @@ export interface TransactionRequest {
     gasPolicyTier?: string;
     replacementPolicyTier?: string;
     privateRelayEligible?: boolean;
+    executionBranch?: 'primary' | 'fallback';
     runtimeContext?: OrderRuntimeContext;
 }
 
@@ -870,7 +879,10 @@ export async function sendTransactionLifecycle(
         // === SIMULATION MODE ===
         try {
             const runtimeContext = tx.runtimeContext;
-            if (isFallbackOwnedRuntimeState(runtimeContext)) {
+            if (shouldSuppressSendForFallbackOwnership({
+                runtimeContext,
+                executionBranch: tx.executionBranch,
+            })) {
                 const disownedLifecycle: TxLifecycleResult = {
                     status: 'dropped_timeout',
                     attempts: 1,
@@ -888,6 +900,7 @@ export async function sendTransactionLifecycle(
                 setOrderMetadata(runtimeContext, {
                     txPurpose: tx.txPurpose || 'other',
                     executionProfile: tx.executionProfile || 'default',
+                    executionBranch: tx.executionBranch || 'primary',
                     mevProtection: tx.mevProtection === true,
                     gasPolicyTier: tx.gasPolicyTier || null,
                     replacementPolicyTier: tx.replacementPolicyTier || null,
@@ -1808,6 +1821,7 @@ export async function sendTransaction(
 export const __privyWalletTest = {
     shouldReturnAcceptedLifecycleImmediately,
     isFallbackOwnedRuntimeState,
+    shouldSuppressSendForFallbackOwnership,
 };
 
 /**

@@ -1293,6 +1293,7 @@ export class SwapExecutor {
             const executionProfile = params.executionMode === 'turbo'
                 ? (chainId === 8453 ? 'base-sniper' : chainId === 56 ? 'bsc-sniper' : undefined)
                 : undefined;
+            const executionBranch = params.runtimeContext?.fallbackUsed ? 'fallback' : 'primary';
             const txHash = await sendTransaction(userId, params.accessToken || '', {
                 to: best.to,
                 data: best.data,
@@ -1306,6 +1307,7 @@ export class SwapExecutor {
                 gasPolicyTier: ethFeePolicy.gasPolicyTier,
                 replacementPolicyTier: ethFeePolicy.replacementPolicyTier,
                 privateRelayEligible: ethRelayPolicy.privateRelayEligible,
+                executionBranch,
                 runtimeContext: params.runtimeContext,
                 ...(executionProfile ? { executionProfile } : {}),
                 ...(preWarmedNonce !== undefined ? { nonce: preWarmedNonce } : {})

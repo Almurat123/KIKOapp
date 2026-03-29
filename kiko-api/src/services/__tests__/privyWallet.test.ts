@@ -39,3 +39,15 @@ test('fallback-owned runtime states are recognized for loser-send suppression', 
   assert.equal(__privyWalletTest.isFallbackOwnedRuntimeState({ state: 'fallback_succeeded' } as any), true);
   assert.equal(__privyWalletTest.isFallbackOwnedRuntimeState({ state: 'failed' } as any), false);
 });
+
+test('fallback ownership suppresses only non-fallback branches', () => {
+  const runtimeContext = { state: 'fallback_started' } as any;
+  assert.equal(__privyWalletTest.shouldSuppressSendForFallbackOwnership({
+    runtimeContext,
+    executionBranch: 'primary',
+  }), true);
+  assert.equal(__privyWalletTest.shouldSuppressSendForFallbackOwnership({
+    runtimeContext,
+    executionBranch: 'fallback',
+  }), false);
+});
