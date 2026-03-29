@@ -350,48 +350,60 @@ const sourceAnchor = resolveSourceAnchorExpectation({
   let failedSourcePriorityId: string | null = null;
   if (sourceHintCandidate) {
     const sourceResolvedHint = sourcePoolToResolvedHint(sourceHintCandidate);
-    logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo source-pool immediate direct attempt', {
-      chainId,
-      traceId,
-      kind: sourceResolvedHint.kind,
-      dex: sourceResolvedHint.dex || null,
-      poolAddress: sourceResolvedHint.poolAddress || null
-    });
-    const sourceDirectTry: DirectSwapResult | null = await runTimedDirectAttempt(() =>
-      params.tryResolvedPoolHintFastPath(
-        normalizedParams,
-        {
-          ...(hint || {}),
-          canUseResolvedPoolFastPath: true,
-          routeHopCount: 1,
-          resolvedPoolHint: sourceResolvedHint
-        },
-        { executionMode: 'turbo', trustedHint: true }
-      )
-    );
-    if (sourceDirectTry?.success) {
-      return {
-        result: sourceDirectTry,
-        selectedResolvedHintForCache: sourceResolvedHint
-      };
+    const shouldRunImmediateSourceAttempt = sourceResolvedHint.kind !== 'aerodrome';
+    if (!shouldRunImmediateSourceAttempt) {
+      logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo source hint admitted to candidate flow without immediate fast-path', {
+        chainId,
+        traceId,
+        kind: sourceResolvedHint.kind,
+        dex: sourceResolvedHint.dex || null,
+        poolAddress: sourceResolvedHint.poolAddress || null
+      });
     }
-    if (shouldHaltFurtherDirectSwapAttempts(sourceDirectTry)) {
-      return {
-        result: sourceDirectTry || {
-          success: false,
-          error: 'direct_swap_attempt_halted',
-          provider: 'failed'
-        },
-        selectedResolvedHintForCache: sourceResolvedHint
-      };
-    }
-    logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo source-pool immediate attempt failed, fallback to candidate flow', {
-      chainId,
-      traceId,
-      error: sourceDirectTry?.error || 'unknown'
-    });
-    if (shouldDemoteFailedSourceHint(sourceDirectTry?.error)) {
-      failedSourcePriorityId = resolvedHintIdentity(sourceResolvedHint);
+    if (shouldRunImmediateSourceAttempt) {
+      logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo source-pool immediate direct attempt', {
+        chainId,
+        traceId,
+        kind: sourceResolvedHint.kind,
+        dex: sourceResolvedHint.dex || null,
+        poolAddress: sourceResolvedHint.poolAddress || null
+      });
+      const sourceDirectTry: DirectSwapResult | null = await runTimedDirectAttempt(() =>
+        params.tryResolvedPoolHintFastPath(
+          normalizedParams,
+          {
+            ...(hint || {}),
+            canUseResolvedPoolFastPath: true,
+            routeHopCount: 1,
+            resolvedPoolHint: sourceResolvedHint
+          },
+          { executionMode: 'turbo', trustedHint: true }
+        )
+      );
+      if (sourceDirectTry?.success) {
+        return {
+          result: sourceDirectTry,
+          selectedResolvedHintForCache: sourceResolvedHint
+        };
+      }
+      if (shouldHaltFurtherDirectSwapAttempts(sourceDirectTry)) {
+        return {
+          result: sourceDirectTry || {
+            success: false,
+            error: 'direct_swap_attempt_halted',
+            provider: 'failed'
+          },
+          selectedResolvedHintForCache: sourceResolvedHint
+        };
+      }
+      logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo source-pool immediate attempt failed, fallback to candidate flow', {
+        chainId,
+        traceId,
+        error: sourceDirectTry?.error || 'unknown'
+      });
+      if (shouldDemoteFailedSourceHint(sourceDirectTry?.error)) {
+        failedSourcePriorityId = resolvedHintIdentity(sourceResolvedHint);
+      }
     }
   }
 
@@ -607,7 +619,11 @@ const sourceAnchor = resolveSourceAnchorExpectation({
       chainId
     });
     return {
-      result: await params.runTurboRescue('no_valid_candidate_hint'),
+      result: {
+        success: false,
+        error: 'turbo_rescue_exhausted:pool_discovery_failed:no_valid_candidate_hint',
+        provider: 'failed'
+      },
       selectedResolvedHintForCache: null
     };
   }

@@ -5,6 +5,12 @@ import type { GenerationMessage } from './nodePromptAssembler.js';
 const INTERNAL_SERVICE_KEY = process.env.INTERNAL_SERVICE_KEY || '';
 const STREAM_POLL_MS = Math.max(100, parseInt(process.env.GENERATION_STREAM_POLL_MS || '250', 10) || 250);
 const FIRST_EVENT_WARN_MS = Math.max(1000, parseInt(process.env.GENERATION_FIRST_EVENT_WARN_MS || '5000', 10) || 5000);
+const STREAM_OPEN_MAX_ATTEMPTS = Math.max(1, parseInt(process.env.GENERATION_STREAM_OPEN_MAX_ATTEMPTS || '2', 10) || 2);
+const STREAM_OPEN_RETRY_DELAY_MS = Math.max(50, parseInt(process.env.GENERATION_STREAM_OPEN_RETRY_DELAY_MS || '250', 10) || 250);
+const GENERATION_STREAM_DEBUG_ENABLED =
+    process.env.NODE_ENV !== 'production'
+    && process.env.NODE_ENV !== 'prod'
+    && process.env.GENERATION_STREAM_DEBUG !== 'false';
 
 function getGenerationServiceUrl(): string {
     return (process.env.GENERATION_SERVICE_URL || 'http://127.0.0.1:8000/generation').replace(/\/+$/, '');
@@ -90,27 +96,30 @@ export class PythonGenerationClient {
             toolCount: params.tools.length,
         });
 
+        const requestBody = JSON.stringify({
+            model: params.model,
+            messages: params.messages,
+            tools: params.tools,
+            provider_options: params.providerOptions || {},
+            metadata: {
+                session_id: params.sessionId,
+                task_id: params.taskId,
+            },
+        });
         const streamAbort = new AbortController();
-        const response = await fetch(`${getGenerationServiceUrl()}/internal/v1/stream`, {
-            method: 'POST',
+        const response = await openGenerationStreamWithRetry({
+            sessionId: params.sessionId,
+            taskId: params.taskId,
             headers,
-            body: JSON.stringify({
-                model: params.model,
-                messages: params.messages,
-                tools: params.tools,
-                provider_options: params.providerOptions || {},
-                metadata: {
-                    session_id: params.sessionId,
-                    task_id: params.taskId,
-                },
-            }),
+            body: requestBody,
             signal: streamAbort.signal,
         });
-        if (!response.ok || !response.body) {
-            throw new Error(`Failed to open generation stream: ${await response.text()}`);
-        }
 
-        const reader = response.body.getReader();
+        const responseBody = response.body;
+        if (!responseBody) {
+            throw new Error('Failed to open generation stream: missing response body');
+        }
+        const reader = responseBody.getReader();
         const decoder = new TextDecoder();
         let pendingRead: Promise<ReadableStreamReadResult<Uint8Array>> | null = reader.read();
         let buffer = '';
@@ -299,8 +308,156 @@ export class PythonGenerationClient {
     }
 }
 
+async function openGenerationStreamWithRetry(params: {
+    sessionId: string;
+    taskId: string;
+    headers: Record<string, string>;
+    body: string;
+    signal: AbortSignal;
+}): Promise<Response> {
+    let lastError: unknown;
+    const streamUrl = `${getGenerationServiceUrl()}/internal/v1/stream`;
+    for (let attempt = 1; attempt <= STREAM_OPEN_MAX_ATTEMPTS; attempt += 1) {
+        try {
+            const response = await fetch(streamUrl, {
+                method: 'POST',
+                headers: params.headers,
+                body: params.body,
+                signal: params.signal,
+            });
+            if (!response.ok || !response.body) {
+                const error = await createStreamOpenHttpError(response);
+                logGenerationStreamDebug('http_failure', {
+                    sessionId: params.sessionId,
+                    taskId: params.taskId,
+                    attempt,
+                    url: streamUrl,
+                    error,
+                    responseBodySnippet: (error as any).responseBodySnippet,
+                });
+                (error as any).__generationStreamDebugLogged = true;
+                if (attempt < STREAM_OPEN_MAX_ATTEMPTS && isRetriableGenerationOpenFailure(error)) {
+                    logger.warn(LogCode.AI_ORCHESTRATOR, 'PythonGenerationClient: retrying generation stream open after transient HTTP failure', {
+                        sessionId: params.sessionId,
+                        taskId: params.taskId,
+                        attempt,
+                        maxAttempts: STREAM_OPEN_MAX_ATTEMPTS,
+                        error: error.message,
+                    });
+                    await wait(STREAM_OPEN_RETRY_DELAY_MS);
+                    continue;
+                }
+                throw error;
+            }
+            return response;
+        } catch (error: any) {
+            lastError = error;
+            if (!(error as any)?.__generationStreamDebugLogged) {
+                logGenerationStreamDebug('transport_failure', {
+                    sessionId: params.sessionId,
+                    taskId: params.taskId,
+                    attempt,
+                    url: streamUrl,
+                    error,
+                });
+            }
+            if (attempt < STREAM_OPEN_MAX_ATTEMPTS && isRetriableGenerationOpenFailure(error)) {
+                logger.warn(LogCode.AI_ORCHESTRATOR, 'PythonGenerationClient: retrying generation stream open after transport failure', {
+                    sessionId: params.sessionId,
+                    taskId: params.taskId,
+                    attempt,
+                    maxAttempts: STREAM_OPEN_MAX_ATTEMPTS,
+                    error: error?.message || String(error),
+                });
+                await wait(STREAM_OPEN_RETRY_DELAY_MS);
+                continue;
+            }
+            throw error;
+        }
+    }
+    throw lastError instanceof Error ? lastError : new Error(String(lastError || 'Failed to open generation stream'));
+}
+
 function wait(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function createStreamOpenHttpError(response: Response): Promise<Error> {
+    const bodyText = await response.text().catch(() => '');
+    const suffix = bodyText ? `: ${bodyText}` : '';
+    const error = new Error(`Failed to open generation stream: HTTP ${response.status}${suffix}`);
+    (error as any).status = response.status;
+    (error as any).responseBodySnippet = bodyText ? bodyText.slice(0, 400) : '';
+    return error;
+}
+
+function isRetriableGenerationOpenFailure(error: unknown): boolean {
+    const status = Number((error as any)?.status);
+    if ([408, 429, 502, 503, 504].includes(status)) {
+        return true;
+    }
+
+    const message = String((error as any)?.message || error || '').toLowerCase();
+    if (!message) return false;
+    return (
+        message.includes('fetch failed')
+        || message.includes('econnreset')
+        || message.includes('econnrefused')
+        || message.includes('socket hang up')
+        || message.includes('other side closed')
+        || message.includes('network')
+        || message.includes('headers timeout')
+        || message.includes('body timeout')
+        || message.includes('terminated')
+    );
+}
+
+function logGenerationStreamDebug(
+    stage: 'transport_failure' | 'http_failure',
+    params: {
+        sessionId: string;
+        taskId: string;
+        attempt: number;
+        url: string;
+        error: unknown;
+        responseBodySnippet?: string;
+    },
+) {
+    if (!GENERATION_STREAM_DEBUG_ENABLED) return;
+    logger.warn(LogCode.AI_ORCHESTRATOR, 'PythonGenerationClient: local generation stream debug', {
+        sessionId: params.sessionId,
+        taskId: params.taskId,
+        stage,
+        attempt: params.attempt,
+        url: params.url,
+        errorDetails: summarizeGenerationStreamDebugError(params.error),
+        responseBodySnippet: params.responseBodySnippet || undefined,
+    });
+}
+
+function summarizeGenerationStreamDebugError(error: unknown): Record<string, unknown> {
+    const candidate = error as any;
+    const cause = candidate?.cause;
+    return {
+        name: candidate?.name,
+        message: candidate?.message || String(error || ''),
+        code: candidate?.code,
+        errno: candidate?.errno,
+        type: candidate?.type,
+        status: candidate?.status,
+        stack: typeof candidate?.stack === 'string'
+            ? candidate.stack.split('\n').slice(0, 6).join('\n')
+            : undefined,
+        cause: cause ? {
+            name: cause?.name,
+            message: cause?.message,
+            code: cause?.code,
+            errno: cause?.errno,
+            stack: typeof cause?.stack === 'string'
+                ? cause.stack.split('\n').slice(0, 4).join('\n')
+                : undefined,
+        } : undefined,
+    };
 }
 
 function shouldAllowVisibleStreamingAfterToolSignal(

@@ -280,3 +280,74 @@ test('captures provider finish_reason and explicit buffering for continuation ro
         globalThis.fetch = originalFetch;
     }
 });
+
+test('retries generation stream open once after a transient fetch failure', async () => {
+    const client = new PythonGenerationClient();
+    const originalFetch = globalThis.fetch;
+    const textDeltas: string[] = [];
+    let attempts = 0;
+
+    globalThis.fetch = async () => {
+        attempts += 1;
+        if (attempts === 1) {
+            throw new TypeError('fetch failed');
+        }
+        return makeSseResponse([
+            { type: 'assistant_delta', payload: { text: 'Recovered answer.' } },
+            { type: 'message_complete', payload: {} },
+        ]) as any;
+    };
+
+    try {
+        const result = await client.generate({
+            sessionId: 'session-retry-open',
+            taskId: 'task-retry-open',
+            model: 'deepseek-chat',
+            messages: [],
+            tools: [],
+            providerOptions: {},
+            onTextDelta: async (text) => { textDeltas.push(text); },
+            onReasoningDelta: async () => {},
+            onUsage: () => {},
+            onCitation: () => {},
+        });
+
+        assert.equal(attempts, 2);
+        assert.equal(result.text, 'Recovered answer.');
+        assert.deepEqual(textDeltas, ['Recovered answer.']);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('does not retry non-transient generation stream open failures', async () => {
+    const client = new PythonGenerationClient();
+    const originalFetch = globalThis.fetch;
+    let attempts = 0;
+
+    globalThis.fetch = async () => {
+        attempts += 1;
+        return new Response('Unauthorized', { status: 401 }) as any;
+    };
+
+    try {
+        await assert.rejects(
+            client.generate({
+                sessionId: 'session-open-fail',
+                taskId: 'task-open-fail',
+                model: 'deepseek-chat',
+                messages: [],
+                tools: [],
+                providerOptions: {},
+                onTextDelta: async () => {},
+                onReasoningDelta: async () => {},
+                onUsage: () => {},
+                onCitation: () => {},
+            }),
+            /Failed to open generation stream: HTTP 401: Unauthorized/,
+        );
+        assert.equal(attempts, 1);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});

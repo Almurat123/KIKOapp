@@ -234,7 +234,7 @@ export function buildPairValidatedNonV4HintedSourcePool(params: {
   actualPoolTokens?: { token0: string; token1: string } | null;
 }): HintedSourcePool | null {
   const { resolved, tokenIn, tokenOut, chainId, actualPoolTokens } = params;
-  if ((resolved.kind !== 'v2' && resolved.kind !== 'v3') || !resolved.poolAddress) return null;
+  if ((resolved.kind !== 'v2' && resolved.kind !== 'v3' && resolved.kind !== 'aerodrome') || !resolved.poolAddress) return null;
   if (!isRequestedPairMatch({
     tokenIn,
     tokenOut,
@@ -251,11 +251,16 @@ export function buildPairValidatedNonV4HintedSourcePool(params: {
     token1: String(actualPoolTokens?.token1 || '').toLowerCase(),
     fee: Number(resolved.fee || (resolved.kind === 'v3' ? 3000 : 0)),
     version: resolved.kind,
-    dex: (resolved.dex === 'pancake' ? 'pancake' : 'uniswap') as 'pancake' | 'uniswap'
+    dex: resolved.kind === 'aerodrome'
+      ? 'aerodrome'
+      : (resolved.dex === 'pancake' ? 'pancake' : 'uniswap') as 'pancake' | 'uniswap' | 'aerodrome'
   } satisfies PoolInfo;
 
+  if (resolved.kind === 'aerodrome') {
+    return { kind: 'aerodrome', dex: 'aerodrome', pool };
+  }
   return resolved.kind === 'v3'
-    ? { kind: 'v3', dex: mapHintedDex(resolved.dex), pool }
+    ? { kind: 'v3', dex: resolved.dex === 'pancake' ? 'pancake' : 'uniswap', pool }
     : { kind: 'v2', dex: resolved.dex || (chainId === 56 ? 'pancake' : 'uniswap'), pool };
 }
 
@@ -317,7 +322,13 @@ export async function parseSwapSupplyFromSourceTx(params: {
   }
 }
 
-function mapHintedDex(raw?: string): 'uniswap' | 'pancake' {
+function mapHintedDex(raw?: string): 'uniswap' | 'pancake' | 'aerodrome' {
+  if (raw === 'pancake') return 'pancake';
+  if (raw === 'aerodrome') return 'aerodrome';
+  return 'uniswap';
+}
+
+function mapV4HintedDex(raw?: string): 'uniswap' | 'pancake' {
   return raw === 'pancake' ? 'pancake' : 'uniswap';
 }
 
@@ -505,7 +516,7 @@ export async function resolveHintedPoolFromSwapSupply(params: {
 
   if (resolved.kind === 'v4') {
     const direct = mapV4ResolvedHintToSelectedPool(resolved);
-    if (direct) return { kind: 'v4', dex: mapHintedDex(resolved.dex), pool: direct };
+    if (direct) return { kind: 'v4', dex: mapV4HintedDex(resolved.dex), pool: direct };
 
     const fallback = await withTimeout(
       resolveV4PoolByIdFallback(tokenIn, tokenOut, chainId, resolved),
@@ -521,7 +532,7 @@ export async function resolveHintedPoolFromSwapSupply(params: {
       });
       return null;
     });
-    if (fallback) return { kind: 'v4', dex: mapHintedDex(resolved.dex), pool: fallback };
+    if (fallback) return { kind: 'v4', dex: mapV4HintedDex(resolved.dex), pool: fallback };
 
     const pairFallback = await withTimeout(
       resolveV4PoolByPairFallback(tokenIn, tokenOut, chainId, resolved),
@@ -548,25 +559,10 @@ export async function resolveHintedPoolFromSwapSupply(params: {
       selectedFee: pairFallback.poolKey.fee,
       selectedTickSpacing: pairFallback.poolKey.tickSpacing
     });
-    return { kind: 'v4', dex: mapHintedDex(resolved.dex), pool: pairFallback };
+    return { kind: 'v4', dex: mapV4HintedDex(resolved.dex), pool: pairFallback };
   }
 
-  if (resolved.kind === 'v3') {
-    const poolTokens = await withTimeout(
-      readPoolPairTokens(chainId, String(resolved.poolAddress || '').toLowerCase()),
-      HINT_POOL_PAIR_TIMEOUT_MS,
-      `DIRECT_HINT_POOL_PAIR_TIMEOUT:${HINT_POOL_PAIR_TIMEOUT_MS}ms`
-    ).catch(() => null);
-    return buildPairValidatedNonV4HintedSourcePool({
-      resolved,
-      tokenIn,
-      tokenOut,
-      chainId,
-      actualPoolTokens: poolTokens
-    });
-  }
-
-  if (resolved.kind === 'v2') {
+  if (resolved.kind === 'v3' || resolved.kind === 'v2' || resolved.kind === 'aerodrome') {
     const poolTokens = await withTimeout(
       readPoolPairTokens(chainId, String(resolved.poolAddress || '').toLowerCase()),
       HINT_POOL_PAIR_TIMEOUT_MS,

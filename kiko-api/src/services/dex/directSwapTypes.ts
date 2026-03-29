@@ -12,7 +12,8 @@ export interface DexStrategy {
 export type HintedSourcePool =
     | { kind: 'v4'; pool: SelectedV4Pool; dex: 'uniswap' | 'pancake' }
     | { kind: 'v3'; pool: PoolInfo; dex: 'uniswap' | 'pancake' }
-    | { kind: 'v2'; pool: PoolInfo; dex: DexFamily };
+    | { kind: 'v2'; pool: PoolInfo; dex: DexFamily }
+    | { kind: 'aerodrome'; pool: PoolInfo; dex: 'aerodrome' };
 
 export interface DirectSwapRouteHop {
     kind: 'v4' | 'v3' | 'v2' | 'aerodrome' | 'infinity';

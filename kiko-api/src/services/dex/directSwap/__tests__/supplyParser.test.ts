@@ -119,3 +119,33 @@ test('buildPairValidatedNonV4HintedSourcePool keeps the actual pool token pair f
     },
   });
 });
+
+test('buildPairValidatedNonV4HintedSourcePool supports aerodrome matched hints', () => {
+  const sourcePool = buildPairValidatedNonV4HintedSourcePool({
+    resolved: {
+      kind: 'aerodrome',
+      dex: 'aerodrome',
+      poolAddress: '0xcccccccccccccccccccccccccccccccccccccccc',
+    },
+    tokenIn: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+    tokenOut: '0xacfE6019Ed1A7Dc6f7B508C02d1b04ec88cC21bf',
+    chainId: 8453,
+    actualPoolTokens: {
+      token0: '0x4200000000000000000000000000000000000006',
+      token1: '0xacfe6019ed1a7dc6f7b508c02d1b04ec88cc21bf',
+    },
+  });
+
+  assert.deepEqual(sourcePool, {
+    kind: 'aerodrome',
+    dex: 'aerodrome',
+    pool: {
+      poolAddress: '0xcccccccccccccccccccccccccccccccccccccccc',
+      token0: '0x4200000000000000000000000000000000000006',
+      token1: '0xacfe6019ed1a7dc6f7b508c02d1b04ec88cc21bf',
+      fee: 0,
+      version: 'aerodrome',
+      dex: 'aerodrome',
+    },
+  });
+});

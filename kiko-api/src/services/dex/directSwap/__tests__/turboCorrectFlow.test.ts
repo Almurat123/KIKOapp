@@ -47,8 +47,10 @@ function buildResolvedHint(poolAddress: string): ResolvedPoolHint {
 
 function createBaseParams(overrides?: {
   earlyHintedPool?: HintedSourcePool | null;
+  hint?: any;
   runtimeContext?: any;
   singlePoolResolver?: TurboResolver;
+  runTurboRescue?: (reason: string) => Promise<DirectSwapResult>;
   tryResolvedPoolHintFastPath?: (
     params: any,
     hint: any,
@@ -69,7 +71,7 @@ function createBaseParams(overrides?: {
     poolTokenIn: '0x1111111111111111111111111111111111111111',
     poolTokenOut: '0x2222222222222222222222222222222222222222',
     amountInWei: 1_000_000n,
-    hint: undefined,
+    hint: overrides?.hint,
     earlyHintedPool: overrides?.earlyHintedPool ?? null,
     normalizedParams: {
       userId: 'user-1',
@@ -122,11 +124,11 @@ function createBaseParams(overrides?: {
     getV3BestQuoteOut: async () => 0n,
     getAerodromeExpectedOutput: async () => 0n,
     getV2ExpectedOutput: async () => 0n,
-    runTurboRescue: async (reason: string) => ({
+    runTurboRescue: overrides?.runTurboRescue ?? (async (reason: string) => ({
       success: false,
       error: `rescue:${reason}`,
       provider: 'failed'
-    })
+    }))
   };
 }
 
@@ -201,6 +203,61 @@ test('runTurboCorrectFlow times out a hung source fast path and halts before ano
   assert.equal(result.result.error, 'hint_fast_path_timeout');
   assert.equal(result.selectedResolvedHintForCache?.poolAddress, sourceHint.pool.poolAddress);
   assert.deepEqual(callOrder, ['0xcccccccccccccccccccccccccccccccccccccccc']);
+});
+
+test('runTurboCorrectFlow fails fast to fallback when no valid turbo candidates exist', async () => {
+  const runTurboRescueCalls: string[] = [];
+
+  const result = await runTurboCorrectFlow(createBaseParams({
+    singlePoolResolver: {
+      resolveCandidates: async () => []
+    },
+    runTurboRescue: async (reason: string) => {
+      runTurboRescueCalls.push(reason);
+      return {
+        success: false,
+        error: `rescue:${reason}`,
+        provider: 'failed'
+      };
+    }
+  }));
+
+  assert.equal(result.result.success, false);
+  assert.equal(result.result.error, 'turbo_rescue_exhausted:pool_discovery_failed:no_valid_candidate_hint');
+  assert.deepEqual(runTurboRescueCalls, []);
+});
+
+test('runTurboCorrectFlow keeps aerodrome source hints in candidate flow without forcing immediate fast-path', async () => {
+  const sourceHint = {
+    kind: 'aerodrome' as const,
+    dex: 'aerodrome' as const,
+    pool: {
+      poolAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      token0: '0x1111111111111111111111111111111111111111',
+      token1: '0x2222222222222222222222222222222222222222',
+      version: 'aerodrome' as const,
+      dex: 'aerodrome' as const,
+      fee: 0
+    }
+  };
+  let fastPathCalls = 0;
+
+  const result = await runTurboCorrectFlow(createBaseParams({
+    earlyHintedPool: sourceHint as any,
+    hint: { sourceDexName: 'Aerodrome Router' },
+    singlePoolResolver: singlePoolTurboResolver,
+    tryResolvedPoolHintFastPath: async () => {
+      fastPathCalls += 1;
+      return {
+        success: false,
+        error: 'unexpected_immediate_attempt',
+        provider: 'failed'
+      };
+    }
+  }));
+
+  assert.equal(fastPathCalls, 1);
+  assert.equal(result.result.success, false);
 });
 
 test('runTurboCorrectFlow waits for late-settling source fast path before falling back', async () => {
