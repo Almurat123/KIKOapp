@@ -170,11 +170,19 @@ export function markOrderHashAccepted(ctx: OrderRuntimeContext, txHash: string):
 export function markOrderFallbackStarted(ctx: OrderRuntimeContext, reasonCode?: OrderReasonCode): void {
   ctx.fallbackUsed = true;
   if (reasonCode && reasonCode !== 'none') ctx.reasonCode = reasonCode;
+  if (ctx.state === 'failed') {
+    ctx.state = 'fallback_started';
+    return;
+  }
   transitionOrderState(ctx, 'fallback_started');
 }
 
 export function markOrderFallbackResult(ctx: OrderRuntimeContext, success: boolean, reasonCode?: OrderReasonCode): void {
   if (reasonCode && reasonCode !== 'none') ctx.reasonCode = reasonCode;
+  if (ctx.state === 'failed') {
+    ctx.state = success ? 'fallback_succeeded' : 'fallback_failed';
+    return;
+  }
   transitionOrderState(ctx, success ? 'fallback_succeeded' : 'fallback_failed');
 }
 

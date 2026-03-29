@@ -15,7 +15,7 @@ import { walletService } from '../walletService.js';
 import { SOLANA_CONFIG } from '../../config/solanaConfig.js';
 import { NATIVE_TOKEN_ADDRESS, SOLANA_NATIVE_MINT, TOKEN_REGISTRY, isNativeToken } from '../../config/tokenRegistry.js';
 import { handleSwapError } from './handleSwapError.js';
-import { callRpc, getErc20Balance, getErc20Decimals, getErc20Allowance } from '../../services/rpcManager.js';
+import { callRpc, getErc20Balance, getErc20Decimals, getErc20Allowance, getNativeBalance } from '../../services/rpcManager.js';
 import { monitorEvmTransaction, scheduleSpeedUp, waitForReceipt, waitForTransactionConfirmation } from './confirmationCoordinator.js';
 import { appendPermit2SignatureToCalldata, executeApproval, validatePermit2Payload } from './permitHelpers.js';
 import type { OrderRuntimeContext } from '../order-runtime/types.js';
@@ -61,6 +61,12 @@ import { shouldRetryPermit2AsAllowanceHolder, shouldUseSignedPermitForSell } fro
 const ZEROX_ALLOWANCE_HOLDER_BY_CHAIN: Record<number, string> = {
     8453: '0x0000000000001ff3684f28c67538d4d072c22734'
 };
+
+function shouldUseRpcNativeBalanceForTurboFallback(params: Pick<SwapParams, 'feeContext' | 'executionMode' | 'copytradeFallbackPricingGuard'>): boolean {
+    return params.feeContext === 'copyTrade'
+        && params.executionMode === 'turbo'
+        && params.copytradeFallbackPricingGuard?.stage === '0x_fallback';
+}
 
 export interface SwapParams {
     userId: string;
@@ -440,8 +446,9 @@ export class SwapExecutor {
         if (isNativeIn) {
             try {
                 const chainName = getChainConfig(chainId).name.toLowerCase();
-                const balance = await walletService.getWalletBalance(walletAddress, chainName);
-                const balanceBigInt = BigInt(balance.ethBalance);
+                const balanceBigInt = shouldUseRpcNativeBalanceForTurboFallback(params)
+                    ? BigInt(await getNativeBalance(walletAddress, chainId, 'latest', { lane: 'critical' }))
+                    : BigInt((await walletService.getWalletBalance(walletAddress, chainName)).ethBalance);
                 const amountInBigInt = BigInt(amountInBase);
 
                 const config = getChainConfig(chainId);
@@ -1876,4 +1883,5 @@ export class SwapExecutor {
 
 export const __swapExecutorTest = {
     finalizeApprovedSellQuote,
+    shouldUseRpcNativeBalanceForTurboFallback,
 };

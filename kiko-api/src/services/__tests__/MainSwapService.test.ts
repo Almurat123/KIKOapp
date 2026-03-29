@@ -139,3 +139,22 @@ test('order runtime can transfer ownership to fallback before any direct route s
   assert.equal(ctx.state, 'fallback_succeeded');
   assert.equal(ctx.fallbackUsed, true);
 });
+
+test('order runtime fallback takeover can recover from a stale failed state', () => {
+  const ctx = createOrderRuntimeContext({
+    userId: 'user-fallback-recover',
+    chainId: 8453,
+    walletAddress: '0x1234567890123456789012345678901234567890',
+    side: 'buy',
+    mode: 'copytrade',
+  });
+
+  ctx.state = 'failed';
+  ctx.reasonCode = 'pending_visibility';
+
+  markOrderFallbackStarted(ctx, 'pending_visibility');
+  markOrderFallbackResult(ctx, true);
+
+  assert.equal(ctx.state, 'fallback_succeeded');
+  assert.equal(ctx.fallbackUsed, true);
+});

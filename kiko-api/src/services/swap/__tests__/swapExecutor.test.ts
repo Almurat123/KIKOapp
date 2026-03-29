@@ -74,3 +74,23 @@ test('finalizeApprovedSellQuote accepts compatible pinned refresh', () => {
   assert.equal(decision.quoteToExecute.amountOut, '1.2');
   assert.equal(decision.quoteToExecute.data, '0xfeedbeef');
 });
+
+test('turbo copytrade 0x fallback uses RPC-only native balance checks', () => {
+  assert.equal(__swapExecutorTest.shouldUseRpcNativeBalanceForTurboFallback({
+    feeContext: 'copyTrade',
+    executionMode: 'turbo',
+    copytradeFallbackPricingGuard: { stage: '0x_fallback' },
+  }), true);
+
+  assert.equal(__swapExecutorTest.shouldUseRpcNativeBalanceForTurboFallback({
+    feeContext: 'copyTrade',
+    executionMode: 'turbo',
+    copytradeFallbackPricingGuard: undefined,
+  }), false);
+
+  assert.equal(__swapExecutorTest.shouldUseRpcNativeBalanceForTurboFallback({
+    feeContext: 'swap',
+    executionMode: 'turbo',
+    copytradeFallbackPricingGuard: { stage: '0x_fallback' },
+  } as any), false);
+});

@@ -877,7 +877,8 @@ export async function sendTransactionLifecycle(
                     chainId: tx.chainId,
                     lastRpcError: 'copytrade_send_disowned_by_fallback',
                 };
-                syncLifecycleIntoRuntimeContext(tx, disownedLifecycle, 'duplicate_lock');
+                // This branch is a loser send after fallback ownership has already been established.
+                // Do not let it overwrite the canonical runtime state for the winning fallback path.
                 return disownedLifecycle;
             }
             if (runtimeContext) {
@@ -1806,6 +1807,7 @@ export async function sendTransaction(
 
 export const __privyWalletTest = {
     shouldReturnAcceptedLifecycleImmediately,
+    isFallbackOwnedRuntimeState,
 };
 
 /**

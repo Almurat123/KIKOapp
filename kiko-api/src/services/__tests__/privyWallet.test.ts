@@ -33,3 +33,9 @@ test('default trade txs keep synchronous lifecycle gating', () => {
     txPurpose: 'trade',
   }), false);
 });
+
+test('fallback-owned runtime states are recognized for loser-send suppression', () => {
+  assert.equal(__privyWalletTest.isFallbackOwnedRuntimeState({ state: 'fallback_started' } as any), true);
+  assert.equal(__privyWalletTest.isFallbackOwnedRuntimeState({ state: 'fallback_succeeded' } as any), true);
+  assert.equal(__privyWalletTest.isFallbackOwnedRuntimeState({ state: 'failed' } as any), false);
+});
