@@ -537,6 +537,77 @@ const sourceAnchor = resolveSourceAnchorExpectation({
     }
   }
 
+  if (
+    turboCandidates.length === 0
+    && chainId === 8453
+    && !sourceHintCandidate
+    && isLikelyAerodromeHintTrustworthy(hint)
+  ) {
+    const aerodromeQuote = await params.getAerodromeExpectedOutput(
+      normalizedParams.tokenIn,
+      normalizedParams.tokenOut,
+      amountInWei,
+      chainId,
+      normalizedParams.slippageBps,
+      normalizedParams.walletAddress
+    ).catch(() => 0n);
+    logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo trusted Aerodrome strategy fallback probe', {
+      chainId,
+      traceId,
+      quotedOut: aerodromeQuote > 0n ? aerodromeQuote.toString() : null,
+      sourceDex: hint?.sourceDexName || null
+    });
+
+    if (aerodromeQuote > 0n) {
+      const anchorAccepted = !sourceAnchor || evaluateSourceAnchorQuote(aerodromeQuote, sourceAnchor).accepted;
+      if (!anchorAccepted) {
+        const anchorCheck = evaluateSourceAnchorQuote(aerodromeQuote, sourceAnchor!);
+        logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo trusted Aerodrome strategy rejected by source anchor', {
+          chainId,
+          traceId,
+          ratioBps: anchorCheck.ratioBps,
+          minAnchorRatioBps: sourceAnchor!.minAnchorRatioBps,
+          maxAnchorRatioBps: sourceAnchor!.maxAnchorRatioBps || 0
+        });
+      } else {
+        const aerodromeDirectTry: DirectSwapResult | null = await runTimedDirectAttempt(() =>
+          params.tryResolvedPoolHintFastPath(
+            normalizedParams,
+            {
+              ...(hint || {}),
+              resolvedPoolHint: {
+                kind: 'aerodrome',
+                dex: 'aerodrome'
+              }
+            },
+            { executionMode: 'normal', trustedHint: true }
+          )
+        );
+        if (aerodromeDirectTry?.success) {
+          return {
+            result: aerodromeDirectTry,
+            selectedResolvedHintForCache: null
+          };
+        }
+        if (shouldHaltFurtherDirectSwapAttempts(aerodromeDirectTry)) {
+          return {
+            result: aerodromeDirectTry || {
+              success: false,
+              error: 'direct_swap_attempt_halted',
+              provider: 'failed'
+            },
+            selectedResolvedHintForCache: null
+          };
+        }
+        logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo trusted Aerodrome strategy attempt failed, continuing to fallback', {
+          chainId,
+          traceId,
+          error: aerodromeDirectTry?.error || 'unknown'
+        });
+      }
+    }
+  }
+
   if (params.isBuySideStableOrNativeIn(chainId, normalizedTokenIn) && turboCandidates.length > 0) {
     if (skipCandidateGateWithHint && singlePoolHintPriority) {
       logger.info(LogCode.SYS_INFO, '[DirectSwap] Turbo correct-flow liquidity gate skipped by hint priority', {

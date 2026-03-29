@@ -50,6 +50,14 @@ function createBaseParams(overrides?: {
   hint?: any;
   runtimeContext?: any;
   singlePoolResolver?: TurboResolver;
+  getAerodromeExpectedOutput?: (
+    tokenIn: string,
+    tokenOut: string,
+    amountInWei: bigint,
+    chainId: number,
+    slippageBps: number,
+    walletAddress: string
+  ) => Promise<bigint>;
   runTurboRescue?: (reason: string) => Promise<DirectSwapResult>;
   tryResolvedPoolHintFastPath?: (
     params: any,
@@ -122,7 +130,7 @@ function createBaseParams(overrides?: {
     wrappedNativeAddress: '0x4200000000000000000000000000000000000006',
     getV4BestPoolQuote: async () => ({ pool: null, amountOut: 0n }),
     getV3BestQuoteOut: async () => 0n,
-    getAerodromeExpectedOutput: async () => 0n,
+    getAerodromeExpectedOutput: overrides?.getAerodromeExpectedOutput ?? (async () => 0n),
     getV2ExpectedOutput: async () => 0n,
     runTurboRescue: overrides?.runTurboRescue ?? (async (reason: string) => ({
       success: false,
@@ -258,6 +266,33 @@ test('runTurboCorrectFlow keeps aerodrome source hints in candidate flow without
 
   assert.equal(fastPathCalls, 1);
   assert.equal(result.result.success, false);
+});
+
+test('runTurboCorrectFlow tries a trusted Aerodrome strategy path when no single-pool candidates exist', async () => {
+  let fastPathCalls = 0;
+
+  const result = await runTurboCorrectFlow(createBaseParams({
+    hint: { sourceDexName: 'Aerodrome Router' },
+    singlePoolResolver: {
+      resolveCandidates: async () => []
+    },
+    getAerodromeExpectedOutput: async () => 123n,
+    tryResolvedPoolHintFastPath: async (_params, hint, options) => {
+      fastPathCalls += 1;
+      assert.equal(hint?.resolvedPoolHint?.kind, 'aerodrome');
+      assert.equal(hint?.resolvedPoolHint?.dex, 'aerodrome');
+      assert.equal(options?.executionMode, 'normal');
+      return {
+        success: true,
+        txHash: '0xaero-success',
+        provider: 'aerodrome'
+      };
+    }
+  }));
+
+  assert.equal(fastPathCalls, 1);
+  assert.equal(result.result.success, true);
+  assert.equal(result.result.txHash, '0xaero-success');
 });
 
 test('runTurboCorrectFlow waits for late-settling source fast path before falling back', async () => {

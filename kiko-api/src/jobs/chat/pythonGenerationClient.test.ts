@@ -351,3 +351,117 @@ test('does not retry non-transient generation stream open failures', async () =>
         globalThis.fetch = originalFetch;
     }
 });
+
+test('repairs an empty tool call name for early-buyer style arguments using preferred tool order', async () => {
+    const client = new PythonGenerationClient();
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = async () => makeSseResponse([
+        { type: 'tool_call_signal', payload: {} },
+        { type: 'tool_call', payload: { id: 'tool-empty-early', name: '', arguments: { address: '0xabc', chain: 'bsc', chain_id: 56 } } },
+        { type: 'message_complete', payload: {} },
+    ]) as any;
+
+    try {
+        const result = await client.generate({
+            sessionId: 'session-repair-early',
+            taskId: 'task-repair-early',
+            model: 'deepseek-chat',
+            messages: [],
+            tools: [
+                {
+                    type: 'function',
+                    function: {
+                        name: 'get_early_buyers',
+                        description: '',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                address: { type: 'string' },
+                                chain: { type: 'string' },
+                                chain_id: { type: 'number' },
+                                limit: { type: 'number' },
+                            },
+                            required: ['address'],
+                        },
+                    },
+                },
+                {
+                    type: 'function',
+                    function: {
+                        name: 'get_token_info',
+                        description: '',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                address: { type: 'string' },
+                                chain: { type: 'string' },
+                                chain_id: { type: 'number' },
+                            },
+                            required: ['address'],
+                        },
+                    },
+                },
+            ],
+            providerOptions: {},
+            onTextDelta: async () => {},
+            onReasoningDelta: async () => {},
+            onUsage: () => {},
+            onCitation: () => {},
+        });
+
+        assert.equal(result.toolCalls.length, 1);
+        assert.equal(result.toolCalls[0]?.name, 'get_early_buyers');
+        assert.deepEqual(result.toolCalls[0]?.arguments, { address: '0xabc', chain: 'bsc', chain_id: 56 });
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('repairs an empty tool call name for web-search style arguments', async () => {
+    const client = new PythonGenerationClient();
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = async () => makeSseResponse([
+        { type: 'tool_call_signal', payload: {} },
+        { type: 'tool_call', payload: { id: 'tool-empty-web', name: '', arguments: '{"query":"Benji Bean launch date","max_results":5}' } },
+        { type: 'message_complete', payload: {} },
+    ]) as any;
+
+    try {
+        const result = await client.generate({
+            sessionId: 'session-repair-web',
+            taskId: 'task-repair-web',
+            model: 'deepseek-chat',
+            messages: [],
+            tools: [
+                {
+                    type: 'function',
+                    function: {
+                        name: 'external_web_search',
+                        description: '',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                query: { type: 'string' },
+                                max_results: { type: 'number' },
+                            },
+                            required: ['query'],
+                        },
+                    },
+                },
+            ],
+            providerOptions: {},
+            onTextDelta: async () => {},
+            onReasoningDelta: async () => {},
+            onUsage: () => {},
+            onCitation: () => {},
+        });
+
+        assert.equal(result.toolCalls.length, 1);
+        assert.equal(result.toolCalls[0]?.name, 'external_web_search');
+        assert.deepEqual(result.toolCalls[0]?.arguments, { query: 'Benji Bean launch date', max_results: 5 });
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});

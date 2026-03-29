@@ -118,10 +118,11 @@ function buildToolGuidanceBlock(guidance?: {
         if (guidance?.allowAllTools) {
             lines.push('- Registered tools are available for this turn unless the safety/policy layer blocks them.');
         } else {
-            lines.push('- Some tools may be unavailable on this turn because of provider or policy constraints.');
+        lines.push('- Some tools may be unavailable on this turn because of provider or policy constraints.');
         }
         lines.push('- No fixed workflow is prescribed. For narrow factual or execution tasks, stay lean; for research/discovery/list-building tasks, use enough tools to verify claims and produce a usable shortlist or guide.');
         lines.push('- When a direct tool result already answers the request, prefer that result over broader narrative synthesis.');
+        lines.push('- After any direct tool result, make an explicit choice: either answer from the current evidence now, or emit exactly the next real tool call that fills a concrete missing evidence gap. Do not emit empty/no-op tool calls, and do not continue searching without a specific missing field to justify it.');
         if (guidance.intentEnvelope?.required_evidence?.length) {
             lines.push(`- Required evidence before final answer/conclusion: ${guidance.intentEnvelope.required_evidence.join(', ')}.`);
         }

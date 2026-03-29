@@ -37,6 +37,12 @@ export interface GenerationProviderState {
 }
 
 type GenerationTerminalState = 'open' | 'completed' | 'errored';
+type GenerationFunctionTool = {
+    name: string;
+    properties: Set<string>;
+    required: Set<string>;
+    index: number;
+};
 
 function createGenerationStreamError(args: {
     message: string;
@@ -246,19 +252,31 @@ export class PythonGenerationClient {
                 } else if (event.type === 'latency_metrics') {
                     await params.onLatencyMetrics?.(event.payload || {});
                 } else if (event.type === 'tool_call') {
-                    const name = String(event.payload?.name || '').trim();
+                    const argumentsObject = normalizeToolCallArguments(event.payload?.arguments);
+                    let name = String(event.payload?.name || '').trim();
                     if (!name) {
-                        logger.warn(LogCode.AI_ORCHESTRATOR, 'PythonGenerationClient: ignoring empty tool call', {
-                            sessionId: params.sessionId,
-                            taskId: params.taskId,
-                            payload: event.payload,
-                        });
-                        continue;
+                        const inferredName = inferToolNameFromArguments(params.tools, argumentsObject);
+                        if (inferredName) {
+                            name = inferredName;
+                            logger.warn(LogCode.AI_ORCHESTRATOR, 'PythonGenerationClient: repaired empty tool call name', {
+                                sessionId: params.sessionId,
+                                taskId: params.taskId,
+                                inferredName,
+                                arguments: argumentsObject,
+                            });
+                        } else {
+                            logger.warn(LogCode.AI_ORCHESTRATOR, 'PythonGenerationClient: ignoring empty tool call', {
+                                sessionId: params.sessionId,
+                                taskId: params.taskId,
+                                payload: event.payload,
+                            });
+                            continue;
+                        }
                     }
                     toolCalls.push({
                         id: String(event.payload?.id || ''),
                         name,
-                        arguments: event.payload?.arguments || {},
+                        arguments: argumentsObject,
                     });
                 } else if (event.type === 'error') {
                     terminalState = 'errored';
@@ -458,6 +476,96 @@ function summarizeGenerationStreamDebugError(error: unknown): Record<string, unk
                 : undefined,
         } : undefined,
     };
+}
+
+function normalizeToolCallArguments(rawArguments: unknown): Record<string, any> {
+    if (!rawArguments) return {};
+    if (typeof rawArguments === 'string') {
+        try {
+            const parsed = JSON.parse(rawArguments);
+            return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+        } catch {
+            return {};
+        }
+    }
+    return typeof rawArguments === 'object' && !Array.isArray(rawArguments)
+        ? { ...(rawArguments as Record<string, any>) }
+        : {};
+}
+
+function inferToolNameFromArguments(tools: any[], args: Record<string, any>): string | null {
+    const argKeys = Object.keys(args || {}).filter(Boolean);
+    if (argKeys.length === 0) return null;
+
+    const candidates = extractFunctionTools(tools)
+        .map((tool) => ({ tool, score: scoreToolArgumentMatch(tool, argKeys) }))
+        .filter((candidate) => candidate.score > 0)
+        .sort((a, b) => {
+            if (b.score !== a.score) return b.score - a.score;
+            return a.tool.index - b.tool.index;
+        });
+
+    if (candidates.length === 0) return null;
+    if (candidates.length === 1) return candidates[0].tool.name;
+
+    const [best, second] = candidates;
+    if (best.score === second.score) {
+        return best.score >= 10 ? best.tool.name : null;
+    }
+    if (best.score - second.score < 2 && second.tool.index < best.tool.index) {
+        return null;
+    }
+    return best.tool.name;
+}
+
+function extractFunctionTools(tools: any[]): GenerationFunctionTool[] {
+    return (tools || [])
+        .map((tool, index) => {
+            const fn = tool?.function;
+            const name = String(fn?.name || '').trim();
+            if (!name) return null;
+            const parameters = fn?.parameters && typeof fn.parameters === 'object' ? fn.parameters : {};
+            const properties = parameters?.properties && typeof parameters.properties === 'object'
+                ? new Set(Object.keys(parameters.properties))
+                : new Set<string>();
+            const required = Array.isArray(parameters?.required)
+                ? new Set(parameters.required.map((item: unknown) => String(item)))
+                : new Set<string>();
+            return { name, properties, required, index };
+        })
+        .filter((tool): tool is GenerationFunctionTool => Boolean(tool));
+}
+
+function scoreToolArgumentMatch(tool: GenerationFunctionTool, argKeys: string[]): number {
+    let matched = 0;
+    let missingRequired = 0;
+    let extra = 0;
+
+    for (const key of argKeys) {
+        if (tool.properties.has(key)) {
+            matched += 1;
+        } else {
+            extra += 1;
+        }
+    }
+
+    for (const key of tool.required) {
+        if (!argKeys.includes(key)) {
+            missingRequired += 1;
+        }
+    }
+
+    if (matched === 0) return 0;
+
+    let score = matched * 10;
+    score -= extra * 6;
+    score -= missingRequired * 12;
+
+    if (missingRequired === 0) score += 4;
+    if (extra === 0) score += 2;
+    if (matched === argKeys.length && tool.required.size > 0) score += 1;
+
+    return score;
 }
 
 function shouldAllowVisibleStreamingAfterToolSignal(

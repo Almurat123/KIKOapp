@@ -18,10 +18,12 @@
      * Render table-style outputs directly in markdown from the returned rows or `markdownTable`; do not rely on a separate structured render artifact for these token-analysis tables.
      * Preserve full wallet addresses and tx hashes as plain text, not code-formatted cells.
      * Default to the fast early-buyer path first: return the buyer rows without wallet trade progression or token PnL unless the user explicitly asked for progression, profit ranking, or wallet PnL.
+     * After a successful early-buyer result, stop and decide explicitly: if the current rows already answer the user's request, answer directly from them. If the user also asked for a field the current rows do not contain, immediately call the next required tool for that missing evidence.
      * When wallet PnL is requested for early buyers, treat it as a recent-window metric only. Do not describe it as all-time or since-first-buy unless that capability actually exists.
      * Treat `followUpCapabilities` in the tool result as authoritative. If `directProfitRanking` is not `ready_from_current_rows`, do not rank wallets by profit from the early-buyer rows alone.
      * If `batchWalletPnlFollowup` is `requires_separate_batch_query`, either call the batch wallet PnL tool or explicitly say that the current early-buyer rows are insufficient for profit ranking.
      * If the user asks what each early buyer bought/sold on this token, or asks for per-wallet buy/sell summary, route to token-address batch wallet PnL instead of trying to infer from the early-buyer table.
+     * Do not re-run `get_early_buyers`, do not issue a vague follow-up search, and do not emit an empty tool call after a successful early-buyer result unless you can name the exact missing evidence and the exact next tool that fills it.
      * If the user asks for smart money, whales, or high-quality wallets, you may add ranking analysis after the full early-buyer table, but the table still comes first.
    - Do not compress an early-buyer export into a whale-only summary. Keep the full list and only drop clear garbage/noise wallets or non-trade transfers when they are not real buys.
    - Use `analyze_wallet_pnl` for fast wallet-level summary only.
