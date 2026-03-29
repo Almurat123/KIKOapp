@@ -27,14 +27,12 @@ import {
   recordCanonicalOrderExecution,
 } from '../orders/canonicalOrderState.js';
 import { resolveCanonicalSellPreemption } from '../orders/canonicalOrderPolicy.js';
+import {
+  chooseMirrorSellIntent,
+  hasMirrorSellIntent,
+} from '../positions/mirrorSellIntentPolicy.js';
 
 export type BuyConfirmationTransitionResult = 'confirmed_success' | 'confirmed_failed' | 'deferred';
-export interface MirrorSellAfterConfirmContext {
-  positionId: string;
-  targetSellTxHash?: string;
-  reasonCode: ResolvedPendingMirrorSellIntent['reasonCode'];
-}
-
 export interface MirrorSellAbortContext {
   positionId: string;
   reasonCode: 'buy_confirmation_failed';
@@ -92,7 +90,6 @@ export async function applyBuyConfirmationTransition(params: {
   positionStatusCompat: PositionStatusCompatLike;
   directFeeSettlement?: DirectSwapFeeSettlement | null;
   runtimeContext?: OrderRuntimeContext | null;
-  onMirrorSellAfterConfirm?: (context: MirrorSellAfterConfirmContext) => Promise<void>;
   onMirrorSellAbort?: (context: MirrorSellAbortContext) => Promise<void>;
   onNotifySuccess?: () => Promise<void>;
   recoverySource: 'initial_wait' | 'late_recovery';
@@ -130,7 +127,6 @@ export async function applyBuyConfirmationTransition(params: {
     positionStatusCompat,
     directFeeSettlement,
     runtimeContext,
-    onMirrorSellAfterConfirm,
     onMirrorSellAbort,
     onNotifySuccess,
     recoverySource,
@@ -292,11 +288,10 @@ export async function applyBuyConfirmationTransition(params: {
     positionCreatedAt: pendingPositionCreatedAt
   }).catch(() => null);
   const canonicalMirrorIntent = resolveCanonicalSellPreemption(canonicalOrder);
-  const resolvedMirrorIntent = pendingMirrorIntent?.shouldMirrorSell
-    ? pendingMirrorIntent
-    : canonicalMirrorIntent.shouldMirrorSell
-      ? canonicalMirrorIntent
-      : pendingMirrorIntent;
+  const resolvedMirrorIntent = chooseMirrorSellIntent(
+    pendingMirrorIntent,
+    canonicalMirrorIntent,
+  );
 
   const promotionAction = await resolvePromotionAction({
     positionId: persistedPositionId
@@ -366,47 +361,25 @@ export async function applyBuyConfirmationTransition(params: {
     });
   }
 
-  if (resolvedMirrorIntent?.shouldMirrorSell && persistedPositionId && onMirrorSellAfterConfirm) {
-    if (canonicalOrder) {
-      await advanceOrderState({
-        orderId: canonicalOrder.id,
-        lifecycleState: 'EXIT_ARMED',
-        reasonCode: 'exit_armed_from_target_sell',
-        eventType: 'ORDER_EXIT_ARMED_AFTER_BUY_CONFIRM',
-        metadataPatch: {
-          buyTxHash: resolvedTxHash,
-          targetSellTxHash: resolvedMirrorIntent.targetSellTxHash || null,
-          targetSellReasonCode: resolvedMirrorIntent.reasonCode || null,
-          positionIdLegacy: persistedPositionId,
-          lastKnownExposureSource: 'buy_confirmed_open',
-          awaitingKind: null,
-          nextObservationAt: null,
-          lastObservedTxHash: resolvedTxHash,
-          lastObservedTxState: 'confirmed_success',
-          lastObservedAt: new Date().toISOString(),
-        },
-      }).catch(() => null);
-    }
-    await onMirrorSellAfterConfirm({
-      positionId: persistedPositionId,
-      targetSellTxHash: resolvedMirrorIntent.targetSellTxHash,
-      reasonCode: resolvedMirrorIntent.reasonCode as any,
-    });
-  }
+  const hasExitIntent = hasMirrorSellIntent(resolvedMirrorIntent);
 
   if (canonicalOrder) {
     await advanceOrderState({
       orderId: canonicalOrder.id,
-      lifecycleState: resolvedMirrorIntent?.shouldMirrorSell ? 'EXIT_ARMED' : 'BUY_CONFIRMED_OPEN',
-      reasonCode: resolvedMirrorIntent?.shouldMirrorSell ? 'exit_armed_from_target_sell' : 'ok_buy_confirmed_open',
-      eventType: resolvedMirrorIntent?.shouldMirrorSell ? 'ORDER_BUY_CONFIRMED_RELEASED_TO_EXIT' : 'ORDER_BUY_CONFIRMED_OPEN',
+      lifecycleState: hasExitIntent ? 'EXIT_ARMED' : 'BUY_CONFIRMED_OPEN',
+      reasonCode: hasExitIntent ? 'exit_armed_from_target_sell' : 'ok_buy_confirmed_open',
+      eventType: !hasExitIntent
+        ? 'ORDER_BUY_CONFIRMED_OPEN'
+        : 'ORDER_BUY_CONFIRMED_ARMED_FOR_EXIT',
       metadataPatch: {
         buyTxHash: resolvedTxHash,
         targetSellTxHash: resolvedMirrorIntent?.targetSellTxHash || null,
         targetSellReasonCode: resolvedMirrorIntent?.reasonCode || null,
         positionIdLegacy: persistedPositionId || null,
         confirmedAmountRaw,
-        lastKnownExposureSource: resolvedMirrorIntent?.shouldMirrorSell ? 'buy_confirmed_release_to_exit' : 'buy_confirmed_open',
+        lastKnownExposureSource: !hasExitIntent
+          ? 'buy_confirmed_open'
+          : 'buy_confirmed_exit_armed',
         awaitingKind: null,
         nextObservationAt: null,
         lastObservedTxHash: resolvedTxHash,
@@ -446,7 +419,7 @@ export async function applyBuyConfirmationTransition(params: {
   // Production-grade behavior: avoid speculative approval traffic on the critical buy path.
   // Approval preheat is only useful for future sells and should never compete with a just-confirmed buy
   // or an already-armed mirror sell.
-  if (!resolvedMirrorIntent?.shouldMirrorSell) {
+  if (!hasExitIntent) {
     const preheatResult = await preheatSell({
       userId,
       walletAddress,

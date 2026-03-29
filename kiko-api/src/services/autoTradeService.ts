@@ -122,7 +122,6 @@ import { emitCopyTradeTimingAudit } from './copytrade-v2/timing/copyTradeTimingA
 import { executeSwapViaPort } from './swap/swapExecutionPort.js';
 import { getReferenceExpectedOutput } from './dex/directSwap/application/quoteEngines.js';
 import type { ConfirmationOutcome } from './swap/confirmationCoordinator.js';
-import type { MirrorSellAfterConfirmContext } from './copytrade-v2/buy/buyConfirmationTransition.js';
 import { evaluateStaleBuySignal } from './copytrade-v2/buy/staleBuyPolicy.js';
 import { TRADE_METADATA_PROFILE } from './rpc/profile.js';
 import {

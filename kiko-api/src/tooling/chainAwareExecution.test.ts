@@ -70,6 +70,43 @@ test('prepareChainAwareToolExecution lets detected token chain override stale an
     assert.equal(prepared.args.chain_id, 56);
 });
 
+test('prepareChainAwareToolExecution injects snapshot token_address for analyze_wallet_pnl_batch without adding address', async () => {
+    const prepared = await prepareChainAwareToolExecution(
+        'analyze_wallet_pnl_batch',
+        {
+            addresses: ['0x1111111111111111111111111111111111111111'],
+            chain: 'base',
+        },
+        {
+            analysisChain: 'base',
+            analysisChainId: 8453,
+            analysisTokenAddress: FULL_ADDRESS,
+            __snapshot: {
+                requestedTokenAddresses: [FULL_ADDRESS],
+            },
+        },
+        {
+            findTokenOnAnyChain: async (address) => {
+                assert.equal(address, FULL_ADDRESS);
+                return {
+                    address,
+                    symbol: 'BAP',
+                    name: 'Binance Ai Pro',
+                    chainId: 56,
+                    chainName: 'BSC',
+                };
+            },
+        },
+    );
+
+    assert.equal(prepared.args.token_address, FULL_ADDRESS);
+    assert.equal(prepared.args.address, undefined);
+    assert.equal(prepared.args.chain, 'bsc');
+    assert.equal(prepared.args.chain_id, 56);
+    assert.equal(prepared.meta.requestTokenAddress, undefined);
+    assert.equal(prepared.meta.canonicalTokenAddress, FULL_ADDRESS);
+});
+
 test('maybeRetryChainAwareToolExecution retries on detected token chain when initial result looks like a wrong-chain miss', async () => {
     const retried = await maybeRetryChainAwareToolExecution<any>(
         'get_token_info',

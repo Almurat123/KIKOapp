@@ -3,6 +3,9 @@ import {
   persistTargetSellEventAndSchedulePositions,
   schedulePositionExitIntent,
 } from '../exit/positionExitIntentScheduler.js';
+import { upsertTargetSellEvent } from '../exit/targetSellEventStore.js';
+import { armPendingAttributedPositionsForMirrorSell } from '../positions/pendingAttributedPositionLedger.js';
+import type { MirrorSellIntentDisposition } from '../positions/mirrorSellIntentPolicy.js';
 
 export async function releaseMirrorSellAfterBuyConfirm(params: {
   position: {
@@ -21,21 +24,52 @@ export async function releaseMirrorSellAfterBuyConfirm(params: {
   targetWallet: string;
   targetSellTxHash?: string | null;
   reasonCode?: string | null;
+  disposition: Exclude<MirrorSellIntentDisposition, 'none'>;
   deps?: {
     buildTargetSellEventPayload?: typeof buildTargetSellEventPayload;
     persistTargetSellEventAndSchedulePositions?: typeof persistTargetSellEventAndSchedulePositions;
     schedulePositionExitIntent?: typeof schedulePositionExitIntent;
+    upsertTargetSellEvent?: typeof upsertTargetSellEvent;
+    armPendingAttributedPositionsForMirrorSell?: typeof armPendingAttributedPositionsForMirrorSell;
   };
 }): Promise<boolean> {
   const position = params.position;
   const buildEventPayload = params.deps?.buildTargetSellEventPayload || buildTargetSellEventPayload;
   const persistTargetSell = params.deps?.persistTargetSellEventAndSchedulePositions || persistTargetSellEventAndSchedulePositions;
   const scheduleExitIntent = params.deps?.schedulePositionExitIntent || schedulePositionExitIntent;
+  const upsertSellEvent = params.deps?.upsertTargetSellEvent || upsertTargetSellEvent;
+  const armPendingPosition = params.deps?.armPendingAttributedPositionsForMirrorSell || armPendingAttributedPositionsForMirrorSell;
   if (!position || String(position.status || '').toLowerCase() === 'closed') {
     return false;
   }
 
   const targetSellTxHash = String(params.targetSellTxHash || '').trim();
+  if (params.disposition === 'arm_exit') {
+    if (targetSellTxHash) {
+      await upsertSellEvent(buildEventPayload({
+        chainId: params.chainId,
+        targetWallet: params.targetWallet,
+        tokenAddress: params.tokenAddress,
+        targetSellTxHash,
+        source: 'buy_confirmation',
+        metadata: {
+          sourceRuntime: 'legacy_buy_confirmation_release',
+          releaseReasonCode: params.reasonCode || null,
+          releaseDisposition: params.disposition,
+        },
+      })).catch(() => null);
+    }
+    await armPendingPosition({
+      userId: position.userId,
+      chainId: position.chainId,
+      tokenAddress: position.tokenAddress,
+      positionIds: [position.id],
+      targetSellTxHash: targetSellTxHash || undefined,
+      reasonCode: params.reasonCode || 'target_sell_seen_in_history_unverified',
+    }).catch(() => 0);
+    return true;
+  }
+
   if (!targetSellTxHash) {
     return scheduleExitIntent({
       position: {
@@ -51,6 +85,7 @@ export async function releaseMirrorSellAfterBuyConfirm(params: {
       metadata: {
         sourceRuntime: 'legacy_buy_confirmation_release',
         releaseReasonCode: params.reasonCode || null,
+        releaseDisposition: params.disposition,
         targetWallet: params.targetWallet,
       },
     });
@@ -66,6 +101,7 @@ export async function releaseMirrorSellAfterBuyConfirm(params: {
       metadata: {
         sourceRuntime: 'legacy_buy_confirmation_release',
         releaseReasonCode: params.reasonCode || null,
+        releaseDisposition: params.disposition,
       },
     }),
     positions: [{
@@ -82,6 +118,7 @@ export async function releaseMirrorSellAfterBuyConfirm(params: {
     metadata: {
       sourceRuntime: 'legacy_buy_confirmation_release',
       releaseReasonCode: params.reasonCode || null,
+      releaseDisposition: params.disposition,
     },
   });
 

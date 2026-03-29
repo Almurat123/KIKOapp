@@ -132,6 +132,18 @@ function buildToolGuidanceBlock(guidance?: {
             lines.push('- Budget guideline: usually stay within about 6 provider-native search/open actions in this phase unless a required evidence type is still missing.');
         }
     }
+    if (Array.isArray(guidance?.strategyNotes) && guidance.strategyNotes.length > 0) {
+        if (lines.length === 0) {
+            lines.push('[TOOL_CONTEXT]');
+        }
+        lines.push('- Strategy notes for this turn:');
+        for (const note of guidance.strategyNotes) {
+            const trimmed = String(note || '').trim();
+            if (trimmed) {
+                lines.push(`- ${trimmed}`);
+            }
+        }
+    }
 
     return lines.join('\n');
 }

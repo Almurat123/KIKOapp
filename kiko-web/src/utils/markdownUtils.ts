@@ -207,3 +207,46 @@ export const stripMarkdownTables = (content: string): string => {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 };
+
+export const stripMarkdownTableArtifacts = (content: string): string => {
+  if (!content) return '';
+
+  const withoutCompleteTables = stripMarkdownTables(content);
+  const lines = withoutCompleteTables.split('\n');
+  let firstContentIndex = 0;
+  while (firstContentIndex < lines.length && lines[firstContentIndex].trim() === '') {
+    firstContentIndex += 1;
+  }
+
+  let cursor = firstContentIndex;
+  let removedDraft = false;
+  while (cursor < lines.length) {
+    const trimmed = lines[cursor].trim();
+    if (!trimmed) {
+      if (removedDraft) {
+        cursor += 1;
+        continue;
+      }
+      break;
+    }
+
+    if (/^\|/.test(trimmed)) {
+      removedDraft = true;
+      cursor += 1;
+      continue;
+    }
+
+    break;
+  }
+
+  if (!removedDraft) {
+    return withoutCompleteTables;
+  }
+
+  return lines
+    .slice(cursor)
+    .join('\n')
+    .replace(/^\s+/, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trimStart();
+};

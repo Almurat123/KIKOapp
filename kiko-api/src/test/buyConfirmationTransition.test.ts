@@ -96,7 +96,7 @@ describe('buy confirmation transition', () => {
             updateMany: async () => ({ count: 1 }),
           },
         } as any,
-        resolvePendingMirrorSellIntent: async () => ({ shouldMirrorSell: false, reasonCode: 'NO_PENDING_MIRROR_SELL_INTENT' }),
+        resolvePendingMirrorSellIntent: async () => ({ disposition: 'none', reasonCode: 'NO_PENDING_MIRROR_SELL_INTENT' }),
         resolveBuyConfirmationPromotionAction: async () => ({ action: 'promote_open' }),
         preheatSellApprovalForToken: async () => {
           preheated = true;
@@ -111,10 +111,10 @@ describe('buy confirmation transition', () => {
     assert.equal(preheated, true);
   });
 
-  test('schedules mirror sell on confirmation without skipping downstream side effects', async () => {
+  test('arms exit on confirmation without triggering mirror sell side effects', async () => {
     let notified = false;
     let preheated = false;
-    let mirrorSellContext: any = null;
+    const advanced: any[] = [];
 
     const result = await applyBuyConfirmationTransition({
       confirmation: { success: true, kind: 'confirmed_success', visible: true },
@@ -122,16 +122,15 @@ describe('buy confirmation transition', () => {
       tokenToBuy: '0xpep',
       txHash: '0xbuy',
       userId: 'user',
+      configId: 'cfg-1',
       targetWallet: '0xtarget',
+      leaderBuyTxHash: '0xleader-buy',
       persistedPositionId: 'pos_2',
       pendingPositionCreatedAt: null,
       tokenInfo: { symbol: 'PEPE', price: 1, decimals: 18 },
       walletAddress: '0xwallet',
       positionStatusCompat: { pendingCreateStatus: 'pending', failedFinalStatus: 'failed' },
       recoverySource: 'initial_wait',
-      onMirrorSellAfterConfirm: async (context) => {
-        mirrorSellContext = context;
-      },
       onNotifySuccess: async () => {
         notified = true;
       },
@@ -142,17 +141,31 @@ describe('buy confirmation transition', () => {
           },
         } as any,
         resolvePendingMirrorSellIntent: async () => ({
-          shouldMirrorSell: true,
+          disposition: 'execute_immediately',
           targetSellTxHash: '0xtargetsell',
-          reasonCode: 'TARGET_SELL_SEEN_IN_LEDGER',
+          reasonCode: 'ACTIVE_EXIT_INTENT_PRESENT',
         }),
         resolveBuyConfirmationPromotionAction: async () => ({ action: 'promote_open' }),
-        preheatSellApprovalForToken: async (_params, options) => {
+        claimOrCreateCanonicalOrder: async () => ({
+          id: 'order-2',
+          canonicalKey: 'chain:leader:target:user:cfg:token:buy',
+          lifecycleState: 'BUY_SUBMITTING',
+          lastReasonCode: 'ok_buy_submitted',
+          chainId: 56,
+          txHash: '0xleader',
+          targetWallet: '0xtarget',
+          tokenIn: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+          tokenOut: '0xpep',
+          userId: 'user',
+          configId: 'cfg-1',
+          metadata: {},
+        }),
+        advanceCanonicalOrderState: async (params) => {
+          advanced.push(params);
+          return null;
+        },
+        preheatSellApprovalForToken: async () => {
           preheated = true;
-          assert.deepEqual(options, {
-            queueBehavior: 'allow_queue',
-            txPurpose: 'approval',
-          });
           return { status: 'completed', reasonCode: 'approval_warmed' };
         },
         emitCopytradeDomainAudit: () => {},
@@ -160,19 +173,21 @@ describe('buy confirmation transition', () => {
     });
 
     assert.equal(result, 'confirmed_success');
-    assert.deepEqual(mirrorSellContext, {
-      positionId: 'pos_2',
-      targetSellTxHash: '0xtargetsell',
-      reasonCode: 'TARGET_SELL_SEEN_IN_LEDGER',
-    });
+    assert.equal(
+      advanced.some((entry) =>
+        entry.lifecycleState === 'EXIT_ARMED'
+        && entry.eventType === 'ORDER_BUY_CONFIRMED_ARMED_FOR_EXIT'
+        && entry.metadataPatch?.targetSellTxHash === '0xtargetsell'
+      ),
+      true,
+    );
     assert.equal(notified, true);
     assert.equal(preheated, false);
   });
 
-  test('confirmed buy with pending target sell still releases mirror sell even when position closed before open', async () => {
+  test('confirmed buy with pending target sell stays in buy workflow even when position closed before open', async () => {
     let notified = false;
     let preheated = false;
-    let mirrorSellContext: any = null;
 
     const result = await applyBuyConfirmationTransition({
       confirmation: { success: true, kind: 'confirmed_success', visible: true },
@@ -187,9 +202,6 @@ describe('buy confirmation transition', () => {
       walletAddress: '0xwallet',
       positionStatusCompat: { pendingCreateStatus: 'pending', failedFinalStatus: 'failed' },
       recoverySource: 'initial_wait',
-      onMirrorSellAfterConfirm: async (context) => {
-        mirrorSellContext = context;
-      },
       onNotifySuccess: async () => {
         notified = true;
       },
@@ -200,9 +212,9 @@ describe('buy confirmation transition', () => {
           },
         } as any,
         resolvePendingMirrorSellIntent: async () => ({
-          shouldMirrorSell: true,
+          disposition: 'execute_immediately',
           targetSellTxHash: '0xtargetsell-race',
-          reasonCode: 'TARGET_SELL_SEEN_IN_LEDGER',
+          reasonCode: 'ACTIVE_EXIT_INTENT_PRESENT',
         }),
         resolveBuyConfirmationPromotionAction: async () => ({
           action: 'closed_before_open',
@@ -219,17 +231,11 @@ describe('buy confirmation transition', () => {
     });
 
     assert.equal(result, 'confirmed_success');
-    assert.deepEqual(mirrorSellContext, {
-      positionId: 'pos-race',
-      targetSellTxHash: '0xtargetsell-race',
-      reasonCode: 'TARGET_SELL_SEEN_IN_LEDGER',
-    });
     assert.equal(notified, true);
     assert.equal(preheated, false);
   });
 
-  test('canonical order target sell metadata releases mirror sell and keeps order armed for exit', async () => {
-    let mirrorSellContext: any = null;
+  test('canonical order target sell metadata keeps order armed for exit without releasing sell', async () => {
     const advanced: any[] = [];
 
     const result = await applyBuyConfirmationTransition({
@@ -247,9 +253,6 @@ describe('buy confirmation transition', () => {
       walletAddress: '0xwallet',
       positionStatusCompat: { pendingCreateStatus: 'pending', failedFinalStatus: 'failed' },
       recoverySource: 'initial_wait',
-      onMirrorSellAfterConfirm: async (context) => {
-        mirrorSellContext = context;
-      },
       deps: {
         prisma: {
           position: {
@@ -257,7 +260,7 @@ describe('buy confirmation transition', () => {
           },
         } as any,
         resolvePendingMirrorSellIntent: async () => ({
-          shouldMirrorSell: false,
+          disposition: 'none',
           reasonCode: 'NO_PENDING_MIRROR_SELL_INTENT',
         }),
         resolveBuyConfirmationPromotionAction: async () => ({ action: 'promote_open' }),
@@ -289,15 +292,10 @@ describe('buy confirmation transition', () => {
     });
 
     assert.equal(result, 'confirmed_success');
-    assert.deepEqual(mirrorSellContext, {
-      positionId: 'pos-canonical',
-      targetSellTxHash: '0xtargetsell-canonical',
-      reasonCode: 'sell_preempted_before_buy_confirm',
-    });
     assert.equal(
       advanced.some((entry) =>
         entry.lifecycleState === 'EXIT_ARMED'
-        && entry.eventType === 'ORDER_BUY_CONFIRMED_RELEASED_TO_EXIT'
+        && entry.eventType === 'ORDER_BUY_CONFIRMED_ARMED_FOR_EXIT'
         && entry.metadataPatch?.targetSellTxHash === '0xtargetsell-canonical'
       ),
       true,
@@ -342,7 +340,7 @@ describe('buy confirmation transition', () => {
             updateMany: async () => ({ count: 1 }),
           },
         } as any,
-        resolvePendingMirrorSellIntent: async () => ({ shouldMirrorSell: false, reasonCode: 'NO_PENDING_MIRROR_SELL_INTENT' }),
+        resolvePendingMirrorSellIntent: async () => ({ disposition: 'none', reasonCode: 'NO_PENDING_MIRROR_SELL_INTENT' }),
         resolveBuyConfirmationPromotionAction: async () => ({ action: 'promote_open' }),
         scheduleDeferredBuyFeeRecovery: (params) => {
           scheduledFeeRecovery = params;
@@ -401,7 +399,7 @@ describe('buy confirmation transition', () => {
             updateMany: async () => ({ count: 1 }),
           },
         } as any,
-        resolvePendingMirrorSellIntent: async () => ({ shouldMirrorSell: false, reasonCode: 'NO_PENDING_MIRROR_SELL_INTENT' }),
+        resolvePendingMirrorSellIntent: async () => ({ disposition: 'none', reasonCode: 'NO_PENDING_MIRROR_SELL_INTENT' }),
         resolveBuyConfirmationPromotionAction: async () => ({ action: 'promote_open' }),
         preheatSellApprovalForToken: async () => ({ status: 'deferred', reasonCode: 'wallet_tx_queue_busy' }),
         scheduleDeferredSellApprovalPreheat: (params) => {

@@ -229,6 +229,69 @@ test('assembleGenerationMessages nudges shortlist research tasks toward multi-so
     assert.match(String(userMessage?.content || ''), /about 6 provider-native search\/open actions/i);
 });
 
+test('assembleGenerationMessages includes strategy notes for early-buyer token profit follow-ups', () => {
+    const snapshot: ChatContextSnapshot = {
+        sessionId: 'session-wallet-followup',
+        taskId: 'task-wallet-followup',
+        model: 'gpt-5.4',
+        history: [],
+        lastUserMessage: '这些钱包在这个代币上的利润是怎么样的？',
+        runtime: {
+            contextBlocks: {},
+            userSettings: {},
+        },
+        requestedTokenAddresses: ['0x1111111111111111111111111111111111111111'],
+        requestedTokenSymbols: [],
+        recentToolTrace: {
+            messageId: 'assistant-early-buyers',
+            toolCalls: [
+                {
+                    tool: 'get_early_buyers',
+                    status: 'success',
+                    result: {
+                        earlyBuyers: [
+                            { address: '0xabc' },
+                            { address: '0xdef' },
+                        ],
+                    },
+                },
+            ],
+        },
+        conversationActionState: {
+            pendingAction: 'none',
+            canExecute: false,
+            needsClarification: false,
+            clarificationQuestion: null,
+        },
+        toolDefinitions: [],
+    };
+
+    const providerInfo: ProviderInfo = {
+        provider: 'openai',
+        model: snapshot.model,
+        supportsNativeSearch: false,
+        supportsPreviousResponse: true,
+    };
+
+    const messages = assembleGenerationMessages(snapshot, [], providerInfo, {
+        preferredTools: ['analyze_wallet_pnl_batch'],
+        strategyNotes: [
+            'If recent early-buyer rows already exist and the user now asks for profit/PnL or per-wallet buy/sell summaries, reuse those wallet addresses as the candidate set for batch wallet PnL analysis.',
+            'Pass the same token_address into analyze_wallet_pnl_batch so the result reports each wallet\'s buy USD, sell USD, realized PnL, and profit percent for that token over a supported recent window (1d / 7d / 30d, default 30d).',
+        ],
+        toolPhase: 'local_analysis',
+        searchMode: 'forbidden',
+        searchReason: 'no_search_required',
+    });
+
+    const userMessage = messages.find((message) => message.role === 'user');
+    const content = String(userMessage?.content || '');
+
+    assert.match(content, /\[TOOL_CONTEXT\]/);
+    assert.match(content, /reuse those wallet addresses as the candidate set for batch wallet PnL analysis/);
+    assert.match(content, /Pass the same token_address into analyze_wallet_pnl_batch/);
+});
+
 test('assembleGenerationMessages exposes persisted polymarket selection state to the model', () => {
     const snapshot: ChatContextSnapshot = {
         sessionId: 'session-poly',

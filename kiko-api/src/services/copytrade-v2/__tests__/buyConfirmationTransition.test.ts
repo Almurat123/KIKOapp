@@ -155,3 +155,41 @@ test('applyBuyConfirmationTransition emits closed-before-open audit with confirm
   assert.equal(events[0]?.fields.exitReason, 'target_already_sold');
   assert.equal(events[0]?.fields.orderId, 'canonical-order-2');
 });
+
+test('applyBuyConfirmationTransition arms exit without immediate mirror sell for unverified history intent', async () => {
+  const advanceCalls: any[] = [];
+
+  const result = await applyBuyConfirmationTransition({
+    ...buildBaseParams(),
+    deps: {
+      prisma: {
+        position: {
+          updateMany: async () => ({ count: 1 }),
+        },
+      } as any,
+      resolvePendingMirrorSellIntent: async () => ({
+        disposition: 'arm_exit',
+        targetSellTxHash: '0xsell-history',
+        reasonCode: 'TARGET_SELL_SEEN_IN_HISTORY_UNVERIFIED',
+      }),
+      resolveBuyConfirmationPromotionAction: async () => ({ action: 'promote_open' }),
+      emitCopytradeDomainAudit: () => undefined,
+      resolveConfirmedReceiptTokenAmount: async () => '1000',
+      persistConfirmedBuyAmount: async () => null,
+      recordFollowerTransactionFactByPosition: async () => undefined,
+      claimOrCreateCanonicalOrder: (async () => ({ id: 'canonical-order-3' })) as any,
+      advanceCanonicalOrderState: async (payload: any) => {
+        advanceCalls.push(payload);
+        return null;
+      },
+      recordCanonicalOrderExecution: async () => undefined,
+      preheatSellApprovalForToken: async () => {
+        throw new Error('preheat should be skipped when exit is armed');
+      },
+    } as any,
+  });
+
+  assert.equal(result, 'confirmed_success');
+  assert.equal(advanceCalls.some((call) => call.eventType === 'ORDER_BUY_CONFIRMED_ARMED_FOR_EXIT'), true);
+  assert.equal(advanceCalls.some((call) => call.eventType === 'ORDER_BUY_CONFIRMED_RELEASED_TO_EXIT'), false);
+});

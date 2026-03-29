@@ -16,6 +16,7 @@ const TOKEN_ANALYSIS_TOOLS = new Set([
 const ADDRESS_TOKEN_TOOLS = new Set([
     ...TOKEN_ANALYSIS_TOOLS,
     'get_token_price',
+    'analyze_wallet_pnl_batch',
 ]);
 
 const CONTEXT_CHAIN_TOOLS = new Set([
@@ -79,8 +80,12 @@ function getSnapshotRequestedTokenAddress(context: ToolContextLike): string | un
     return normalizeAddress(requested[0]);
 }
 
-function applyTokenAddress(args: Record<string, any>, address: string): Record<string, any> {
+function applyTokenAddress(toolName: string, args: Record<string, any>, address: string): Record<string, any> {
     const next: Record<string, any> = { ...args };
+    if (toolName === 'analyze_wallet_pnl_batch') {
+        next.token_address = address;
+        return next;
+    }
     if (next.address !== undefined || (next.token_address === undefined && next.contract_address === undefined)) {
         next.address = address;
     }
@@ -184,7 +189,7 @@ export async function prepareChainAwareToolExecution(
     const canonicalTokenAddress = resolveCanonicalTokenAddress(nextArgs, context);
 
     if (ADDRESS_TOKEN_TOOLS.has(toolName) && canonicalTokenAddress && canonicalTokenAddress !== requestTokenAddress) {
-        nextArgs = applyTokenAddress(nextArgs, canonicalTokenAddress);
+        nextArgs = applyTokenAddress(toolName, nextArgs, canonicalTokenAddress);
     }
 
     if (ADDRESS_TOKEN_TOOLS.has(toolName) && canonicalTokenAddress) {

@@ -4,7 +4,6 @@ import { LogCode } from '../../../config/logRegistry.js';
 import { getTokenInfo } from '../../tokenService.js';
 import type { ConfirmationOutcome } from '../../swap/confirmationCoordinator.js';
 import { applyBuyConfirmationTransition } from './buyConfirmationTransition.js';
-import { releaseMirrorSellAfterBuyConfirm } from './buyConfirmationMirrorSellRelease.js';
 import {
   resolveDisplayTokenSymbol,
   sendNotificationAsync,
@@ -142,29 +141,6 @@ export async function processCanonicalBuyFinality(params: {
       failedFinalStatus: positionStatusCompat.failedFinalStatus,
     },
     recoverySource: params.recoverySource || 'late_recovery',
-    onMirrorSellAfterConfirm: async (context) => {
-      const refreshedPosition = await prisma.position.findUnique({
-        where: { id: context.positionId },
-        select: {
-          id: true,
-          status: true,
-          userId: true,
-          configId: true,
-          chainId: true,
-          tokenAddress: true,
-          entryAmountExact: true,
-          entryAmountDec: true,
-        },
-      }).catch(() => null);
-      await releaseMirrorSellAfterBuyConfirm({
-        position: refreshedPosition as any,
-        chainId: order.chainId,
-        tokenAddress: order.tokenOut,
-        targetWallet: order.targetWallet,
-        targetSellTxHash: context.targetSellTxHash,
-        reasonCode: context.reasonCode,
-      });
-    },
     onNotifySuccess: async () => {
       sendNotification({
         userId: config.user.privyDid,

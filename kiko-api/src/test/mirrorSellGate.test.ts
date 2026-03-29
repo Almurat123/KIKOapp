@@ -44,7 +44,7 @@ describe('deferred mirror sell reconcile policy', () => {
       },
     });
 
-    assert.equal(result.shouldMirrorSell, true);
+    assert.equal(result.disposition, 'arm_exit');
     assert.equal(result.reasonCode, 'TARGET_SELL_SEEN_IN_HISTORY_UNVERIFIED');
   });
 });

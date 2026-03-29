@@ -1,6 +1,5 @@
 import { buildRecoverablePendingEntryTxHash } from '../buy/pendingProtectionPolicy.js';
 import { resolveEntryDeviationCurrentPrice } from '../buy/entryDeviationPriceSelection.js';
-import { releaseMirrorSellAfterBuyConfirm } from '../buy/buyConfirmationMirrorSellRelease.js';
 import { scheduleLateBuySubmissionAdoption } from '../buy/lateBuySubmissionAdoption.js';
 import { cancelPendingAttributedPosition } from '../positions/pendingAttributedPositionLedger.js';
 import {
@@ -1382,31 +1381,6 @@ export async function processSingleUserBuy(params: {
                 }, 'copytrade_buy_success_confirmed');
             };
 
-            const executeMirrorSellAfterBuyConfirm = async (context: any) => {
-                const mirrorSellPosition = await prisma.position.findUnique({
-                    where: { id: context.positionId }
-                });
-                if (mirrorSellPosition && mirrorSellPosition.status !== 'closed') {
-                    logger.warn(LogCode.SYS_INFO, '[CopyTradeRace] Target already sold while buy was pending; executing mirror sell on confirmation', {
-                        userId: config.userId,
-                        token: tokenToBuy,
-                        chainId,
-                        txHash,
-                        positionId: context.positionId,
-                        targetSellTxHash: context.targetSellTxHash || null,
-                        reasonCode: context.reasonCode,
-                    });
-                    await releaseMirrorSellAfterBuyConfirm({
-                        position: mirrorSellPosition,
-                        chainId,
-                        tokenAddress: tokenToBuy,
-                        targetWallet,
-                        targetSellTxHash: context.targetSellTxHash,
-                        reasonCode: context.reasonCode,
-                    });
-                }
-            };
-
             const runBuyConfirmationTransition = async (
                 confirmation: any,
                 recoverySource: 'initial_wait' | 'late_recovery',
@@ -1431,7 +1405,6 @@ export async function processSingleUserBuy(params: {
                     positionStatusCompat,
                     directFeeSettlement: swapMetadata?.directFeeSettlement || null,
                     runtimeContext: orderRuntimeContext,
-                    onMirrorSellAfterConfirm: executeMirrorSellAfterBuyConfirm,
                     onNotifySuccess: notifyBuySuccessConfirmed,
                     recoverySource,
                 });

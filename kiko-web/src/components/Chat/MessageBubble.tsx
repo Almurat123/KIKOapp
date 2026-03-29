@@ -18,7 +18,7 @@ import remarkBreaks from 'remark-breaks';
 import { toast } from 'sonner';
 import clsx from 'clsx';
 import { useThemeContext } from '../../contexts/ThemeContext';
-import { preprocessMarkdown, stripMarkdownTables } from '../../utils/markdownUtils';
+import { preprocessMarkdown, stripMarkdownTableArtifacts } from '../../utils/markdownUtils';
 // DEPRECATED: SwapCardChat removed from chat interface (kept in WalletPage)
 // import { SwapCardChat } from './SwapCardChat';
 import { StrategyCard } from './StrategyCard';
@@ -353,7 +353,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
     hasInlineCard ||
     hasRuntimeCard;
   const renderedContent = hasStructuredRender
-    ? stripMarkdownTables(message.content || '')
+    ? stripMarkdownTableArtifacts(message.content || '')
     : (message.content || '');
 
   return (

@@ -17,7 +17,7 @@ test('canonical sell preemption resolves target sell metadata from order', () =>
   });
 
   assert.deepEqual(result, {
-    shouldMirrorSell: true,
+    disposition: 'execute_immediately',
     targetSellTxHash: '0xsell',
     reasonCode: 'sell_preempted_before_buy_confirm',
   });

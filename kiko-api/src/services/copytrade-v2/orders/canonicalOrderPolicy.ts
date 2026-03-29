@@ -1,3 +1,5 @@
+import type { MirrorSellIntentDecision } from '../positions/mirrorSellIntentPolicy.js';
+
 export interface CanonicalOrderLike {
   lifecycleState?: string | null;
   metadata?: Record<string, unknown> | null;
@@ -8,23 +10,19 @@ function readMetadataString(metadata: Record<string, unknown> | null | undefined
   return value || null;
 }
 
-export function resolveCanonicalSellPreemption(order?: CanonicalOrderLike | null): {
-  shouldMirrorSell: boolean;
-  targetSellTxHash?: string;
-  reasonCode?: string;
-} {
+export function resolveCanonicalSellPreemption(order?: CanonicalOrderLike | null): MirrorSellIntentDecision {
   if (!order) {
-    return { shouldMirrorSell: false };
+    return { disposition: 'none' };
   }
 
   const metadata = order.metadata || {};
   const targetSellTxHash = readMetadataString(metadata, 'targetSellTxHash');
   if (!targetSellTxHash) {
-    return { shouldMirrorSell: false };
+    return { disposition: 'none' };
   }
 
   return {
-    shouldMirrorSell: true,
+    disposition: 'execute_immediately',
     targetSellTxHash,
     reasonCode: readMetadataString(metadata, 'targetSellReasonCode')
       || readMetadataString(metadata, 'lastExecutionReasonCode')
