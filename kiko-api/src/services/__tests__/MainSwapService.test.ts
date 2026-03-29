@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  __testOnly,
   buildUserFacingSwapError,
   inferSwapReasonCode,
   shouldDeferAcceptedCopytradeBuyFeeCollection,
   txLifecycleFromExecutionFinality,
   verifyNativeBalancePrecheck,
 } from '../MainSwapService.js';
+import { createOrderRuntimeContext, markOrderFallbackResult, markOrderFallbackStarted } from '../order-runtime/context.js';
 
 test('verifyNativeBalancePrecheck bypasses transient RPC auth failures', async () => {
   let bypassed: string | null = null;
@@ -104,4 +106,36 @@ test('shouldDeferAcceptedCopytradeBuyFeeCollection defers turbo buy fees until t
       chainId: 8453,
     },
   }), false);
+});
+
+test('turbo copytrade fallback plan still allows aggregator fallback after internal hint pair mismatch', () => {
+  const plan = __testOnly.resolveTurboCopytrade0xFallbackPlan({
+    isTurboCopytrade: true,
+    isBuyDirection: true,
+    directFailureReason: 'route_failure',
+    directFailureMessage: 'turbo_rescue_exhausted:pool_discovery_failed:hint_pool_pair_mismatch:pool_pair_mismatch',
+    acceptedDirectEvidence: false,
+    hasGuardContext: true,
+    skipExternalFallback: false,
+    skipNoLiquidity: false,
+  });
+
+  assert.equal(plan.shouldFallback, true);
+  assert.equal(plan.reasonCode, 'route_failure');
+});
+
+test('order runtime can transfer ownership to fallback before any direct route state exists', () => {
+  const ctx = createOrderRuntimeContext({
+    userId: 'user-fallback',
+    chainId: 8453,
+    walletAddress: '0x1234567890123456789012345678901234567890',
+    side: 'buy',
+    mode: 'copytrade',
+  });
+
+  markOrderFallbackStarted(ctx, 'pending_visibility');
+  markOrderFallbackResult(ctx, true);
+
+  assert.equal(ctx.state, 'fallback_succeeded');
+  assert.equal(ctx.fallbackUsed, true);
 });

@@ -17,6 +17,14 @@ export interface TurboResolver {
   resolveCandidates(ctx: TurboResolverContext): Promise<ResolvedPoolHint[]>;
 }
 
+export function isRawResolvedHintTurboCandidateSafe(hint?: DirectSwapHint | null): boolean {
+  if (!hint?.resolvedPoolHint) return false;
+  const routeHopCount = Math.max(Number(hint.routeHopCount || 0), hint.routeHops?.length || 0);
+  if (hint.canUseResolvedPoolFastPath === false) return false;
+  if (routeHopCount > 1) return false;
+  return true;
+}
+
 function resolvedHintKey(hint: ResolvedPoolHint): string {
   // V4 pools are identified by their PoolKey, not a pool address
   if (hint.kind === 'v4' && hint.v4PoolKey?.currency0) {
@@ -77,7 +85,7 @@ export function dedupeResolvedHints(hints: Array<ResolvedPoolHint | null | undef
 export const singlePoolTurboResolver: TurboResolver = {
   async resolveCandidates(ctx: TurboResolverContext): Promise<ResolvedPoolHint[]> {
     return dedupeResolvedHints([
-      ctx.hint?.resolvedPoolHint,
+      isRawResolvedHintTurboCandidateSafe(ctx.hint) ? ctx.hint?.resolvedPoolHint : null,
       ctx.sourceHint ? sourcePoolToResolvedHint(ctx.sourceHint) : null,
       ctx.cachedWinnerHint
     ]);

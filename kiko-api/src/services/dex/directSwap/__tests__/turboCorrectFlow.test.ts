@@ -4,7 +4,7 @@ import test from 'node:test';
 import { runTurboCorrectFlow } from '../pipeline/turboCorrectFlow.js';
 import type { HintedSourcePool } from '../../directSwapTypes.js';
 import type { DirectSwapResult } from '../types.js';
-import type { ResolvedPoolHint, TurboResolver } from '../turbo.js';
+import { singlePoolTurboResolver, type ResolvedPoolHint, type TurboResolver } from '../turbo.js';
 import { evaluateDirectSwapSendGuard } from '../pipeline/directSwapAttemptGuard.js';
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
@@ -456,4 +456,26 @@ test('direct swap send guard blocks late sends after fallback ownership starts',
 
   assert.equal(decision.blocked, true);
   assert.equal(decision.reasonCode, 'fallback_owned');
+});
+
+test('singlePoolTurboResolver ignores raw resolved hints that decoder marked unsafe for fast-path execution', async () => {
+  const candidates = await singlePoolTurboResolver.resolveCandidates({
+    chainId: 8453,
+    tokenIn: '0x1111111111111111111111111111111111111111',
+    tokenOut: '0x2222222222222222222222222222222222222222',
+    amountInWei: 1_000_000n,
+    deadlineMs: Date.now() + 500,
+    hint: {
+      routeHopCount: 2,
+      canUseResolvedPoolFastPath: false,
+      resolvedPoolHint: {
+        kind: 'v3',
+        dex: 'uniswap',
+        poolAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        fee: 500,
+      },
+    },
+  });
+
+  assert.deepEqual(candidates, []);
 });

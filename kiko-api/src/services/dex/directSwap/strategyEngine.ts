@@ -135,7 +135,6 @@ import {
 } from './pipeline/poolLayer.js';
 import {
     createOrderRuntimeContext,
-    markOrderFailure,
     recordLifecycleOnOrder,
     recordOrderRoute,
     setOrderMetadata
@@ -577,8 +576,6 @@ export async function executeDirectSwap(params: {
         }
         if (result.txLifecycle) {
             recordLifecycleOnOrder(runtimeContext, result.txLifecycle);
-        } else if (result.error) {
-            markOrderFailure(runtimeContext, result.error);
         }
         if (result.success) {
             clearNoPoolCache(chainId, poolCacheTokenIn, poolCacheTokenOut);

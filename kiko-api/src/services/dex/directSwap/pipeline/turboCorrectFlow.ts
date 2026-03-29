@@ -2,7 +2,7 @@ import { LogCode } from '../../../../config/logRegistry.js';
 import type { PoolInfo } from '../../poolInfo.js';
 import type { DirectSwapHint, HintedSourcePool } from '../../directSwapTypes.js';
 import type { DirectSwapResult } from '../types.js';
-import { dedupeResolvedHints, type ResolvedPoolHint, type TurboResolver } from '../turbo.js';
+import { dedupeResolvedHints, isRawResolvedHintTurboCandidateSafe, type ResolvedPoolHint, type TurboResolver } from '../turbo.js';
 import type { SelectedV4Pool } from '../../v4ExecutionPlan.js';
 import type { V4PoolInfo } from '../../uniswapV4.js';
 import type { OrderRuntimeContext } from '../../../order-runtime/types.js';
@@ -415,7 +415,7 @@ const sourceAnchor = resolveSourceAnchorExpectation({
   });
   const singlePoolHintPriority = Boolean(
     hint?.sourceTxHash
-    || hint?.resolvedPoolHint
+    || isRawResolvedHintTurboCandidateSafe(hint)
     || sourceHintCandidate
     || cachedSinglePoolHint
   );

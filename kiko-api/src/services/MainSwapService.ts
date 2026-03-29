@@ -378,7 +378,6 @@ function isTurboCopytradeNonRecoverableValidationFailure(message?: string | null
     'clanker_gate:',
     'clanker_force_v4_failed',
     'unsupported_v4_hook',
-    'hint_pool_pair_mismatch',
     'invalid evm token',
     'invalid address',
     'amountin must be > 0',

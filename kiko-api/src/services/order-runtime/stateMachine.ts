@@ -1,7 +1,7 @@
 import type { OrderReasonCode, OrderState } from './types.js';
 
 const TRANSITIONS: Record<OrderState, ReadonlySet<OrderState>> = {
-  created: new Set(['route_selected', 'failed']),
+  created: new Set(['route_selected', 'fallback_started', 'failed']),
   route_selected: new Set(['tx_prepared', 'failed', 'fallback_started']),
   tx_prepared: new Set(['send_started', 'failed', 'fallback_started']),
   send_started: new Set(['hash_accepted', 'rpc_uncertain', 'failed', 'fallback_started']),
