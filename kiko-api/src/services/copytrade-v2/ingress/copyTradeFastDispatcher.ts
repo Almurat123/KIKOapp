@@ -34,28 +34,34 @@ async function resolveSelfOrderSuppression(params: {
     txHash: string;
     deps?: DispatchDeps;
 }) {
+    const isLocalSentTx = (snapshot: any) =>
+        Boolean(
+            snapshot?.send?.accepted
+            && (snapshot?.send?.source === 'privy_sendtx' || snapshot?.send?.source === 'raw_broadcast')
+        );
+
     const readLocalSnapshot = params.deps?.getAdjudicatedSnapshot || getAdjudicatedSnapshot;
     const hydrateSharedSnapshot = params.deps?.hydrateSharedAdjudicatedSnapshot || hydrateSharedAdjudicatedSnapshot;
     const local = readLocalSnapshot({
         chainId: params.chainId,
         txHash: params.txHash,
     });
-    if (local?.orderId) {
+    if (local?.orderId || isLocalSentTx(local)) {
         return {
             suppressed: true,
-            orderId: local.orderId,
-            source: 'local_adjudicated',
+            orderId: local?.orderId || null,
+            source: local?.orderId ? 'local_adjudicated' : 'local_send_accepted',
         } as const;
     }
     const shared = await hydrateSharedSnapshot({
         chainId: params.chainId,
         txHash: params.txHash,
     }).catch(() => null);
-    if (shared?.orderId) {
+    if (shared?.orderId || isLocalSentTx(shared)) {
         return {
             suppressed: true,
-            orderId: shared.orderId,
-            source: 'shared_adjudicated',
+            orderId: shared?.orderId || null,
+            source: shared?.orderId ? 'shared_adjudicated' : 'shared_send_accepted',
         } as const;
     }
     return {

@@ -545,4 +545,66 @@ describe('exit balance planner policy', () => {
       assert.equal(plan.latestTargetSellTxHash, '0xsellhash');
     }
   });
+
+  test('fourmeme mirror sell plans direct-primary routing on BSC', () => {
+    const plan = buildEvmExitPlanFromSnapshot({
+      userId: 'user-1',
+      tokenAddress: '0x352a46b12d6a39775a83ba286f036b9e271effff',
+      chainId: 56,
+      exitReason: 'mirror_sell',
+      tokenInfo: { price: 1, symbol: 'TEST' },
+      universalSlippageBps: 500,
+      executionMode: 'turbo',
+      targetWallet: '0xtarget',
+      launchpadProvider: 'fourmeme',
+      snapshot: {
+        tokenAddress: '0x352a46b12d6a39775a83ba286f036b9e271effff',
+        chainId: 56,
+        walletAddress: '0xwallet',
+        isMirrorSell: true,
+        hasValidPrice: true,
+        decimals: 18,
+        balanceRaw: 1000n,
+        balanceUsd: 1,
+        treatAsEmptyOrDust: false,
+        balanceRead: {
+          status: 'success',
+          value: 1000n,
+          reasonCode: 'EXIT_BALANCE_CONFIRMED_POSITIVE',
+          attemptCount: 1,
+          lastError: null,
+          providerSource: 'test',
+        },
+        positions: [{
+          id: 'pos-1',
+          tokenAddress: '0x352a46b12d6a39775a83ba286f036b9e271effff',
+          status: 'open',
+          entryTxHash: '0xbuy',
+        }],
+        pendingLots: [],
+        latestTargetSellTxHash: '0xsell',
+        targetFullExitVerified: true,
+        targetFullExitReasonCode: 'TARGET_FULL_EXIT_CONFIRMED',
+        attribution: {
+          eligiblePositions: [{
+            id: 'pos-1',
+            tokenAddress: '0x352a46b12d6a39775a83ba286f036b9e271effff',
+            status: 'open',
+            entryTxHash: '0xbuy',
+          }],
+          sellAmountRaw: 1000n,
+          reasonCode: 'ATTRIBUTED_AMOUNT_RESOLVED',
+          metrics: {},
+          hasExternalBalance: false,
+        },
+      },
+    });
+
+    assert.equal(plan.kind, 'swap');
+    if (plan.kind === 'swap') {
+      assert.equal(plan.sellRoutePolicy, 'direct_primary');
+      assert.equal(plan.launchpadProvider, 'fourmeme');
+      assert.equal(plan.runtimeContext.metadata.launchpadProvider, 'fourmeme');
+    }
+  });
 });

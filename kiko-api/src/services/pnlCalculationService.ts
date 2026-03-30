@@ -63,7 +63,16 @@ function resolveNativeCoinbaseSymbol(chain: string): 'ETH' | 'BNB' | 'MATIC' | '
 
 async function buildQuoteUsdPriceMap(chain: string): Promise<Record<string, number>> {
     const native = resolveNativeCoinbaseSymbol(chain);
-    const nativeUsd = await getCoinbaseSpotUsdPrice(native);
+    let nativeUsd = await getCoinbaseSpotUsdPrice(native);
+    if (!(nativeUsd > 0)) {
+        try {
+            const { getNativeTokenPriceUsd } = await import('./onChainPriceService.js');
+            const chainId = CHAIN_ID_MAP[chain.toLowerCase()];
+            nativeUsd = chainId ? await getNativeTokenPriceUsd(chainId).catch(() => 0) : 0;
+        } catch {
+            nativeUsd = 0;
+        }
+    }
     return {
         ETH: native === 'ETH' ? nativeUsd : 0,
         BNB: native === 'BNB' ? nativeUsd : 0,

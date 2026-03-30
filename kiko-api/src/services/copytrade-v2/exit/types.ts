@@ -43,6 +43,7 @@ export interface EvmExitSwapPlan {
   retrySlippageBps: number;
   executionMode: CopyTradeExecutionMode;
   sellRoutePolicy: SellRoutePolicy;
+  launchpadProvider?: 'fourmeme' | null;
   runtimeContext: OrderRuntimeContext;
   positions: AttributedPositionLike[];
   pendingAttributedLotIds?: string[];

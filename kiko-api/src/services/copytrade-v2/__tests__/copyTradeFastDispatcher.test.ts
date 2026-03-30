@@ -85,6 +85,47 @@ test('fast dispatcher suppresses shared adjudicated self-order before enqueue', 
   assert.equal(enqueued, false);
 });
 
+test('fast dispatcher suppresses locally sent self-order before order binding exists', async () => {
+  let marked = false;
+  let enqueued = false;
+
+  const accepted = await dispatchCopyTradeIfReady({
+    chainId: 56,
+    txHash: '0x4444444444444444444444444444444444444444444444444444444444444444',
+    targetWallet: '0xtarget',
+    swap,
+    source: 'alchemy_webhook',
+  }, {
+    getAdjudicatedSnapshot() {
+      return {
+        orderId: undefined,
+        chainId: 56,
+        canonicalTxHash: '0x4444444444444444444444444444444444444444444444444444444444444444',
+        allTxHashes: ['0x4444444444444444444444444444444444444444444444444444444444444444'],
+        send: {
+          accepted: true,
+          source: 'privy_sendtx',
+        },
+      } as any;
+    },
+    async hydrateSharedAdjudicatedSnapshot() {
+      return null;
+    },
+    async tryMarkCopyTradeIngressEnqueued() {
+      marked = true;
+      return { accepted: true, state: null } as any;
+    },
+    async enqueueCopyTradeTask() {
+      enqueued = true;
+      return true;
+    },
+  });
+
+  assert.equal(accepted, false);
+  assert.equal(marked, false);
+  assert.equal(enqueued, false);
+});
+
 test('fast dispatcher enqueues non-self tx normally', async () => {
   let marked = false;
   let enqueued = false;

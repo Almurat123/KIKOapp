@@ -109,7 +109,8 @@ async function runExitSwapAttempt(
     userSettings: {
       fastSwapMode: useDirectPrimary,
       copyTradeExecutionMode: plan.executionMode
-    }
+    },
+    launchpadProvider: useDirectPrimary ? (plan.launchpadProvider || undefined) : undefined,
   });
   return result.swapResult;
 }

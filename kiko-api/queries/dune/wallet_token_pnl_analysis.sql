@@ -14,33 +14,55 @@
 --   This template is kept in-repo because the current Dune API key does not
 --   have Query Management permissions. Paste/adapt in the Dune UI when ready.
 
-WITH target_trades AS (
+WITH matched_trades AS (
   SELECT
-    trader,
+    blockchain,
+    tx_hash,
+    evt_index,
+    tx_from,
+    tx_to,
+    taker,
+    maker,
+    token_bought_address,
+    token_bought_symbol,
+    token_sold_address,
+    token_sold_symbol,
+    amount_usd AS buy_usd,
+    amount_usd AS sell_usd,
+    block_time
+  FROM dex.trades
+  WHERE lower(blockchain) = lower({{blockchain}})
+    AND block_time >= now() - INTERVAL '{{days}}' day
+    AND (
+      tx_from = from_hex(replace(lower({{wallet_addr}}), '0x', ''))
+      OR tx_to = from_hex(replace(lower({{wallet_addr}}), '0x', ''))
+      OR taker = from_hex(replace(lower({{wallet_addr}}), '0x', ''))
+      OR maker = from_hex(replace(lower({{wallet_addr}}), '0x', ''))
+    )
+    AND (
+      token_bought_address = from_hex(replace(lower({{token_address}}), '0x', ''))
+      OR token_sold_address = from_hex(replace(lower({{token_address}}), '0x', ''))
+    )
+),
+target_trades AS (
+  SELECT
     blockchain,
     token_bought_address,
     token_bought_symbol,
-    amount_usd AS buy_usd,
+    buy_usd,
     block_time AS buy_time
-  FROM dex.trades
-  WHERE lower(blockchain) = lower({{blockchain}})
-    AND lower(trader) = lower({{wallet_addr}})
-    AND block_time >= now() - INTERVAL '{{days}}' day
-    AND lower(token_bought_address) = lower({{token_address}})
+  FROM matched_trades
+  WHERE token_bought_address = from_hex(replace(lower({{token_address}}), '0x', ''))
 ),
 target_sells AS (
   SELECT
-    trader,
     blockchain,
     token_sold_address,
     token_sold_symbol,
-    amount_usd AS sell_usd,
+    sell_usd,
     block_time AS sell_time
-  FROM dex.trades
-  WHERE lower(blockchain) = lower({{blockchain}})
-    AND lower(trader) = lower({{wallet_addr}})
-    AND block_time >= now() - INTERVAL '{{days}}' day
-    AND lower(token_sold_address) = lower({{token_address}})
+  FROM matched_trades
+  WHERE token_sold_address = from_hex(replace(lower({{token_address}}), '0x', ''))
 )
 SELECT
   lower({{wallet_addr}}) AS wallet_address,
@@ -51,9 +73,14 @@ SELECT
   max(sell_time) AS last_sell_time,
   COALESCE(sum(buy_usd), 0) AS total_buy_usd,
   COALESCE(sum(sell_usd), 0) AS total_sell_usd,
-  COALESCE(sum(sell_usd), 0) - COALESCE(sum(buy_usd), 0) AS realized_pnl_usd,
   CASE
-    WHEN COALESCE(sum(buy_usd), 0) > 0
+    WHEN count(buy_time) = 0 AND count(sell_time) > 0 THEN NULL
+    WHEN count(sell_time) = 0 THEN 0
+    ELSE COALESCE(sum(sell_usd), 0) - COALESCE(sum(buy_usd), 0)
+  END AS realized_pnl_usd,
+  CASE
+    WHEN count(buy_time) = 0 AND count(sell_time) > 0 THEN NULL
+    WHEN COALESCE(sum(buy_usd), 0) > 0 AND count(sell_time) > 0
       THEN (COALESCE(sum(sell_usd), 0) - COALESCE(sum(buy_usd), 0)) / sum(buy_usd) * 100
     ELSE NULL
   END AS profit_pct,

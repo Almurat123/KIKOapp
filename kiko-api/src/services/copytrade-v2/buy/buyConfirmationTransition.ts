@@ -446,7 +446,7 @@ export async function applyBuyConfirmationTransition(params: {
     });
   }
 
-  if (onNotifySuccess) {
+  if (onNotifySuccess && promotionAction.action === 'promote_open') {
     await onNotifySuccess();
   }
 

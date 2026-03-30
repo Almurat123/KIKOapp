@@ -12,6 +12,7 @@ import { evaluateOrphanRecovery } from '../recovery/orphanRecoveryPolicy.js';
 import { buildForcedExitSwapPlan } from '../recovery/forcedExitPlanner.js';
 import { resolveExitBalanceAdaptation } from '../../oracle/rpcAdaptationPolicy.js';
 import { emitCopytradeDomainAudit } from '../audit/copytradeDomainAudit.js';
+import { detectLaunchpadToken } from '../../ai/launchpadDetector.js';
 
 const MIRROR_SELL_CLOSE_THRESHOLD_BPS = 9500;
 const MIRROR_SELL_RATIO_DENOMINATOR = 10_000n;
@@ -81,6 +82,10 @@ export async function buildEvmExitPlan(input: {
     positions: input.positions as Array<AttributedPositionLike & { id: string; status?: string | null }>,
     pendingLots: input.pendingLots,
   });
+  const launchpadProvider = await resolveExitLaunchpadProvider({
+    tokenAddress: input.tokenAddress,
+    chainId: input.chainId,
+  });
   return buildEvmExitPlanFromSnapshot({
     userId: input.userId,
     tokenAddress: input.tokenAddress,
@@ -91,7 +96,21 @@ export async function buildEvmExitPlan(input: {
     executionMode: input.executionMode,
     targetWallet: input.targetWallet,
     snapshot,
+    launchpadProvider,
   });
+}
+
+async function resolveExitLaunchpadProvider(params: {
+  tokenAddress: string;
+  chainId: number;
+}): Promise<'fourmeme' | null> {
+  if (params.chainId !== 56) return null;
+  try {
+    const launchpad = await detectLaunchpadToken(params.tokenAddress, params.chainId);
+    return launchpad?.provider === 'fourmeme' ? 'fourmeme' : null;
+  } catch {
+    return null;
+  }
 }
 
 export function buildEvmExitPlanFromSnapshot(input: {
@@ -104,6 +123,7 @@ export function buildEvmExitPlanFromSnapshot(input: {
   executionMode: CopyTradeExecutionMode;
   targetWallet?: string;
   snapshot: ExitAttributionSnapshot;
+  launchpadProvider?: 'fourmeme' | null;
 }): EvmExitPlan {
   const { userId, tokenAddress, chainId, exitReason, tokenInfo, snapshot } = input;
   const balance = snapshot.balanceRaw;
@@ -389,8 +409,12 @@ export function buildEvmExitPlanFromSnapshot(input: {
     exitReason,
     targetWallet: input.targetWallet
   });
+  const sellRoutePolicy = input.launchpadProvider === 'fourmeme'
+    ? 'direct_primary'
+    : 'external_primary';
   setOrderMetadata(runtimeContext, {
     pendingBridgeApplied: Boolean((adjustedMetrics as { pendingBridgeApplied?: unknown }).pendingBridgeApplied),
+    launchpadProvider: input.launchpadProvider || null,
   });
   return {
     kind: 'swap',
@@ -409,7 +433,8 @@ export function buildEvmExitPlanFromSnapshot(input: {
     initialSlippageBps: input.universalSlippageBps,
     retrySlippageBps: Math.min(Math.max(Math.floor(input.universalSlippageBps * 2), input.universalSlippageBps + 400), 3000),
     executionMode: input.executionMode,
-    sellRoutePolicy: 'external_primary',
+    sellRoutePolicy,
+    launchpadProvider: input.launchpadProvider || null,
     positions: effectivePositions,
     pendingAttributedLotIds: attribution.pendingAttributedLotIds,
     latestTargetSellTxHash: snapshot.latestTargetSellTxHash || null,

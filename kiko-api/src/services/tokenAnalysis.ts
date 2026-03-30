@@ -17,18 +17,38 @@ const KNOWN_CONTRACTS = new Set([
     '0x000000000000000000000000000000000000dead',
 ]);
 
+const CONTRACT_CACHE_TTL_MS = 10 * 60 * 1000;
+const contractClassificationCache = new Map<string, { isContract: boolean; checkedAt: number }>();
+
 
 /**
  * Check if an address is a contract (has code) or EOA (person wallet)
  */
 async function isContract(address: string, chain: string): Promise<boolean> {
     if (!address) return false;
-    if (KNOWN_CONTRACTS.has(address.toLowerCase())) return true;
+    const normalizedAddress = address.toLowerCase();
+    if (KNOWN_CONTRACTS.has(normalizedAddress)) return true;
+
+    const cacheKey = `${chain}:${normalizedAddress}`;
+    const cached = contractClassificationCache.get(cacheKey);
+    if (cached && Date.now() - cached.checkedAt < CONTRACT_CACHE_TTL_MS) {
+        return cached.isContract;
+    }
+
     try {
         const code = await rpcManager.callRpc<string>(chain, 'eth_getCode', [address, 'latest']);
         // EOA wallets have no code, so eth_getCode returns '0x'
-        return code !== '0x' && code !== '0x0' && code.length > 2;
+        const isDetectedContract = code !== '0x' && code !== '0x0' && code.length > 2;
+        contractClassificationCache.set(cacheKey, {
+            isContract: isDetectedContract,
+            checkedAt: Date.now(),
+        });
+        return isDetectedContract;
     } catch (e) {
+        contractClassificationCache.set(cacheKey, {
+            isContract: false,
+            checkedAt: Date.now(),
+        });
         return false; // If we can't check, assume it's not a contract
     }
 }
@@ -305,7 +325,9 @@ export async function getEarlyBuyers(
 
     type BuyerAggregate = {
         address: string;
-        timestamp: Date;
+        timestamp: Date | null;
+        sortKey: number;
+        blockNumber: number | null;
         txHash: string;
         totalAmount: number;
         transferCount: number;
@@ -325,16 +347,41 @@ export async function getEarlyBuyers(
         const tokenPnlDays = Math.max(1, Math.min(365, Number(options?.tokenPnlDays || 30)));
         const tradeHistoryLimit = Math.max(10, Math.min(100, Number(options?.tradeHistoryLimit || 25)));
 
-        let filtered = candidates.filter(c =>
+        const ordered = candidates
+            .filter(c =>
             Number.isFinite(c.totalAmount) &&
             c.totalAmount >= minTokenAmount &&
             c.transferCount >= minTransferCount
+        )
+            .sort((a, b) => a.sortKey - b.sortKey);
+
+        const timestampLimiter = pLimit(8);
+        const selected = ordered.slice(0, Math.max(1, limit * 2));
+        await Promise.all(
+            selected.map((candidate) =>
+                timestampLimiter(async () => {
+                    if (candidate.timestamp || !candidate.blockNumber) return;
+                    const blockHex = `0x${candidate.blockNumber.toString(16)}`;
+                    try {
+                        const block = await rpcManager.callRpc<any>(chainLower, 'eth_getBlockByNumber', [blockHex, false], {
+                            strategy: 'cheap',
+                        });
+                        const tsHex = String(block?.timestamp || '0x0');
+                        const timestampMs = Number(BigInt(tsHex)) * 1000;
+                        candidate.timestamp = Number.isFinite(timestampMs) && timestampMs > 0 ? new Date(timestampMs) : null;
+                    } catch {
+                        candidate.timestamp = null;
+                    }
+                })
+            )
         );
 
-        const mapped = filtered.map(c => {
+        const mapped = selected
+            .filter((candidate) => candidate.timestamp)
+            .map((c) => {
             return {
                 address: c.address,
-                timestamp: c.timestamp,
+                timestamp: c.timestamp!,
                 amount: c.totalAmount.toString(),
                 txHash: c.txHash,
                 pnlUsd: 0,
@@ -383,7 +430,6 @@ export async function getEarlyBuyers(
         return true;
     };
 
-    const blockTimestampCache = new Map<number, Date | null>();
     const resolveTimestampFromAssetTransfer = async (transfer: { metadata?: { blockTimestamp?: string }; blockNum?: string }): Promise<Date | null> => {
         if (transfer.metadata?.blockTimestamp) {
             const parsed = new Date(transfer.metadata.blockTimestamp);
@@ -393,9 +439,6 @@ export async function getEarlyBuyers(
         if (!rawBlockNum) return null;
         const blockNumber = rawBlockNum.startsWith('0x') ? parseInt(rawBlockNum, 16) : parseInt(rawBlockNum, 10);
         if (!Number.isFinite(blockNumber) || blockNumber <= 0) return null;
-        if (blockTimestampCache.has(blockNumber)) {
-            return blockTimestampCache.get(blockNumber) || null;
-        }
         try {
             const blockHex = `0x${blockNumber.toString(16)}`;
             const block = await rpcManager.callRpc<any>(chainLower, 'eth_getBlockByNumber', [blockHex, false], {
@@ -403,11 +446,8 @@ export async function getEarlyBuyers(
             });
             const tsHex = String(block?.timestamp || '0x0');
             const timestampMs = Number(BigInt(tsHex)) * 1000;
-            const resolved = Number.isFinite(timestampMs) && timestampMs > 0 ? new Date(timestampMs) : null;
-            blockTimestampCache.set(blockNumber, resolved);
-            return resolved;
+            return Number.isFinite(timestampMs) && timestampMs > 0 ? new Date(timestampMs) : null;
         } catch {
-            blockTimestampCache.set(blockNumber, null);
             return null;
         }
     };
@@ -447,6 +487,8 @@ export async function getEarlyBuyers(
                         aggregates.set(key, {
                             address: buyerAddr,
                             timestamp: ts,
+                            sortKey: ts.getTime(),
+                            blockNumber: null,
                             txHash: transfer.tx_hash,
                             totalAmount: tokenAmount,
                             transferCount: 1,
@@ -454,8 +496,9 @@ export async function getEarlyBuyers(
                     } else {
                         existing.totalAmount += tokenAmount;
                         existing.transferCount += 1;
-                        if (ts.getTime() < existing.timestamp.getTime()) {
+                        if (!existing.timestamp || ts.getTime() < existing.timestamp.getTime()) {
                             existing.timestamp = ts;
+                            existing.sortKey = ts.getTime();
                             existing.txHash = transfer.tx_hash;
                         }
                     }
@@ -477,7 +520,7 @@ export async function getEarlyBuyers(
         try {
             const analysisLimit = Math.max(
                 50,
-                Math.min(500, Number(options?.scanLimit || Math.max(limit * 8, 80)))
+                Math.min(250, Number(options?.scanLimit || Math.max(limit * 4, 80)))
             );
             const providerResult = await getEvmEarlyBuyerTransfers(tokenAddress, chainLower, {
                 limit: analysisLimit,
@@ -489,55 +532,72 @@ export async function getEarlyBuyers(
                 return [];
             }
 
-            const contractCache = new Map<string, boolean>();
             const aggregates = new Map<string, BuyerAggregate>();
             const sortedTransfers = [...evmTransfers].sort((a, b) => {
-                const aTs = a.metadata?.blockTimestamp ? new Date(a.metadata.blockTimestamp).getTime() : 0;
-                const bTs = b.metadata?.blockTimestamp ? new Date(b.metadata.blockTimestamp).getTime() : 0;
+                const aBlock = String(a.blockNum || '');
+                const bBlock = String(b.blockNum || '');
+                const aBlockNum = aBlock ? (aBlock.startsWith('0x') ? parseInt(aBlock, 16) : parseInt(aBlock, 10)) : Number.MAX_SAFE_INTEGER;
+                const bBlockNum = bBlock ? (bBlock.startsWith('0x') ? parseInt(bBlock, 16) : parseInt(bBlock, 10)) : Number.MAX_SAFE_INTEGER;
+                if (aBlockNum !== bBlockNum) return aBlockNum - bBlockNum;
+                const aTs = a.metadata?.blockTimestamp ? new Date(a.metadata.blockTimestamp).getTime() : Number.MAX_SAFE_INTEGER;
+                const bTs = b.metadata?.blockTimestamp ? new Date(b.metadata.blockTimestamp).getTime() : Number.MAX_SAFE_INTEGER;
                 return aTs - bTs;
             });
+            const needsPreciseRangeFilter = Boolean(startTimeMs || endTimeMs);
             const prepared = await Promise.all(sortedTransfers.map(async (tx) => {
                 const buyerAddr = String(tx.to || '').trim();
                 if (!buyerAddr) return null;
                 if (buyerAddr.toLowerCase() === tokenAddress.toLowerCase()) return null;
 
-                const timestamp = await resolveTimestampFromAssetTransfer(tx);
-                if (!timestamp || !isWithinRange(timestamp)) return null;
-
                 const amount = Number(tx.value || 0);
                 if (!Number.isFinite(amount) || amount <= 0) return null;
+
+                const rawBlockNum = String(tx.blockNum || '');
+                const blockNumber = rawBlockNum
+                    ? (rawBlockNum.startsWith('0x') ? parseInt(rawBlockNum, 16) : parseInt(rawBlockNum, 10))
+                    : null;
+                const timestamp = tx.metadata?.blockTimestamp
+                    ? new Date(tx.metadata.blockTimestamp)
+                    : null;
+
+                if (needsPreciseRangeFilter) {
+                    const resolvedTimestamp = timestamp && !Number.isNaN(timestamp.getTime())
+                        ? timestamp
+                        : await resolveTimestampFromAssetTransfer(tx);
+                    if (!resolvedTimestamp || !isWithinRange(resolvedTimestamp)) return null;
+                    return {
+                        buyerAddr,
+                        buyerKey: buyerAddr.toLowerCase(),
+                        timestamp: resolvedTimestamp,
+                        sortKey: resolvedTimestamp.getTime(),
+                        blockNumber,
+                        txHash: String(tx.hash || ''),
+                        amount,
+                    };
+                }
+
+                if (timestamp && !Number.isNaN(timestamp.getTime()) && !isWithinRange(timestamp)) return null;
 
                 return {
                     buyerAddr,
                     buyerKey: buyerAddr.toLowerCase(),
-                    timestamp,
+                    timestamp: timestamp && !Number.isNaN(timestamp.getTime()) ? timestamp : null,
+                    sortKey: blockNumber ?? Number.MAX_SAFE_INTEGER,
+                    blockNumber,
                     txHash: String(tx.hash || ''),
                     amount,
                 };
             }));
 
-            const distinctBuyerKeys = Array.from(new Set(prepared.filter(Boolean).map((item) => item!.buyerKey)));
-            const contractLimiter = pLimit(8);
-            await Promise.all(
-                distinctBuyerKeys.map((buyerKey) =>
-                    contractLimiter(async () => {
-                        const sample = prepared.find((item) => item?.buyerKey === buyerKey);
-                        if (!sample) return;
-                        const contractState = await isContract(sample.buyerAddr, chainLower);
-                        contractCache.set(buyerKey, contractState);
-                    })
-                )
-            );
-
             for (const item of prepared) {
                 if (!item) continue;
-                if (contractCache.get(item.buyerKey)) continue;
-
                 const existing = aggregates.get(item.buyerKey);
                 if (!existing) {
                     aggregates.set(item.buyerKey, {
                         address: item.buyerAddr,
                         timestamp: item.timestamp,
+                        sortKey: item.sortKey,
+                        blockNumber: item.blockNumber,
                         txHash: item.txHash,
                         totalAmount: item.amount,
                         transferCount: 1,
@@ -545,14 +605,32 @@ export async function getEarlyBuyers(
                 } else {
                     existing.totalAmount += item.amount;
                     existing.transferCount += 1;
-                    if (item.timestamp.getTime() < existing.timestamp.getTime()) {
+                    if (item.sortKey < existing.sortKey) {
                         existing.timestamp = item.timestamp;
+                        existing.sortKey = item.sortKey;
+                        existing.blockNumber = item.blockNumber;
                         existing.txHash = item.txHash;
                     }
                 }
             }
 
-            return await normalizeCandidates(Array.from(aggregates.values()), {
+            const orderedCandidates = Array.from(aggregates.values()).sort((a, b) => a.sortKey - b.sortKey);
+            const contractScanCandidates = orderedCandidates.slice(0, Math.min(orderedCandidates.length, Math.max(limit * 3, 80)));
+            const contractLimiter = pLimit(8);
+            const contractCache = new Map<string, boolean>();
+            await Promise.all(
+                contractScanCandidates.map((candidate) =>
+                    contractLimiter(async () => {
+                        const buyerKey = candidate.address.toLowerCase();
+                        const contractState = await isContract(candidate.address, chainLower);
+                        contractCache.set(buyerKey, contractState);
+                    })
+                )
+            );
+
+            const filteredCandidates = contractScanCandidates.filter((candidate) => !contractCache.get(candidate.address.toLowerCase()));
+
+            return await normalizeCandidates(filteredCandidates, {
                 includeTradeProgression,
                 includeTokenPnl,
                 tokenPnlDays,

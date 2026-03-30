@@ -25,6 +25,8 @@ type BatchTokenRow = {
     total_sell_usd?: unknown;
     realized_pnl_usd?: unknown;
     profit_pct?: unknown;
+    buy_trade_count?: unknown;
+    sell_trade_count?: unknown;
 };
 
 type BatchPortfolioRow = BatchTokenRow;
@@ -35,11 +37,13 @@ export type BatchWalletTokenPnl = {
     tokenAddress: string;
     tokenSymbol: string | null;
     days: number;
-    totalBuyUsd: number;
-    totalSellUsd: number;
-    realizedPnlUsd: number;
+    totalBuyUsd: number | null;
+    totalSellUsd: number | null;
+    realizedPnlUsd: number | null;
     profitPct: number | null;
-    coverage: 'batch_wallet_list_sql';
+    buyTradeCount: number;
+    sellTradeCount: number;
+    coverage: 'batch_wallet_list_sql' | 'batch_wallet_list_sql_no_coverage' | 'batch_wallet_list_sql_partial_cost_basis';
 };
 
 export type BatchWalletPortfolioAggregate = {
@@ -119,6 +123,11 @@ function normalizeNullableNumber(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null;
 }
 
+function normalizeCount(value: unknown): number {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0;
+}
+
 function isDuneRateLimitError(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error || '');
     return message.includes('Status: 429') || message.toLowerCase().includes('too many requests');
@@ -142,32 +151,51 @@ WITH input_wallets(wallet_address, wallet_varbinary) AS (
     VALUES
         ${buildWalletValuesClause(addresses)}
 ),
-buy_totals AS (
-    SELECT
-        t.wallet_address AS wallet_address,
-        lower(${sqlQuote(normalizedToken)}) AS token_address,
-        max(token_bought_symbol) AS token_symbol,
-        sum(amount_usd) AS total_buy_usd
+matched_trades AS (
+    SELECT DISTINCT
+        t.wallet_address,
+        dex.trades.blockchain,
+        dex.trades.block_time,
+        dex.trades.tx_hash,
+        dex.trades.evt_index,
+        dex.trades.amount_usd,
+        dex.trades.token_bought_address,
+        dex.trades.token_sold_address,
+        dex.trades.token_bought_symbol,
+        dex.trades.token_sold_symbol
     FROM dex.trades
     INNER JOIN input_wallets t
-      ON dex.trades.taker = t.wallet_varbinary
+      ON dex.trades.tx_from = t.wallet_varbinary
+      OR dex.trades.tx_to = t.wallet_varbinary
+      OR dex.trades.taker = t.wallet_varbinary
+      OR dex.trades.maker = t.wallet_varbinary
     WHERE lower(blockchain) = lower(${sqlQuote(duneChain)})
       AND block_time >= now() - INTERVAL '${days}' day
-      AND token_bought_address = ${tokenVarbinary}
+      AND (
+        token_bought_address = ${tokenVarbinary}
+        OR token_sold_address = ${tokenVarbinary}
+      )
+),
+buy_totals AS (
+    SELECT
+        wallet_address AS wallet_address,
+        lower(${sqlQuote(normalizedToken)}) AS token_address,
+        max(token_bought_symbol) AS token_symbol,
+        sum(amount_usd) AS total_buy_usd,
+        count(*) AS buy_trade_count
+    FROM matched_trades
+    WHERE token_bought_address = ${tokenVarbinary}
     GROUP BY 1, 2
 ),
 sell_totals AS (
     SELECT
-        t.wallet_address AS wallet_address,
+        wallet_address AS wallet_address,
         lower(${sqlQuote(normalizedToken)}) AS token_address,
         max(token_sold_symbol) AS token_symbol,
-        sum(amount_usd) AS total_sell_usd
-    FROM dex.trades
-    INNER JOIN input_wallets t
-      ON dex.trades.taker = t.wallet_varbinary
-    WHERE lower(blockchain) = lower(${sqlQuote(duneChain)})
-      AND block_time >= now() - INTERVAL '${days}' day
-      AND token_sold_address = ${tokenVarbinary}
+        sum(amount_usd) AS total_sell_usd,
+        count(*) AS sell_trade_count
+    FROM matched_trades
+    WHERE token_sold_address = ${tokenVarbinary}
     GROUP BY 1, 2
 )
 SELECT
@@ -177,12 +205,19 @@ SELECT
     coalesce(b.token_symbol, s.token_symbol) AS token_symbol,
     coalesce(b.total_buy_usd, 0) AS total_buy_usd,
     coalesce(s.total_sell_usd, 0) AS total_sell_usd,
-    coalesce(s.total_sell_usd, 0) - coalesce(b.total_buy_usd, 0) AS realized_pnl_usd,
     CASE
+        WHEN coalesce(s.sell_trade_count, 0) = 0 THEN 0
+        WHEN coalesce(b.buy_trade_count, 0) = 0 THEN NULL
+        ELSE coalesce(s.total_sell_usd, 0) - coalesce(b.total_buy_usd, 0)
+    END AS realized_pnl_usd,
+    CASE
+        WHEN coalesce(s.sell_trade_count, 0) = 0 THEN 0
         WHEN coalesce(b.total_buy_usd, 0) > 0
             THEN (coalesce(s.total_sell_usd, 0) - coalesce(b.total_buy_usd, 0)) / b.total_buy_usd * 100
         ELSE NULL
-    END AS profit_pct
+    END AS profit_pct,
+    coalesce(b.buy_trade_count, 0) AS buy_trade_count,
+    coalesce(s.sell_trade_count, 0) AS sell_trade_count
 FROM input_wallets w
 LEFT JOIN buy_totals b
     ON w.wallet_address = b.wallet_address
@@ -380,11 +415,13 @@ export async function getBatchWalletTokenPnlFromDune(
             tokenAddress: normalizedToken,
             tokenSymbol: null,
             days,
-            totalBuyUsd: 0,
-            totalSellUsd: 0,
-            realizedPnlUsd: 0,
+            totalBuyUsd: null,
+            totalSellUsd: null,
+            realizedPnlUsd: null,
             profitPct: null,
-            coverage: 'batch_wallet_list_sql',
+            buyTradeCount: 0,
+            sellTradeCount: 0,
+            coverage: 'batch_wallet_list_sql_no_coverage',
         });
     }
 
@@ -392,17 +429,32 @@ export async function getBatchWalletTokenPnlFromDune(
         const walletAddress = normalizeWalletAddress(String(rawRow.wallet_address || ''));
         if (!walletAddress || !byWallet.has(walletAddress)) continue;
 
+        const buyTradeCount = normalizeCount(rawRow.buy_trade_count);
+        const sellTradeCount = normalizeCount(rawRow.sell_trade_count);
+        const totalBuyUsd = normalizeUsd(rawRow.total_buy_usd);
+        const totalSellUsd = normalizeUsd(rawRow.total_sell_usd);
+        const hasCoverage = buyTradeCount > 0 || sellTradeCount > 0;
+        const hasPartialCostBasis = sellTradeCount > 0 && buyTradeCount === 0;
+
         byWallet.set(walletAddress, {
             walletAddress,
             chain: String(rawRow.blockchain || duneChain).toLowerCase(),
             tokenAddress: normalizeWalletAddress(String(rawRow.token_address || normalizedToken)),
             tokenSymbol: rawRow.token_symbol ? String(rawRow.token_symbol) : null,
             days,
-            totalBuyUsd: normalizeUsd(rawRow.total_buy_usd),
-            totalSellUsd: normalizeUsd(rawRow.total_sell_usd),
-            realizedPnlUsd: normalizeUsd(rawRow.realized_pnl_usd),
-            profitPct: normalizeNullableNumber(rawRow.profit_pct),
-            coverage: 'batch_wallet_list_sql',
+            totalBuyUsd: hasCoverage ? totalBuyUsd : null,
+            totalSellUsd: hasCoverage ? totalSellUsd : null,
+            realizedPnlUsd: hasCoverage
+                ? (hasPartialCostBasis ? null : normalizeUsd(rawRow.realized_pnl_usd))
+                : null,
+            profitPct: hasCoverage
+                ? (hasPartialCostBasis ? null : normalizeNullableNumber(rawRow.profit_pct))
+                : null,
+            buyTradeCount,
+            sellTradeCount,
+            coverage: hasCoverage
+                ? (hasPartialCostBasis ? 'batch_wallet_list_sql_partial_cost_basis' : 'batch_wallet_list_sql')
+                : 'batch_wallet_list_sql_no_coverage',
         });
     }
 

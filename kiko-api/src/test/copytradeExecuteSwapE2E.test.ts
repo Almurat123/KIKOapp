@@ -329,9 +329,9 @@ describe('copytrade executeSwap boundary E2E', () => {
       [
         'sell_external_primary',
         'sell_external_retry',
-        'sell_direct_fallback',
         'sell_external_retry_aggressive',
-        'sell_direct_retry_aggressive',
+        'sell_external_retry_final',
+        'sell_external_retry_last',
       ]
     );
     assert.deepEqual(
@@ -343,9 +343,9 @@ describe('copytrade executeSwap boundary E2E', () => {
       [
         'external_primary',
         'external_primary',
-        'direct_primary',
         'external_primary',
-        'direct_primary',
+        'external_primary',
+        'external_primary',
       ]
     );
     assert.deepEqual(
@@ -585,5 +585,63 @@ describe('copytrade executeSwap boundary E2E', () => {
         txHashes: [buyTxHash, targetSellTxHash, exitTxHash],
       });
     }
+  });
+
+  test('direct-primary exit forwards fourmeme launchpad context to swap execution', async () => {
+    installCopytradeExecutionPortHarness();
+
+    queueSwapExecutionResult(
+      buildSwapResult({
+        userId: 'user-fourmeme',
+        walletAddress: makeAddress('fourmeme-wallet'),
+        chainId: 56,
+        side: 'sell',
+        txHash: makeTxHash('fourmeme-exit'),
+        tokenIn: '0x352a46b12d6a39775a83ba286f036b9e271effff',
+        tokenOut: 'ETH',
+      }),
+    );
+
+    const result = await executeEvmExitPlan({
+      kind: 'swap',
+      userId: 'user-fourmeme',
+      walletAddress: makeAddress('fourmeme-wallet'),
+      tokenAddress: '0x352a46b12d6a39775a83ba286f036b9e271effff',
+      chainId: 56,
+      exitReason: 'mirror_sell',
+      tokenInfo: { symbol: 'TEST', decimals: 18, price: 1 },
+      balance: 1n,
+      decimals: 18,
+      balanceUsd: 1,
+      attributedBalance: 1n,
+      amountInHuman: '1',
+      retryAmountInHuman: '1',
+      initialSlippageBps: 1500,
+      retrySlippageBps: 2000,
+      executionMode: 'turbo',
+      sellRoutePolicy: 'direct_primary',
+      launchpadProvider: 'fourmeme',
+      runtimeContext: createExitOrderRuntimeContext({
+        userId: 'user-fourmeme',
+        walletAddress: makeAddress('fourmeme-wallet'),
+        chainId: 56,
+        tokenAddress: '0x352a46b12d6a39775a83ba286f036b9e271effff',
+        exitReason: 'mirror_sell',
+        targetWallet: makeAddress('fourmeme-target'),
+      }),
+      positions: [],
+      pendingAttributedLotIds: [],
+      latestTargetSellTxHash: makeTxHash('fourmeme-target-sell'),
+      attributedReasonCode: 'ATTRIBUTED_AMOUNT_RESOLVED',
+      attributionMetrics: {},
+      hasExternalBalance: false,
+    });
+
+    assert.equal(result.success, true);
+    const captured = getCapturedSwapExecutions();
+    assert.equal(captured.length, 1);
+    assert.equal(captured[0].request.launchpadProvider, 'fourmeme');
+    assert.equal(captured[0].request.userSettings?.fastSwapMode, true);
+    assert.equal(captured[0].request.executionContext?.sellRoutePolicy, 'direct_primary');
   });
 });

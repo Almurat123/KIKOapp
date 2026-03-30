@@ -248,3 +248,34 @@ test('applyBuyConfirmationTransition repairs deferred fee settlement with confir
   assert.equal(advanceCalls[0]?.metadataPatch?.directFeeSettlement?.amountOutBase, '123456');
   assert.equal(executionCalls[0]?.metadata?.directFeeSettlement?.amountOutBase, '123456');
 });
+
+test('applyBuyConfirmationTransition does not notify again when position is already open', async () => {
+  let notifyCount = 0;
+
+  const result = await applyBuyConfirmationTransition({
+    ...buildBaseParams(),
+    onNotifySuccess: async () => {
+      notifyCount += 1;
+    },
+    deps: {
+      prisma: {
+        position: {
+          updateMany: async () => ({ count: 0 }),
+        },
+      } as any,
+      resolvePendingMirrorSellIntent: async () => null,
+      resolveBuyConfirmationPromotionAction: async () => ({ action: 'already_open' }),
+      emitCopytradeDomainAudit: () => undefined,
+      resolveConfirmedReceiptTokenAmount: async () => '1000',
+      persistConfirmedBuyAmount: async () => null,
+      recordFollowerTransactionFactByPosition: async () => undefined,
+      claimOrCreateCanonicalOrder: (async () => ({ id: 'canonical-order-5' })) as any,
+      advanceCanonicalOrderState: (async () => null) as any,
+      recordCanonicalOrderExecution: async () => undefined,
+      preheatSellApprovalForToken: async () => ({ status: 'ready' } as any),
+    } as any,
+  });
+
+  assert.equal(result, 'confirmed_success');
+  assert.equal(notifyCount, 0);
+});
