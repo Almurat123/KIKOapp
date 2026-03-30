@@ -16,6 +16,14 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { type FeeContext } from './platformFeeService.js';
 
+function isNativeLikeToken(token: string | null | undefined): boolean {
+    const normalized = String(token || '').trim().toLowerCase();
+    return normalized === 'eth'
+        || normalized === 'bnb'
+        || normalized === '0x0000000000000000000000000000000000000000'
+        || normalized === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+}
+
 // Four.Meme Helper V3 Addresses
 const FOURMEME_HELPER = {
     BASE: '0x1172FABbAc4Fe05f5a5Cebd8EBBC593A76c42399' as Address,
@@ -110,7 +118,7 @@ export class FourMemeSwapService {
 
         const helper = this.getHelperAddress(params.chainId);
 
-        const isBuy = params.tokenIn === 'ETH' || params.tokenIn === 'BNB' || params.tokenIn === '0x0000000000000000000000000000000000000000';
+        const isBuy = isNativeLikeToken(params.tokenIn);
         const targetToken = (isBuy ? params.tokenOut : params.tokenIn) as Address;
         let amountInWei = parseEther(params.amountIn);
 

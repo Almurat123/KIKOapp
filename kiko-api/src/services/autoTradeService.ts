@@ -10,7 +10,7 @@ import { onSwapDetected } from './watcherService.js';
 import type { DirectSwapHint, MainSwapRequest, MainSwapResult } from './MainSwapService.js';
 import { detectLaunchpadToken } from './ai/launchpadDetector.js';
 import { zoraSniperService } from './zoraSniperService.js';
-import { fourMemeService } from './fourMemeService.js';
+import { fourMemeSwapService } from './fourMemeSwapService.js';
 
 import { getChainConfig, CHAINS } from '../config/chainConfig.js';
 
@@ -1885,7 +1885,7 @@ function getLegacyCopytradeBuyRuntimeDeps() {
         zoraSniperService,
         env,
         isJudgeEnabledByCopyTradeConfig,
-        fourMemeService,
+        fourMemeSwapService,
         executeEvmCopytradeBuySubmissionFlow,
         getPendingNonce,
         getTokenInfoOnce,

@@ -24,6 +24,7 @@ import { SwapExecutor, SwapParams, SwapResult } from './swap/SwapExecutor.js';
 import { detectLaunchpadToken } from './ai/launchpadDetector.js';
 
 import { zoraSniperService, ZoraSniperService } from './zoraSniperService.js';
+import { fourMemeSwapService } from './fourMemeSwapService.js';
 import { SolanaLaunchpadSwapService } from './solanaLaunchpadSwapService.js';
 import { buildSolanaDirectRequest, executeSolanaDirectLaunchpad } from './solana/direct/router.js';
 import { getTokenInfo } from './tokenService.js';
@@ -650,7 +651,6 @@ export class MainSwapService {
           if (
             launchpadDetection &&
             launchpadDetection.provider !== 'clanker' &&
-            launchpadDetection.provider !== 'fourmeme' &&
             launchpadDetection.provider !== 'flap' &&
             launchpadDetection.provider !== 'doppler' &&
             launchpadDetection.provider !== 'flaunch' &&
@@ -666,7 +666,6 @@ export class MainSwapService {
             request.launchpadProvider = launchpadDetection.provider as any;
           } else if (
             launchpadDetection?.provider === 'clanker' ||
-            launchpadDetection?.provider === 'fourmeme' ||
             launchpadDetection?.provider === 'flap' ||
             launchpadDetection?.provider === 'doppler' ||
             launchpadDetection?.provider === 'flaunch' ||
@@ -1199,11 +1198,43 @@ export class MainSwapService {
         }
 
         case 'fourmeme': {
-          logger.info(
-            LogCode.SYS_INFO,
-            trace('FourMeme detected: routing to standard EVM swap instead of launchpad executor')
-          );
-          return await this.executeEvmSwap(request, feeContext, trace, ctx);
+          try {
+            txHash = await fourMemeSwapService.fastSwap({
+              userId: request.userId,
+              accessToken: request.accessToken || '',
+              walletAddress: request.walletAddress,
+              tokenIn: request.tokenIn,
+              tokenOut: request.tokenOut,
+              amountIn: request.amountIn,
+              chainId: request.chainId,
+              slippage: Math.max(1, (request.slippageBps || 300) / 100),
+              feeContext,
+            });
+            providerName = 'fourmeme';
+            break;
+          } catch (fourMemeErr: any) {
+            const message = String(fourMemeErr?.message || fourMemeErr || '');
+            const shouldFallbackToDex =
+              message.includes('Liquidity already added to DEX')
+              || message.includes('Use aggregator instead.')
+              || message.toLowerCase().includes('graduated')
+              || message.toLowerCase().includes('disabled');
+            if (!shouldFallbackToDex) {
+              throw fourMemeErr;
+            }
+            logger.warn(
+              LogCode.EXE_TX_REVERTED,
+              trace(`fourmeme launchpad path unavailable; falling back to standard EVM swap (${message.slice(0, 180)})`),
+              { provider, error: message }
+            );
+            const fallbackResult = await this.executeEvmSwap(request, feeContext, trace, ctx);
+            fallbackResult.metadata = {
+              ...(fallbackResult.metadata || {}),
+              launchpad: provider,
+              provider: `${fallbackResult.metadata?.provider || 'evm'}:fourmeme:fallback`,
+            };
+            return fallbackResult;
+          }
         }
 
         case 'pumpfun':

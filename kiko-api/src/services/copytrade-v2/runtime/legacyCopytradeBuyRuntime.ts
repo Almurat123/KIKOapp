@@ -74,6 +74,7 @@ export async function processSingleUserBuy(params: {
         executeSwapViaPort,
         SOLANA_CONFIG,
         zoraSniperService,
+        fourMemeSwapService,
         env,
         isJudgeEnabledByCopyTradeConfig,
         executeEvmCopytradeBuySubmissionFlow,
@@ -1036,11 +1037,35 @@ export async function processSingleUserBuy(params: {
                         useStandardSwap = true;
                     }
                 } else if (launchpad && launchpad.provider === 'fourmeme' && chainId === 56) {
-                    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Four.meme token detected - using standard swap route', {
+                    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Four.meme token detected - attempting launchpad fast path', {
                         userId: config.userId,
                         token: tokenToBuy
                     });
-                    useStandardSwap = true;
+                    try {
+                        txHash = await fourMemeSwapService.fastSwap({
+                            userId: effectiveConfig.user.privyDid,
+                            accessToken: '',
+                            walletAddress: effectiveConfig.user.walletAddress,
+                            tokenIn: 'BNB',
+                            tokenOut: tokenToBuy,
+                            amountIn: (usdAmount / nativePrice).toFixed(18),
+                            chainId,
+                            slippage: Math.max(1, effectiveConfig.maxSlippageBps / 100),
+                            feeContext: 'copyTrade',
+                        });
+                        useStandardSwap = !txHash;
+                    } catch (fourMemeErr: any) {
+                        const message = String(fourMemeErr?.message || fourMemeErr || '');
+                        logger.warn(
+                            LogCode.EXE_TX_REVERTED,
+                            'Four.meme fast swap failed, falling back to standard route',
+                            {
+                                userId: config.userId,
+                                error: message,
+                            }
+                        );
+                        useStandardSwap = true;
+                    }
                 }
 
                 if (useStandardSwap) {

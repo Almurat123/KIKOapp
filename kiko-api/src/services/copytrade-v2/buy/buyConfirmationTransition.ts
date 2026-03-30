@@ -43,6 +43,33 @@ type PositionStatusCompatLike = {
   failedFinalStatus: string;
 };
 
+function tryParsePositiveRawAmount(value: string | null | undefined): bigint | null {
+  if (!value) return null;
+  try {
+    const parsed = BigInt(value);
+    return parsed > 0n ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function repairDeferredDirectFeeSettlement(params: {
+  settlement?: DirectSwapFeeSettlement | null;
+  confirmedAmountRaw?: string | null;
+}): DirectSwapFeeSettlement | null | undefined {
+  const { settlement, confirmedAmountRaw } = params;
+  if (!settlement) return settlement;
+  if (tryParsePositiveRawAmount(settlement.amountOutBase)) return settlement;
+
+  const repairedAmountOutBase = tryParsePositiveRawAmount(confirmedAmountRaw);
+  if (!repairedAmountOutBase) return settlement;
+
+  return {
+    ...settlement,
+    amountOutBase: repairedAmountOutBase.toString(),
+  };
+}
+
 function confirmationToTxLifecycle(params: {
   confirmation: ConfirmationOutcome;
   chainId: number;
@@ -279,6 +306,11 @@ export async function applyBuyConfirmationTransition(params: {
     }).catch(() => null);
   }
 
+  const effectiveDirectFeeSettlement = repairDeferredDirectFeeSettlement({
+    settlement: directFeeSettlement,
+    confirmedAmountRaw,
+  });
+
   const pendingMirrorIntent = await resolveMirrorIntent({
     positionId: persistedPositionId,
     targetWallet,
@@ -385,6 +417,7 @@ export async function applyBuyConfirmationTransition(params: {
         lastObservedTxHash: resolvedTxHash,
         lastObservedTxState: 'confirmed_success',
         lastObservedAt: new Date().toISOString(),
+        directFeeSettlement: effectiveDirectFeeSettlement || null,
       },
     }).catch(() => null);
     await recordOrderExecution({
@@ -397,18 +430,19 @@ export async function applyBuyConfirmationTransition(params: {
       metadata: {
         recoverySource,
         confirmedAmountRaw,
+        directFeeSettlement: effectiveDirectFeeSettlement || null,
       },
     }).catch(() => null);
   }
 
-  if (directFeeSettlement?.deferred) {
+  if (effectiveDirectFeeSettlement?.deferred) {
     deferFeeRecovery({
       userId,
       chainId,
       tokenAddress: tokenToBuy,
       txHash: resolvedTxHash,
       recoverySource,
-      settlement: directFeeSettlement,
+      settlement: effectiveDirectFeeSettlement,
     });
   }
 

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  MainSwapService,
   __testOnly,
   buildUserFacingSwapError,
   inferSwapReasonCode,
@@ -10,6 +11,7 @@ import {
   verifyNativeBalancePrecheck,
 } from '../MainSwapService.js';
 import { createOrderRuntimeContext, markOrderFallbackResult, markOrderFallbackStarted } from '../order-runtime/context.js';
+import { fourMemeSwapService } from '../fourMemeSwapService.js';
 
 test('verifyNativeBalancePrecheck bypasses transient RPC auth failures', async () => {
   let bypassed: string | null = null;
@@ -157,4 +159,32 @@ test('order runtime fallback takeover can recover from a stale failed state', ()
 
   assert.equal(ctx.state, 'fallback_succeeded');
   assert.equal(ctx.fallbackUsed, true);
+});
+
+test('MainSwapService routes fourmeme launchpad buy through specialized executor', async () => {
+  const originalFastSwap = fourMemeSwapService.fastSwap;
+
+  fourMemeSwapService.fastSwap = async () => '0xfourmeme-specialized';
+
+  try {
+    const result = await MainSwapService.executeSwap({
+      userId: 'did:privy:user-fourmeme',
+      walletAddress: '0x1234567890123456789012345678901234567890',
+      accessToken: '',
+      tokenIn: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+      tokenOut: '0xd6eb45a72735cf1a896702d71f2df115c07affff',
+      amountIn: '0.001',
+      chainId: 56,
+      slippageBps: 300,
+      mode: 'fast-swap',
+      launchpadProvider: 'fourmeme',
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.txHash, '0xfourmeme-specialized');
+    assert.equal(result.metadata.provider, 'fourmeme');
+    assert.equal(result.metadata.launchpad, 'fourmeme');
+  } finally {
+    fourMemeSwapService.fastSwap = originalFastSwap;
+  }
 });

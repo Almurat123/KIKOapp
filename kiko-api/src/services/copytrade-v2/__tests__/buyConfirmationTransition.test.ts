@@ -193,3 +193,58 @@ test('applyBuyConfirmationTransition arms exit without immediate mirror sell for
   assert.equal(advanceCalls.some((call) => call.eventType === 'ORDER_BUY_CONFIRMED_ARMED_FOR_EXIT'), true);
   assert.equal(advanceCalls.some((call) => call.eventType === 'ORDER_BUY_CONFIRMED_RELEASED_TO_EXIT'), false);
 });
+
+test('applyBuyConfirmationTransition repairs deferred fee settlement with confirmed amount before scheduling recovery', async () => {
+  const deferredRecoveries: any[] = [];
+  const advanceCalls: any[] = [];
+  const executionCalls: any[] = [];
+
+  const result = await applyBuyConfirmationTransition({
+    ...buildBaseParams(),
+    directFeeSettlement: {
+      amountIn: '1',
+      chainId: 8453,
+      mode: 'copytrade',
+      normalizedTokenIn: '0xeeee',
+      normalizedTokenOut: '0xtoken',
+      amountOutBase: '0',
+      feeContext: 'copyTrade',
+      deferred: true,
+      reasonCode: 'broadcasted_unseen',
+      sourceTxHash: '0xconfirmed',
+    },
+    deps: {
+      prisma: {
+        position: {
+          updateMany: async () => ({ count: 1 }),
+        },
+      } as any,
+      resolvePendingMirrorSellIntent: async () => null,
+      resolveBuyConfirmationPromotionAction: async () => ({ action: 'promote_open' }),
+      emitCopytradeDomainAudit: () => undefined,
+      resolveConfirmedReceiptTokenAmount: async () => '123456',
+      persistConfirmedBuyAmount: async () => null,
+      recordFollowerTransactionFactByPosition: async () => undefined,
+      claimOrCreateCanonicalOrder: (async () => ({ id: 'canonical-order-4' })) as any,
+      advanceCanonicalOrderState: async (payload: any) => {
+        advanceCalls.push(payload);
+        return null;
+      },
+      recordCanonicalOrderExecution: async (payload: any) => {
+        executionCalls.push(payload);
+        return undefined;
+      },
+      scheduleDeferredBuyFeeRecovery: (params: any) => {
+        deferredRecoveries.push(params);
+        return true;
+      },
+      preheatSellApprovalForToken: async () => ({ status: 'ready' } as any),
+    } as any,
+  });
+
+  assert.equal(result, 'confirmed_success');
+  assert.equal(deferredRecoveries.length, 1);
+  assert.equal(deferredRecoveries[0]?.settlement?.amountOutBase, '123456');
+  assert.equal(advanceCalls[0]?.metadataPatch?.directFeeSettlement?.amountOutBase, '123456');
+  assert.equal(executionCalls[0]?.metadata?.directFeeSettlement?.amountOutBase, '123456');
+});
