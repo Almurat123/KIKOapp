@@ -33,6 +33,11 @@ import {
   collectDirectSwapFeeFromSettlement,
   type DirectSwapFeeSettlement
 } from './swap/fee/directSwapFeeCollector.js';
+import {
+  buildBuyFeeApplicationFromDirectSettlement,
+  buildInlineAggregatorBuyFeeApplication,
+  type BuyFeeApplication,
+} from './swap/fee/buyFeeApplication.js';
 import { NATIVE_TOKEN_ADDRESS, SOLANA_NATIVE_MINT, isNativeToken } from '../config/tokenRegistry.js';
 import { toWei } from './zeroEx.js';
 import { ethers } from 'ethers';
@@ -234,6 +239,7 @@ export interface MainSwapResult {
     launchpad?: string; // Set if launchpad swap
     txLifecycleStatus?: TxLifecycleResult['status'];
     directFeeSettlement?: DirectSwapFeeSettlement;
+    buyFeeApplication?: BuyFeeApplication;
   };
 }
 
@@ -1665,7 +1671,8 @@ export class MainSwapService {
             provider: result.provider,
             mode: request.mode,
             txLifecycleStatus: result.txLifecycle?.status,
-            directFeeSettlement: directFeeSettlement || undefined
+            directFeeSettlement: directFeeSettlement || undefined,
+            buyFeeApplication: buildBuyFeeApplicationFromDirectSettlement(directFeeSettlement) || undefined,
           }
         };
       };
@@ -2472,6 +2479,17 @@ export class MainSwapService {
           txHash: executionResult.txHash,
           chainId: request.chainId,
         })?.status,
+        buyFeeApplication: !isSellDirection
+          ? (
+            buildInlineAggregatorBuyFeeApplication({
+              feeContext,
+              feeBpsOverride: request.feeBpsOverride,
+              feeToken: normalizedTokenIn,
+              sourceTxHash: executionResult.txHash,
+              provider: useTurboCopytrade0xFallback ? 'aggregator_fallback_0x_turbo' : executionResult.method,
+            }) || undefined
+          )
+          : undefined,
       }
     };
     persistLiveSuccessSample({

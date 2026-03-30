@@ -3,6 +3,7 @@ import { logger } from '../../../utils/logger.js';
 import type { OrderRuntimeContext } from '../../order-runtime/types.js';
 import type { TxLifecycleResult } from '../../txLifecycle.js';
 import type { DirectSwapFeeSettlement } from '../../swap/fee/directSwapFeeCollector.js';
+import type { BuyFeeApplication } from '../../swap/fee/buyFeeApplication.js';
 import {
   resolveCopytradeBuyPositionStatus,
   type CopytradeBuyPositionStatus,
@@ -36,6 +37,7 @@ export async function persistCopytradeBuySubmission(params: {
   txLifecycleStatus?: string;
   runtimeContext?: OrderRuntimeContext;
   directFeeSettlement?: DirectSwapFeeSettlement | null;
+  buyFeeApplication?: BuyFeeApplication | null;
 }, deps?: {
   finalizeCopytradeBuyPosition?: typeof finalizeCopytradeBuyPosition;
   upsertPendingAttributedPosition?: typeof upsertPendingAttributedPosition;
@@ -155,6 +157,7 @@ export async function persistCopytradeBuySubmission(params: {
         awaitingKind: nextPositionStatus === 'open' ? null : 'buy_finality',
         nextObservationAt: nextPositionStatus === 'open' ? null : new Date().toISOString(),
         directFeeSettlement: params.directFeeSettlement || null,
+        buyFeeApplication: params.buyFeeApplication || null,
       };
 
     try {
@@ -192,6 +195,7 @@ export async function persistCopytradeBuySubmission(params: {
           runtimeOrderId: params.runtimeContext?.orderId || null,
           runtimeCanonicalTxHash: params.runtimeContext?.canonicalTxHash || null,
           directFeeSettlement: params.directFeeSettlement || null,
+          buyFeeApplication: params.buyFeeApplication || null,
         },
       });
       canonicalOrderPersisted = true;

@@ -1129,6 +1129,7 @@ export async function processSingleUserBuy(params: {
                                 txLifecycleStatus: resolved.txLifecycleStatus || txLifecycleStatus,
                                 runtimeContext: resolved.runtimeContext || orderRuntimeContext,
                                 directFeeSettlement: swapMetadata?.directFeeSettlement || null,
+                                buyFeeApplication: swapMetadata?.buyFeeApplication || null,
                             });
                             logger.info(LogCode.EXE_TX_CONFIRMED, 'Late copy trade buy submission adopted and position state updated', {
                                 userId: config.userId,
@@ -1307,6 +1308,7 @@ export async function processSingleUserBuy(params: {
                 txLifecycleStatus,
                 runtimeContext: orderRuntimeContext,
                 directFeeSettlement: swapMetadata?.directFeeSettlement || null,
+                buyFeeApplication: swapMetadata?.buyFeeApplication || null,
             });
             const nextPositionStatus = persistenceResult.nextPositionStatus;
             let persistedPositionId = persistenceResult.persistedPositionId;
