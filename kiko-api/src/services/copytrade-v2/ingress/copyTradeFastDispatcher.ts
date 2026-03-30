@@ -5,6 +5,10 @@ import { LogCode } from '../../../config/logRegistry.js';
 import { markCopyTradeTaskEnqueued, mergeCopyTradeTimingSnapshots, type CopyTradeTimingSnapshot } from '../timing/copyTradeTimingModel.js';
 import { emitCopyTradeTimingAudit } from '../timing/copyTradeTimingAudit.js';
 import { tryMarkCopyTradeIngressEnqueued } from './copyTradeIngressState.js';
+import {
+    getAdjudicatedSnapshot,
+    hydrateSharedAdjudicatedSnapshot,
+} from '../../order-runtime/adjudicator/service.js';
 
 type DispatchParams = {
     chainId: number;
@@ -18,13 +22,88 @@ type DispatchParams = {
     source: string;
 };
 
-export async function dispatchCopyTradeIfReady(params: DispatchParams): Promise<boolean> {
+type DispatchDeps = {
+    enqueueCopyTradeTask?: typeof enqueueCopyTradeTask;
+    tryMarkCopyTradeIngressEnqueued?: typeof tryMarkCopyTradeIngressEnqueued;
+    getAdjudicatedSnapshot?: typeof getAdjudicatedSnapshot;
+    hydrateSharedAdjudicatedSnapshot?: typeof hydrateSharedAdjudicatedSnapshot;
+};
+
+async function resolveSelfOrderSuppression(params: {
+    chainId: number;
+    txHash: string;
+    deps?: DispatchDeps;
+}) {
+    const readLocalSnapshot = params.deps?.getAdjudicatedSnapshot || getAdjudicatedSnapshot;
+    const hydrateSharedSnapshot = params.deps?.hydrateSharedAdjudicatedSnapshot || hydrateSharedAdjudicatedSnapshot;
+    const local = readLocalSnapshot({
+        chainId: params.chainId,
+        txHash: params.txHash,
+    });
+    if (local?.orderId) {
+        return {
+            suppressed: true,
+            orderId: local.orderId,
+            source: 'local_adjudicated',
+        } as const;
+    }
+    const shared = await hydrateSharedSnapshot({
+        chainId: params.chainId,
+        txHash: params.txHash,
+    }).catch(() => null);
+    if (shared?.orderId) {
+        return {
+            suppressed: true,
+            orderId: shared.orderId,
+            source: 'shared_adjudicated',
+        } as const;
+    }
+    return {
+        suppressed: false,
+        orderId: null,
+        source: null,
+    } as const;
+}
+
+export async function dispatchCopyTradeIfReady(params: DispatchParams, deps?: DispatchDeps): Promise<boolean> {
+    const enqueueTask = deps?.enqueueCopyTradeTask || enqueueCopyTradeTask;
+    const markIngressEnqueued = deps?.tryMarkCopyTradeIngressEnqueued || tryMarkCopyTradeIngressEnqueued;
     const enqueuedAt = Date.now();
     const timing = markCopyTradeTaskEnqueued(
         mergeCopyTradeTimingSnapshots(params.timing, { chainId: params.chainId }),
         enqueuedAt
     );
-    const marked = await tryMarkCopyTradeIngressEnqueued(
+    const selfOrder = await resolveSelfOrderSuppression({
+        chainId: params.chainId,
+        txHash: params.txHash,
+        deps,
+    });
+    if (selfOrder.suppressed) {
+        emitCopyTradeTimingAudit('fast_dispatch_decision', timing, {
+            chainId: params.chainId,
+            txHash: params.txHash,
+            targetWallet: params.targetWallet,
+            sourceTxFrom: params.sourceTxFrom || null,
+            source: params.source,
+            dispatcherAccepted: false,
+            selfOrderSuppressed: true,
+            selfOrderSource: selfOrder.source,
+            selfOrderId: selfOrder.orderId,
+            ingressAlreadyEnqueuedAt: null,
+        });
+        logger.info(LogCode.SYS_INFO, '[CopyTradeIngress] Suppressed self-order tx before enqueue', {
+            chainId: params.chainId,
+            txHash: params.txHash,
+            targetWallet: params.targetWallet,
+            sourceTxFrom: params.sourceTxFrom || null,
+            source: params.source,
+            orderId: selfOrder.orderId,
+            reasonCode: 'self_order_adjudicated',
+            suppressionSource: selfOrder.source,
+        });
+        return false;
+    }
+    const marked = await markIngressEnqueued(
         params.chainId,
         params.txHash,
         enqueuedAt,
@@ -51,7 +130,7 @@ export async function dispatchCopyTradeIfReady(params: DispatchParams): Promise<
         return false;
     }
 
-    await enqueueCopyTradeTask(params.targetWallet, params.swap, params.chainId, {
+    await enqueueTask(params.targetWallet, params.swap, params.chainId, {
         detectedAt: timing.dispatchEligibleAt || timing.swapReadyAt || params.detectedAt,
         timing,
         sourceTxFrom: params.sourceTxFrom,
