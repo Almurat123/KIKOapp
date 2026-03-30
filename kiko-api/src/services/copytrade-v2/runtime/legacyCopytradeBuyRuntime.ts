@@ -76,7 +76,6 @@ export async function processSingleUserBuy(params: {
         zoraSniperService,
         env,
         isJudgeEnabledByCopyTradeConfig,
-        fourMemeService,
         executeEvmCopytradeBuySubmissionFlow,
         getPendingNonce,
         getTokenInfoOnce,
@@ -1037,25 +1036,11 @@ export async function processSingleUserBuy(params: {
                         useStandardSwap = true;
                     }
                 } else if (launchpad && launchpad.provider === 'fourmeme' && chainId === 56) {
-                    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Four.meme token detected - attempting specialized contract buy', { userId: config.userId, token: tokenToBuy });
-                    try {
-                        const bnbAmount = (usdAmount / nativePrice).toFixed(18);
-                        txHash = await fourMemeService.buyTokenAMAP({
-                            userId: effectiveConfig.user.privyDid,
-                            walletAddress: effectiveConfig.user.walletAddress,
-                            tokenAddress: tokenToBuy,
-                            bnbAmount,
-                            slippageBps: effectiveConfig.maxSlippageBps,
-                            feeContext: 'copyTrade',
-                        });
-                        useStandardSwap = !txHash;
-                    } catch (fourErr: any) {
-                        logger.warn(LogCode.EXE_TX_REVERTED, 'Four.meme specialized buy failed, falling back to standard route (Token might have graduated)', {
-                            userId: config.userId,
-                            error: fourErr.message || fourErr
-                        });
-                        useStandardSwap = true;
-                    }
+                    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Four.meme token detected - using standard swap route', {
+                        userId: config.userId,
+                        token: tokenToBuy
+                    });
+                    useStandardSwap = true;
                 }
 
                 if (useStandardSwap) {

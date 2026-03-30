@@ -24,7 +24,6 @@ import { SwapExecutor, SwapParams, SwapResult } from './swap/SwapExecutor.js';
 import { detectLaunchpadToken } from './ai/launchpadDetector.js';
 
 import { zoraSniperService, ZoraSniperService } from './zoraSniperService.js';
-import { buyTokenAMAP, sellToken as sellFourMemeToken } from './fourMemeService.js';
 import { SolanaLaunchpadSwapService } from './solanaLaunchpadSwapService.js';
 import { buildSolanaDirectRequest, executeSolanaDirectLaunchpad } from './solana/direct/router.js';
 import { getTokenInfo } from './tokenService.js';
@@ -645,36 +644,23 @@ export class MainSwapService {
           if (
             launchpadDetection &&
             launchpadDetection.provider !== 'clanker' &&
+            launchpadDetection.provider !== 'fourmeme' &&
             launchpadDetection.provider !== 'flap' &&
             launchpadDetection.provider !== 'doppler' &&
             launchpadDetection.provider !== 'flaunch' &&
             launchpadDetection.provider !== 'creatorbid'
           ) {
-            const sellingFourMemeToken =
-              launchpadDetection.provider === 'fourmeme'
-              && !isCashLikeToken(request.tokenIn, request.chainId);
-
-            if (sellingFourMemeToken) {
-              logger.info(
-                LogCode.SYS_INFO,
-                trace(`FourMeme token detected on sell path - routing to standard DEX instead of launchpad executor`),
-                {
-                  provider: launchpadDetection.provider,
-                  chainId: launchpadDetection.chainId,
-                  tokenIn: request.tokenIn,
-                  tokenOut: request.tokenOut
-                }
-              );
-            } else {
-              // Use launchpad routing for eligible buy-side launchpad flows only.
-              logger.info(LogCode.SYS_INFO, trace(`Launchpad detected: ${launchpadDetection.provider}`), {
-                provider: launchpadDetection.provider,
-                chainId: launchpadDetection.chainId
-              });
-              request.launchpadProvider = launchpadDetection.provider as any;
-            }
+            // Use launchpad routing only for providers that still require
+            // specialized execution. Four.meme now routes through standard DEX
+            // paths for both pre- and post-graduation tokens.
+            logger.info(LogCode.SYS_INFO, trace(`Launchpad detected: ${launchpadDetection.provider}`), {
+              provider: launchpadDetection.provider,
+              chainId: launchpadDetection.chainId
+            });
+            request.launchpadProvider = launchpadDetection.provider as any;
           } else if (
             launchpadDetection?.provider === 'clanker' ||
+            launchpadDetection?.provider === 'fourmeme' ||
             launchpadDetection?.provider === 'flap' ||
             launchpadDetection?.provider === 'doppler' ||
             launchpadDetection?.provider === 'flaunch' ||
@@ -1207,34 +1193,11 @@ export class MainSwapService {
         }
 
         case 'fourmeme': {
-          // BSC - Four.meme using TokenManager2
-          const isBuy = isNativeToken(request.tokenIn, request.chainId);
-
-          if (isBuy) {
-            txHash = await buyTokenAMAP({
-              userId: request.userId,
-              walletAddress: request.walletAddress,
-              tokenAddress: request.tokenOut,
-              bnbAmount: request.amountIn,
-              slippageBps: request.slippageBps || 300,
-              feeContext
-            });
-          } else {
-            // Four.meme sell path expects token amount in base units and outputs native BNB.
-            const tokenInfo = await getTokenData(request.tokenIn, request.chainId, ctx);
-            const decimals = tokenInfo?.decimals || 18;
-            const amountInWei = toWei(request.amountIn, decimals);
-
-            txHash = await sellFourMemeToken({
-              userId: request.userId,
-              walletAddress: request.walletAddress,
-              tokenAddress: request.tokenIn,
-              amount: amountInWei,
-              feeContext
-            });
-          }
-          providerName = 'fourmeme';
-          break;
+          logger.info(
+            LogCode.SYS_INFO,
+            trace('FourMeme detected: routing to standard EVM swap instead of launchpad executor')
+          );
+          return await this.executeEvmSwap(request, feeContext, trace, ctx);
         }
 
         case 'pumpfun':
