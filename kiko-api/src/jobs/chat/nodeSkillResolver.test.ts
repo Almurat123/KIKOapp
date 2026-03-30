@@ -1036,3 +1036,66 @@ test('Chinese early-buyer follow-up about token profit stays on token batch PnL 
     assert.ok(resolution.strategyNotes.some((note) => note.includes('reuse those wallet addresses as the candidate set for batch wallet PnL analysis')));
     assert.ok(resolution.strategyNotes.some((note) => note.includes('Pass the same token_address into analyze_wallet_pnl_batch')));
 });
+
+test('Chinese early-buyer follow-up using 利益 stays on token batch PnL path', () => {
+    const resolution = resolveNodeSkills(makeSnapshot('它们在这个代币上的利益是多少？', {
+        requestedTokenAddresses: ['0x1111111111111111111111111111111111111111'],
+        recentToolTrace: {
+            toolCalls: [
+                {
+                    tool: 'get_early_buyers',
+                    status: 'success',
+                    result: {
+                        earlyBuyers: [
+                            { address: '0xabc' },
+                            { address: '0xdef' },
+                        ],
+                    },
+                },
+            ],
+        },
+    }), null, null);
+
+    assert.ok(resolution.selectedSkills.includes('wallet_portfolio'));
+    assert.ok(resolution.preferredTools.includes('analyze_wallet_pnl_batch'));
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('reuse those wallet addresses as the candidate set for batch wallet PnL analysis')));
+});
+
+test('misnormalized early-buyer follow-up still routes 利益 question to token batch PnL', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'token',
+        intent: 'early_buyers',
+        taskMode: 'analyze',
+        outputMode: 'full_table',
+        searchMode: 'fallback',
+        entities: {
+            tokenAddresses: ['0x1111111111111111111111111111111111111111'],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        inheritEntitiesFromContext: true,
+    });
+    const resolution = resolveNodeSkills(makeSnapshot('它们在这个代币上的利益是多少？', {
+        normalizedIntent: canonicalIntent,
+        requestedTokenAddresses: ['0x1111111111111111111111111111111111111111'],
+        recentToolTrace: {
+            toolCalls: [
+                {
+                    tool: 'get_early_buyers',
+                    status: 'success',
+                    result: {
+                        earlyBuyers: [
+                            { address: '0xabc' },
+                            { address: '0xdef' },
+                        ],
+                    },
+                },
+            ],
+        },
+    }), null, canonicalIntent);
+
+    assert.ok(resolution.selectedSkills.includes('wallet_portfolio'));
+    assert.ok(resolution.preferredTools.includes('analyze_wallet_pnl_batch'));
+    assert.ok(!resolution.strategyNotes.some((note) => note.includes('Early-buyer queries default to full-list output')));
+});

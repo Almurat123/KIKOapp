@@ -162,6 +162,7 @@ function buildNormalizationMessages(snapshot: ChatContextSnapshot): GenerationMe
                 'Use domain=assistant_meta with intent=assistant_meta for Kiko intro/capabilities questions and for meta/debug questions about the assistant, the system, the previous reply, fallback behavior, plan/runtime behavior, or why the assistant responded a certain way.',
                 'For onboarding/capabilities questions, prefer task_mode=discover. For debugging or explaining the previous assistant/system behavior, prefer task_mode=analyze.',
                 'Set inherit_entities_from_context=true only when the current turn is genuinely continuing the same token, wallet, market, or on-chain subject from prior turns. Set it to false when the current turn is about Kiko itself, the assistant, the system, plan/runtime behavior, or any meta/debug question.',
+                'When recent history already contains an early-buyer list and the latest turn asks what those/these wallets earned, their profit/PnL, ROI, buy/sell summary, or收益/利润/利益/获利 on that same token, classify it as wallet_pnl instead of early_buyers and inherit the token/wallet set from context.',
                 'Do not misclassify platform-introduction questions as token analysis, market analysis, or clarification-only requests just because the wording is broken.',
             ].join(' '),
         },

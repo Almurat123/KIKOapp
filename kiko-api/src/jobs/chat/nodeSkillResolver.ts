@@ -86,7 +86,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const isGrok = String(snapshot.model || '').toLowerCase().includes('grok');
     const rawQuery = String(snapshot.lastUserMessage || '');
     const asksDetailedOnboarding = DETAILED_ONBOARDING_QUERY_RE.test(rawQuery);
-    const asksProfitRankingFollowup = /\b(pnl|profit|roi|rank)\b/i.test(rawQuery) || /收益|盈利|利润|排名|排行/.test(rawQuery);
+    const asksProfitRankingFollowup = /\b(pnl|profit|roi|rank|earned?)\b/i.test(rawQuery) || /收益|盈利|利润|利益|获利|赚(?:了)?多少|回报|回报率|排名|排行/.test(rawQuery);
     const asksWalletTradeSummaryFollowup = /\b(buy|sell|bought|sold|trade summary|trading summary)\b/i.test(rawQuery) || /买入|卖出|交易汇总|买卖汇总/.test(rawQuery);
     const normalizedIntent = canonicalIntent || snapshot.normalizedIntent || null;
     const inheritsEntitiesFromContext = normalizedIntent?.inheritEntitiesFromContext ?? true;
@@ -108,6 +108,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
             .filter((toolName) => toolName && availableToolNames.has(toolName)),
     ));
     const hasRequestedTokenAddress = effectiveRequestedTokenAddresses.length > 0;
+    const refersToPriorWalletSet = /\b(these|those|them|their)\b/i.test(rawQuery) || /这些|它们|他们|这批|这几个|这群/.test(rawQuery);
 
     const matchResult = matchSkillsForQuery({ snapshot: normalizedIntent ? { ...snapshot, normalizedIntent } : snapshot, tradingIntent });
     const querySignals = matchResult.querySignals;
@@ -126,7 +127,11 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const preferXNativeSearch = normalizedIntent
         ? (normalizedIntent.searchTarget === 'x' || normalizedIntent.searchTarget === 'x_and_web' || normalizedIntent.domain === 'x')
         : false;
-    const asksEarlyBuyers = normalizedIntent?.intent === 'early_buyers';
+    const asksEarlyBuyerWalletPnlFollowup = sessionToolNames.includes('get_early_buyers')
+        && hasRequestedToken
+        && refersToPriorWalletSet
+        && (querySignals.pnl || asksProfitRankingFollowup || asksWalletTradeSummaryFollowup);
+    const asksEarlyBuyers = normalizedIntent?.intent === 'early_buyers' && !asksEarlyBuyerWalletPnlFollowup;
     const explicitEarlyBuyerRowCount = normalizedIntent?.rowCount ?? null;
     const explicitlyRequestsEarlyBuyerFullList = normalizedIntent?.outputMode === 'full_table'
         || (asksEarlyBuyers && explicitEarlyBuyerRowCount !== null);
