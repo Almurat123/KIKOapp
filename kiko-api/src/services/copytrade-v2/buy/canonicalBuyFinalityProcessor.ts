@@ -2,6 +2,7 @@ import prisma from '../../../db/prisma.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { getTokenInfo } from '../../tokenService.js';
+import { getTokenMetadata } from '../../rpcService.js';
 import type { ConfirmationOutcome } from '../../swap/confirmationCoordinator.js';
 import { applyBuyConfirmationTransition } from './buyConfirmationTransition.js';
 import {
@@ -35,6 +36,12 @@ async function resolvePositionStatusCompat(): Promise<PositionStatusCompatLike> 
   }
 }
 
+type BuyFinalityTokenInfo = {
+  symbol?: string | null;
+  price: number;
+  decimals: number;
+};
+
 function readMetadataString(metadata: Record<string, unknown> | null | undefined, key: string): string | null {
   const value = String(metadata?.[key] || '').trim();
   return value || null;
@@ -47,12 +54,14 @@ export async function processCanonicalBuyFinality(params: {
   deps?: {
     prisma?: typeof prisma;
     getTokenInfo?: typeof getTokenInfo;
+    getTokenMetadata?: typeof getTokenMetadata;
     applyBuyConfirmationTransition?: typeof applyBuyConfirmationTransition;
     sendNotificationAsync?: typeof sendNotificationAsync;
   };
 }): Promise<'processed' | 'skipped'> {
   const prismaClient = params.deps?.prisma || prisma;
   const getTokenInfoFn = params.deps?.getTokenInfo || getTokenInfo;
+  const getTokenMetadataFn = params.deps?.getTokenMetadata || getTokenMetadata;
   const applyTransition = params.deps?.applyBuyConfirmationTransition || applyBuyConfirmationTransition;
   const sendNotification = params.deps?.sendNotificationAsync || sendNotificationAsync;
 
@@ -103,15 +112,35 @@ export async function processCanonicalBuyFinality(params: {
     ? String(position.status)
     : positionStatusCompat.pendingCreateStatus;
 
-  const tokenInfo = await getTokenInfoFn(order.tokenOut, order.chainId, {
+  const resolvedTokenInfo = await getTokenInfoFn(order.tokenOut, order.chainId, {
     verbose: false,
     forceRefresh: false,
     priority: 'normal',
     rpcStrategy: 'cheap',
-  }).catch(() => null);
+  }).catch(() => null) as BuyFinalityTokenInfo | null;
+
+  let tokenInfo = resolvedTokenInfo;
+  if (!tokenInfo) {
+    const metadataOnly = await getTokenMetadataFn(order.chainId, order.tokenOut, {
+      rpcStrategy: 'cheap',
+    }).catch(() => null);
+    if (metadataOnly) {
+      tokenInfo = {
+        symbol: metadataOnly.symbol,
+        price: 0,
+        decimals: Number(metadataOnly.decimals || 18),
+      };
+      logger.warn(LogCode.SYS_INFO, '[CanonicalBuyFinality] Token price unavailable; proceeding with metadata-only deferred buy confirmation', {
+        orderId: order.id,
+        tokenAddress: order.tokenOut,
+        chainId: order.chainId,
+        symbol: metadataOnly.symbol,
+      });
+    }
+  }
 
   if (!tokenInfo) {
-    logger.warn(LogCode.SYS_ERROR, '[CanonicalBuyFinality] Missing token info for deferred buy confirmation processing', {
+    logger.warn(LogCode.SYS_ERROR, '[CanonicalBuyFinality] Missing token metadata for deferred buy confirmation processing', {
       orderId: order.id,
       tokenAddress: order.tokenOut,
       chainId: order.chainId,
