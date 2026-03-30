@@ -9,6 +9,10 @@ const USAGE_LIMIT_CACHE_TTL_MS = Number(process.env.USAGE_LIMIT_CACHE_TTL_MS || 
 const usageLimitCache = new Map<string, { expiresAt: number; value: { limit: number; tokenBalance: number } }>();
 const usageLimitInflight = new Map<string, Promise<{ limit: number; tokenBalance: number }>>();
 
+export function getUsageLimitRpcChain(): number {
+    return env.usageLimits.chainId;
+}
+
 function encodeBalanceOf(walletAddress: string): string {
     const address = walletAddress.toLowerCase().replace(/^0x/, '').padStart(64, '0');
     return `0x70a08231${address}`;
@@ -42,7 +46,7 @@ export async function getUserTokenBalance(params: { userId: string }): Promise<n
     try {
         const walletAddress = await getEmbeddedWalletAddress(params.userId);
         if (!walletAddress) return 0;
-        const data = await callRpc('base', 'eth_call', [
+        const data = await callRpc(getUsageLimitRpcChain(), 'eth_call', [
             {
                 to: env.usageLimits.tokenAddress,
                 data: encodeBalanceOf(walletAddress)

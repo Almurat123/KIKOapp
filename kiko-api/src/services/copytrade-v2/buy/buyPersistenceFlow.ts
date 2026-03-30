@@ -2,6 +2,7 @@ import { LogCode } from '../../../config/logRegistry.js';
 import { logger } from '../../../utils/logger.js';
 import type { OrderRuntimeContext } from '../../order-runtime/types.js';
 import type { TxLifecycleResult } from '../../txLifecycle.js';
+import type { DirectSwapFeeSettlement } from '../../swap/fee/directSwapFeeCollector.js';
 import {
   resolveCopytradeBuyPositionStatus,
   type CopytradeBuyPositionStatus,
@@ -34,6 +35,7 @@ export async function persistCopytradeBuySubmission(params: {
   entryUsdValue: number;
   txLifecycleStatus?: string;
   runtimeContext?: OrderRuntimeContext;
+  directFeeSettlement?: DirectSwapFeeSettlement | null;
 }, deps?: {
   finalizeCopytradeBuyPosition?: typeof finalizeCopytradeBuyPosition;
   upsertPendingAttributedPosition?: typeof upsertPendingAttributedPosition;
@@ -147,12 +149,13 @@ export async function persistCopytradeBuySubmission(params: {
       positionIdLegacy: persistedPositionId,
       lastKnownExposureSource: 'position_projection',
       txLifecycleStatus: params.txLifecycleStatus || null,
-      runtimeOrderId: params.runtimeContext?.orderId || null,
-      runtimeCanonicalTxHash: params.runtimeContext?.canonicalTxHash || null,
-      positionStatus: nextPositionStatus,
-      awaitingKind: nextPositionStatus === 'open' ? null : 'buy_finality',
-      nextObservationAt: nextPositionStatus === 'open' ? null : new Date().toISOString(),
-    };
+        runtimeOrderId: params.runtimeContext?.orderId || null,
+        runtimeCanonicalTxHash: params.runtimeContext?.canonicalTxHash || null,
+        positionStatus: nextPositionStatus,
+        awaitingKind: nextPositionStatus === 'open' ? null : 'buy_finality',
+        nextObservationAt: nextPositionStatus === 'open' ? null : new Date().toISOString(),
+        directFeeSettlement: params.directFeeSettlement || null,
+      };
 
     try {
       const orderId = params.canonicalOrderId || (
@@ -188,6 +191,7 @@ export async function persistCopytradeBuySubmission(params: {
           txLifecycleStatus: params.txLifecycleStatus || null,
           runtimeOrderId: params.runtimeContext?.orderId || null,
           runtimeCanonicalTxHash: params.runtimeContext?.canonicalTxHash || null,
+          directFeeSettlement: params.directFeeSettlement || null,
         },
       });
       canonicalOrderPersisted = true;

@@ -3,6 +3,7 @@ import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { getTokenInfo } from '../../tokenService.js';
 import { getTokenMetadata } from '../../rpcService.js';
+import type { DirectSwapFeeSettlement } from '../../swap/fee/directSwapFeeCollector.js';
 import type { ConfirmationOutcome } from '../../swap/confirmationCoordinator.js';
 import { applyBuyConfirmationTransition } from './buyConfirmationTransition.js';
 import {
@@ -47,6 +48,35 @@ function readMetadataString(metadata: Record<string, unknown> | null | undefined
   return value || null;
 }
 
+function extractDirectFeeSettlement(value: unknown): DirectSwapFeeSettlement | null {
+  if (!value || typeof value !== 'object') return null;
+  const seen = new Set<object>();
+  const queue: object[] = [value as object];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== 'object') continue;
+    if (seen.has(current)) continue;
+    seen.add(current);
+
+    const candidate = (current as Record<string, unknown>).directFeeSettlement;
+    if (candidate && typeof candidate === 'object') {
+      const settlement = candidate as DirectSwapFeeSettlement;
+      if (settlement.chainId && settlement.normalizedTokenOut) {
+        return settlement;
+      }
+    }
+
+    for (const nested of Object.values(current as Record<string, unknown>)) {
+      if (nested && typeof nested === 'object') {
+        queue.push(nested as object);
+      }
+    }
+  }
+
+  return null;
+}
+
 export async function processCanonicalBuyFinality(params: {
   orderId: string;
   confirmation: ConfirmationOutcome;
@@ -76,11 +106,19 @@ export async function processCanonicalBuyFinality(params: {
       userId: true,
       configId: true,
       metadataJson: true,
+      executions: {
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        select: {
+          metadataJson: true,
+        },
+      },
     },
   }).catch(() => null);
   if (!order?.configId || !order.userId) return 'skipped';
 
   const metadata = (order.metadataJson as Record<string, unknown> | null) || {};
+  const latestExecutionMetadata = (order.executions?.[0]?.metadataJson as Record<string, unknown> | null) || null;
   const positionId = readMetadataString(metadata, 'positionIdLegacy');
   if (!positionId) return 'skipped';
 
@@ -148,6 +186,19 @@ export async function processCanonicalBuyFinality(params: {
     return 'skipped';
   }
 
+  const directFeeSettlement =
+    extractDirectFeeSettlement(latestExecutionMetadata)
+    || extractDirectFeeSettlement(metadata);
+
+  if (directFeeSettlement?.deferred) {
+    logger.info(LogCode.SYS_INFO, '[CanonicalBuyFinality] Restored deferred direct fee settlement from durable metadata', {
+      orderId: order.id,
+      tokenAddress: order.tokenOut,
+      chainId: order.chainId,
+      sourceTxHash: directFeeSettlement.sourceTxHash || null,
+    });
+  }
+
   await applyTransition({
     confirmation: params.confirmation,
     chainId: order.chainId,
@@ -169,6 +220,7 @@ export async function processCanonicalBuyFinality(params: {
       pendingCreateStatus,
       failedFinalStatus: positionStatusCompat.failedFinalStatus,
     },
+    directFeeSettlement,
     recoverySource: params.recoverySource || 'late_recovery',
     onNotifySuccess: async () => {
       sendNotification({
