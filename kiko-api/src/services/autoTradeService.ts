@@ -328,7 +328,7 @@ const NO_OPEN_POSITIONS_LOG_WINDOW_MS = Number(process.env.NO_OPEN_POSITIONS_LOG
 const COPYTRADE_ENABLE_DETECTION_PREWARM = (process.env.COPYTRADE_ENABLE_DETECTION_PREWARM || 'false') === 'true';
 const COPYTRADE_SKIP_ON_DIRECTION_CONFLICT = (process.env.COPYTRADE_SKIP_ON_DIRECTION_CONFLICT || 'true') === 'true';
 const COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL = (process.env.COPYTRADE_ENABLE_TOKEN_TO_TOKEN_PARALLEL || 'false') === 'true';
-const ALLOWED_LAUNCHPAD_PROVIDERS = new Set(['zora', 'pumpfun', 'pumpswap', 'bonkfun']);
+const ALLOWED_LAUNCHPAD_PROVIDERS = new Set(['zora', 'pumpfun', 'pumpswap', 'bonkfun', 'fourmeme']);
 const COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP = (process.env.COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP || 'true') === 'true';
 const DEFAULT_COPYTRADE_SLIPPAGE_BPS = 1500;
 const MIN_COPYTRADE_SLIPPAGE_BPS = 50;
@@ -336,6 +336,7 @@ const MAX_COPYTRADE_SLIPPAGE_BPS = 5000;
 const ATTRIBUTION_REPAIR_INTERVAL_MS = 600_000;
 const CHAIN_LAUNCHPAD_PROVIDERS: Record<number, Set<string>> = {
     8453: new Set(['zora']),
+    56: new Set(['fourmeme']),
     900: new Set(['pumpfun', 'pumpswap', 'bonkfun'])
 };
 
@@ -512,7 +513,7 @@ function isDuplicateSwap(targetWallet: string, swap: DecodedSwap, chainId: numbe
     return false;
 }
 
-async function resolveLaunchpad(
+export async function resolveLaunchpad(
     launchpadPromise: Promise<any> | null | undefined,
     chainId: number
 ): Promise<any | null> {
