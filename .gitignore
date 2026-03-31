@@ -19,6 +19,7 @@ kikoapi/
 *.p12
 *.crt
 *.cer
+back.txt
 
 # Build artifacts per packages
 kiko-web/node_modules/

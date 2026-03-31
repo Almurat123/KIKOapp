@@ -1,5 +1,5 @@
 import React, { Suspense, useEffect, useState } from 'react';
-import { createBrowserRouter, RouterProvider } from 'react-router-dom';
+import { Navigate, createBrowserRouter, RouterProvider } from 'react-router-dom';
 import KIKOdark from './assets/images/KIKOdark.png';
 import { RootLayout } from './layouts/RootLayout';
 import { ErrorPage } from './pages/ErrorPage';
@@ -7,16 +7,9 @@ import { lazyRoute } from './utils/lazyRoute';
 
 // Pages
 const ChatInterface = lazyRoute('chat-interface', () => import('./components/Chat/ChatInterface').then((m) => ({ default: m.ChatInterface })));
-const SocialPage = lazyRoute('social-page', () => import('./pages/SocialPage').then((m) => ({ default: m.SocialPage })));
-const OverviewPage = lazyRoute('overview-page', () => import('./pages/OverviewPage').then((m) => ({ default: m.OverviewPage })));
-const TokensPage = lazyRoute('tokens-page', () => import('./pages/TokensPage').then((m) => ({ default: m.TokensPage })));
-const TokenDetailPage = lazyRoute('token-detail-page', () => import('./pages/TokenDetailPage').then((m) => ({ default: m.TokenDetailPage })));
-const ChainsPage = lazyRoute('chains-page', () => import('./pages/ChainsPage').then((m) => ({ default: m.ChainsPage })));
-const SuperDefiPage = lazyRoute('super-defi-page', () => import('./pages/SuperDefiPage').then((m) => ({ default: m.SuperDefiPage })));
 const TradePage = lazyRoute('trade-page', () => import('./pages/TradePage').then((m) => ({ default: m.TradePage })));
 const WalletPage = lazyRoute('wallet-page', () => import('./pages/WalletPage'));
 const SettingsPage = lazyRoute('settings-page', () => import('./pages/SettingsPage'));
-const NewsPage = lazyRoute('news-page', () => import('./pages/NewsPage'));
 const AgentMapPage = lazyRoute('agent-map-page', () => import('./pages/AgentMapPage').then((m) => ({ default: m.AgentMapPage })));
 
 function RouteFallback() {
@@ -149,6 +142,10 @@ function withSuspense(element: React.ReactNode) {
   return <Suspense fallback={<RouteFallback />}>{element}</Suspense>;
 }
 
+function LegacyRouteRedirect() {
+  return <Navigate to="/" replace />;
+}
+
 // Contexts & Utils
 
 
@@ -169,36 +166,27 @@ const router = createBrowserRouter([
       },
       {
         path: 'news',
-        element: withSuspense(<NewsPage />),
+        element: <LegacyRouteRedirect />,
       },
       {
         path: 'market',
-        element: withSuspense(<OverviewPage />),
+        element: <LegacyRouteRedirect />,
       },
       {
-        path: 'tokens',
-        children: [
-          {
-            index: true,
-            element: withSuspense(<TokensPage />),
-          },
-          {
-            path: ':chain/:address',
-            element: withSuspense(<TokenDetailPage />),
-          }
-        ]
+        path: 'tokens/*',
+        element: <LegacyRouteRedirect />,
       },
       {
         path: 'chains',
-        element: withSuspense(<ChainsPage />),
+        element: <LegacyRouteRedirect />,
       },
       {
         path: 'defi/*',
-        element: withSuspense(<SuperDefiPage />),
+        element: <LegacyRouteRedirect />,
       },
       {
         path: 'social',
-        element: withSuspense(<SocialPage />),
+        element: <LegacyRouteRedirect />,
       },
       {
         path: 'trade',

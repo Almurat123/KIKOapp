@@ -25,21 +25,13 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
   const isMobile = useIsMobile();
 
   const isCopyTrade = strategy.type === 'copy_trade';
-  const isPolymarketCopy = strategy.type === 'polymarket_copy';
-
   const copyConfig = isCopyTrade ? strategy.copyTradeConfig : null;
-  const polyConfig = isPolymarketCopy ? strategy.polymarketCopyConfig : null;
-  const targetWallet = isCopyTrade ? copyConfig?.targetWallet : polyConfig?.targetWallet;
+  const targetWallet = copyConfig?.targetWallet;
 
   const chainInfo = resolveChainPresentation(strategy.chainId ?? strategy.chain);
   const isActive = strategy.status === 'active';
   const status = (strategy.status || 'paused').toUpperCase();
   const isDeleted = status === 'DELETED';
-  
-  const executionCount = (strategy.executionHistory || []).length;
-  const displayedTradeCount = isCopyTrade 
-    ? targetTradeCount 
-    : (polyConfig?.executionStats?.executedTrades ?? executionCount);
 
   const formatMoney = (val?: number) => val ? `$${val.toLocaleString()}` : '$0';
 
@@ -65,7 +57,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
     return () => { cancelled = true; };
   }, [isCopyTrade, copyConfig?.id]);
 
-  if (!isCopyTrade && !isPolymarketCopy) return null;
+  if (!isCopyTrade) return null;
   if (!targetWallet) return null;
 
   return (
@@ -76,7 +68,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
             <img src={chainInfo.icon} alt={chainInfo.displayName} className={styles.chainIcon} />
           </div>
           <div className={styles.titleColumn}>
-            <div className={styles.title}>{isCopyTrade ? 'Copy Trading' : 'Polymarket Copy'}</div>
+            <div className={styles.title}>Copy Trading</div>
             <div className={styles.subtitle}>on {chainInfo.displayName}</div>
           </div>
         </div>
@@ -112,57 +104,36 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
 
         <div className={styles.divider} />
 
-        {isCopyTrade ? (
-          <div className={styles.mainGrid}>
-            <div className={styles.gridColumn}>
-              <div className={styles.gridItem}>
-                <div className={styles.label}>MIN TRADE</div>
-                <div className={styles.value}>{formatMoney(copyConfig?.minTargetValueUsd ?? 0)}</div>
-              </div>
-              <div className={styles.gridItem}>
-                <div className={styles.tpBox}>
-                  <span className={styles.boxLabel}>TP</span>
-                  <span className={styles.boxValue}>+{copyConfig?.takeProfitPct}%</span>
-                </div>
-              </div>
+        <div className={styles.mainGrid}>
+          <div className={styles.gridColumn}>
+            <div className={styles.gridItem}>
+              <div className={styles.label}>MIN TRADE</div>
+              <div className={styles.value}>{formatMoney(copyConfig?.minTargetValueUsd ?? 0)}</div>
             </div>
-            <div className={clsx(styles.gridColumn, styles.rightAlign)}>
-              <div className={styles.gridItem}>
-                <div className={styles.label}>BUY AMOUNT</div>
-                <div className={styles.value}>{formatMoney(copyConfig?.buyAmountUsd)}</div>
-              </div>
-              <div className={styles.gridItem}>
-                <div className={styles.slBox}>
-                  <span className={styles.boxLabel}>SL</span>
-                  <span className={styles.boxValue}>-{copyConfig?.stopLossPct}%</span>
-                </div>
+            <div className={styles.gridItem}>
+              <div className={styles.tpBox}>
+                <span className={styles.boxLabel}>TP</span>
+                <span className={styles.boxValue}>+{copyConfig?.takeProfitPct}%</span>
               </div>
             </div>
           </div>
-        ) : (
-          <div className={styles.mainGrid}>
-            <div className={styles.gridColumn}>
-              <div className={styles.gridItem}>
-                <div className={styles.label}>BET SIZE</div>
-                <div className={styles.value}>{formatMoney(polyConfig?.betSizeUsd)}</div>
-              </div>
-              <div className={styles.gridItem}>
-                <div className={styles.label}>MIRROR SELL</div>
-                <div className={styles.value}>{polyConfig?.mirrorSell ? 'On' : 'Off'}</div>
-              </div>
+          <div className={clsx(styles.gridColumn, styles.rightAlign)}>
+            <div className={styles.gridItem}>
+              <div className={styles.label}>BUY AMOUNT</div>
+              <div className={styles.value}>{formatMoney(copyConfig?.buyAmountUsd)}</div>
             </div>
-            <div className={clsx(styles.gridColumn, styles.rightAlign)}>
-              <div className={styles.gridItem}>
-                <div className={styles.label}>MAX OPEN</div>
-                <div className={styles.value}>{polyConfig?.maxOpenBets}</div>
+            <div className={styles.gridItem}>
+              <div className={styles.slBox}>
+                <span className={styles.boxLabel}>SL</span>
+                <span className={styles.boxValue}>-{copyConfig?.stopLossPct}%</span>
               </div>
             </div>
           </div>
-        )}
+        </div>
 
         <div className={styles.footerInfo}>
           <Info size={10} style={{ opacity: 0.5 }} />
-          <span style={{ opacity: 0.5 }}>Executed {displayedTradeCount} trades</span>
+          <span style={{ opacity: 0.5 }}>Executed {targetTradeCount} trades</span>
         </div>
       </div>
     </div>

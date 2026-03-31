@@ -1,12 +1,11 @@
 import { getZoraToken } from './zoraApi';
 import { getClankerToken } from './clankerApi';
-import { paragraphApi } from './paragraphApi';
 import { getFourMemeToken } from './fourMemeApi';
 import { getPumpFunToken } from './pumpFunApi';
 import { getRaydiumToken } from './raydiumApi';
 
 export interface LaunchpadResult {
-    provider: 'zora' | 'clanker' | 'paragraph' | 'fourmeme' | 'pumpfun' | 'raydium' | 'flaunch' | 'creatorbid';
+    provider: 'zora' | 'clanker' | 'fourmeme' | 'pumpfun' | 'raydium' | 'flaunch' | 'creatorbid';
     data: any;
     chainId: number;
 }
@@ -23,7 +22,7 @@ export const detectLaunchpadToken = async (
     if (!isSolana && !isEVM) return null;
 
     // 2. Prioritize current chain, but allow cross-chain detection if pattern matches
-    // Base (8453) / Ethereum (1) -> Clanker, Zora, Paragraph
+    // Base (8453) / Ethereum (1) -> Clanker, Zora
     // BSC (56) -> Four.meme
     // Solana (900) -> Pump.fun, Raydium
 
@@ -44,7 +43,7 @@ export const detectLaunchpadToken = async (
 
     // EVM Checks
     if (isEVM) {
-        // Base Strategies (Clanker, Zora, Paragraph)
+        // Base strategies (Clanker, Zora)
         // Note: We normally check chainId, but if user pastes an address, we might want to check all supported EVM chains
         // for these specific launchpads.
 
@@ -68,12 +67,6 @@ export const detectLaunchpadToken = async (
         const zoraTokenZora = await getZoraToken(address, 7777777);
         if (zoraTokenZora) {
             return { provider: 'zora', data: zoraTokenZora, chainId: 7777777 };
-        }
-
-        // Check Paragraph (Base)
-        const paragraphToken = await paragraphApi.getCoinByContract(address);
-        if (paragraphToken) {
-            return { provider: 'paragraph', data: paragraphToken, chainId: 8453 };
         }
 
         // Check Four.meme (BSC)

@@ -206,9 +206,9 @@ export async function* streamAIResponse(
         }
       } catch (xaiError: unknown) {
         const err = xaiError as Error;
-        // If X.ai API fails (e.g., API key not set), throw error instead of falling back
+        // The frontend talks to the authenticated backend route, so surface the backend error directly.
         console.error('[aiService] X.ai API error:', err);
-        throw new Error(`X.ai API error: ${err.message || 'Failed to call X.ai API. Please check your VITE_XAI_API_KEY environment variable.'} `);
+        throw new Error(`X.ai API error: ${err.message || 'Failed to call the authenticated X.ai backend route.'} `);
       }
     } else {
       // Use DeepSeek API (default)
@@ -283,10 +283,10 @@ export async function* streamAIResponse(
       stack: err.stack,
     });
 
-    // Check if it's an X.ai API key error
-    if (err.message?.includes('VITE_XAI_API_KEY')) {
+    // Frontend no longer relies on a browser-exposed X.ai API key.
+    if (err.message?.includes('Authentication required')) {
       yield {
-        content: `❌ X.ai API error: please check VITE_XAI_API_KEY is set.\n\nDetails: ${err.message} `,
+        content: `❌ X.ai API error: authentication is required.\n\nDetails: ${err.message} `,
       };
     } else {
       yield {
