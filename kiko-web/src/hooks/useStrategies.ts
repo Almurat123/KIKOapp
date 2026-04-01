@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { getConfigs, updateConfigStatus, deleteConfig, updateConfig, getPositions, type CopyTradeConfig, CopyTradeApiError } from '../services/copyTradeApi';
+import {
+  deletePolymarketCopyConfig,
+  getPolymarketCopyConfigs,
+  type PolymarketCopyConfig,
+  updatePolymarketCopyConfig
+} from '../services/polymarketCopyApi';
 import { createCopyTradeSignedPayload, signCopyTradeConfigIntent } from '../services/copyTradeSigning';
 import { toast } from 'sonner';
 import { resolveChainPresentation } from '../utils/chainPresentation';
@@ -47,10 +53,11 @@ export interface TradingStrategy {
   allowance_mode?: 'one_shot' | 'unlimited';
   // Copy Trade specific fields
   copyTradeConfig?: CopyTradeConfig;
+  // Polymarket Copy specific fields
+  polymarketCopyConfig?: PolymarketCopyConfig;
 }
 
 const STORAGE_KEY = 'kiko-strategies-v2';
-const isSupportedStrategy = (strategy: Pick<TradingStrategy, 'type'>) => strategy.type === 'copy_trade';
 
 export const useStrategies = () => {
   const [strategies, setStrategies] = useState<TradingStrategy[]>([]);
@@ -67,12 +74,35 @@ export const useStrategies = () => {
     setIsLoading(true);
     const allStrategies: TradingStrategy[] = [];
 
-    // Load real copy-trade configs only.
+    // 1. Load Local Mock/Demo Strategies
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          // STRICTLY filter out any 'copy_trade' types from local storage
+          // Copy trades must only come from the backend to avoid "ghosts"
+          const localStrats = parsed
+            .filter((s: any) => s.type !== 'copy_trade')
+            .map((s: any) => ({
+              ...s,
+              id: String(s.id),
+              executionHistory: s.executionHistory || []
+            }));
+          allStrategies.push(...localStrats);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load local strategies', e);
+    }
+
+    // 2. Load Real Copy Trade Configs AND Positions (ONLY if authenticated)
     if (authenticated) {
       try {
-        const [configs, positions] = await Promise.all([
+        const [configs, positions, polyConfigs] = await Promise.all([
           getConfigs(),
           getPositions().catch(() => []), // Fail gracefully for positions
+          getPolymarketCopyConfigs().catch(() => [])
         ]);
 
         // Calculate Stats
@@ -134,6 +164,41 @@ export const useStrategies = () => {
         });
 
         allStrategies.push(...mappedConfigs);
+
+        const mappedPolyConfigs: TradingStrategy[] = polyConfigs.map(config => ({
+          id: config.id,
+          name: `Polymarket Copy ${config.targetWallet.slice(0, 6)}...${config.targetWallet.slice(-4)}`,
+          type: 'polymarket_copy',
+          tokenIn: 'USDC',
+          tokenOut: 'POLY',
+          chain: 'polygon',
+          chainId: 137,
+          triggerCondition: 'Target opens position',
+          executionAmount: config.betSizeUsd.toString(),
+          amountAsset: 'USD',
+          limits: {
+            maxUsdPerDay: 'Unlimited',
+            maxTradesPerDay: config.maxOpenBets || 999,
+            cooldown: '0s'
+          },
+          status: config.status,
+          createdAt: new Date(config.createdAt).getTime(),
+          updatedAt: new Date(config.updatedAt).getTime(),
+          executionHistory: Array.from({
+            length: config.executionStats?.executedTrades || 0
+          }).map((_, index) => ({
+            id: `${config.id}-${index}`,
+            timestamp: config.executionStats?.lastCopiedAt ? new Date(config.executionStats.lastCopiedAt).getTime() : new Date(config.updatedAt).getTime(),
+            amount: String(config.betSizeUsd),
+            status: 'success' as const
+          })),
+          polymarketCopyConfig: config
+        }));
+
+        allStrategies.push(...mappedPolyConfigs);
+        const polymarketExecutions = polyConfigs.reduce((sum, config) => sum + (config.executionStats?.executedTrades || 0), 0);
+        setStats({ totalExecutions: totalExecutions + polymarketExecutions, totalPnL });
+
       } catch (error) {
         console.warn('[useStrategies] Failed to fetch copy trade data:', error);
       }
@@ -150,7 +215,13 @@ export const useStrategies = () => {
           s.copyTradeConfig.targetWallet !== '0x0000000000000000000000000000000000000000';
         if (!hasValidConfig) return false;
       }
-      return isSupportedStrategy(s);
+      if (s.type === 'polymarket_copy') {
+        const hasValidConfig = s.polymarketCopyConfig &&
+          s.polymarketCopyConfig.targetWallet &&
+          s.polymarketCopyConfig.targetWallet !== '0x0000000000000000000000000000000000000000';
+        if (!hasValidConfig) return false;
+      }
+      return true;
     });
 
     setStrategies(validStrategies);
@@ -161,9 +232,12 @@ export const useStrategies = () => {
     fetchAllStrategies();
   }, [fetchAllStrategies]);
 
-  // Clear previously cached local strategy types from older builds.
+  // Persist local strategies (filter out copy_trade/polymarket_copy types)
   useEffect(() => {
-    localStorage.removeItem(STORAGE_KEY);
+    const localOnly = strategies.filter(s => s.type !== 'copy_trade' && s.type !== 'polymarket_copy');
+    if (localOnly.length > 0) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(localOnly));
+    }
   }, [strategies]);
 
   const createStrategy = useCallback((strategy: Omit<TradingStrategy, 'id' | 'createdAt' | 'updatedAt' | 'executionHistory'>): string => {
@@ -174,9 +248,7 @@ export const useStrategies = () => {
       updatedAt: Date.now(),
       executionHistory: [],
     };
-    if (isSupportedStrategy(newStrategy)) {
-      setStrategies(prev => [newStrategy, ...prev]);
-    }
+    setStrategies(prev => [newStrategy, ...prev]);
     return newStrategy.id;
   }, []);
 
@@ -248,6 +320,35 @@ export const useStrategies = () => {
         }
         throw error;
       }
+    } else if (strategy?.type === 'polymarket_copy' && updates.polymarketCopyConfig) {
+      try {
+        const updatedConfig = await updatePolymarketCopyConfig(id, updates.polymarketCopyConfig);
+        setStrategies(prev => prev.map(strat => (
+          strat.id === id
+            ? {
+                ...strat,
+                polymarketCopyConfig: updatedConfig,
+                status: updatedConfig.status,
+                executionHistory: Array.from({
+                  length: updatedConfig.executionStats?.executedTrades || 0
+                }).map((_, index) => ({
+                  id: `${updatedConfig.id}-${index}`,
+                  timestamp: updatedConfig.executionStats?.lastCopiedAt ? new Date(updatedConfig.executionStats.lastCopiedAt).getTime() : Date.now(),
+                  amount: String(updatedConfig.betSizeUsd),
+                  status: 'success' as const
+                })),
+                updatedAt: Date.now()
+              }
+            : strat
+        )));
+      } catch (error) {
+        console.error('[useStrategies] Failed to update polymarket config:', error);
+        setStrategies(prev => prev.map(strat => (
+          strat.id === id ? previousStrategy : strat
+        )));
+        toast.error(error instanceof Error ? error.message : 'Failed to update Polymarket strategy');
+        throw error;
+      }
     }
   }, [strategies, fetchAllStrategies, wallets, user]);
 
@@ -300,6 +401,17 @@ export const useStrategies = () => {
       }
       return;
     }
+
+    if (strategy.type === 'polymarket_copy') {
+      try {
+        await deletePolymarketCopyConfig(id);
+        setStrategies(prev => prev.filter(strat => strat.id !== id));
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to delete Polymarket strategy. Please try again.');
+      }
+      return;
+    }
+
     // Non-copy-trade local strategies: remove immediately
     setStrategies(prev => prev.filter(strat => strat.id !== id));
   }, [strategies, wallets, user]);
@@ -327,6 +439,18 @@ export const useStrategies = () => {
       } catch (error) {
         setStrategies(previousStrategies);
         toast.error('Failed to update strategy status. Please try again.');
+      }
+    } else if (strategy.type === 'polymarket_copy') {
+      try {
+        const updatedConfig = await updatePolymarketCopyConfig(id, { status: newStatus as 'active' | 'paused' });
+        setStrategies(prev => prev.map(strat => (
+          strat.id === id
+            ? { ...strat, polymarketCopyConfig: updatedConfig, status: updatedConfig.status, updatedAt: Date.now() }
+            : strat
+        )));
+      } catch (error) {
+        setStrategies(previousStrategies);
+        toast.error('Failed to update Polymarket strategy status. Please try again.');
       }
     }
   }, [strategies]);

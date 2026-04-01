@@ -751,10 +751,13 @@ export class SuggestionEngine {
 
         // STATIC OPTIONS
         const staticOpts = [
-            'my wallet balance',
-            'the Ethereum gas price',
-            'the Base gas price',
-            'the Solana gas price'
+            'the trending bet',
+            'the trending token',
+            'the trending farcaster cast', // Corrected spelling
+            'trending news',
+            'Zora trending token',
+            'Next Economic Calendar',
+            'Market Overview'
         ];
 
         staticOpts.forEach((opt, idx) => {
@@ -771,7 +774,7 @@ export class SuggestionEngine {
 
         // ADDRESS BASED OPTIONS
         // Suggest "What's [Paste Address] PNL"
-        const addrOpts = ['PNL', 'risk', 'balance'];
+        const addrOpts = ['PNL', 'early buyer', 'risk', 'balance'];
         addrOpts.forEach((opt, idx) => {
             results.push({
                 id: `what-addr-${idx}`,
@@ -814,6 +817,16 @@ export class SuggestionEngine {
             actionText: 'Check ',
             displayText: 'Check [Paste Wallet Address]',
             score: 1000,
+            type: 'progressive'
+        });
+
+        // Add Polymarket Option
+        results.push({
+            id: 'check-polymarket',
+            label: 'Check my polymarket order position',
+            actionText: 'Check my polymarket order position',
+            displayText: 'Check my polymarket order position',
+            score: 950,
             type: 'progressive'
         });
 
@@ -1096,7 +1109,7 @@ export class SuggestionEngine {
 
             case 'ARGS_WHAT_OPTION':
                 // Check if any What option is present
-                const whatOptions = ['wallet', 'pnl', 'risk', 'balance', 'gas', 'ethereum', 'base', 'solana'];
+                const whatOptions = ['trending', 'bet', 'token', 'farcaster', 'news', 'zora', 'calendar', 'market', 'pnl', 'early', 'risk', 'balance', 'gas'];
                 return whatOptions.some(opt => lower.includes(opt));
 
             case 'ARGS_TELL_OPTION':

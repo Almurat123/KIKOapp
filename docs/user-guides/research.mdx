@@ -1,20 +1,33 @@
 ---
 title: 'Research'
-description: 'Market data, wallet checks, and project research'
+description: 'Market data, social trends, news, and topic analysis'
 ---
 
-KiKo integrates multi-source data and LLM capabilities to help you quickly grasp market dynamics, wallet behavior, and project backgrounds.
+KiKo integrates multi-source data and LLM capabilities to help you quickly grasp market dynamics, social sentiment, and project backgrounds.
 
 ---
 
-## Wallet & Token Checks
+## Topic Analysis & Social Sentiment
 
-Use research mode to inspect addresses, token safety, and execution context before trading.
+### X (Twitter) Topic Analysis (Grok Exclusive)
+
+If you use the **Grok** model, you can leverage its powerful real-time X (Twitter) data access.
+
+Grok can quickly summarize the latest conversation context about a token or event on X. This saves you significant time by telling you in plain language "why this token is pumping/dumping" or "what people are debating."
 
 **Example Commands**
-- `"Check 0x... risk"`
-- `"What's 0x... balance?"`
-- `"Analyze wallet 0x..."`
+- `"What do people think about $DEGEN on X?"`
+- `"Summarize today's discussion on ETH ETFs"`
+
+{/* TODO: Screenshot — Grok topic analysis reply screenshot */}
+
+### Farcaster Social Search
+
+For other models, KiKo features a built-in Farcaster search tool. AI searches the Farcaster network for specific keywords or tokens and answers your questions based on the retrieved posts.
+
+**Example Commands**
+- `"What's the trending topic on Farcaster right now?"`
+- `"Search for Farcaster posts about new tokens on Base"`
 
 ---
 
@@ -23,15 +36,28 @@ Use research mode to inspect addresses, token safety, and execution context befo
 KiKo accesses real-time data from DexScreener and GeckoTerminal, allowing you to query on-chain market conditions anytime.
 
 **Example Commands**
+- `"What tokens are trending?"`
 - `"How much is ETH now?"`
+- `"Top gainers on Base today?"`
 - `"Check 0x...'s liquidity and market cap"`
 
 ---
 
-## Web Research
+## Prediction Markets (Polymarket)
 
-KiKo has web research capabilities to inspect specific projects, docs, and public webpages.
+Query real-time probabilities from Polymarket to understand market consensus on macroeconomics, politics, or crypto events based on real capital bets.
 
 **Example Commands**
+- `"What are the most popular predictions on Polymarket?"`
+- `"What's the probability of a Fed rate cut next month?"`
+
+---
+
+## News & Web Research
+
+KiKo has real-time web search capabilities to find the latest crypto news or research specific projects.
+
+**Example Commands**
+- `"What’s the big crypto news today?"`
 - `"What are the new features of Uniswap v4?"`
 - `"Analyze https://example.xyz"` (AI summarizes webpage content automatically)

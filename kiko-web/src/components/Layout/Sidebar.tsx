@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, Plus, PanelLeftClose, ChevronDown, ChevronRight, Pencil, Trash2, RefreshCw } from 'lucide-react';
+import { MessageSquare, Newspaper, BarChart2, Layers, Plus, PanelLeftClose, ChevronDown, ChevronRight, Pencil, Trash2, Users, RefreshCw, Coins, Network } from 'lucide-react';
 import { usePrivy } from '@privy-io/react-auth';
 import type { WalletWithMetadata } from '@privy-io/react-auth';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
@@ -174,10 +174,46 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navItems: NavItem[] = [
     chatItem,
     {
+      id: 'social',
+      icon: Users,
+      label: 'Social',
+      path: '/social'
+    },
+    {
+      id: 'market-tokens',
+      icon: Coins,
+      label: 'Tokens',
+      path: '/tokens'
+    },
+    {
       id: 'trade',
       icon: RefreshCw,
-      label: 'Copy Trade',
+      label: 'Trade',
       path: '/trade'
+    },
+    {
+      id: 'news',
+      icon: Newspaper,
+      label: 'News',
+      path: '/news'
+    },
+    {
+      id: 'market-overview',
+      icon: BarChart2,
+      label: 'Overview',
+      path: '/market'
+    },
+    {
+      id: 'market-chains',
+      icon: Network,
+      label: 'Chains',
+      path: '/chains'
+    },
+    {
+      id: 'defi',
+      icon: Layers,
+      label: 'SuperDefi',
+      path: '/defi'
     },
   ];
 

@@ -85,6 +85,25 @@ export const COMMAND_REGISTRY: CommandDef[] = [
             { name: 'address', type: 'address', required: false, storageKey: 'kiko-param-wallet' }
         ]
     },
+    // Discovery Commands
+    {
+        name: 'get trending tokens',
+        pattern: 'get trending tokens',
+        aliases: ['trending', 'hot', 'popular tokens'],
+        description: 'Show trending tokens',
+        descriptionCN: '显示热门代币',
+        category: 'general',
+        params: []
+    },
+    {
+        name: 'trending casts',
+        pattern: 'trending casts',
+        aliases: ['farcaster', 'fc', 'casts', 'social'],
+        description: 'Show trending Farcaster casts',
+        descriptionCN: '显示热门 Farcaster 动态',
+        category: 'social',
+        params: []
+    },
     // Copy Trading
     {
         name: 'copy trade',
@@ -129,6 +148,16 @@ export const COMMAND_REGISTRY: CommandDef[] = [
             { name: 'address', type: 'address', required: true, storageKey: 'kiko-param-address' }
         ]
     },
+    // Polymarket
+    {
+        name: 'polymarket trending',
+        pattern: 'polymarket trending',
+        aliases: ['prediction', 'betting', 'markets'],
+        description: 'Show trending prediction markets',
+        descriptionCN: '显示热门预测市场',
+        category: 'general',
+        params: []
+    },
     // Utility
     {
         name: 'gas price',
@@ -165,7 +194,7 @@ export const ParamMemory = {
     load(paramName: string): string | null {
         try {
             return localStorage.getItem(`kiko-param-${paramName}`);
-        } catch {
+        } catch (e) {
             return null;
         }
     },

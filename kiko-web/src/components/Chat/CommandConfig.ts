@@ -1,6 +1,6 @@
 // CommandConfig.ts - Central command configuration for the Suggestion Engine
 
-export type CommandCategory = 'trading' | 'research' | 'wallet' | 'general';
+export type CommandCategory = 'trading' | 'research' | 'polymarket' | 'social' | 'wallet' | 'general';
 
 export interface CommandConfig {
     id: string;
@@ -186,7 +186,8 @@ export const COMMAND_CONFIGS: CommandConfig[] = [
         stages: ['ARGS_CHECK_TARGET', 'ARGS_CHECK_OPTION'],
         requiresAddress: true,
         options: [
-            { id: 'check-paste', label: 'Check [Paste Wallet Address]', actionSuffix: '', requiresAddress: true }
+            { id: 'check-paste', label: 'Check [Paste Wallet Address]', actionSuffix: '', requiresAddress: true },
+            { id: 'check-poly', label: 'Check my polymarket order position', actionSuffix: 'my polymarket order position' }
         ]
     },
     {
@@ -197,7 +198,15 @@ export const COMMAND_CONFIGS: CommandConfig[] = [
         score: 800,
         category: 'research',
         options: [
+            { id: 'what-bet', label: "What's the trending bet", actionSuffix: 'the trending bet' },
+            { id: 'what-token', label: "What's the trending token", actionSuffix: 'the trending token' },
+            { id: 'what-fc', label: "What's the trending farcaster cast", actionSuffix: 'the trending farcaster cast' },
+            { id: 'what-news', label: "What's trending news", actionSuffix: 'trending news' },
+            { id: 'what-zora', label: "What's Zora trending token", actionSuffix: 'Zora trending token' },
+            { id: 'what-cal', label: "What's Next Economic Calendar", actionSuffix: 'Next Economic Calendar' },
+            { id: 'what-market', label: "What's Market Overview", actionSuffix: 'Market Overview' },
             { id: 'what-pnl', label: "What's [Paste Address] PNL", actionSuffix: 'PNL', requiresAddress: true },
+            { id: 'what-early', label: "What's [Paste Address] early buyer", actionSuffix: 'early buyer', requiresAddress: true },
             { id: 'what-risk', label: "What's [Paste Address] risk", actionSuffix: 'risk', requiresAddress: true },
             { id: 'what-balance', label: "What's [Paste Address] balance", actionSuffix: 'balance', requiresAddress: true }
         ]
@@ -239,6 +248,91 @@ export const COMMAND_CONFIGS: CommandConfig[] = [
             { id: 'gas-sol', label: 'Gas price on Solana', actionSuffix: 'Solana' }
         ]
     },
+    {
+        id: 'zora',
+        triggers: ['zora', 'zo'],
+        label: 'Zora',
+        actionText: 'Zora ',
+        score: 750,
+        category: 'research',
+        options: [
+            { id: 'zora-trend', label: 'Zora trending', actionSuffix: 'trending' },
+            { id: 'zora-profile', label: 'Zora profile 0x...', actionSuffix: 'profile ', requiresAddress: true }
+        ]
+    },
+    {
+        id: 'trending',
+        triggers: ['trending', 'tr'],
+        label: 'Trending',
+        actionText: 'Trending ',
+        score: 750,
+        category: 'research',
+        options: [
+            { id: 'trend-zora', label: 'Trending on Zora', actionSuffix: 'on Zora' },
+            { id: 'trend-casts', label: 'Trending casts', actionSuffix: 'casts' }
+        ]
+    },
+
+    // --- SOCIAL ---
+    {
+        id: 'tell',
+        triggers: ['tell', 'te', 't'],
+        label: 'Tell',
+        actionText: 'Tell me ',
+        score: 700,
+        category: 'social',
+        options: [
+            { id: 'tell-fc', label: 'Tell me about Farcaster trending topic', actionSuffix: 'about Farcaster trending topic' },
+            { id: 'tell-talk', label: "Tell me what's guys talking about now", actionSuffix: "what's guys talking about now" },
+            { id: 'tell-vitalik', label: 'Tell me Vitalik recently cast', actionSuffix: 'Vitalik recently cast' }
+        ]
+    },
+    {
+        id: 'search',
+        triggers: ['search'],
+        label: 'Search',
+        actionText: 'Search for ',
+        score: 700,
+        category: 'social',
+        options: [
+            { id: 'search-fc', label: 'Search for [query] on Farcaster', actionSuffix: ' on Farcaster' }
+        ]
+    },
+    {
+        id: 'find',
+        triggers: ['find'],
+        label: 'Find',
+        actionText: 'Find user ',
+        score: 700,
+        category: 'social',
+        options: [
+            { id: 'find-user', label: 'Find user @', actionSuffix: '@' }
+        ]
+    },
+
+    // --- POLYMARKET ---
+    {
+        id: 'bet',
+        triggers: ['bet', 'be', 'b'],
+        label: 'Bet',
+        actionText: 'Bet ',
+        score: 650,
+        category: 'polymarket',
+        stages: ['ARGS_BET_LINK', 'ARGS_BET_SIDE', 'ARGS_BET_AMOUNT'],
+        requiresLink: true
+    },
+    {
+        id: 'cancel',
+        triggers: ['cancel', 'ca'],
+        label: 'Cancel',
+        actionText: 'Cancel ',
+        score: 750,
+        category: 'polymarket',
+        options: [
+            { id: 'cancel-poly', label: 'Cancel my polymarket order', actionSuffix: 'my polymarket order' }
+        ]
+    },
+
     // --- GENERAL ---
     {
         id: 'help',
@@ -301,10 +395,12 @@ export const CATEGORY_LABELS: Record<CommandCategory, string> = {
     trading: 'TRADING',
     wallet: 'WALLET',
     research: 'RESEARCH',
+    polymarket: 'POLYMARKET',
+    social: 'SOCIAL',
     general: 'GENERAL'
 };
 
 /**
  * Category order for display
  */
-export const CATEGORY_ORDER: CommandCategory[] = ['trading', 'wallet', 'research', 'general'];
+export const CATEGORY_ORDER: CommandCategory[] = ['trading', 'wallet', 'research', 'polymarket', 'social', 'general'];

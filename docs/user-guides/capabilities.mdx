@@ -89,8 +89,44 @@ Query real-time on-chain market data sourced from [DexScreener](https://dexscree
 - Detailed token info: contract address, liquidity, holder distribution.
 
 **Example Commands**
+- `"What are the trending tokens?"`
 - `"How much is ETH now?"`
-- `"Check 0x...'s liquidity and market cap"`
+- `"Top gainers on Base today"`
+
+---
+
+## 🐦 Social Intelligence
+
+Track crypto discussions on [Farcaster](https://warpcast.com) and [X (Twitter)](https://x.com) to capture community consensus.
+
+**Farcaster**
+- View trending posts from the last 24 hours.
+- Search for specific topics or project discussions.
+- Query Farcaster profiles and recent activity of specific users.
+
+**X (Twitter)**
+- Search for latest tweets and sentiment on X.
+
+**Example Commands**
+- `"What are people discussing on Farcaster right now?"`
+- `"Search for thoughts on new Base tokens"`
+- `"What's the latest about ETH ETFs on X?"`
+
+---
+
+## 🔮 Prediction Markets
+
+Access the [Polymarket](https://polymarket.com) prediction market data in real-time to see probabilities and odds based on real capital bets.
+
+**Queryable Content**
+- Top-volume predicted events.
+- Odds for specific topics (politics, macroeconomics, crypto markets).
+- Current probability for a specific question.
+
+**Example Commands**
+- `"What's trending on Polymarket?"`
+- `"What's the probability of a Fed rate cut?"`
+- `"Search for Bitcoin predictions on Polymarket"`
 
 ---
 
@@ -117,6 +153,7 @@ KiKo has built-in multi-source information retrieval capabilities to answer ques
 
 **Scope**
 - **Web Search**: Real-time internet search for latest info, news, and project intros.
+- **News Query**: Find the latest crypto market dynamics.
 - **Deep Web Analysis**: Enter a project's official URL to automatically extract team info, Tokenomics, GitHub, and social links.
 - **Comprehensive Research**: Synthesize multiple data sources to answer complex research questions.
 
@@ -124,6 +161,37 @@ KiKo has built-in multi-source information retrieval capabilities to answer ques
 - `"What new features does Uniswap v4 have?"`
 - `"Analyze this project: https://example.xyz"` (AI will summarize webpage content)
 - `"What's the big crypto news today?"`
+
+---
+
+## 🔔 Farcaster Notifications
+
+Link your [Farcaster](https://warpcast.com) account (FID) in settings, and KiKo will send real-time notifications via **Warpcast Direct Cast**.
+
+**Notification Types**
+| Event | Description |
+|-------|-------------|
+| Successful Trade (Buy/Sell) | Includes token, amount, and tx hash |
+| Failed Trade | Includes the reason for failure |
+| Copy Execution | Result of each copy trade buy |
+| Copy Skipped | Reason if risk filters were triggered |
+| Price Alert | Notification when target price is reached |
+
+<Info>
+  Farcaster notifications only work after linking your account in the settings page. When not linked, trade results are only shown in the chat window.
+</Info>
+
+---
+
+## ⭐ Favorite Tokens
+
+Add tokens to your favorites in the interface, and AI can directly read your Watchlist to query prices or execute actions.
+
+**Usage**
+- Click the star icon next to a token to add to favorites.
+- Tell the AI `"View my favorite tokens"` or `"How is my Watchlist doing today?"`
+
+AI will automatically fetch all your saved tokens and batch query their latest prices.
 
 ---
 

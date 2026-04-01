@@ -13,6 +13,8 @@ import { useSecureLogin } from '../../hooks/useSecureLogin';
 import { useNavigate } from 'react-router-dom'; // Import useNavigate for profile click
 import { agentAttrs } from '../../agent/attrs';
 import { useAgentMode } from '../../contexts/AgentModeContext';
+import { useOnboardingFlow } from '../../hooks/useOnboardingFlow';
+import { FarcasterFollowModal } from '../Chat/FarcasterFollowModal';
 
 interface SidebarContextType {
     onOpenSidebar: () => void;
@@ -63,6 +65,7 @@ export const Layout: React.FC<LayoutProps> = ({
     const { agentModeEnabled, agentModeSource } = useAgentMode();
     const { user, authenticated, ready } = usePrivy();
     const { secureLogin, isWarningOpen, closeWarning, confirmLogin } = useSecureLogin();
+    const { currentStep, dismissCurrentStep } = useOnboardingFlow();
 
     // Router hooks
     const location = useLocation();
@@ -125,6 +128,9 @@ export const Layout: React.FC<LayoutProps> = ({
                 onConfirm={confirmLogin}
                 onCancel={closeWarning}
             />
+            {currentStep === 'farcaster' && location.pathname === '/' && (
+                <FarcasterFollowModal onDismiss={(neverShowAgain) => dismissCurrentStep('farcaster', neverShowAgain)} />
+            )}
             <div className={`${styles.layout} ${styles[resolvedTheme]}`}>
                 <Sidebar
                     isOpen={isSidebarOpen}
