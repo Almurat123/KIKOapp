@@ -26,6 +26,46 @@ const ALLOWED_ORIGINS = ALLOWED_ORIGINS_ENV
 // [Logic]: Allow bypassing origin check in development mode only
 const isProduction = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'prod';
 
+function firstHeaderValue(value: string | string[] | undefined): string {
+    if (Array.isArray(value)) return (value[0] || '').trim();
+    return (value || '').trim();
+}
+
+function isAllowedOriginValue(candidateOrigin: string): boolean {
+    return ALLOWED_ORIGINS.some(allowed => {
+        if (allowed.endsWith('*')) {
+            const prefix = allowed.slice(0, -1);
+            return candidateOrigin.startsWith(prefix);
+        }
+        return candidateOrigin === allowed;
+    });
+}
+
+function deriveAllowedOriginFromForwardedHost(request: FastifyRequest): string {
+    const forwardedHost = firstHeaderValue(request.headers['x-forwarded-host'] as string | string[] | undefined).split(',')[0]?.trim().toLowerCase() || '';
+    const host = firstHeaderValue(request.headers.host as string | string[] | undefined).split(',')[0]?.trim().toLowerCase() || '';
+    const forwardedProto = firstHeaderValue(request.headers['x-forwarded-proto'] as string | string[] | undefined).split(',')[0]?.trim().toLowerCase() || '';
+    const candidates = [forwardedHost, host].filter(Boolean);
+    const browserLike =
+        !!firstHeaderValue(request.headers['sec-ch-ua'] as string | string[] | undefined)
+        || !!firstHeaderValue(request.headers['sec-fetch-mode'] as string | string[] | undefined)
+        || ((request.headers['user-agent'] as string) || '').includes('Mozilla/');
+
+    if (!browserLike) return '';
+
+    for (const candidateHost of candidates) {
+        const protos = forwardedProto ? [forwardedProto] : ['https', 'http'];
+        for (const proto of protos) {
+            const candidateOrigin = `${proto}://${candidateHost}`;
+            if (isAllowedOriginValue(candidateOrigin)) {
+                return candidateOrigin;
+            }
+        }
+    }
+
+    return '';
+}
+
 function isLoopbackAddress(ip: string | undefined): boolean {
     if (!ip) return false;
     const normalized = ip.replace(/^::ffff:/, '');
@@ -55,11 +95,11 @@ export async function requireAllowedOrigin(request: FastifyRequest, _reply: Fast
         return;
     }
 
-    const origin = request.headers.origin as string || '';
-    const referer = request.headers.referer as string || '';
-    const userAgent = request.headers['user-agent'] as string || '';
-    const secFetchSite = (request.headers['sec-fetch-site'] as string || '').toLowerCase();
-    const authHeader = (request.headers.authorization as string || '').toLowerCase();
+    const origin = firstHeaderValue(request.headers.origin as string | string[] | undefined);
+    const referer = firstHeaderValue(request.headers.referer as string | string[] | undefined);
+    const userAgent = firstHeaderValue(request.headers['user-agent'] as string | string[] | undefined);
+    const secFetchSite = firstHeaderValue(request.headers['sec-fetch-site'] as string | string[] | undefined).toLowerCase();
+    const authHeader = firstHeaderValue(request.headers.authorization as string | string[] | undefined).toLowerCase();
 
     // [Logic]: Extract base origin from referer if origin is missing
     let effectiveOrigin = origin;
@@ -69,6 +109,22 @@ export async function requireAllowedOrigin(request: FastifyRequest, _reply: Fast
             effectiveOrigin = `${url.protocol}//${url.host}`;
         } catch {
             effectiveOrigin = '';
+        }
+    }
+
+    // Some first-party browser requests can arrive without Origin/Referer after
+    // CDN / privacy-layer normalization. Fall back to the forwarded host only if
+    // it resolves to one of our explicitly allowed browser origins.
+    if (!effectiveOrigin) {
+        const derivedOrigin = deriveAllowedOriginFromForwardedHost(request);
+        if (derivedOrigin) {
+            effectiveOrigin = derivedOrigin;
+            console.log('[originRestriction] Missing origin/referer accepted by forwarded host fallback', {
+                effectiveOrigin,
+                host: firstHeaderValue(request.headers.host as string | string[] | undefined),
+                forwardedHost: firstHeaderValue(request.headers['x-forwarded-host'] as string | string[] | undefined),
+                forwardedProto: firstHeaderValue(request.headers['x-forwarded-proto'] as string | string[] | undefined),
+            });
         }
     }
 
@@ -100,14 +156,7 @@ export async function requireAllowedOrigin(request: FastifyRequest, _reply: Fast
     }
 
     // [Logic]: Check if origin is in allowed list
-    const isAllowed = ALLOWED_ORIGINS.some(allowed => {
-        if (allowed.endsWith('*')) {
-            // Wildcard matching: https://*.kiko.app
-            const prefix = allowed.slice(0, -1);
-            return effectiveOrigin.startsWith(prefix);
-        }
-        return effectiveOrigin === allowed;
-    });
+    const isAllowed = isAllowedOriginValue(effectiveOrigin);
 
     if (!isAllowed) {
         // [Logic]: Log details for debugging mobile issues
@@ -115,6 +164,9 @@ export async function requireAllowedOrigin(request: FastifyRequest, _reply: Fast
             origin,
             referer,
             effectiveOrigin,
+            host: firstHeaderValue(request.headers.host as string | string[] | undefined),
+            forwardedHost: firstHeaderValue(request.headers['x-forwarded-host'] as string | string[] | undefined),
+            forwardedProto: firstHeaderValue(request.headers['x-forwarded-proto'] as string | string[] | undefined),
             userAgent: userAgent.substring(0, 100),
             allowedOrigins: ALLOWED_ORIGINS.slice(0, 5),
         });
