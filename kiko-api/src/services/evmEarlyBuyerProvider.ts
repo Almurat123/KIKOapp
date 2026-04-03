@@ -163,6 +163,74 @@ async function resolveApproximateBlockRange(
     if (!latestNumber || !latestTimestampSec) return {};
 
     const latestTimestampMs = latestTimestampSec * 1000;
+    const blockHeaderCache = new Map<number, Promise<{ number: number; timestampMs: number } | null>>();
+
+    const getBlockHeader = async (blockNumber: number): Promise<{ number: number; timestampMs: number } | null> => {
+      if (!Number.isFinite(blockNumber) || blockNumber < 0 || blockNumber > latestNumber) return null;
+      let pending = blockHeaderCache.get(blockNumber);
+      if (!pending) {
+        pending = (async () => {
+          try {
+            const blockHex = `0x${blockNumber.toString(16)}`;
+            const block = await deps.callRpc<any>(chain.toLowerCase(), 'eth_getBlockByNumber', [blockHex, false], {
+              strategy: 'cheap',
+            });
+            const resolvedNumber = parseBlockNumber(String(block?.number || blockHex));
+            const resolvedTimestampSec = block?.timestamp ? Number(BigInt(String(block.timestamp))) : null;
+            if (!resolvedNumber || !resolvedTimestampSec) return null;
+            return {
+              number: resolvedNumber,
+              timestampMs: resolvedTimestampSec * 1000,
+            };
+          } catch {
+            return null;
+          }
+        })();
+        blockHeaderCache.set(blockNumber, pending);
+      }
+      return pending;
+    };
+
+    const findFirstBlockAtOrAfter = async (targetTimeMs: number): Promise<number | null> => {
+      if (targetTimeMs <= 0) return 0;
+      if (targetTimeMs > latestTimestampMs) return latestNumber;
+      let low = 0;
+      let high = latestNumber;
+      let candidate: number | null = null;
+      while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        const header = await getBlockHeader(mid);
+        if (!header) return null;
+        if (header.timestampMs >= targetTimeMs) {
+          candidate = header.number;
+          high = mid - 1;
+        } else {
+          low = mid + 1;
+        }
+      }
+      return candidate;
+    };
+
+    const findLastBlockAtOrBefore = async (targetTimeMs: number): Promise<number | null> => {
+      if (targetTimeMs <= 0) return 0;
+      if (targetTimeMs >= latestTimestampMs) return latestNumber;
+      let low = 0;
+      let high = latestNumber;
+      let candidate: number | null = null;
+      while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        const header = await getBlockHeader(mid);
+        if (!header) return null;
+        if (header.timestampMs <= targetTimeMs) {
+          candidate = header.number;
+          low = mid + 1;
+        } else {
+          high = mid - 1;
+        }
+      }
+      return candidate;
+    };
+
     const estimateBlock = (targetTimeMs: number, round: 'floor' | 'ceil') => {
       const deltaMs = latestTimestampMs - targetTimeMs;
       const estimatedDeltaBlocks = Math.max(0, deltaMs / avgBlockTimeMs);
@@ -170,11 +238,19 @@ async function resolveApproximateBlockRange(
       return Math.max(0, raw);
     };
 
+    const searchedStartBlock = startTimeMs ? await findFirstBlockAtOrAfter(startTimeMs) : null;
+    const searchedEndBlock = endTimeMs ? await findLastBlockAtOrBefore(endTimeMs) : null;
     const fromBlock = startTimeMs
-      ? Math.max(0, estimateBlock(startTimeMs, 'ceil') - RANGE_MARGIN_BLOCKS)
+      ? Math.max(
+          0,
+          ((searchedStartBlock ?? estimateBlock(startTimeMs, 'ceil')) - RANGE_MARGIN_BLOCKS)
+        )
       : undefined;
     const toBlock = endTimeMs
-      ? Math.min(latestNumber, estimateBlock(endTimeMs, 'floor') + RANGE_MARGIN_BLOCKS)
+      ? Math.min(
+          latestNumber,
+          ((searchedEndBlock ?? estimateBlock(endTimeMs, 'floor')) + RANGE_MARGIN_BLOCKS)
+        )
       : latestNumber;
 
     return {

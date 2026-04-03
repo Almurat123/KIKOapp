@@ -158,6 +158,7 @@ function buildNormalizationMessages(snapshot: ChatContextSnapshot): GenerationMe
                 'evidence_requirements values: native_search_results | onchain_token_evidence | onchain_wallet_evidence | connected_chain_evidence | verified_polymarket_token_id',
                 'Set locale to en or zh only. Use zh only when the latest user message is primarily Chinese.',
                 'For early-buyer / holder / first-buyer style queries, default output_mode to full_table.',
+                'For early-buyer queries with a literal user-specified time such as "today 11:48", "at 9:30", or an explicit start/end range, preserve that requested_time_window as the literal query window in the user\'s timezone. Do not reinterpret it as the token launch window, listing window, or announcement window unless the user explicitly asked for that event timestamp.',
                 'For explicit numeric export requests like "for 30", set row_count accordingly.',
                 'Use domain=assistant_meta with intent=assistant_meta for Kiko intro/capabilities questions and for meta/debug questions about the assistant, the system, the previous reply, fallback behavior, plan/runtime behavior, or why the assistant responded a certain way.',
                 'For onboarding/capabilities questions, prefer task_mode=discover. For debugging or explaining the previous assistant/system behavior, prefer task_mode=analyze.',

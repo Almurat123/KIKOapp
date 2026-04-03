@@ -77,6 +77,60 @@ test('normalizeCanonicalIntent parses a valid early-buyer full-table payload', a
     assert.equal(result.snapshot.requestedTokenAddresses[0], '0xeCCBb861c0dda7eFd964010085488B69317e4444');
 });
 
+test('normalizeCanonicalIntent preserves literal time windows for early-buyer queries', async () => {
+    const result = await normalizeCanonicalIntent({
+        snapshot: makeSnapshot('帮我获取0xabc今天11:48的早期购买者'),
+        generationClient: {
+            async generate() {
+                return {
+                    text: JSON.stringify({
+                        domain: 'token',
+                        intent: 'early_buyers',
+                        task_mode: 'analyze',
+                        output_mode: 'full_table',
+                        search_mode: 'forbidden',
+                        search_target: 'none',
+                        confidence: 0.9,
+                        explanation: 'Literal time-bound early buyer query.',
+                        entities: {
+                            token_addresses: ['0xabc'],
+                            token_symbols: [],
+                            wallet_addresses: [],
+                            market_identifiers: [],
+                        },
+                        requested_chain: {
+                            chain_id: 56,
+                            chain_name: 'BNB Chain',
+                        },
+                        requested_time_window: {
+                            is_time_bound: true,
+                            description: 'today 11:48 in user timezone',
+                            start_time: '2026-04-03T11:48:00+08:00',
+                            end_time: '2026-04-03T11:48:59+08:00',
+                        },
+                        evidence_requirements: ['onchain_token_evidence'],
+                        requires_realtime: true,
+                        requires_onchain_evidence: true,
+                        execution_candidate: false,
+                        row_count: null,
+                        locale: 'zh',
+                        needs_clarification: false,
+                        clarification_question: null,
+                    }),
+                    reasoning: '',
+                    toolCalls: [],
+                };
+            },
+        } as any,
+    });
+
+    assert.equal(result.state.status, 'ok');
+    assert.equal(result.snapshot.normalizedIntent?.intent, 'early_buyers');
+    assert.equal(result.snapshot.normalizedIntent?.timeContext?.isTimeBound, true);
+    assert.equal(result.snapshot.normalizedIntent?.timeContext?.startTime, '2026-04-03T11:48:00+08:00');
+    assert.equal(result.snapshot.normalizedIntent?.timeContext?.endTime, '2026-04-03T11:48:59+08:00');
+});
+
 test('normalizeCanonicalIntent marks invalid JSON explicitly', async () => {
     const result = await normalizeCanonicalIntent({
         snapshot: makeSnapshot('whatever'),

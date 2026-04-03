@@ -20,6 +20,50 @@ const KNOWN_CONTRACTS = new Set([
 const CONTRACT_CACHE_TTL_MS = 10 * 60 * 1000;
 const contractClassificationCache = new Map<string, { isContract: boolean; checkedAt: number }>();
 
+type AssetTransferTimestampInput = {
+    metadata?: { blockTimestamp?: string };
+    blockNum?: string;
+};
+
+export function createAssetTransferTimestampResolver(
+    chain: string,
+    rpcCall: typeof rpcManager.callRpc = rpcManager.callRpc
+): (transfer: AssetTransferTimestampInput) => Promise<Date | null> {
+    const blockTimestampCache = new Map<number, Promise<Date | null>>();
+
+    return async (transfer: AssetTransferTimestampInput): Promise<Date | null> => {
+        if (transfer.metadata?.blockTimestamp) {
+            const parsed = new Date(transfer.metadata.blockTimestamp);
+            if (!Number.isNaN(parsed.getTime())) return parsed;
+        }
+
+        const rawBlockNum = String(transfer.blockNum || '');
+        if (!rawBlockNum) return null;
+        const blockNumber = rawBlockNum.startsWith('0x') ? parseInt(rawBlockNum, 16) : parseInt(rawBlockNum, 10);
+        if (!Number.isFinite(blockNumber) || blockNumber <= 0) return null;
+
+        let pending = blockTimestampCache.get(blockNumber);
+        if (!pending) {
+            pending = (async () => {
+                try {
+                    const blockHex = `0x${blockNumber.toString(16)}`;
+                    const block = await rpcCall<any>(chain, 'eth_getBlockByNumber', [blockHex, false], {
+                        strategy: 'cheap',
+                    });
+                    const tsHex = String(block?.timestamp || '0x0');
+                    const timestampMs = Number(BigInt(tsHex)) * 1000;
+                    return Number.isFinite(timestampMs) && timestampMs > 0 ? new Date(timestampMs) : null;
+                } catch {
+                    return null;
+                }
+            })();
+            blockTimestampCache.set(blockNumber, pending);
+        }
+
+        return pending;
+    };
+}
+
 
 /**
  * Check if an address is a contract (has code) or EOA (person wallet)
@@ -430,27 +474,7 @@ export async function getEarlyBuyers(
         return true;
     };
 
-    const resolveTimestampFromAssetTransfer = async (transfer: { metadata?: { blockTimestamp?: string }; blockNum?: string }): Promise<Date | null> => {
-        if (transfer.metadata?.blockTimestamp) {
-            const parsed = new Date(transfer.metadata.blockTimestamp);
-            if (!Number.isNaN(parsed.getTime())) return parsed;
-        }
-        const rawBlockNum = String(transfer.blockNum || '');
-        if (!rawBlockNum) return null;
-        const blockNumber = rawBlockNum.startsWith('0x') ? parseInt(rawBlockNum, 16) : parseInt(rawBlockNum, 10);
-        if (!Number.isFinite(blockNumber) || blockNumber <= 0) return null;
-        try {
-            const blockHex = `0x${blockNumber.toString(16)}`;
-            const block = await rpcManager.callRpc<any>(chainLower, 'eth_getBlockByNumber', [blockHex, false], {
-                strategy: 'cheap',
-            });
-            const tsHex = String(block?.timestamp || '0x0');
-            const timestampMs = Number(BigInt(tsHex)) * 1000;
-            return Number.isFinite(timestampMs) && timestampMs > 0 ? new Date(timestampMs) : null;
-        } catch {
-            return null;
-        }
-    };
+    const resolveTimestampFromAssetTransfer = createAssetTransferTimestampResolver(chainLower);
 
     if (isSolana) {
         console.log(`[TokenAnalysis] Fetching early buyers for Solana mint: ${tokenAddress}`);
@@ -660,3 +684,7 @@ export async function getTopTraders(
         return [];
     }
 }
+
+export const __testOnly = {
+    createAssetTransferTimestampResolver,
+};

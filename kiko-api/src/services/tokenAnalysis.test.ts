@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveEarlyBuyerTokenPnl, summarizeWalletTokenTrades } from './tokenAnalysis.js';
+import { __testOnly, resolveEarlyBuyerTokenPnl, summarizeWalletTokenTrades } from './tokenAnalysis.js';
 
 test('summarizeWalletTokenTrades picks first buy and first sell for a token', () => {
     const tokenAddress = '0x1111111111111111111111111111111111111111';
@@ -126,4 +126,25 @@ test('resolveEarlyBuyerTokenPnl falls back to manual token breakdown', async () 
         profitPct: 75,
         currentTokenAmount: '10',
     });
+});
+
+test('createAssetTransferTimestampResolver reuses a single block lookup for repeated transfers in the same block', async () => {
+    let rpcCalls = 0;
+    const resolver = __testOnly.createAssetTransferTimestampResolver('bsc', (async (...args: any[]) => {
+        rpcCalls += 1;
+        assert.equal(args[0], 'bsc');
+        assert.equal(args[1], 'eth_getBlockByNumber');
+        return {
+            timestamp: '0x6773e430',
+        };
+    }) as any);
+
+    const [first, second] = await Promise.all([
+        resolver({ blockNum: '0x4629ca8' }),
+        resolver({ blockNum: '0x4629ca8' }),
+    ]);
+
+    assert.equal(first?.toISOString(), '2024-12-31T12:31:44.000Z');
+    assert.equal(second?.toISOString(), '2024-12-31T12:31:44.000Z');
+    assert.equal(rpcCalls, 1);
 });

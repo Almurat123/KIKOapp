@@ -522,6 +522,41 @@ test('full early-buyer export queries prefer full-table output wording', () => {
     );
 });
 
+test('time-bound early-buyer queries preserve the literal requested window semantics', () => {
+    const contract = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'token',
+        intent: 'early_buyers',
+        outputMode: 'full_table',
+        entities: {
+            tokenAddresses: [contract],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        timeContext: {
+            isTimeBound: true,
+            description: 'today 11:48 in user timezone',
+            startTime: '2026-04-03T11:48:00+08:00',
+            endTime: '2026-04-03T11:48:59+08:00',
+        },
+        evidenceRequirements: ['onchain_token_evidence'],
+        requiresOnchainEvidence: true,
+    });
+    const resolution = resolveNodeSkills(makeSnapshot(`帮我获取${contract}今天11:48的早期购买者`, {
+        requestedTokenAddresses: [contract],
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
+
+    assert.ok(resolution.preferredTools.includes('get_early_buyers'));
+    assert.ok(
+        resolution.strategyNotes.some((note) =>
+            note.includes('treat the requested time window as literal query scope')
+        )
+    );
+});
+
+
 test('explicit early-buyer row count queries are treated as full exports', () => {
     const contract = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
     const canonicalIntent = makeCanonicalIntent({

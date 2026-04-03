@@ -101,7 +101,7 @@ function buildEarlyBuyersMarkdownTable(rows: Array<{
 export const GetEarlyBuyersTool: Tool = {
     definition: {
         name: 'get_early_buyers',
-        description: 'Get the earliest buyers of a token, optionally within a precise time window. Default behavior is a fast path: return the early-buyer rows without wallet trade progression or token PnL enrichment. Only enable trade progression or token PnL when the user explicitly asks for wallet progression, profit ranking, or token-specific PnL. Use this after you know the token contract and, if relevant, the event/post time window you want to analyze. If you choose this tool, emit a real structured tool call immediately. Do not narrate "Calling get_early_buyers" in plain text. Use address plus optional start_time/end_time; do not invent timestamp_range or other unofficial fields. Early-buyer queries should default to full-list output for the returned rows, not a compressed summary. Use the returned rows or markdownTable to format the answer directly.',
+        description: 'Get the earliest buyers of a token, optionally within a precise time window. When start_time/end_time are provided, interpret early buyers as the earliest qualifying buyers inside that literal requested window rather than the token launch window or any inferred event time. Default behavior is a fast path: return the early-buyer rows without wallet trade progression or token PnL enrichment. Only enable trade progression or token PnL when the user explicitly asks for wallet progression, profit ranking, or token-specific PnL. Use this after you know the token contract and, if relevant, the event/post time window you want to analyze. If you choose this tool, emit a real structured tool call immediately. Do not narrate "Calling get_early_buyers" in plain text. Use address plus optional start_time/end_time; do not invent timestamp_range or other unofficial fields. Early-buyer queries should default to full-list output for the returned rows, not a compressed summary. Use the returned rows or markdownTable to format the answer directly.',
         parameters: {
             type: 'object',
             properties: {
@@ -201,9 +201,18 @@ export const GetEarlyBuyersTool: Tool = {
             });
 
             if (!buyers || buyers.length === 0) {
+                const hasExplicitWindow = Number.isFinite(startTimeMs) || Number.isFinite(endTimeMs);
+                const requestedWindow = hasExplicitWindow
+                    ? [
+                        Number.isFinite(startTimeMs) ? new Date(startTimeMs!).toISOString() : null,
+                        Number.isFinite(endTimeMs) ? new Date(endTimeMs!).toISOString() : null,
+                    ].filter(Boolean).join(' to ')
+                    : null;
                 return {
                     success: false,
-                    message: `No early buyers found for ${address} on ${resolved.chain}. Token may be too new or not have trading activity yet.`
+                    message: hasExplicitWindow
+                        ? `No early buyers found for ${address} on ${resolved.chain} inside the requested window${requestedWindow ? ` (${requestedWindow})` : ''}.`
+                        : `No early buyers found for ${address} on ${resolved.chain}.`
                 };
             }
 

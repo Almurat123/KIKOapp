@@ -314,6 +314,9 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         pushPreferred(preferredTools, 'get_early_buyers');
         pushPreferred(preferredTools, 'get_token_info');
         strategyNotes.push('This request asks for on-chain buyer/holder evidence. Prefer local token-analysis tools before answering from web summaries alone.');
+        if (normalizedIntent?.timeContext?.isTimeBound) {
+            strategyNotes.push('For time-bound early-buyer requests, treat the requested time window as literal query scope. Use that exact window for get_early_buyers, do not silently substitute token launch time or announcement time, and if the window returns no buyers say that the requested window had no qualifying buyers.');
+        }
         if (wantsEarlyBuyerFullList) {
             strategyNotes.push(`Early-buyer queries default to full-list output${explicitEarlyBuyerRowCount ? ` with ${explicitEarlyBuyerRowCount} rows` : ''}. Preserve full wallet addresses and render the returned rows directly as a clean markdown table instead of compressing them into a short summary. Do not request trade progression or wallet PnL unless the user explicitly asks for those deeper wallet details.`);
         }
