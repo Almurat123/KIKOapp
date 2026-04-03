@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { assembleGenerationMessages } from './nodePromptAssembler.js';
+import type { CanonicalIntent } from './canonicalIntent.js';
 import type { ChatContextSnapshot, PlanCard, ProviderNativeEvidenceSnapshot } from './contracts.js';
 import type { ProviderInfo } from './providerPolicyBuilder.js';
 
@@ -426,6 +427,69 @@ test('assembleGenerationMessages carries early-buyer evidence requirements throu
     const userMessage = messages.find((message) => message.role === 'user');
     assert.match(String(userMessage?.content || ''), /\[TOOL_CONTEXT\]/);
     assert.match(String(userMessage?.content || ''), /required evidence before final answer\/conclusion: native_search_results, onchain_token_evidence/i);
+});
+
+test('assembleGenerationMessages includes exact canonical time anchor bounds when present', () => {
+    const normalizedIntent: CanonicalIntent = {
+        domain: 'token',
+        intent: 'early_buyers',
+        taskMode: 'analyze',
+        outputMode: 'full_table',
+        searchMode: 'forbidden',
+        searchTarget: 'none',
+        confidence: 0.98,
+        explanation: 'literal time window',
+        entities: {
+            tokenAddresses: ['0xabc'],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        requestedChain: null,
+        timeContext: {
+            isTimeBound: true,
+            description: 'today 11:48 in user timezone',
+            startTime: '2026-04-03T11:48:00+08:00',
+            endTime: '2026-04-03T11:48:59+08:00',
+        },
+        evidenceRequirements: ['onchain_token_evidence'],
+        requiresRealtime: true,
+        requiresOnchainEvidence: true,
+        executionCandidate: false,
+        rowCount: null,
+        locale: 'zh',
+        needsClarification: false,
+        clarificationQuestion: null,
+        source: 'llm',
+    };
+    const snapshot: ChatContextSnapshot = {
+        sessionId: 'session-time-anchor',
+        taskId: 'task-time-anchor',
+        model: 'gpt-5-mini',
+        history: [],
+        lastUserMessage: '帮我获取0xabc今天11:48的早期购买者',
+        runtime: {
+            contextBlocks: {},
+            userSettings: {},
+        },
+        requestedTokenAddresses: ['0xabc'],
+        requestedTokenSymbols: [],
+        normalizedIntent,
+        toolDefinitions: [],
+    } as ChatContextSnapshot;
+
+    const providerInfo: ProviderInfo = {
+        provider: 'openai',
+        model: snapshot.model,
+        supportsNativeSearch: false,
+        supportsPreviousResponse: true,
+    };
+
+    const messages = assembleGenerationMessages(snapshot, [], providerInfo);
+    const userMessage = messages.find((message) => message.role === 'user');
+    const content = String(userMessage?.content || '');
+    assert.match(content, /time_anchor_start: 2026-04-03T11:48:00\+08:00/);
+    assert.match(content, /time_anchor_end: 2026-04-03T11:48:59\+08:00/);
 });
 
 test('assembleGenerationMessages uses compact execution mode guidance for swap execution flows', () => {

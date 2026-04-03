@@ -21,7 +21,7 @@ import {
 } from './taskPlanner.js';
 import { generateModelPlan } from './modelPlanGenerator.js';
 import { normalizeCanonicalIntent } from './canonicalIntentNormalizer.js';
-import { buildCanonicalIntentClarification } from './canonicalIntent.js';
+import { buildCanonicalIntentClarification, type CanonicalIntent } from './canonicalIntent.js';
 import { applyConversationActionState } from './conversationStateResolver.js';
 import { tryBuildFastLaneSwapIntent, tryRunFastSwapLane } from './swapFastLane.js';
 
@@ -465,7 +465,12 @@ export async function runNodeOrchestration(params: {
             return;
         }
 
-        const normalizedToolCalls = roundResult.toolCalls.map((call) => normalizeToolCallForProvider(call, providerInfo.provider));
+        const normalizedToolCalls = roundResult.toolCalls.map((call) =>
+            applyCanonicalIntentOverridesToToolCall(
+                normalizeToolCallForProvider(call, providerInfo.provider),
+                params.snapshot.normalizedIntent || null,
+            )
+        );
         for (const call of normalizedToolCalls) {
             const policyViolation = checkToolAgainstPolicy({
                 call,
@@ -944,6 +949,33 @@ export function normalizeToolCallForProvider(
     delete args.time;
     delete args.window_hours;
     delete args.time_window_hours;
+
+    return {
+        ...call,
+        arguments: args,
+    };
+}
+
+export function applyCanonicalIntentOverridesToToolCall(
+    call: { id: string; name: string; arguments: Record<string, any> },
+    canonicalIntent: CanonicalIntent | null | undefined,
+) {
+    if (String(call.name || '') !== 'get_early_buyers') {
+        return call;
+    }
+
+    const timeContext = canonicalIntent?.timeContext;
+    if (!timeContext?.isTimeBound) {
+        return call;
+    }
+
+    const args = { ...(call.arguments || {}) };
+    if (timeContext.startTime) {
+        args.start_time = timeContext.startTime;
+    }
+    if (timeContext.endTime) {
+        args.end_time = timeContext.endTime;
+    }
 
     return {
         ...call,

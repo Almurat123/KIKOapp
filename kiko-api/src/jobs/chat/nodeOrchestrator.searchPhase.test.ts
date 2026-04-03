@@ -3,7 +3,7 @@ import test from 'node:test';
 import { toolRegistry } from '../../tooling/registry.js';
 import type { ChatContextSnapshot } from './contracts.js';
 import type { CanonicalIntent } from './canonicalIntent.js';
-import { buildGenerationTools, normalizeToolCallForProvider, runNodeOrchestration } from './nodeOrchestrator.js';
+import { applyCanonicalIntentOverridesToToolCall, buildGenerationTools, normalizeToolCallForProvider, runNodeOrchestration } from './nodeOrchestrator.js';
 
 function makeSnapshot(message: string, overrides: Partial<ChatContextSnapshot> = {}): ChatContextSnapshot {
     const { runtime: runtimeOverrides, ...restOverrides } = overrides;
@@ -975,4 +975,55 @@ test('normalizeToolCallForProvider rewrites legacy early-buyer time arguments to
     assert.equal(typeof normalized.arguments.end_time, 'string');
     assert.equal('token_address' in normalized.arguments, false);
     assert.equal('timestamp' in normalized.arguments, false);
+});
+
+test('applyCanonicalIntentOverridesToToolCall forces literal canonical early-buyer window over model-invented UTC window', () => {
+    const overridden = applyCanonicalIntentOverridesToToolCall({
+        id: 'buyers-window',
+        name: 'get_early_buyers',
+        arguments: {
+            address: '0xabc',
+            chain: 'bsc',
+            start_time: '2026-04-03T11:48:00Z',
+            end_time: '2026-04-03T11:48:59Z',
+        },
+    }, {
+        domain: 'token',
+        intent: 'early_buyers',
+        taskMode: 'analyze',
+        outputMode: 'full_table',
+        searchMode: 'forbidden',
+        searchTarget: 'none',
+        confidence: 0.99,
+        explanation: 'literal time-bound early buyer query',
+        entities: {
+            tokenAddresses: ['0xabc'],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        requestedChain: {
+            chainId: 56,
+            chainName: 'BNB Chain',
+            source: 'llm',
+        },
+        timeContext: {
+            isTimeBound: true,
+            description: 'today 11:48 in user timezone',
+            startTime: '2026-04-03T11:48:00+08:00',
+            endTime: '2026-04-03T11:48:59+08:00',
+        },
+        evidenceRequirements: ['onchain_token_evidence'],
+        requiresRealtime: true,
+        requiresOnchainEvidence: true,
+        executionCandidate: false,
+        rowCount: null,
+        locale: 'zh',
+        needsClarification: false,
+        clarificationQuestion: null,
+        source: 'llm',
+    });
+
+    assert.equal(overridden.arguments.start_time, '2026-04-03T11:48:00+08:00');
+    assert.equal(overridden.arguments.end_time, '2026-04-03T11:48:59+08:00');
 });

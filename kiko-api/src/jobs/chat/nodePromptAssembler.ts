@@ -242,6 +242,12 @@ function buildWorkflowStateBlock(snapshot: ChatContextSnapshot): string {
     }
     if (snapshot.normalizedIntent?.timeContext) {
         lines.push(`time_anchor_state: ${snapshot.normalizedIntent.timeContext.description || (snapshot.normalizedIntent.timeContext.isTimeBound ? 'time_bound' : 'none')}`);
+        if (snapshot.normalizedIntent.timeContext.startTime) {
+            lines.push(`time_anchor_start: ${snapshot.normalizedIntent.timeContext.startTime}`);
+        }
+        if (snapshot.normalizedIntent.timeContext.endTime) {
+            lines.push(`time_anchor_end: ${snapshot.normalizedIntent.timeContext.endTime}`);
+        }
     }
     if (recentTools.length > 0) {
         lines.push(`recent_tools: ${recentTools.join(', ')}`);
