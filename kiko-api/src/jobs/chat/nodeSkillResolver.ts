@@ -432,7 +432,8 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         asksWalletPnl,
         hasRequestedToken,
     });
-    if (!normalizedIntent && isGrok && shouldPreferLocalTokenLeaderboard(snapshot, intentEnvelope)) {
+    const preferLocalTokenLeaderboard = isGrok && shouldPreferLocalTokenLeaderboard(snapshot, intentEnvelope);
+    if (preferLocalTokenLeaderboard) {
         effectiveSearchMode = 'forbidden';
         effectiveSearchReason = 'local_token_leaderboard_preferred';
         intentEnvelope.search_mode = 'forbidden';
@@ -450,16 +451,23 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         allowAllTools = false;
         strategyNotes.push('This read-only token trend query is satisfiable from KiKo local token leaderboard data. Start with get_trending_tokens and stay on local token evidence unless the user explicitly asks for social/search sources.');
     }
+    if (preferLocalTokenLeaderboard) {
+        strategyNotes.push('Canonical social-search intent is being overridden because the query is answerable from local token leaderboard data without external evidence.');
+    }
     if (isGrok) {
         allowedTools = allowedTools.filter((toolName) => !GROK_BLOCKED_FARCASTER_TOOLS.has(toolName));
         preferredTools.splice(0, preferredTools.length, ...preferredTools.filter((toolName) => !GROK_BLOCKED_FARCASTER_TOOLS.has(toolName)));
         strategyNotes.push('Grok path does not expose local Farcaster cache/search tools. Use provider-native search instead for social discovery.');
     }
     const toolPhasePolicy = buildToolPhasePolicy(snapshot, tradingIntent, intentEnvelope, Boolean(normalizedIntent));
-    if (!isGrok && intentEnvelope.search_mode === 'required') {
+    if (!preferLocalTokenLeaderboard && !isGrok && intentEnvelope.search_mode === 'required') {
         strategyNotes.push('This provider does not support provider-native X/web search in the current orchestration path. Use only relevant local tools if they truly match the request, otherwise state the limitation plainly.');
     }
-    strategyNotes.push(describePhasePolicy(intentEnvelope, toolPhasePolicy));
+    if (preferLocalTokenLeaderboard) {
+        strategyNotes.push('Local token leaderboard evidence is the first-class answer path for this turn. Do not spend search budget unless the user explicitly asks for X/web/social sources.');
+    } else {
+        strategyNotes.push(describePhasePolicy(intentEnvelope, toolPhasePolicy));
+    }
 
     logger.info(LogCode.AI_SKILLS_ATTACHED, 'Node skill resolution completed', {
         sessionId: snapshot.sessionId,
@@ -636,7 +644,7 @@ function buildToolPhasePolicy(
         };
     }
 
-    if (!hasCanonicalIntent && supportsNativeSearch && shouldPreferLocalTokenLeaderboard(snapshot, intentEnvelope)) {
+    if (supportsNativeSearch && shouldPreferLocalTokenLeaderboard(snapshot, intentEnvelope)) {
         return {
             initialPhase: 'local_analysis',
             nextPhaseAfterNativeSearch: null,
@@ -700,8 +708,8 @@ function describePhasePolicy(intentEnvelope: IntentEnvelope, toolPhasePolicy: To
 
 function shouldPreferLocalTokenLeaderboard(snapshot: ChatContextSnapshot, intentEnvelope: IntentEnvelope): boolean {
     if (intentEnvelope.execution_risk !== 'read_only') return false;
-    if (intentEnvelope.primary_intent !== 'search_discovery') return false;
     if (intentEnvelope.domain !== 'token') return false;
+    if (!['search_discovery', 'social_discovery', 'token_analysis'].includes(intentEnvelope.primary_intent)) return false;
     const hasLocalLeaderboardTool = (snapshot.toolDefinitions || []).some((definition) => definition.name === 'get_trending_tokens');
     if (!hasLocalLeaderboardTool) return false;
     const query = String(snapshot.lastUserMessage || '').trim();
@@ -709,9 +717,6 @@ function shouldPreferLocalTokenLeaderboard(snapshot: ChatContextSnapshot, intent
     if (!TOKEN_LEADERBOARD_QUERY_RE.test(query)) return false;
     if (EXPLICIT_SOCIAL_SOURCE_QUERY_RE.test(query)) return false;
     if (EXPLICIT_SEARCH_QUERY_RE.test(query)) return false;
-    if (intentEnvelope.search_target === 'x' || intentEnvelope.search_target === 'x_and_web' || intentEnvelope.search_target === 'web') {
-        return false;
-    }
     return true;
 }
 

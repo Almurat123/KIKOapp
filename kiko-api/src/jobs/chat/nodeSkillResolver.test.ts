@@ -328,7 +328,7 @@ test('DeepSeek X trending queries stay out of native-search-only while keeping f
     assert.ok(resolution.strategyNotes.some((note) => note.includes('native X search')));
 });
 
-test('Grok keeps canonical token-discovery intent authoritative instead of forcing local leaderboard fallback', () => {
+test('Grok prefers local trending-token evidence even when canonical intent over-specifies social search', () => {
     const canonicalIntent = makeCanonicalIntent({
         domain: 'token',
         intent: 'social_discovery',
@@ -341,11 +341,13 @@ test('Grok keeps canonical token-discovery intent authoritative instead of forci
     });
     const resolution = resolveNodeSkills(snapshot, null, canonicalIntent);
 
-    assert.equal(resolution.toolPhasePolicy.initialPhase, 'native_search_only');
-    assert.equal(resolution.searchMode, 'required');
-    assert.notEqual(resolution.searchReason, 'local_token_leaderboard_preferred');
-    assert.equal(resolution.intentEnvelope.search_mode, 'required');
-    assert.equal(resolution.intentEnvelope.search_target, 'web');
+    assert.equal(resolution.toolPhasePolicy.initialPhase, 'local_analysis');
+    assert.equal(resolution.searchMode, 'forbidden');
+    assert.equal(resolution.searchReason, 'local_token_leaderboard_preferred');
+    assert.equal(resolution.intentEnvelope.search_mode, 'forbidden');
+    assert.equal(resolution.intentEnvelope.search_target, 'none');
+    assert.ok(resolution.allowedTools.includes('get_trending_tokens'));
+    assert.ok(!resolution.allowedTools.includes('external_web_search'));
 
     const providerOptions = buildProviderOptions(
         snapshot,
@@ -353,8 +355,8 @@ test('Grok keeps canonical token-discovery intent authoritative instead of forci
         snapshot.lastUserMessage,
         resolution,
     );
-    assert.equal(providerOptions.enable_search, true);
-    assert.equal(providerOptions.tool_policy?.native_tools.required, true);
+    assert.equal(providerOptions.enable_search, false);
+    assert.equal(providerOptions.tool_policy?.native_tools.required, false);
 });
 
 test('Grok no-canonical leaderboard-like queries may stay local without overriding any canonical intent', () => {
