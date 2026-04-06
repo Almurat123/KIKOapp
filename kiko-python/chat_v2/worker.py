@@ -908,7 +908,7 @@ class ChatWorker:
                 }
 
             last_user = next((m for m in reversed(llm_messages) if m.get("role") == "user"), {"content": ""})
-            parsed_intent = parse_intent(str(last_user.get("content") or ""), tool_context)
+            parsed_intent = await parse_intent(str(last_user.get("content") or ""), tool_context)
             current_user_text = str(last_user.get("content") or "")
             recent_swap = self._find_recent_swap_from_messages(msgs) if self._is_confirmation_message(current_user_text) else None
             if self._is_confirmation_message(current_user_text):
@@ -917,7 +917,7 @@ class ChatWorker:
                     if prev.get("role") != "user":
                         continue
                     prev_text = str(prev.get("content") or "")
-                    prev_intent = parse_intent(prev_text, tool_context)
+                    prev_intent = await parse_intent(prev_text, tool_context)
                     if prev_intent.high_level.get("type") == "TRADING" and prev_intent.detailed.get("token_in") and prev_intent.detailed.get("token_out"):
                         parsed_intent = prev_intent
                         self.logger.info(
@@ -936,7 +936,7 @@ class ChatWorker:
                             if prior_user.get("role") != "user":
                                 continue
                             prior_text = str(prior_user.get("content") or "")
-                            prior_intent = parse_intent(prior_text, tool_context)
+                            prior_intent = await parse_intent(prior_text, tool_context)
                             if prior_intent.high_level.get("type") == "TRADING":
                                 parsed_intent = prior_intent
                                 self.logger.info(

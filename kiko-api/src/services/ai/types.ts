@@ -2,7 +2,8 @@ export type IntentType =
     | 'TRADING'
     | 'COPY_TRADING'
     | 'PREDICTION_MARKETS'
-    | 'RISK_SCAN';
+    | 'RISK_SCAN'
+    | 'GENERAL_QUERY';
 
 export type ModelType = 'deepseek' | 'grok';
 
