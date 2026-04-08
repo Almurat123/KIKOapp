@@ -176,9 +176,74 @@ CREATE TABLE IF NOT EXISTS "User" (
   "walletAddress" TEXT UNIQUE NOT NULL,
   "email" TEXT UNIQUE,
   "solanaWalletAddress" TEXT,
+  "xUserId" TEXT UNIQUE,
+  "xUsername" TEXT,
+  "xLinkedAt" TIMESTAMP,
+  "xDmOptInAt" TIMESTAMP,
+  "xAccessTokenRef" TEXT,
+  "xRefreshTokenRef" TEXT,
+  "xNotificationsMutedAt" TIMESTAMP,
   "referralCode" TEXT UNIQUE,
   "referredBy" TEXT,
   "createdAt" TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS "x_conversation_mappings" (
+  "id" TEXT PRIMARY KEY,
+  "platform" TEXT NOT NULL DEFAULT 'x',
+  "user_id" TEXT REFERENCES "User"("privyDid") ON DELETE SET NULL,
+  "x_user_id" TEXT NOT NULL,
+  "x_username" TEXT,
+  "channel" TEXT NOT NULL,
+  "root_tweet_id" TEXT,
+  "x_dm_conversation_id" TEXT,
+  "chat_session_id" TEXT NOT NULL REFERENCES "ChatSession"("id") ON DELETE CASCADE,
+  "round_trip_count" INTEGER NOT NULL DEFAULT 0,
+  "rollover_count" INTEGER NOT NULL DEFAULT 0,
+  "status" TEXT NOT NULL DEFAULT 'active',
+  "last_inbound_at" TIMESTAMP,
+  "last_outbound_at" TIMESTAMP,
+  "last_inbound_message_id" TEXT,
+  "last_outbound_message_id" TEXT,
+  "last_inbound_event_id" TEXT,
+  "last_outbound_event_id" TEXT,
+  "created_at" TIMESTAMP DEFAULT NOW(),
+  "updated_at" TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS "x_event_logs" (
+  "id" TEXT PRIMARY KEY,
+  "event_id" TEXT UNIQUE NOT NULL,
+  "user_id" TEXT REFERENCES "User"("privyDid") ON DELETE SET NULL,
+  "x_user_id" TEXT NOT NULL,
+  "channel" TEXT NOT NULL,
+  "direction" TEXT NOT NULL,
+  "source_id" TEXT,
+  "payload" JSONB,
+  "status" TEXT NOT NULL DEFAULT 'received',
+  "error_message" TEXT,
+  "processed_at" TIMESTAMP,
+  "created_at" TIMESTAMP DEFAULT NOW(),
+  "updated_at" TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS "x_message_deliveries" (
+  "id" TEXT PRIMARY KEY,
+  "user_id" TEXT REFERENCES "User"("privyDid") ON DELETE SET NULL,
+  "x_user_id" TEXT NOT NULL,
+  "conversation_mapping_id" TEXT REFERENCES "x_conversation_mappings"("id") ON DELETE SET NULL,
+  "channel" TEXT NOT NULL,
+  "direction" TEXT NOT NULL,
+  "message_type" TEXT NOT NULL,
+  "source_message_id" TEXT,
+  "provider_message_id" TEXT,
+  "idempotency_key" TEXT UNIQUE NOT NULL,
+  "payload" JSONB,
+  "status" TEXT NOT NULL DEFAULT 'pending',
+  "error_message" TEXT,
+  "attempt_count" INTEGER NOT NULL DEFAULT 0,
+  "created_at" TIMESTAMP DEFAULT NOW(),
+  "updated_at" TIMESTAMP DEFAULT NOW()
 );
 
 -- Wallet Key Export Record

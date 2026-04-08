@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LaunchpadCapsule } from '../components/Launchpad/LaunchpadCapsule';
 
@@ -1142,6 +1142,54 @@ export const TokensPage: React.FC<TokensPageProps> = ({
   const chainRequestIdsRef = useRef<Map<string, string>>(new Map());
   const mountedRef = useRef(true);
 
+  // CONTEXT MEMORY
+  // Updated: 2026-04-08
+  // Author: Codex
+  // Reason: The tokens view was firing too many live trend requests at once and
+  //         turning backend throttling into a visible empty/loading state.
+  // Goal: Keep the trending list responsive while avoiding request bursts.
+  // Owns: Page-level batching and refresh cadence for the trend table.
+  // Does Not Own: Backend rate limits, token shaping, or cross-page caching.
+  // Design Language:
+  // - Prefer bounded concurrency over full parallel fan-out on read-heavy screens.
+  // - Background refreshes should reuse the same throttling as initial load.
+  // - Do not add cache-busting query noise just to force network activity.
+  // See also:
+  // - /Users/almurat/KiKo/system-journal/INDEX.md
+  // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
+  // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
+  // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-08-rate-limit-loading-stall.md
+
+  const fetchTrendingTokensForChains = useCallback(async (chains: readonly string[]) => {
+    const batchSize = 2;
+    const results: Token[] = [];
+
+    for (let i = 0; i < chains.length; i += batchSize) {
+      if (!mountedRef.current) break;
+
+      const batch = chains.slice(i, i + batchSize);
+      const batchResults = await Promise.all(batch.map(async (chain) => {
+        if (!mountedRef.current) return [];
+
+        try {
+          const data = await tokenApi.getTrendingLive(chain, timeframe, 100, true);
+          if (mountedRef.current && data && data.length > 0) {
+            return data.map((token) => convertApiTokenToToken(token, 0));
+          }
+        } catch (err) {
+          console.warn(`Failed to load ${chain} tokens:`, err);
+        }
+        return [];
+      }));
+
+      for (const batchTokens of batchResults) {
+        results.push(...batchTokens);
+      }
+    }
+
+    return results;
+  }, [timeframe]);
+
   // Load all chains data on initial mount - with queue and batching
   useEffect(() => {
     // Reset mounted ref on each mount (important for StrictMode)
@@ -1158,16 +1206,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
         setTimeout(async () => {
           if (!mountedRef.current) return;
           try {
-            const fetchPromises = FETCH_CHAINS.map(async (chain) => {
-              if (!mountedRef.current) return [];
-              try {
-                const data = await tokenApi.getTrendingLive(chain, timeframe, 100, true);
-                if (data && data.length > 0) return data.map((t) => convertApiTokenToToken(t, 0));
-              } catch { /* ignore background errors */ }
-              return [];
-            });
-            const results = await Promise.all(fetchPromises);
-            let freshTokens = results.flat();
+            let freshTokens = await fetchTrendingTokensForChains(FETCH_CHAINS);
             freshTokens.sort((a, b) => computeTimeframeScore(b, timeframe) - computeTimeframeScore(a, timeframe));
             if (mountedRef.current && freshTokens.length > 0) {
               const displayTokens = freshTokens.map((t, idx) => ({ ...t, id: idx + 1 }));
@@ -1183,30 +1222,8 @@ export const TokensPage: React.FC<TokensPageProps> = ({
       setError(null);
 
       try {
-
-
-
         // Fetch fresh data (DB-backed API)
-        const fetchPromises = FETCH_CHAINS.map(async (chain) => {
-          if (!mountedRef.current) return [];
-
-          try {
-            // Use cache-first live endpoint for multi-chain screen to avoid strict-mode timeout storm.
-            const data = await tokenApi.getTrendingLive(chain, timeframe, 100, true);
-
-            if (mountedRef.current && data && data.length > 0) {
-              // Convert to internal tokens
-              // We'll assign IDs later after aggregation
-              return data.map((token) => convertApiTokenToToken(token, 0));
-            }
-          } catch (err) {
-            console.warn(`Failed to load ${chain} tokens:`, err);
-          }
-          return [];
-        });
-
-        const results = await Promise.all(fetchPromises);
-        let freshTokens = results.flat();
+        let freshTokens = await fetchTrendingTokensForChains(FETCH_CHAINS);
 
         // Rank tokens from all chains by selected timeframe
         if (freshTokens.length > 0) {
@@ -1260,27 +1277,8 @@ export const TokensPage: React.FC<TokensPageProps> = ({
 
     const pollData = async () => {
       if (!mountedRef.current || !isPageActive) return;
-
-
-
-
       try {
-        const promises = FETCH_CHAINS.map(async (chain) => {
-          if (!mountedRef.current) return [];
-          try {
-            // Polling should stay lightweight and cache-friendly.
-            const data = await tokenApi.getTrendingLive(chain, timeframe, 100, true);
-            if (mountedRef.current && data && data.length > 0) {
-              return data.map((token) => convertApiTokenToToken(token, 0));
-            }
-          } catch (err) {
-            // Silently ignore poll errors
-          }
-          return [];
-        });
-
-        const results = await Promise.all(promises);
-        let freshTokens = results.flat();
+        let freshTokens = await fetchTrendingTokensForChains(FETCH_CHAINS);
 
         if (mountedRef.current) {
           // Keep the list ranked by selected timeframe

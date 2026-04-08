@@ -29,6 +29,7 @@ import { swapRoutes } from './routes/swap.js';
 import { favoriteRoutes } from './routes/favorites.js';
 import copyTradeRoutes from './routes/copyTrade.js';
 import webhookRoutes from './routes/webhook.js';
+import { xWebhookRoutes } from './routes/xWebhook.js';
 import { newsRoutes } from './routes/news.js';
 import { polymarketRoutes } from './routes/polymarket.js';
 import { zoraRoutes } from './routes/zora.js';
@@ -63,6 +64,7 @@ import { startRpcBenchmarkSampling } from './services/rpcManager.js';
 import { startNativePriceRefresh } from './services/onChainPriceService.js';
 import { requireAuth } from './middleware/auth.js';
 import { markEndUserActivity } from './services/runtimeActivityService.js';
+import { xIngressWorker } from './services/x/index.js';
 
 const fastify = Fastify({
     logger: {
@@ -355,6 +357,10 @@ fastify.register(async (fastify) => {
         prefix: '/api/webhook',
         config: { rawBody: true } // Enable raw body for webhook routes
     });
+    fastify.register(xWebhookRoutes, {
+        prefix: '/api/webhook/x',
+        config: { rawBody: true }
+    });
     fastify.register(newsRoutes, { prefix: '/api/news' });
     fastify.register(polymarketRoutes, { prefix: '/api/polymarket' });
     fastify.register(zoraRoutes, { prefix: '/api/zora' });
@@ -529,6 +535,13 @@ async function start() {
             logger.error(LogCode.SYS_ERROR, 'Global Zora Alpha Detector failed to start', { error: zoraError.message });
         }
 
+        try {
+            xIngressWorker.start();
+            logger.info(LogCode.SYS_STARTUP, 'X ingress worker started');
+        } catch (xError: any) {
+            logger.error(LogCode.SYS_ERROR, 'X ingress worker failed to start', { error: xError.message });
+        }
+
         logger.info(LogCode.SYS_STARTUP, '🎉 All services initialized!');
     } catch (error: any) {
         logger.error(LogCode.SYS_ERROR, 'Error starting server', { error: error.message || error });
@@ -543,6 +556,7 @@ process.on('SIGTERM', async () => {
     stopPositionExitIntentWorker();
     stopOrderObservationJob();
     stopPolymarketWatcher();
+    xIngressWorker.stop();
     await stopAutoTradeService();
     if (prisma) await (prisma as any).$disconnect();
     await fastify.close();
@@ -555,6 +569,7 @@ process.on('SIGINT', async () => {
     stopPositionExitIntentWorker();
     stopOrderObservationJob();
     stopPolymarketWatcher();
+    xIngressWorker.stop();
     await stopAutoTradeService();
     if (prisma) await (prisma as any).$disconnect();
     await fastify.close();

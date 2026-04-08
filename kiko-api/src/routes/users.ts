@@ -8,6 +8,8 @@ import prisma from '../db/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { trackLogin } from '../services/userActivityService.js';
 import { getCachedKikoFollowState, resolveKikoFollowState } from '../services/farcasterRelationshipService.js';
+import { buildXLinkUrl, getXContextForUser, normalizeXUsername, serializeXContext } from '../services/x/xIdentityService.js';
+import { getEmbeddedWalletAddress } from '../services/privyWallet.js';
 
 // Types
 interface UserSettingsBody {
@@ -176,6 +178,14 @@ export async function registerUserRoutes(app: FastifyInstance) {
         username?: string;
     }
 
+    interface XSyncBody {
+        xUserId: string;
+        username?: string;
+        dmOptIn?: boolean;
+        accessTokenRef?: string;
+        refreshTokenRef?: string;
+    }
+
     /**
      * POST /api/users/farcaster
      * Sync Farcaster profile from Privy login
@@ -272,6 +282,176 @@ export async function registerUserRoutes(app: FastifyInstance) {
                 };
             } catch (error: any) {
                 console.error('[Farcaster] Error loading context:', error);
+                return reply.status(500).send({ success: false, error: error.message });
+            }
+        }
+    );
+
+    // =============================================
+    // X Profile Sync
+    // =============================================
+
+    app.post<{ Body: XSyncBody }>(
+        '/api/users/x/sync',
+        { preHandler: requireAuth },
+        async (request: FastifyRequest<{ Body: XSyncBody }>, reply: FastifyReply) => {
+            try {
+                const userId = (request as any).user?.sub;
+                if (!userId) {
+                    return reply.status(401).send({ success: false, error: 'Unauthorized' });
+                }
+
+                const xUserId = String(request.body?.xUserId || '').trim();
+                const username = normalizeXUsername(request.body?.username);
+                const dmOptIn = request.body?.dmOptIn !== false;
+                const accessTokenRef = String(request.body?.accessTokenRef || '').trim() || null;
+                const refreshTokenRef = String(request.body?.refreshTokenRef || '').trim() || null;
+
+                if (!xUserId) {
+                    return reply.status(400).send({ success: false, error: 'xUserId is required' });
+                }
+
+                const existingOwner = await prisma.user.findFirst({
+                    where: {
+                        xUserId,
+                        NOT: { privyDid: userId }
+                    },
+                    select: { privyDid: true }
+                });
+                if (existingOwner) {
+                    return reply.status(409).send({ success: false, error: 'X account already linked to another user' });
+                }
+
+                const embeddedWalletAddress = await getEmbeddedWalletAddress(userId).catch(() => null);
+                if (!embeddedWalletAddress) {
+                    return reply.status(400).send({ success: false, error: 'Embedded wallet not available for this account' });
+                }
+
+                const user = await prisma.user.upsert({
+                    where: { privyDid: userId },
+                    update: {
+                        xUserId,
+                        xUsername: username,
+                        xLinkedAt: new Date(),
+                        xDmOptInAt: dmOptIn ? new Date() : null,
+                        xAccessTokenRef: accessTokenRef,
+                        xRefreshTokenRef: refreshTokenRef,
+                        xNotificationsMutedAt: null,
+                    },
+                    create: {
+                        privyDid: userId,
+                        walletAddress: embeddedWalletAddress,
+                        xUserId,
+                        xUsername: username,
+                        xLinkedAt: new Date(),
+                        xDmOptInAt: dmOptIn ? new Date() : null,
+                        xAccessTokenRef: accessTokenRef,
+                        xRefreshTokenRef: refreshTokenRef,
+                        xNotificationsMutedAt: null,
+                    }
+                });
+
+                return {
+                    success: true,
+                    data: serializeXContext(user)
+                };
+            } catch (error: any) {
+                console.error('[X] Error syncing profile:', error);
+                return reply.status(500).send({ success: false, error: error.message });
+            }
+        }
+    );
+
+    app.get(
+        '/api/users/x/context',
+        { preHandler: requireAuth },
+        async (request: FastifyRequest, reply: FastifyReply) => {
+            try {
+                const userId = (request as any).user?.sub;
+                if (!userId) {
+                    return reply.status(401).send({ success: false, error: 'Unauthorized' });
+                }
+
+                const context = await getXContextForUser(userId);
+                if (!context) {
+                    return reply.status(404).send({ success: false, error: 'User not found' });
+                }
+
+                return {
+                    success: true,
+                    data: context
+                };
+            } catch (error: any) {
+                console.error('[X] Error loading context:', error);
+                return reply.status(500).send({ success: false, error: error.message });
+            }
+        }
+    );
+
+    app.delete(
+        '/api/users/x',
+        { preHandler: requireAuth },
+        async (request: FastifyRequest, reply: FastifyReply) => {
+            try {
+                const userId = (request as any).user?.sub;
+                if (!userId) {
+                    return reply.status(401).send({ success: false, error: 'Unauthorized' });
+                }
+
+                const user = await prisma.user.update({
+                    where: { privyDid: userId },
+                    data: {
+                        xUserId: null,
+                        xUsername: null,
+                        xLinkedAt: null,
+                        xDmOptInAt: null,
+                        xAccessTokenRef: null,
+                        xRefreshTokenRef: null,
+                        xNotificationsMutedAt: null,
+                    }
+                });
+
+                return {
+                    success: true,
+                    data: {
+                        ...serializeXContext(user),
+                        linkUrl: buildXLinkUrl(),
+                    }
+                };
+            } catch (error: any) {
+                console.error('[X] Error unlinking profile:', error);
+                return reply.status(500).send({ success: false, error: error.message });
+            }
+        }
+    );
+
+    app.put<{ Body: { notificationsMuted?: boolean; dmOptIn?: boolean } }>(
+        '/api/users/x/preferences',
+        { preHandler: requireAuth },
+        async (request: FastifyRequest<{ Body: { notificationsMuted?: boolean; dmOptIn?: boolean } }>, reply: FastifyReply) => {
+            try {
+                const userId = (request as any).user?.sub;
+                if (!userId) {
+                    return reply.status(401).send({ success: false, error: 'Unauthorized' });
+                }
+
+                const notificationsMuted = request.body?.notificationsMuted === true;
+                const dmOptIn = request.body?.dmOptIn !== false;
+
+                const user = await prisma.user.update({
+                    where: { privyDid: userId },
+                    data: {
+                        xNotificationsMutedAt: notificationsMuted ? new Date() : null,
+                        xDmOptInAt: dmOptIn ? (new Date()) : null,
+                    }
+                });
+
+                return {
+                    success: true,
+                    data: serializeXContext(user)
+                };
+            } catch (error: any) {
+                console.error('[X] Error updating preferences:', error);
                 return reply.status(500).send({ success: false, error: error.message });
             }
         }

@@ -11,6 +11,24 @@ import { createCopyTradeSignedPayload, signCopyTradeConfigIntent } from '../serv
 import { toast } from 'sonner';
 import { resolveChainPresentation } from '../utils/chainPresentation';
 
+// CONTEXT MEMORY
+// Updated: 2026-04-08
+// Author: Codex
+// Reason: Strategy loading was dropping the entire copy-trade surface when one
+//         backend read hit 429, which made the UI look frozen or empty.
+// Goal: Preserve the best available strategy snapshot even if one source fails.
+// Owns: Merging local, copy-trade, and Polymarket strategy views into one list.
+// Does Not Own: Backend retry policy, auth token lifecycles, or mutation semantics.
+// Design Language:
+// - Partial data is better than a full loading failure.
+// - Never let one third-party source erase already recovered data from another.
+// - Keep fallback behavior visible in logs, not hidden in silent catches.
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
+// - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-08-rate-limit-loading-stall.md
+
 export interface ExecutionRecord {
   id: string;
   timestamp: number;
@@ -99,11 +117,25 @@ export const useStrategies = () => {
     // 2. Load Real Copy Trade Configs AND Positions (ONLY if authenticated)
     if (authenticated) {
       try {
-        const [configs, positions, polyConfigs] = await Promise.all([
+        const [configsResult, positionsResult, polyConfigsResult] = await Promise.allSettled([
           getConfigs(),
-          getPositions().catch(() => []), // Fail gracefully for positions
-          getPolymarketCopyConfigs().catch(() => [])
+          getPositions(),
+          getPolymarketCopyConfigs(),
         ]);
+
+        const configs = configsResult.status === 'fulfilled' ? configsResult.value : [];
+        const positions = positionsResult.status === 'fulfilled' ? positionsResult.value : [];
+        const polyConfigs = polyConfigsResult.status === 'fulfilled' ? polyConfigsResult.value : [];
+
+        if (configsResult.status === 'rejected') {
+          console.warn('[useStrategies] Copy trade configs failed; continuing with other sources:', configsResult.reason);
+        }
+        if (positionsResult.status === 'rejected') {
+          console.warn('[useStrategies] Copy trade positions failed; continuing with other sources:', positionsResult.reason);
+        }
+        if (polyConfigsResult.status === 'rejected') {
+          console.warn('[useStrategies] Polymarket copy configs failed; continuing with other sources:', polyConfigsResult.reason);
+        }
 
         // Calculate Stats
         const totalExecutions = positions.filter((p: any) => p.status === 'open' || p.status === 'closed').length;

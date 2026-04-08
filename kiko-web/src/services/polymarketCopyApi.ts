@@ -1,4 +1,23 @@
 import { getAuthToken } from '../utils/authToken';
+import { fetchApi } from './api';
+
+// CONTEXT MEMORY
+// Updated: 2026-04-08
+// Author: Codex
+// Reason: Polymarket copy-trade reads were contributing to the same burst-limit
+//         pattern as copy-trade configs and needed the shared fail-soft path.
+// Goal: Keep Polymarket copy state visible under transient throttling.
+// Owns: Polymarket copy-trade request shapes and auth handling for this module.
+// Does Not Own: Global cache policy, page refresh behavior, or rate-limit buckets.
+// Design Language:
+// - Reads should use the shared request layer so stale data can survive a 429.
+// - Keep mutation paths explicit; only GETs get recovery behavior.
+// - Do not turn auth failures into silent empty arrays.
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
+// - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-08-rate-limit-loading-stall.md
 
 export interface PolymarketCopyConfig {
     id: string;
@@ -28,19 +47,8 @@ export const getPolymarketCopyConfigs = async (): Promise<PolymarketCopyConfig[]
             console.warn('[PolymarketCopyApi] No token available, skipping fetch.');
             return [];
         }
-
-        const response = await fetch(`${API_BASE_URL}/copy/configs`, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-            }
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        return data.configs || [];
+        const data = await fetchApi<{ configs?: PolymarketCopyConfig[] }>('/api/polymarket/copy/configs');
+        return data?.configs || [];
     } catch (error: any) {
         if (error.message === 'No authentication token available') {
             return [];

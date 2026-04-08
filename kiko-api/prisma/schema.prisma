@@ -27,6 +27,13 @@ model User {
   solanaWalletAddress String?
   farcasterFid        Int?
   farcasterUsername   String?
+  xUserId             String?                @unique
+  xUsername           String?
+  xLinkedAt           DateTime?
+  xDmOptInAt          DateTime?
+  xAccessTokenRef     String?
+  xRefreshTokenRef    String?
+  xNotificationsMutedAt DateTime?
   createdAt           DateTime               @default(now())
   email               String?                @unique
   referralCode        String?                @unique
@@ -48,6 +55,9 @@ model User {
   billingUsage        BillingUsageLedger[]
   dailyBilling        DailyBilling[]
   copytradeOrdersV2   CopytradeOrder[]
+  xConversationMappings XConversationMapping[]
+  xEventLogs          XEventLog[]
+  xMessageDeliveries  XMessageDelivery[]
 }
 
 model WalletExport {
@@ -650,9 +660,90 @@ model ChatSession {
   conversationStateVersion Int           @default(1)
   tasks                    AITask[]
   messages                 ChatMessage[]
+  xConversationMappings    XConversationMapping[]
   user                     User          @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@index([userId])
+}
+
+model XConversationMapping {
+  id                  String           @id @default(cuid())
+  platform            String           @default("x")
+  userId              String?          @map("user_id")
+  xUserId             String           @map("x_user_id")
+  xUsername           String?          @map("x_username")
+  channel             String
+  rootTweetId         String?          @map("root_tweet_id")
+  xDmConversationId   String?          @map("x_dm_conversation_id")
+  chatSessionId       String           @map("chat_session_id")
+  roundTripCount      Int              @default(0) @map("round_trip_count")
+  rolloverCount       Int              @default(0) @map("rollover_count")
+  status              String           @default("active")
+  lastInboundAt       DateTime?        @map("last_inbound_at")
+  lastOutboundAt      DateTime?        @map("last_outbound_at")
+  lastInboundMessageId String?         @map("last_inbound_message_id")
+  lastOutboundMessageId String?        @map("last_outbound_message_id")
+  lastInboundEventId  String?          @map("last_inbound_event_id")
+  lastOutboundEventId String?          @map("last_outbound_event_id")
+  createdAt           DateTime         @default(now()) @map("created_at")
+  updatedAt           DateTime         @updatedAt @map("updated_at")
+  user                User?            @relation(fields: [userId], references: [privyDid], onDelete: SetNull)
+  chatSession         ChatSession      @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+  deliveries          XMessageDelivery[]
+
+  @@index([userId, status])
+  @@index([xUserId, channel, status])
+  @@index([rootTweetId])
+  @@index([xDmConversationId])
+  @@map("x_conversation_mappings")
+}
+
+model XEventLog {
+  id          String    @id @default(cuid())
+  eventId     String    @unique @map("event_id")
+  userId      String?   @map("user_id")
+  xUserId     String    @map("x_user_id")
+  channel     String
+  direction   String
+  sourceId    String?   @map("source_id")
+  payload     Json?
+  status      String    @default("received")
+  errorMessage String?  @map("error_message")
+  processedAt DateTime? @map("processed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  user        User?     @relation(fields: [userId], references: [privyDid], onDelete: SetNull)
+
+  @@index([xUserId, channel, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("x_event_logs")
+}
+
+model XMessageDelivery {
+  id                    String                @id @default(cuid())
+  userId                String?               @map("user_id")
+  xUserId               String                @map("x_user_id")
+  conversationMappingId String?               @map("conversation_mapping_id")
+  channel               String
+  direction             String
+  messageType           String                @map("message_type")
+  sourceMessageId       String?               @map("source_message_id")
+  providerMessageId     String?               @map("provider_message_id")
+  idempotencyKey        String                @unique @map("idempotency_key")
+  payload               Json?
+  status                String                @default("pending")
+  errorMessage          String?               @map("error_message")
+  attemptCount          Int                   @default(0) @map("attempt_count")
+  createdAt             DateTime              @default(now()) @map("created_at")
+  updatedAt             DateTime              @updatedAt @map("updated_at")
+  user                  User?                 @relation(fields: [userId], references: [privyDid], onDelete: SetNull)
+  conversationMapping   XConversationMapping? @relation(fields: [conversationMappingId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([xUserId, channel, createdAt(sort: Desc)])
+  @@index([conversationMappingId, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("x_message_deliveries")
 }
 
 model ChatMessage {

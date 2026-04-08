@@ -9,6 +9,7 @@ import { ChainProvider } from './contexts/ChainContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AgentModeProvider } from './contexts/AgentModeContext';
 import { FarcasterProvider } from './contexts/FarcasterContext';
+import { XProvider } from './contexts/XContext';
 import { ThemedPrivyProvider } from './components/ThemedPrivyProvider';
 import { AuthTokenBridge } from './components/AuthTokenBridge';
 import { PrivyConfigError } from './components/PrivyConfigError';
@@ -90,13 +91,15 @@ if (
           <AgentModeProvider>
             <ThemedPrivyProvider>
               <AuthTokenBridge>
-                <FarcasterProvider>
-                  <QueryClientProvider client={queryClient}>
-                    <ChainProvider>
-                      <App />
-                    </ChainProvider>
-                  </QueryClientProvider>
-                </FarcasterProvider>
+                <XProvider>
+                  <FarcasterProvider>
+                    <QueryClientProvider client={queryClient}>
+                      <ChainProvider>
+                        <App />
+                      </ChainProvider>
+                    </QueryClientProvider>
+                  </FarcasterProvider>
+                </XProvider>
               </AuthTokenBridge>
             </ThemedPrivyProvider>
           </AgentModeProvider>

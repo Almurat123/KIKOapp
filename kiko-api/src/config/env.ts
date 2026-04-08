@@ -129,6 +129,20 @@ export interface EnvConfig {
         baseDailyLimit: number;
         tiers: Array<{ minBalance: number; dailyLimit: number }>;
     };
+    x: {
+        enabled: boolean;
+        ingressMode: 'webhook' | 'polling';
+        accessToken: string;
+        botUserId: string;
+        botUsername: string;
+        apiBaseUrl: string;
+        webhookSecret: string;
+        webhookRecoveryMs: number;
+        pollMentionsMs: number;
+        pollDmMs: number;
+        pollBatchSize: number;
+        linkBaseUrl: string;
+    };
     security: {
         alchemyWebhookSecret?: string; // Legacy global secret for verifying Alchemy webhooks
         alchemyWebhookSecretEth?: string; // Ethereum-specific webhook signing key
@@ -195,9 +209,20 @@ function validateEnv(): EnvConfig {
         (process.env.ALCHEMY_WEBHOOK_ALLOW_UNSIGNED || '').toLowerCase() === 'true' ||
         (process.env.ALCHEMY_WEBHOOK_ALLOW_UNSIGNED || '') === '1';
     const internalWebhookSecret = process.env.INTERNAL_WEBHOOK_SECRET;
+    const xIngressEnabled =
+        (process.env.X_INGRESS_ENABLED || '').toLowerCase() === 'true' ||
+        (process.env.X_INGRESS_ENABLED || '') === '1';
+    const xIngressMode = String(process.env.X_INGRESS_MODE || 'webhook').trim().toLowerCase() === 'polling'
+        ? 'polling'
+        : 'webhook';
+    const xWebhookSecret = process.env.X_WEBHOOK_SECRET || process.env.X_CLIENT_SECRET || '';
 
     if (isProduction && !internalWebhookSecret) {
         throw new Error('Missing required webhook security env var in production: INTERNAL_WEBHOOK_SECRET');
+    }
+
+    if (isProduction && xIngressEnabled && xIngressMode === 'webhook' && !xWebhookSecret) {
+        throw new Error('Missing required X webhook env var in production: X_WEBHOOK_SECRET');
     }
 
     const hasAlchemyWebhookSecret =
@@ -386,6 +411,20 @@ function validateEnv(): EnvConfig {
             tokenDecimals: Number.isFinite(usageTokenDecimals) ? usageTokenDecimals : 18,
             baseDailyLimit: Number.isFinite(usageBaseDailyLimit) ? usageBaseDailyLimit : 15,
             tiers: usageTiers,
+        },
+        x: {
+            enabled: xIngressEnabled,
+            ingressMode: xIngressMode,
+            accessToken: process.env.X_BOT_ACCESS_TOKEN || '',
+            botUserId: process.env.X_BOT_USER_ID || '',
+            botUsername: process.env.X_BOT_USERNAME || 'kikoapp',
+            apiBaseUrl: process.env.X_API_BASE_URL || 'https://api.x.com/2',
+            webhookSecret: xWebhookSecret,
+            webhookRecoveryMs: parseInt(process.env.X_WEBHOOK_RECOVERY_MS || '10000', 10),
+            pollMentionsMs: parseInt(process.env.X_POLL_MENTIONS_MS || '60000', 10),
+            pollDmMs: parseInt(process.env.X_POLL_DM_MS || '60000', 10),
+            pollBatchSize: parseInt(process.env.X_POLL_BATCH_SIZE || '20', 10),
+            linkBaseUrl: process.env.X_LINK_BASE_URL || 'https://kikoapp.app/settings',
         },
         security: {
             alchemyWebhookSecret,

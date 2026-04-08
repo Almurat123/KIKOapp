@@ -1,4 +1,23 @@
 import { getAuthToken } from '../utils/authToken';
+import { fetchApi } from './api';
+
+// CONTEXT MEMORY
+// Updated: 2026-04-08
+// Author: Codex
+// Reason: Copy-trade read endpoints were repeatedly failing under burst traffic
+//         and taking the strategy surface down with them.
+// Goal: Keep copy-trade state visible even when the backend rate limits a refresh.
+// Owns: Copy-trade GET/POST/PATCH/DELETE request shapes and auth envelope handling.
+// Does Not Own: Global retry policy, page-level state merging, or cache invalidation.
+// Design Language:
+// - Prefer shared request plumbing for reads instead of per-hook ad hoc fetches.
+// - Reads may fall back to stale data; mutations must still surface failures plainly.
+// - Do not hide signature/auth errors behind rate-limit recovery.
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
+// - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-08-rate-limit-loading-stall.md
 
 // Types matching the Prisma model and API response
 export type CopyTradeExecutionMode = 'safe' | 'normal' | 'turbo';
@@ -148,18 +167,8 @@ export const getConfigs = async (): Promise<CopyTradeConfig[]> => {
             return [];
         }
 
-        const response = await fetch(`${API_BASE_URL}/configs`, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-            }
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        return data.configs;
+        const data = await fetchApi<{ configs?: CopyTradeConfig[] }>('/api/copy-trade/configs');
+        return data?.configs || [];
     } catch (error: any) {
         if (error.message === 'No authentication token available') {
             return [];
@@ -270,15 +279,13 @@ export const updateConfig = async (id: string, signed: CopyTradeSignedEnvelope):
  */
 export const getPositions = async (): Promise<any[]> => {
     try {
-        const headers = await getHeaders();
-        const response = await fetch(`${API_BASE_URL}/positions`, { headers });
-
-        if (!response.ok) {
-            throw await parseErrorResponse(response);
+        const token = await getAuthToken();
+        if (!token) {
+            console.warn('[CopyTradeApi] No token available, skipping positions fetch.');
+            return [];
         }
-
-        const data = await response.json();
-        return data.positions;
+        const data = await fetchApi<{ positions?: any[] }>('/api/copy-trade/positions');
+        return data?.positions || [];
     } catch (error) {
         console.error('[CopyTradeApi] Error fetching positions:', error);
         throw error;

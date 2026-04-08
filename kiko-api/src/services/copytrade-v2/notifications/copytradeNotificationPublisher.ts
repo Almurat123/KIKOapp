@@ -2,6 +2,7 @@ import prisma from '../../../db/prisma.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { logger } from '../../../utils/logger.js';
 import { notificationService } from '../../notifications/farcaster/index.js';
+import { xNotificationService } from '../../notifications/x/index.js';
 import type { TradeNotificationData, TradeNotificationType } from '../../notifications/farcaster/types.js';
 import { getTokenInfo } from '../../tokenService.js';
 import type { CopytradeNotificationEvent } from '../contracts/notifications.js';
@@ -72,12 +73,19 @@ export async function publishCopytradeRawNotification(params: {
 }): Promise<void> {
   if (!params.userId) return;
   if (shouldSkipByDedupeKey(params.dedupeKey)) return;
-  await notificationService.sendNotification({
-    userId: params.userId,
-    farcasterFid: params.farcasterFid,
-    type: params.type,
-    data: params.data,
-  });
+  await Promise.allSettled([
+    notificationService.sendNotification({
+      userId: params.userId,
+      farcasterFid: params.farcasterFid,
+      type: params.type,
+      data: params.data,
+    }),
+    xNotificationService.sendNotification({
+      userId: params.userId,
+      type: params.type,
+      data: params.data,
+    }),
+  ]);
 }
 
 export function resolveUserNotificationPayload(params: {

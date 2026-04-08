@@ -228,10 +228,30 @@ import { chatWSClient } from '../utils/chatWebSocket';
 import { getRuntimeConfigUrl, getEnvUrl } from '../utils/runtimeConfig';
 import { adaptLoopbackUrlForBrowser, isLocalLikeHost } from '../utils/runtimeHosts';
 
+// CONTEXT MEMORY
+// Updated: 2026-04-08
+// Author: Codex
+// Reason: This is the shared client request layer for high-traffic screens.
+//         It now needs to absorb transient 429s without blanking the UI.
+// Goal: Keep read requests deduped and cache-backed so the app stays usable under
+//       burst traffic and backend throttling.
+// Owns: Request assembly, dedupe, short-lived response reuse, and fail-soft reads.
+// Does Not Own: Page-specific data shaping, mutation invalidation, or server limits.
+// Design Language:
+// - Prefer a small amount of staleness over a visible loading dead-end.
+// - Do not attach cache-busting noise to endpoints that already have local dedupe.
+// - Keep fallback logic generic so individual pages do not reimplement recovery.
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
+// - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-08-rate-limit-loading-stall.md
+
 /**
  * Request deduplication map
  */
 const pendingRequests = new Map<string, Promise<unknown>>();
+const STALE_READ_FALLBACK_WINDOW_MS = 5 * 60 * 1000;
 
 async function ensureChatStreamReady(timeoutMs = 1800): Promise<boolean> {
     const token = await getAuthToken();
@@ -258,8 +278,10 @@ async function ensureChatStreamReady(timeoutMs = 1800): Promise<boolean> {
  * Get cache TTL based on endpoint
  */
 function getCacheTime(endpoint: string): number {
-    // Live trending must always be fresh to avoid showing tokens that are no longer in DB
-    if (endpoint.includes('/tokens/trending/live')) return 0;
+    // Live trending stays very fresh, but still gets a tiny cache window so
+    // concurrent mounts and immediate follow-up refreshes can collapse.
+    if (endpoint.includes('/tokens/trending/live')) return 3000;
+    if (endpoint.includes('/copy-trade/') || endpoint.includes('/polymarket/copy/')) return 5000;
     // Chains data: NO CACHE - always fetch fresh data
     if (endpoint.includes('/market/chains')) return 0;
     // Market data: 5 seconds (Reduced from 30s to satisfy user refresh expectation)
@@ -278,6 +300,7 @@ function getCacheTime(endpoint: string): number {
 export async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
     // Create a unique key for this request
     const cacheKey = `${endpoint}-${JSON.stringify(options || {})}`;
+    const staleFallback = () => apiCache.getStale<T>(cacheKey, STALE_READ_FALLBACK_WINDOW_MS);
 
     // 1. Check for pending duplicate requests (Deduplication)
     if (pendingRequests.has(cacheKey)) {
@@ -339,11 +362,21 @@ export async function fetchApi<T>(endpoint: string, options?: RequestInit): Prom
 
                 // Provide more helpful error messages
                 if (response.status === 0 || response.status === 503) {
+                    const fallback = isReadRequest ? staleFallback() : null;
+                    if (fallback !== null) {
+                        logger.warn(`[API] Using stale cache after backend unavailable [${endpoint}]`);
+                        return fallback;
+                    }
                     throw new Error('Backend server is not available. Please ensure the backend is running.');
                 }
 
                 // Handle rate limiting (429)
                 if (response.status === 429) {
+                    const fallback = isReadRequest ? staleFallback() : null;
+                    if (fallback !== null) {
+                        logger.warn(`[API] Using stale cache after 429 [${endpoint}]`);
+                        return fallback;
+                    }
                     throw new Error('You have exceeded the request limit. Please try again later.');
                 }
 
@@ -405,6 +438,11 @@ export async function fetchApi<T>(endpoint: string, options?: RequestInit): Prom
 
             // Handle specific error types
             if (err.name === 'AbortError') {
+                const fallback = isReadRequest ? staleFallback() : null;
+                if (fallback !== null) {
+                    logger.warn(`[API] Using stale cache after timeout [${endpoint}]`);
+                    return fallback;
+                }
                 logger.error(`API Timeout [${endpoint}]: Request took longer than 30 seconds`);
                 throw new Error('Request timeout. The server may be slow or unavailable.');
             }
@@ -412,6 +450,11 @@ export async function fetchApi<T>(endpoint: string, options?: RequestInit): Prom
             if (err.message?.includes('Failed to fetch') ||
                 err.message?.includes('NetworkError') ||
                 err.message?.includes('ERR_CONNECTION_REFUSED')) {
+                const fallback = isReadRequest ? staleFallback() : null;
+                if (fallback !== null) {
+                    logger.warn(`[API] Using stale cache after network error [${endpoint}]`);
+                    return fallback;
+                }
                 logger.error(`API Connection Error [${endpoint}]: Backend server not available`);
                 throw new Error('Cannot connect to backend server. Please ensure the backend is running on port 3001.');
             }
@@ -501,9 +544,8 @@ export const tokenApi = {
         strict: boolean = true
     ): Promise<TokenSearchResult[]> {
         const strictParam = strict ? '&strict=1' : '';
-        const nonce = `&_t=${Date.now()}`;
         return fetchApi<TokenSearchResult[]>(
-            `/api/tokens/trending/live?chain=${chain}&duration=${duration}&limit=${limit}${strictParam}${nonce}`
+            `/api/tokens/trending/live?chain=${chain}&duration=${duration}&limit=${limit}${strictParam}`
         );
     },
 
