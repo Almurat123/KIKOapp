@@ -204,6 +204,13 @@ export interface TokenSearchResult {
     launchMultiple?: number;  // Current price multiple vs earliest available launch candle
 }
 
+interface TrendingAllChainGroup {
+    chain: string;
+    chainName: string;
+    tokens: TokenSearchResult[];
+    count: number;
+}
+
 /**
  * API Response wrapper
  */
@@ -232,7 +239,8 @@ import { adaptLoopbackUrlForBrowser, isLocalLikeHost } from '../utils/runtimeHos
 // Updated: 2026-04-08
 // Author: Codex
 // Reason: This is the shared client request layer for high-traffic screens.
-//         It now needs to absorb transient 429s without blanking the UI.
+//         It now needs to absorb transient 429s and support the aggregate token
+//         trend route so token pages can avoid client-side chain fan-out.
 // Goal: Keep read requests deduped and cache-backed so the app stays usable under
 //       burst traffic and backend throttling.
 // Owns: Request assembly, dedupe, short-lived response reuse, and fail-soft reads.
@@ -240,6 +248,8 @@ import { adaptLoopbackUrlForBrowser, isLocalLikeHost } from '../utils/runtimeHos
 // Design Language:
 // - Prefer a small amount of staleness over a visible loading dead-end.
 // - Do not attach cache-busting noise to endpoints that already have local dedupe.
+// - Prefer a single aggregate read over N client-side reads when the backend can
+//   safely serve the merged view.
 // - Keep fallback logic generic so individual pages do not reimplement recovery.
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
@@ -280,6 +290,7 @@ async function ensureChatStreamReady(timeoutMs = 1800): Promise<boolean> {
 function getCacheTime(endpoint: string): number {
     // Live trending stays very fresh, but still gets a tiny cache window so
     // concurrent mounts and immediate follow-up refreshes can collapse.
+    if (endpoint.includes('/tokens/trending/all')) return 3000;
     if (endpoint.includes('/tokens/trending/live')) return 3000;
     if (endpoint.includes('/copy-trade/') || endpoint.includes('/polymarket/copy/')) return 5000;
     // Chains data: NO CACHE - always fetch fresh data
@@ -529,6 +540,21 @@ export const tokenApi = {
      */
     async getTrending(chain: string = 'eth'): Promise<TokenSearchResult[]> {
         return fetchApi<TokenSearchResult[]>(`/api/tokens/trending?chain=${chain}`);
+    },
+
+    /**
+     * Get trending tokens from all chains in a single request.
+     * This is the preferred token-page entry point because it avoids client-side
+     * fan-out into seven live reads at mount time.
+     */
+    async getTrendingAll(limit: number = 50): Promise<TokenSearchResult[]> {
+        const buckets = await fetchApi<TrendingAllChainGroup[]>(`/api/tokens/trending/all?limit=${limit}`);
+        return buckets.flatMap((bucket) =>
+            (bucket.tokens || []).map((token) => ({
+                ...token,
+                network: token.network || bucket.chain,
+            }))
+        );
     },
 
     /**

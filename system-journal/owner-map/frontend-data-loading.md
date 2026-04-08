@@ -25,10 +25,13 @@ Owns: concurrency choices, retry UI, and deciding when to show cached data.
 
 Does not own: the structure of API envelopes or auth token plumbing.
 
+Tokens page note: prefer `/api/tokens/trending/all` as the first load path for
+the multi-chain feed; do not restore per-chain live fan-out as the default page
+loader.
+
 ### Feature-specific loaders
 
 Owns: merging partial results from multiple sources without dropping already
 recovered data.
 
 Does not own: global cache policy or request recovery for unrelated pages.
-

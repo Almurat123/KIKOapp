@@ -29,8 +29,22 @@
   <!-- PWA Manifest -->
   <link rel="manifest" href="/manifest.json">
 
-  <!-- iOS 26 Web App Support -->
-  <meta name="apple-mobile-web-app-capable" content="yes">
+  <!-- CONTEXT MEMORY
+  Updated: 2026-04-08
+  Author: Codex
+  Reason: The shell metadata should use the standards-based PWA capability flag
+          so modern browsers stop warning about the deprecated Apple variant.
+  Goal: Keep install metadata stable without reintroducing console noise.
+  Owns: Web app shell metadata only.
+  Does Not Own: Runtime rendering, auth, or token loading.
+  Design Language:
+  - Prefer standards-based PWA flags over deprecated vendor-only variants.
+  - Keep install metadata minimal and explicit.
+  See also:
+  - /Users/almurat/KiKo/system-journal/INDEX.md
+  - /Users/almurat/KiKo/system-journal/fix-log/2026-04-08-rate-limit-loading-stall.md
+  -->
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="KIKO">
   <link rel="apple-touch-icon" href="/kiko-logo-dark.png">

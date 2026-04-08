@@ -26,6 +26,8 @@ channels.
 - Read fan-out should be bounded and dedupable.
 - 429s should degrade to stale-but-present data when possible.
 - One failing source must not erase the rest of the strategy list.
+- Multi-chain token pages should prefer a single aggregate read before falling
+  back to chain-specific reads.
 
 ## Files Corrected
 
@@ -36,3 +38,8 @@ channels.
 - `kiko-web/src/services/copyTradeApi.ts`
 - `kiko-web/src/services/polymarketCopyApi.ts`
 
+## Follow-up
+
+The tokens page now uses `/api/tokens/trending/all` as the primary load path so
+the browser no longer creates seven concurrent `/api/tokens/trending/live`
+requests on every mount.

@@ -48,6 +48,7 @@
     "diagnose:copytrade-webhooks": "tsx src/scripts/diagnoseCopyTradeWebhookDrift.ts",
     "diagnose:copytrade-signal-mapping": "tsx src/scripts/diagnoseCopytradeSignalMapping.ts",
     "diagnose:solana-target-resolution": "tsx src/scripts/summarizeSolanaTargetResolutionAudit.ts",
+    "test:trending:direct-swap": "tsx src/scripts/testTrendingDirectSwapSmoke.ts",
     "sec:slither": "slither contracts/**/*.sol --exclude-dependencies --json slither.json",
     "sec:myth": "myth analyze contracts/Token.sol --max-depth 50 --solver-timeout 60",
     "sec:fuzz": "forge test --mc TokenTest --ffi",

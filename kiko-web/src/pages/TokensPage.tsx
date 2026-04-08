@@ -1097,8 +1097,7 @@ const CHAIN_OPTIONS = [
   { id: 'MATIC', name: 'Polygon', logo: '/assets/tokens/polygon.png', apiKey: 'polygon' },
 ];
 
-// Chains to fetch data from
-const FETCH_CHAINS = CHAIN_OPTIONS.filter(c => c.apiKey).map(c => c.apiKey);
+const TRENDING_ALL_LIMIT = 50;
 
 export const TokensPage: React.FC<TokensPageProps> = ({
   searchQuery: externalSearchQuery,
@@ -1138,21 +1137,20 @@ export const TokensPage: React.FC<TokensPageProps> = ({
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [isMobile, setIsMobile] = useState(false);
 
-  // Refs for request management
-  const chainRequestIdsRef = useRef<Map<string, string>>(new Map());
   const mountedRef = useRef(true);
 
   // CONTEXT MEMORY
   // Updated: 2026-04-08
   // Author: Codex
-  // Reason: The tokens view was firing too many live trend requests at once and
-  //         turning backend throttling into a visible empty/loading state.
-  // Goal: Keep the trending list responsive while avoiding request bursts.
-  // Owns: Page-level batching and refresh cadence for the trend table.
+  // Reason: The tokens view should load from the aggregate trend endpoint first
+  //         so the page does not fan out seven live requests on every mount.
+  // Goal: Keep the trending list responsive while avoiding request bursts and
+  //       preserving stale-but-present data when the backend is throttled.
+  // Owns: Page-level loader choice, refresh cadence, and list recovery behavior.
   // Does Not Own: Backend rate limits, token shaping, or cross-page caching.
   // Design Language:
-  // - Prefer bounded concurrency over full parallel fan-out on read-heavy screens.
-  // - Background refreshes should reuse the same throttling as initial load.
+  // - Prefer a single aggregate read over client-side fan-out when available.
+  // - Background refreshes should reuse the same loader path as initial load.
   // - Do not add cache-busting query noise just to force network activity.
   // See also:
   // - /Users/almurat/KiKo/system-journal/INDEX.md
@@ -1160,37 +1158,12 @@ export const TokensPage: React.FC<TokensPageProps> = ({
   // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
   // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-08-rate-limit-loading-stall.md
 
-  const fetchTrendingTokensForChains = useCallback(async (chains: readonly string[]) => {
-    const batchSize = 2;
-    const results: Token[] = [];
+  const fetchTrendingTokens = useCallback(async () => {
+    const data = await tokenApi.getTrendingAll(TRENDING_ALL_LIMIT);
+    return data.map((token, index) => convertApiTokenToToken(token, index + 1));
+  }, []);
 
-    for (let i = 0; i < chains.length; i += batchSize) {
-      if (!mountedRef.current) break;
-
-      const batch = chains.slice(i, i + batchSize);
-      const batchResults = await Promise.all(batch.map(async (chain) => {
-        if (!mountedRef.current) return [];
-
-        try {
-          const data = await tokenApi.getTrendingLive(chain, timeframe, 100, true);
-          if (mountedRef.current && data && data.length > 0) {
-            return data.map((token) => convertApiTokenToToken(token, 0));
-          }
-        } catch (err) {
-          console.warn(`Failed to load ${chain} tokens:`, err);
-        }
-        return [];
-      }));
-
-      for (const batchTokens of batchResults) {
-        results.push(...batchTokens);
-      }
-    }
-
-    return results;
-  }, [timeframe]);
-
-  // Load all chains data on initial mount - with queue and batching
+  // Load all chains data on initial mount using the aggregate trend endpoint.
   useEffect(() => {
     // Reset mounted ref on each mount (important for StrictMode)
     mountedRef.current = true;
@@ -1206,7 +1179,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
         setTimeout(async () => {
           if (!mountedRef.current) return;
           try {
-            let freshTokens = await fetchTrendingTokensForChains(FETCH_CHAINS);
+            let freshTokens = await fetchTrendingTokens();
             freshTokens.sort((a, b) => computeTimeframeScore(b, timeframe) - computeTimeframeScore(a, timeframe));
             if (mountedRef.current && freshTokens.length > 0) {
               const displayTokens = freshTokens.map((t, idx) => ({ ...t, id: idx + 1 }));
@@ -1223,7 +1196,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
 
       try {
         // Fetch fresh data (DB-backed API)
-        let freshTokens = await fetchTrendingTokensForChains(FETCH_CHAINS);
+        let freshTokens = await fetchTrendingTokens();
 
         // Rank tokens from all chains by selected timeframe
         if (freshTokens.length > 0) {
@@ -1262,14 +1235,11 @@ export const TokensPage: React.FC<TokensPageProps> = ({
 
     // Cleanup on unmount
     return () => {
-      chainRequestIdsRef.current.forEach((requestId) => {
-        requestManager.cancel(requestId);
-      });
-      chainRequestIdsRef.current.clear();
+      // No in-flight chain fan-out remains on this path.
     };
   }, [timeframe, reloadNonce]); // Reload when timeframe changes or manual retry is triggered
 
-  // 30-second polling for real-time updates
+  // 5-minute polling for real-time updates (matches backend refresh cadence)
   useEffect(() => {
     if (!isPageActive) return;
 
@@ -1278,7 +1248,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
     const pollData = async () => {
       if (!mountedRef.current || !isPageActive) return;
       try {
-        let freshTokens = await fetchTrendingTokensForChains(FETCH_CHAINS);
+        let freshTokens = await fetchTrendingTokens();
 
         if (mountedRef.current) {
           // Keep the list ranked by selected timeframe
@@ -1304,10 +1274,6 @@ export const TokensPage: React.FC<TokensPageProps> = ({
 
     return () => {
       mountedRef.current = false;
-      chainRequestIdsRef.current.forEach((requestId) => {
-        requestManager.cancel(requestId);
-      });
-      chainRequestIdsRef.current.clear();
     };
   }, []);
 
