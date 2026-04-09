@@ -19,6 +19,7 @@
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
+// - system-journal/fix-log/2026-04-09-x-auth-origin-bypass.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
 // - system-journal/conflicts.md
 
@@ -258,7 +259,17 @@ fastify.addHook('preHandler', async (request, reply) => {
     // - /health: health check
     // - /api/chat/ws: WebSocket (uses JWT token in URL)
     // - /api/webhook/: server-to-server webhooks (have HMAC verification)
-    const skipPaths = ['/health', '/api/chat/ws', '/v2/chat/ws', '/api/webhook/', '/webhook/', '/api/images', '/internal/tools/'];
+    const skipPaths = [
+        '/health',
+        '/api/chat/ws',
+        '/v2/chat/ws',
+        '/api/auth/x/start',
+        '/api/auth/x/callback',
+        '/api/webhook/',
+        '/webhook/',
+        '/api/images',
+        '/internal/tools/'
+    ];
     if (skipPaths.some(p => request.url === p || request.url.startsWith(p))) {
         return;
     }
