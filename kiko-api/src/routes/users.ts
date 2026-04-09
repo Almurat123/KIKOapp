@@ -3,6 +3,28 @@
  * API endpoints for managing user custom AI settings and wallet exports
  */
 
+// CONTEXT MEMORY
+// Updated: 2026-04-09
+// Author: Almurat
+// Reason: user identity sync now spans Privy, Farcaster, X, and wallet flows,
+//         so this route layer must own how the persisted User record is
+//         hydrated without relying on hidden migration history.
+// Goal: preserve one stable owner for user-profile persistence, including the
+//       canonical in-app username field and social-account linkage state.
+// Owns: authenticated user settings routes, social identity sync endpoints, and
+//       persistence rules for the shared User row.
+// Does Not Own: Privy token verification, wallet custody, or X webhook ingress.
+// Design Language:
+// - Persist canonical user profile fields from authenticated identity sources.
+// - Prefer stable normalization over ad hoc per-route formatting.
+// - Do not let social-link sync silently drift from the User schema.
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/owner-map/backend-swap-validation.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-user-username-foundation.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
+
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import prisma from '../db/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -35,6 +57,11 @@ interface WalletExportBody {
 
 interface WalletExportQuery {
     walletAddress: string;
+}
+
+function normalizeCanonicalUsername(value: string | null | undefined): string | null {
+    const normalized = String(value || '').trim().replace(/^@+/, '').toLowerCase();
+    return normalized || null;
 }
 
 function serializeUserSettings(settings: any) {
@@ -207,13 +234,15 @@ export async function registerUserRoutes(app: FastifyInstance) {
                 }
 
                 console.log(`[Farcaster] Syncing FID ${fid} for user ${userId}`);
+                const normalizedUsername = normalizeCanonicalUsername(username);
 
                 // Update user with Farcaster info
                 const user = await prisma.user.update({
                     where: { privyDid: userId },
                     data: {
                         farcasterFid: fid,
-                        farcasterUsername: username || null
+                        farcasterUsername: username || null,
+                        username: normalizedUsername,
                     }
                 });
 
@@ -328,9 +357,15 @@ export async function registerUserRoutes(app: FastifyInstance) {
                     return reply.status(400).send({ success: false, error: 'Embedded wallet not available for this account' });
                 }
 
+                const existingUser = await prisma.user.findUnique({
+                    where: { privyDid: userId },
+                    select: { username: true }
+                });
+
                 const user = await prisma.user.upsert({
                     where: { privyDid: userId },
                     update: {
+                        username: existingUser?.username || username,
                         xUserId,
                         xUsername: username,
                         xLinkedAt: new Date(),
@@ -341,6 +376,7 @@ export async function registerUserRoutes(app: FastifyInstance) {
                     },
                     create: {
                         privyDid: userId,
+                        username: username,
                         walletAddress: embeddedWalletAddress,
                         xUserId,
                         xUsername: username,

@@ -23,6 +23,7 @@ model Chain {
 model User {
   id                  String                 @id @default(cuid())
   privyDid            String                 @unique
+  username            String?
   walletAddress       String                 @unique
   solanaWalletAddress String?
   farcasterFid        Int?

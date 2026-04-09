@@ -173,6 +173,7 @@ CREATE TABLE IF NOT EXISTS trending_casts (
 CREATE TABLE IF NOT EXISTS "User" (
   "id" TEXT PRIMARY KEY,
   "privyDid" TEXT UNIQUE NOT NULL,
+  "username" TEXT,
   "walletAddress" TEXT UNIQUE NOT NULL,
   "email" TEXT UNIQUE,
   "solanaWalletAddress" TEXT,
