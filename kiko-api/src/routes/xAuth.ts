@@ -59,10 +59,27 @@ function redactDid(value: string | null | undefined): string | null {
   return `${normalized.slice(0, 12)}...${normalized.slice(-8)}`;
 }
 
+function fingerprintDid(value: string | null | undefined): string | null {
+  const normalized = String(value || '').trim();
+  if (!normalized) return null;
+  return crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 12);
+}
+
 function summarizeAuthorizedDidList(values: string[]): string[] {
   return values
     .map((value) => redactDid(value))
     .filter((value): value is string => !!value);
+}
+
+function summarizeAuthorizedDidFingerprints(values: string[]): Array<{ sample: string | null; length: number; fp: string | null }> {
+  return values.map((value) => {
+    const normalized = String(value || '').trim();
+    return {
+      sample: redactDid(normalized),
+      length: normalized.length,
+      fp: fingerprintDid(normalized),
+    };
+  });
 }
 
 function normalizeUsername(value: string | null | undefined): string {
@@ -270,8 +287,11 @@ export async function xAuthRoutes(fastify: FastifyInstance) {
         error: 'Caller is not allowed to authorize the X bot account',
         debug: {
           callerDid: redactDid(userId),
+          callerDidLength: String(userId || '').trim().length,
+          callerDidFingerprint: fingerprintDid(userId),
           allowedDidCount: env.x.authorizedPrivyDids.length,
           allowedDidSamples: summarizeAuthorizedDidList(env.x.authorizedPrivyDids),
+          allowedDidFingerprints: summarizeAuthorizedDidFingerprints(env.x.authorizedPrivyDids),
         },
       });
     }

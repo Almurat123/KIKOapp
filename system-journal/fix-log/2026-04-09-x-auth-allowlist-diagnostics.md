@@ -21,6 +21,8 @@ caller identity itself was mismatched.
   redacted diagnostic payload.
 - The payload must reveal the caller DID fingerprint and the loaded allowlist
   count/samples without exposing full identifiers.
+- If two DIDs look identical after redaction, the payload must still expose
+  enough length/fingerprint detail to detect hidden-character mismatches.
 
 ## Files Corrected
 
