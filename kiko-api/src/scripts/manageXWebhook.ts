@@ -1,21 +1,25 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-09
+// Updated: 2026-04-10
 // Author: Almurat
 // Reason: the X webhook receiver was already implemented, but operator setup on
-//         the X platform remained manual and error-prone.
+//         the X platform remained manual and error-prone, and subscription setup
+//         must use OAuth1 user context rather than OAuth2 bearer auth.
 // Goal: provide one repeatable operator script that can create or reuse the
-//       webhook, then attach the official bot subscription with the right token.
+//       webhook, then attach the official bot subscription with the correct
+//       authentication boundary for each step.
 // Owns: X webhook registration, lookup, and Account Activity subscription setup.
 // Does Not Own: webhook event parsing, OAuth callback storage, or runtime chat handling.
 // Design Language:
 // - Create-or-reuse by callback URL instead of spraying duplicate webhooks.
-// - Use app bearer for webhook management and bot bearer for activity subscription.
+// - Use app bearer for webhook management and OAuth1 user context for activity subscription.
 // - Fail loudly with exact upstream response details; never silently partially configure.
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-09-x-webhook-operator-script.md
+// - system-journal/fix-log/2026-04-10-x-webhook-subscription-oauth1.md
 // - system-journal/conflicts.md
+import crypto from 'node:crypto';
 import dotenv from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -72,6 +76,56 @@ function requireEnv(name: string): string {
   return value;
 }
 
+function percentEncode(value: string): string {
+  return encodeURIComponent(value)
+    .replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+function oauthNonce(): string {
+  return crypto.randomBytes(16).toString('hex');
+}
+
+function oauthTimestamp(): string {
+  return String(Math.floor(Date.now() / 1000));
+}
+
+function buildOAuth1Header(params: {
+  method: 'GET' | 'POST';
+  url: string;
+  consumerKey: string;
+  consumerSecret: string;
+  accessToken: string;
+  accessTokenSecret: string;
+}): string {
+  const oauthParams: Record<string, string> = {
+    oauth_consumer_key: params.consumerKey,
+    oauth_nonce: oauthNonce(),
+    oauth_signature_method: 'HMAC-SHA1',
+    oauth_timestamp: oauthTimestamp(),
+    oauth_token: params.accessToken,
+    oauth_version: '1.0',
+  };
+
+  const paramString = Object.entries(oauthParams)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${percentEncode(key)}=${percentEncode(value)}`)
+    .join('&');
+
+  const baseString = [
+    params.method,
+    percentEncode(params.url),
+    percentEncode(paramString),
+  ].join('&');
+
+  const signingKey = `${percentEncode(params.consumerSecret)}&${percentEncode(params.accessTokenSecret)}`;
+  oauthParams.oauth_signature = crypto.createHmac('sha1', signingKey).update(baseString).digest('base64');
+
+  return `OAuth ${Object.entries(oauthParams)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${percentEncode(key)}="${percentEncode(value)}"`)
+    .join(', ')}`;
+}
+
 async function readBotCredential(databaseUrl: string): Promise<XBotCredentialRecord> {
   const prisma = new PrismaClient({
     datasources: {
@@ -102,15 +156,15 @@ async function readBotCredential(databaseUrl: string): Promise<XBotCredentialRec
 
 async function xRequest<T>(
   url: string,
-  token: string,
   init?: RequestInit,
+  headers?: Record<string, string>,
 ): Promise<T> {
   const response = await fetch(url, {
     ...init,
     headers: {
-      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
-      ...(init?.headers || {}),
+      ...(headers || {}),
+      ...(init?.headers as Record<string, string> | undefined || {}),
     },
   });
 
@@ -135,8 +189,8 @@ function safeJsonParse(text: string): any {
 async function listWebhooks(appBearerToken: string): Promise<XWebhookRecord[]> {
   const result = await xRequest<{ data?: XWebhookRecord[] }>(
     'https://api.x.com/2/webhooks',
-    appBearerToken,
     { method: 'GET' },
+    { Authorization: `Bearer ${appBearerToken}` },
   );
   return Array.isArray(result?.data) ? result.data : [];
 }
@@ -144,11 +198,11 @@ async function listWebhooks(appBearerToken: string): Promise<XWebhookRecord[]> {
 async function createWebhook(appBearerToken: string, callbackUrl: string): Promise<XWebhookRecord> {
   const result = await xRequest<{ data: XWebhookRecord }>(
     'https://api.x.com/2/webhooks',
-    appBearerToken,
     {
       method: 'POST',
       body: JSON.stringify({ url: callbackUrl }),
     },
+    { Authorization: `Bearer ${appBearerToken}` },
   );
   if (!result?.data?.id) {
     throw new Error('X API did not return webhook id after creation');
@@ -156,22 +210,48 @@ async function createWebhook(appBearerToken: string, callbackUrl: string): Promi
   return result.data;
 }
 
-async function checkSubscription(botAccessToken: string, webhookId: string): Promise<boolean> {
+async function checkSubscription(
+  webhookId: string,
+  oauth1: { consumerKey: string; consumerSecret: string; accessToken: string; accessTokenSecret: string },
+): Promise<boolean> {
+  const url = `https://api.x.com/2/account_activity/webhooks/${webhookId}/subscriptions/all`;
   const result = await xRequest<{ data?: { subscribed?: boolean } }>(
-    `https://api.x.com/2/account_activity/webhooks/${webhookId}/subscriptions/all`,
-    botAccessToken,
+    url,
     { method: 'GET' },
+    {
+      Authorization: buildOAuth1Header({
+        method: 'GET',
+        url,
+        consumerKey: oauth1.consumerKey,
+        consumerSecret: oauth1.consumerSecret,
+        accessToken: oauth1.accessToken,
+        accessTokenSecret: oauth1.accessTokenSecret,
+      }),
+    },
   );
   return Boolean(result?.data?.subscribed);
 }
 
-async function createSubscription(botAccessToken: string, webhookId: string): Promise<boolean> {
+async function createSubscription(
+  webhookId: string,
+  oauth1: { consumerKey: string; consumerSecret: string; accessToken: string; accessTokenSecret: string },
+): Promise<boolean> {
+  const url = `https://api.x.com/2/account_activity/webhooks/${webhookId}/subscriptions/all`;
   const result = await xRequest<{ data?: { subscribed?: boolean } }>(
-    `https://api.x.com/2/account_activity/webhooks/${webhookId}/subscriptions/all`,
-    botAccessToken,
+    url,
     {
       method: 'POST',
       body: JSON.stringify({}),
+    },
+    {
+      Authorization: buildOAuth1Header({
+        method: 'POST',
+        url,
+        consumerKey: oauth1.consumerKey,
+        consumerSecret: oauth1.consumerSecret,
+        accessToken: oauth1.accessToken,
+        accessTokenSecret: oauth1.accessTokenSecret,
+      }),
     },
   );
   return Boolean(result?.data?.subscribed);
@@ -206,12 +286,6 @@ async function main() {
   const appBearerToken = requireEnv('X_APP_BEARER_TOKEN');
   const databaseUrl = requireEnv('DATABASE_URL');
   const bot = await readBotCredential(databaseUrl);
-  const botAccessToken = String(process.env.X_BOT_ACCESS_TOKEN || bot.accessToken || '').trim();
-
-  if (!botAccessToken) {
-    throw new Error('Missing bot bearer token. Authorize the official X account first or set X_BOT_ACCESS_TOKEN explicitly.');
-  }
-
   const existing = await listWebhooks(appBearerToken);
   const matched = existing.find((item) => normalizeUrl(item.url) === callbackUrl) || null;
 
@@ -226,10 +300,16 @@ async function main() {
     return;
   }
 
+  const oauth1 = {
+    consumerKey: requireEnv('X_CONSUMER_KEY'),
+    consumerSecret: requireEnv('X_WEBHOOK_SECRET'),
+    accessToken: requireEnv('X_OAUTH1_ACCESS_TOKEN'),
+    accessTokenSecret: requireEnv('X_OAUTH1_ACCESS_TOKEN_SECRET'),
+  };
+
   const webhook = matched || await createWebhook(appBearerToken, callbackUrl);
-  const subscribed = await checkSubscription(botAccessToken, webhook.id)
-    .catch(() => false);
-  const finalSubscribed = subscribed || await createSubscription(botAccessToken, webhook.id);
+  const subscribed = await checkSubscription(webhook.id, oauth1).catch(() => false);
+  const finalSubscribed = subscribed || await createSubscription(webhook.id, oauth1);
 
   console.log(JSON.stringify(
     summarizeWebhook(webhook, finalSubscribed, bot, callbackUrl),

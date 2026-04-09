@@ -11,6 +11,7 @@ owner boundaries, and major fixes.
 - [Fix Log: 2026-04-09 X Auth Callback Diagnostics](./fix-log/2026-04-09-x-auth-callback-diagnostics.md)
 - [Fix Log: 2026-04-09 X Webhook CRC Secret Boundary](./fix-log/2026-04-09-x-webhook-crc-secret-boundary.md)
 - [Fix Log: 2026-04-10 X Webhook CRC Debug Endpoint](./fix-log/2026-04-10-x-webhook-crc-debug-endpoint.md)
+- [Fix Log: 2026-04-10 X Webhook Subscription OAuth1](./fix-log/2026-04-10-x-webhook-subscription-oauth1.md)
 - [Fix Log: 2026-04-09 X Webhook Operator Script](./fix-log/2026-04-09-x-webhook-operator-script.md)
 - [Fix Log: 2026-04-09 X Auth Origin Bypass](./fix-log/2026-04-09-x-auth-origin-bypass.md)
 - [Fix Log: 2026-04-09 X Auth Allowlist Diagnostics](./fix-log/2026-04-09-x-auth-allowlist-diagnostics.md)
