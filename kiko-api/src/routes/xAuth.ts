@@ -3,19 +3,23 @@
 // Author: Almurat
 // Reason: X OAuth start/callback is a new owner layer that converts an authorized
 //         KIKO official account into persisted bot credentials without changing
-//         the existing agent or trading flow.
+//         the existing agent or trading flow, and now also owns operator-safe
+//         diagnostics for webhook CRC mismatches.
 // Goal: preserve a strict PKCE-based OAuth2 bridge for the bot account and keep
-//       token exchange, state validation, and credential persistence in one place.
+//       token exchange, state validation, credential persistence, and limited
+//       operator diagnostics in one place.
 // Owns: X auth URL generation, PKCE state storage, token exchange, and callback
-//       persistence for the official bot account.
+//       persistence for the official bot account, plus allowlisted CRC debug output.
 // Does Not Own: X mention/DM ingestion, chat routing, or chain execution.
 // Design Language:
 // - PKCE state must be single-use and time bounded.
 // - Callback must fail closed on state/code/token exchange mismatches.
 // - Do not leak raw access tokens into logs or redirects.
+// - Operator diagnostics may expose fingerprints, never raw secrets.
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
+// - system-journal/fix-log/2026-04-10-x-webhook-crc-debug-endpoint.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
 // - system-journal/conflicts.md
 import crypto from 'node:crypto';
@@ -25,6 +29,7 @@ import { env } from '../config/env.js';
 import cacheClient from '../cache/cacheClient.js';
 import { storeXBotCredentials, ensureXBotCredentialsLoaded } from '../services/x/xCredentialsService.js';
 import { safeSecretEquals } from './webhookHelpers.js';
+import { computeXWebhookCrcResponseToken } from './xWebhook.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 
@@ -43,6 +48,10 @@ interface CallbackQuery {
   state?: string;
   error?: string;
   error_description?: string;
+}
+
+interface WebhookDebugQuery {
+  crc_token?: string;
 }
 
 interface PkceStateRecord {
@@ -165,6 +174,12 @@ export function generateCodeChallenge(verifier: string): string {
 
 export function generateState(): string {
   return crypto.randomBytes(16).toString('hex');
+}
+
+function fingerprintSecret(value: string | null | undefined): string | null {
+  const normalized = String(value || '').trim();
+  if (!normalized) return null;
+  return crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 16);
 }
 
 export function buildAuthorizeUrl(params: {
@@ -333,6 +348,35 @@ export async function xAuthRoutes(fastify: FastifyInstance) {
         state,
         redirectUri,
         scope,
+      },
+    };
+  });
+
+  fastify.get<{ Querystring: WebhookDebugQuery }>('/debug/webhook-crc', { preHandler: requireEndUserAuth }, async (request, reply) => {
+    const userId = (request as any).user?.sub;
+    if (!userId) {
+      return reply.status(401).send({ success: false, error: 'Unauthorized' });
+    }
+    if (!isAuthorizedXBotAuthInitiator(userId)) {
+      return reply.status(403).send({
+        success: false,
+        error: 'Caller is not allowed to inspect X bot webhook diagnostics',
+      });
+    }
+
+    const crcToken = String(request.query?.crc_token || 'kiko_debug_crc_token').trim();
+    const webhookSecret = String(env.x.webhookSecret || '').trim();
+
+    return {
+      success: true,
+      data: {
+        crcToken,
+        webhookSecretPresent: Boolean(webhookSecret),
+        webhookSecretLength: webhookSecret.length,
+        webhookSecretFingerprint: fingerprintSecret(webhookSecret),
+        responseToken: webhookSecret ? computeXWebhookCrcResponseToken(crcToken, webhookSecret) : null,
+        botUsername: env.x.botUsername || null,
+        botUserIdConfigured: Boolean(env.x.botUserId),
       },
     };
   });
