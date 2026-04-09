@@ -405,12 +405,30 @@ export async function xAuthRoutes(fastify: FastifyInstance) {
         },
       };
     } catch (err: any) {
+      const rawMessage = String(err?.message || err || 'x_oauth_failed');
+      let stage = 'unknown';
+      if (rawMessage.includes('token exchange')) {
+        stage = 'token_exchange';
+      } else if (rawMessage.includes('user lookup')) {
+        stage = 'user_lookup';
+      } else if (rawMessage.includes('does not match the configured official bot identity')) {
+        stage = 'bot_identity_mismatch';
+      } else if (rawMessage.includes('Refusing to store X bot credentials')) {
+        stage = 'credential_storage';
+      } else if (rawMessage.includes('no access token')) {
+        stage = 'token_payload';
+      }
       logger.error(LogCode.SYS_ERROR, '[X OAuth] callback failed', {
-        error: String(err?.message || err || 'x_oauth_failed'),
+        error: rawMessage,
+        stage,
       });
       return reply.status(500).send({
         success: false,
         error: 'x_oauth_failed',
+        debug: {
+          stage,
+          reason: rawMessage.slice(0, 240),
+        },
       });
     }
   });
