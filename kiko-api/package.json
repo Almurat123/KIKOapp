@@ -51,6 +51,7 @@
     "test:trending:direct-swap": "tsx src/scripts/testTrendingDirectSwapSmoke.ts",
     "x:webhook:ensure": "tsx src/scripts/manageXWebhook.ts ensure",
     "x:webhook:list": "tsx src/scripts/manageXWebhook.ts list",
+    "x:webhook:diagnose": "tsx src/scripts/diagnoseXWebhookSubscription.ts",
     "sec:slither": "slither contracts/**/*.sol --exclude-dependencies --json slither.json",
     "sec:myth": "myth analyze contracts/Token.sol --max-depth 50 --solver-timeout 60",
     "sec:fuzz": "forge test --mc TokenTest --ffi",
