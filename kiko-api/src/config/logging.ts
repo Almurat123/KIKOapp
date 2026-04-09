@@ -2,10 +2,28 @@
  * Centralized Logging Configuration
  * Redirects noisy API logs to files instead of console
  */
+// CONTEXT MEMORY
+// Updated: 2026-04-09
+// Author: Almurat
+// Reason: file-based logging helpers were another config-layer leak path because
+//         they could write raw error/context payloads to disk without sanitization.
+// Goal: preserve low-noise file logging while ensuring secrets are redacted
+//       before they reach persistent log files.
+// Owns: legacy file logging helpers and their sanitization boundary.
+// Does Not Own: main structured logger policy or request-specific audit decisions.
+// Design Language:
+// - Persist only redacted error and debug payloads.
+// - File logging must not be a bypass around structured logger protections.
+// - Development convenience must not trump secret safety.
+// See also:
+// - system-journal/INDEX.md
+// - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
+// - system-journal/conflicts.md
 
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { redact } from '../utils/sanitizer.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -67,9 +85,9 @@ export function logApiCall(service: string, endpoint: string, status?: number, d
  */
 export function logError(service: string, error: Error | string, context?: any) {
     const timestamp = new Date().toISOString();
-    const errorMessage = error instanceof Error ? error.message : error;
-    const stack = error instanceof Error ? error.stack : '';
-    const contextStr = context ? JSON.stringify(context) : '';
+    const errorMessage = String(redact(error instanceof Error ? error.message : error));
+    const stack = String(redact(error instanceof Error ? error.stack || '' : ''));
+    const contextStr = context ? JSON.stringify(redact(context)) : '';
     
     const message = `[${timestamp}] ${service} | ${errorMessage}\n${stack}\n${contextStr}\n---\n`;
     
@@ -87,8 +105,9 @@ export function logError(service: string, error: Error | string, context?: any) 
  */
 export function logDebug(service: string, message: string, data?: any) {
     const timestamp = new Date().toISOString();
-    const dataStr = data ? JSON.stringify(data) : '';
-    const logMessage = `[${timestamp}] ${service} | ${message} | ${dataStr}\n`;
+    const dataStr = data ? JSON.stringify(redact(data)) : '';
+    const safeMessage = String(redact(message));
+    const logMessage = `[${timestamp}] ${service} | ${safeMessage} | ${dataStr}\n`;
     
     if (debugStream) {
         debugStream.write(logMessage);

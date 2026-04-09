@@ -1,6 +1,3 @@
-// CRITICAL: Import fetch interceptor FIRST to ensure all API calls have App Key
-import './utils/fetchInterceptor';
-
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -19,6 +16,27 @@ import './index.css';
 // import './styles/global.css'; // Removed to fix Beige theme conflict
 import './styles/theme.css';
 import './styles/design-tokens.css';
+
+// CONTEXT MEMORY
+// Updated: 2026-04-09
+// Author: Codex
+// Reason: Temporary auth-debug boot paths were removed after the X/Privy flow
+//         was stabilized; the root should return to a single, predictable boot
+//         mode instead of carrying special-case debugging behavior.
+// Goal: Preserve stable provider composition and normal StrictMode semantics
+//       without browser-wide auth instrumentation.
+// Owns: Frontend root boot mode and top-level provider composition.
+// Does Not Own: Privy SDK session behavior, route-level auth UX, backend auth
+//               verification, or ad hoc browser debug tooling.
+// Design Language:
+// - Keep one root render mode across local and production environments.
+// - Do not install browser-wide auth debugging from the app entrypoint.
+// - Keep provider composition stable and easy to reason about.
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 
 // Global error logging and console sanitization
 if (typeof window !== 'undefined') {
@@ -68,6 +86,7 @@ const queryClient = new QueryClient();
 
 const privyAppId = import.meta.env.VITE_PRIVY_APP_ID;
 const privyClientId = import.meta.env.VITE_PRIVY_CLIENT_ID;
+const RootMode = React.StrictMode;
 
 // Check if Privy App credentials are configured
 if (
@@ -77,15 +96,15 @@ if (
   privyClientId === 'your-privy-client-id'
 ) {
   ReactDOM.createRoot(document.getElementById('root')!).render(
-    <React.StrictMode>
+    <RootMode>
       <ErrorBoundary>
         <PrivyConfigError />
       </ErrorBoundary>
-    </React.StrictMode>
+    </RootMode>
   );
 } else {
   ReactDOM.createRoot(document.getElementById('root')!).render(
-    <React.StrictMode>
+    <RootMode>
       <ErrorBoundary>
         <ThemeProvider>
           <AgentModeProvider>
@@ -105,6 +124,6 @@ if (
           </AgentModeProvider>
         </ThemeProvider>
       </ErrorBoundary>
-    </React.StrictMode>
+    </RootMode>
   );
 }

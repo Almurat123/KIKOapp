@@ -3,6 +3,25 @@
  * Main entry point
  */
 
+// CONTEXT MEMORY
+// Updated: 2026-04-09
+// Author: Almurat
+// Reason: the server bootstrap now owns X OAuth preload and route registration
+//         so the bot can authorize once and serve credentials at runtime.
+// Goal: keep X auth routes mounted before startup, preload stored credentials,
+//       and preserve existing worker boot order.
+// Owns: top-level route wiring and startup sequencing for the API server.
+// Does Not Own: OAuth token exchange details, webhook parsing, or chat logic.
+// Design Language:
+// - Register auth infrastructure before starting workers.
+// - Preload runtime credentials before X ingress comes up.
+// - Keep startup order explicit and fail fast when auth is misconfigured.
+// See also:
+// - system-journal/INDEX.md
+// - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
+// - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
+// - system-journal/conflicts.md
+
 import 'dotenv/config';
 import process from 'node:process';
 import Fastify from 'fastify';
@@ -65,6 +84,8 @@ import { startNativePriceRefresh } from './services/onChainPriceService.js';
 import { requireAuth } from './middleware/auth.js';
 import { markEndUserActivity } from './services/runtimeActivityService.js';
 import { xIngressWorker } from './services/x/index.js';
+import { ensureXBotCredentialsLoaded } from './services/x/xCredentialsService.js';
+import { xAuthRoutes } from './routes/xAuth.js';
 
 const fastify = Fastify({
     logger: {
@@ -370,6 +391,7 @@ fastify.register(async (fastify) => {
     fastify.register(billingRoutes, { prefix: '/api/billing' });
     fastify.register(aiRoutes, { prefix: '/api/ai' });
     fastify.register(internalToolsRoutes);
+    fastify.register(xAuthRoutes, { prefix: '/api/auth/x' });
     registerUserRoutes(fastify); // User settings routes
 });
 
@@ -428,6 +450,8 @@ async function start() {
         } catch (nativePriceError: any) {
             logger.error(LogCode.SYS_ERROR, 'Native price refresh failed to start', { error: nativePriceError.message });
         }
+
+        await ensureXBotCredentialsLoaded().catch(() => undefined);
 
         // START SERVER FIRST
         logger.info(LogCode.SYS_STARTUP, `Starting server on port ${env.port}...`);

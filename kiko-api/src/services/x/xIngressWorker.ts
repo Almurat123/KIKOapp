@@ -1,3 +1,21 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-09
+// Author: Almurat
+// Reason: X ingress now owns the transition from webhook events into the shared
+//         chat/session pipeline and must keep mention/DM handling deterministic.
+// Goal: preserve dedupe, session mapping, and reply handoff while avoiding any
+//       direct model or chain coupling inside the ingress layer.
+// Owns: inbound X event processing, session routing, dedupe, and reply dispatch.
+// Does Not Own: OAuth exchange, X webhook signature checks, or token persistence.
+// Design Language:
+// - Never process the same inbound event twice.
+// - Keep public replies short and move detail into DM when allowed.
+// - Use the shared conversation mapping as the source of truth.
+// See also:
+// - system-journal/INDEX.md
+// - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
+// - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
+// - system-journal/conflicts.md
 import prisma from '../../db/prisma.js';
 import cacheClient from '../../cache/cacheClient.js';
 import { env } from '../../config/env.js';
@@ -9,6 +27,7 @@ import { recordXQuotaMetric } from './xQuotaService.js';
 import { enqueueXAgentMessage, waitForTaskAssistantText } from './xChatBridge.js';
 import { xApiClient } from './xApiClient.js';
 import { xReplyService } from './xReplyService.js';
+import { getXBotUserId } from './xCredentialsService.js';
 import type { XDirectMessageEvent, XMentionEvent } from './types.js';
 
 const MENTION_CURSOR_KEY = 'x:ingress:mentions:since_id';
@@ -141,7 +160,7 @@ export class XIngressWorker {
     this.scheduleRecovery(2000);
     logger.info(LogCode.SYS_STARTUP, '[X] ingress worker started', {
       mode: env.x.ingressMode,
-      botUserId: env.x.botUserId || null,
+      botUserId: getXBotUserId() || env.x.botUserId || null,
       pollMentionsMs: env.x.pollMentionsMs,
       pollDmMs: env.x.pollDmMs,
       webhookRecoveryMs: env.x.webhookRecoveryMs,
@@ -207,8 +226,9 @@ export class XIngressWorker {
     try {
       const sinceId = await cacheClient.get(DM_CURSOR_KEY).catch(() => null);
       const events = sortByNumericId(await xApiClient.fetchDirectMessages({ sinceId }));
+      const botUserId = getXBotUserId();
       for (const event of events) {
-        if (String(event.senderId) === String(env.x.botUserId)) continue;
+        if (botUserId && String(event.senderId) === String(botUserId)) continue;
         await this.enqueueDirectMessage(event);
       }
       const latestId = events.at(-1)?.id;

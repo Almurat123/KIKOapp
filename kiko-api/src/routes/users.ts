@@ -8,7 +8,7 @@ import prisma from '../db/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { trackLogin } from '../services/userActivityService.js';
 import { getCachedKikoFollowState, resolveKikoFollowState } from '../services/farcasterRelationshipService.js';
-import { buildXLinkUrl, getXContextForUser, normalizeXUsername, serializeXContext } from '../services/x/xIdentityService.js';
+import { buildXLinkUrl, getVerifiedPrivyXAccount, getXContextForUser, normalizeXUsername, serializeXContext } from '../services/x/xIdentityService.js';
 import { getEmbeddedWalletAddress } from '../services/privyWallet.js';
 
 // Types
@@ -301,14 +301,15 @@ export async function registerUserRoutes(app: FastifyInstance) {
                     return reply.status(401).send({ success: false, error: 'Unauthorized' });
                 }
 
-                const xUserId = String(request.body?.xUserId || '').trim();
-                const username = normalizeXUsername(request.body?.username);
+                const verifiedXAccount = await getVerifiedPrivyXAccount(userId);
+                const xUserId = String(verifiedXAccount.xUserId || '').trim();
+                const username = normalizeXUsername(verifiedXAccount.username);
                 const dmOptIn = request.body?.dmOptIn !== false;
                 const accessTokenRef = String(request.body?.accessTokenRef || '').trim() || null;
                 const refreshTokenRef = String(request.body?.refreshTokenRef || '').trim() || null;
 
                 if (!xUserId) {
-                    return reply.status(400).send({ success: false, error: 'xUserId is required' });
+                    return reply.status(400).send({ success: false, error: 'No verified X account is linked to this Privy user' });
                 }
 
                 const existingOwner = await prisma.user.findFirst({

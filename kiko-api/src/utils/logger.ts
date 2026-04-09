@@ -1,8 +1,28 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-09
+// Author: Almurat
+// Reason: config-layer red teaming showed that structured logs could become a
+//         secret exfiltration path if any caller accidentally logged headers,
+//         tokens, cookies, or auth payloads.
+// Goal: keep the default logger fail-safe by redacting sensitive strings and
+//       metadata before anything reaches console or log files.
+// Owns: structured log payload building, console interception, and default
+//       metadata sanitization for logger-based output.
+// Does Not Own: business-specific decisions about what should be logged.
+// Design Language:
+// - Redact before formatting, not after emission.
+// - Treat metadata as untrusted input that may contain secrets.
+// - Console interception must inherit the same redaction guarantees.
+// See also:
+// - system-journal/INDEX.md
+// - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
+// - system-journal/conflicts.md
 import { LogCode, LogMetadata, LogRole } from '../config/logRegistry.js';
 import { env } from '../config/env.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import * as fs from 'fs';
 import * as path from 'path';
+import { redact } from './sanitizer.js';
 
 export const logStorage = new AsyncLocalStorage<LogMetadata>();
 
@@ -195,15 +215,7 @@ class Logger {
                 processed[key] = this.simplifyError(value);
                 continue;
             }
-            if (typeof value === 'object' && value !== null) {
-                try {
-                    processed[key] = JSON.parse(JSON.stringify(value));
-                } catch {
-                    processed[key] = '[Circular/Complex Object]';
-                }
-                continue;
-            }
-            processed[key] = value;
+            processed[key] = redact(value);
         }
         return processed;
     }
@@ -213,8 +225,8 @@ class Logger {
         const businessFrame = stack.split('\n').find(line => line.includes('/src/') && !line.includes('node_modules')) || stack.split('\n')[1] || '';
         return {
             name: err.name,
-            message: err.message,
-            at: businessFrame.trim(),
+            message: String(redact(err.message)),
+            at: String(redact(businessFrame.trim())),
         };
     }
 
@@ -231,13 +243,14 @@ class Logger {
         const combinedMeta = this.processMetadata({ ...storageMeta, ...(metadata || {}) });
         const role = (combinedMeta.role as LogRole | undefined) || this.getDefaultRole(code);
         combinedMeta.role = role;
+        const safeMessage = String(redact(message));
 
         return {
             timestamp,
             level: LogLevel[level],
             role,
             code,
-            message,
+            message: safeMessage,
             metadata: combinedMeta,
             service: 'kiko-api',
             env: process.env.NODE_ENV,

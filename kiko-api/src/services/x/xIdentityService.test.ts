@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildXProfileUrl, normalizeXUsername, serializeXContext } from './xIdentityService.js';
+import { buildXProfileUrl, extractPrivyXAccount, normalizeXUsername, serializeXContext } from './xIdentityService.js';
 
 test('normalizeXUsername strips leading at-sign and blanks', () => {
   assert.equal(normalizeXUsername('@kikoapp'), 'kikoapp');
@@ -30,4 +30,29 @@ test('serializeXContext exposes safe x linkage state', () => {
   assert.equal(payload.linkedAt, linkedAt.toISOString());
   assert.equal(payload.dmOptInAt, dmOptInAt.toISOString());
   assert.equal(payload.notificationsMuted, false);
+});
+
+test('extractPrivyXAccount only trusts linked twitter/x accounts', () => {
+  const payload = extractPrivyXAccount({
+    linkedAccounts: [
+      { type: 'wallet', address: '0xabc' },
+      { type: 'twitter', subject: '999', username: '@alice' },
+    ],
+  });
+
+  assert.deepEqual(payload, {
+    xUserId: '999',
+    username: 'alice',
+  });
+});
+
+test('extractPrivyXAccount returns nulls when no linked x account exists', () => {
+  const payload = extractPrivyXAccount({
+    linkedAccounts: [{ type: 'wallet', address: '0xabc' }],
+  });
+
+  assert.deepEqual(payload, {
+    xUserId: null,
+    username: null,
+  });
 });

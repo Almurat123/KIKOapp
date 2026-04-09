@@ -2,6 +2,23 @@
  * Environment Configuration
  * Validates and loads environment variables
  */
+// CONTEXT MEMORY
+// Updated: 2026-04-09
+// Author: Almurat
+// Reason: X OAuth now depends on explicit operator allowlisting and encrypted
+//         bot-token storage, so env validation must reject unsafe production setup.
+// Goal: keep startup validation as the single owner for deployment-time security
+//       requirements around X bot authorization and token storage.
+// Owns: env parsing and hard-fail validation for X auth configuration.
+// Does Not Own: runtime OAuth exchange, token persistence, or webhook handling.
+// Design Language:
+// - Production must fail closed when X auth security prerequisites are missing.
+// - Operator authorization must be explicit, never inferred from generic login.
+// - Sensitive token storage must require a valid encryption key.
+// See also:
+// - system-journal/INDEX.md
+// - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
+// - system-journal/conflicts.md
 import dotenv from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -132,6 +149,10 @@ export interface EnvConfig {
     x: {
         enabled: boolean;
         ingressMode: 'webhook' | 'polling';
+        clientId: string;
+        clientSecret: string;
+        oauthRedirectUri: string;
+        authorizedPrivyDids: string[];
         accessToken: string;
         botUserId: string;
         botUsername: string;
@@ -216,6 +237,16 @@ function validateEnv(): EnvConfig {
         ? 'polling'
         : 'webhook';
     const xWebhookSecret = process.env.X_WEBHOOK_SECRET || process.env.X_CLIENT_SECRET || '';
+    const xClientId = process.env.X_CLIENT_ID || '';
+    const xClientSecret = process.env.X_CLIENT_SECRET || '';
+    const xOauthRedirectUri = process.env.X_OAUTH_REDIRECT_URI || 'https://api.kikoapp.app/api/auth/x/callback';
+    const xAuthorizedPrivyDids = String(
+        process.env.X_BOT_AUTHORIZED_PRIVY_DIDS || process.env.X_BOT_AUTHORIZED_PRIVY_DID || ''
+    )
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
+    const encryptionKey = process.env.ENCRYPTION_KEY || '';
 
     if (isProduction && !internalWebhookSecret) {
         throw new Error('Missing required webhook security env var in production: INTERNAL_WEBHOOK_SECRET');
@@ -223,6 +254,14 @@ function validateEnv(): EnvConfig {
 
     if (isProduction && xIngressEnabled && xIngressMode === 'webhook' && !xWebhookSecret) {
         throw new Error('Missing required X webhook env var in production: X_WEBHOOK_SECRET');
+    }
+
+    if (isProduction && (xClientId || xClientSecret) && xAuthorizedPrivyDids.length === 0) {
+        throw new Error('Missing required X OAuth authz env var in production: X_BOT_AUTHORIZED_PRIVY_DIDS');
+    }
+
+    if (isProduction && (xClientId || xClientSecret) && encryptionKey.length !== 32) {
+        throw new Error('ENCRYPTION_KEY must be exactly 32 characters in production when X OAuth is enabled');
     }
 
     const hasAlchemyWebhookSecret =
@@ -415,6 +454,10 @@ function validateEnv(): EnvConfig {
         x: {
             enabled: xIngressEnabled,
             ingressMode: xIngressMode,
+            clientId: xClientId,
+            clientSecret: xClientSecret,
+            oauthRedirectUri: xOauthRedirectUri,
+            authorizedPrivyDids: xAuthorizedPrivyDids,
             accessToken: process.env.X_BOT_ACCESS_TOKEN || '',
             botUserId: process.env.X_BOT_USER_ID || '',
             botUsername: process.env.X_BOT_USERNAME || 'kikoapp',

@@ -246,6 +246,21 @@ CREATE TABLE IF NOT EXISTS "x_message_deliveries" (
   "updated_at" TIMESTAMP DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS "x_oauth_credentials" (
+  "id" TEXT PRIMARY KEY,
+  "provider" TEXT UNIQUE NOT NULL DEFAULT 'x',
+  "bot_user_id" TEXT,
+  "bot_username" TEXT,
+  "access_token" TEXT,
+  "refresh_token" TEXT,
+  "token_type" TEXT,
+  "scope" TEXT,
+  "expires_at" TIMESTAMP,
+  "last_authorized_at" TIMESTAMP,
+  "created_at" TIMESTAMP DEFAULT NOW(),
+  "updated_at" TIMESTAMP DEFAULT NOW()
+);
+
 -- Wallet Key Export Record
 CREATE TABLE IF NOT EXISTS "WalletExport" (
   "id" TEXT PRIMARY KEY,

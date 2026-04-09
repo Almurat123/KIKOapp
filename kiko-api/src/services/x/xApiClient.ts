@@ -1,6 +1,25 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-09
+// Author: Almurat
+// Reason: X outbound requests must resolve the current official bot token at
+//         runtime, not assume a single static env-only credential.
+// Goal: keep all X API calls using the same credential source and filtering
+//       rules that the webhook and auth layers rely on.
+// Owns: authenticated X REST access for bot replies, DM sends, and lookup calls.
+// Does Not Own: OAuth exchange, webhook subscription setup, or chat orchestration.
+// Design Language:
+// - Resolve bot credentials through the shared credential service first.
+// - Fail fast when bot identity or access token is absent.
+// - Keep API URL construction and auth header formation centralized here.
+// See also:
+// - system-journal/INDEX.md
+// - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
+// - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
+// - system-journal/conflicts.md
 import { env } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
+import { getXBotAccessToken, getXBotUserId } from './xCredentialsService.js';
 import type { XDirectMessageEvent, XMentionEvent, XSendResult } from './types.js';
 
 function baseUrl(path: string): string {
@@ -10,8 +29,12 @@ function baseUrl(path: string): string {
 }
 
 function authHeaders() {
+  const accessToken = getXBotAccessToken();
+  if (!accessToken) {
+    throw new Error('X bot access token is not configured');
+  }
   return {
-    Authorization: `Bearer ${env.x.accessToken}`,
+    Authorization: `Bearer ${accessToken}`,
     'Content-Type': 'application/json',
   };
 }
@@ -80,13 +103,14 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 export class XApiClient {
   isConfigured(): boolean {
-    return Boolean(env.x.enabled && env.x.accessToken && env.x.botUserId);
+    return Boolean(env.x.enabled && getXBotAccessToken() && getXBotUserId());
   }
 
   async fetchMentions(params: { sinceId?: string | null }): Promise<XMentionEvent[]> {
-    if (!this.isConfigured()) return [];
+    const botUserId = getXBotUserId();
+    if (!this.isConfigured() || !botUserId) return [];
     const url = baseUrl(
-      `/users/${env.x.botUserId}/mentions${toSearchParams([
+      `/users/${botUserId}/mentions${toSearchParams([
         ['since_id', params.sinceId || undefined],
         ['max_results', String(env.x.pollBatchSize || 20)],
         ['tweet.fields', 'author_id,conversation_id,created_at'],

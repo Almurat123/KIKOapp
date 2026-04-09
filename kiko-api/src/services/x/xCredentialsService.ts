@@ -1,0 +1,200 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-09
+// Author: Almurat
+// Reason: the official X bot account now needs a stable runtime source of truth
+//         for access token, refresh token, and bot identity after OAuth completes.
+// Goal: resolve bot credentials from env or storage, cache them safely, and keep
+//       runtime callers agnostic to where the credentials came from.
+// Owns: credential loading, caching, encryption/decryption, and persistence of
+//       the official bot account token material.
+// Does Not Own: OAuth redirects, mention polling, DM handling, or webhook logic.
+// Design Language:
+// - Prefer stored encrypted credentials over ad hoc env overrides.
+// - Never require callers to know whether credentials came from env or DB.
+// - Treat missing bot identity as a hard runtime miss for X outbound actions.
+// See also:
+// - system-journal/INDEX.md
+// - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
+// - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
+// - system-journal/owner-map/backend-swap-validation.md
+// - system-journal/conflicts.md
+import prisma from '../../db/prisma.js';
+import { env } from '../../config/env.js';
+import { decrypt, encrypt, isEncrypted, isEncryptionAvailable } from '../../utils/encryption.js';
+
+export interface XBotAuthState {
+  accessToken: string;
+  refreshToken?: string | null;
+  botUserId: string;
+  botUsername?: string | null;
+  tokenType?: string | null;
+  scope?: string | null;
+  expiresAt?: Date | null;
+}
+
+type StoredXCredential = {
+  accessToken: string;
+  refreshToken: string | null;
+  botUserId: string;
+  botUsername: string | null;
+  tokenType: string | null;
+  scope: string | null;
+  expiresAt: Date | null;
+};
+
+let cachedAuthState: XBotAuthState | null = null;
+
+function decodeStored(value?: string | null): string | null {
+  if (!value) return null;
+  try {
+    return decrypt(value);
+  } catch {
+    return isEncrypted(value) ? null : value;
+  }
+}
+
+function encodeStored(value?: string | null): string | null {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  return encrypt(text);
+}
+
+function fromStored(row: {
+  accessToken: string | null;
+  refreshToken: string | null;
+  botUserId: string | null;
+  botUsername: string | null;
+  tokenType: string | null;
+  scope: string | null;
+  expiresAt: Date | null;
+} | null): XBotAuthState | null {
+  if (!row?.accessToken || !row?.botUserId) return null;
+  return {
+    accessToken: decodeStored(row.accessToken) || '',
+    refreshToken: decodeStored(row.refreshToken) || null,
+    botUserId: row.botUserId,
+    botUsername: row.botUsername || null,
+    tokenType: row.tokenType || null,
+    scope: row.scope || null,
+    expiresAt: row.expiresAt || null,
+  };
+}
+
+export async function ensureXBotCredentialsLoaded(): Promise<XBotAuthState | null> {
+  if (cachedAuthState?.accessToken && cachedAuthState.botUserId) {
+    return cachedAuthState;
+  }
+
+  if (env.x.accessToken && env.x.botUserId) {
+    cachedAuthState = {
+      accessToken: env.x.accessToken,
+      refreshToken: null,
+      botUserId: env.x.botUserId,
+      botUsername: env.x.botUsername || null,
+      tokenType: 'bearer',
+      scope: null,
+      expiresAt: null,
+    };
+    return cachedAuthState;
+  }
+
+  const existing = await prisma.xOAuthCredential.findUnique({
+    where: { provider: 'x' },
+  }).catch(() => null);
+  cachedAuthState = fromStored(existing as any);
+  return cachedAuthState;
+}
+
+export function getCachedXBotCredentials(): XBotAuthState | null {
+  return cachedAuthState;
+}
+
+export function getXBotAccessToken(): string | null {
+  return cachedAuthState?.accessToken || env.x.accessToken || null;
+}
+
+export function getXBotUserId(): string | null {
+  return cachedAuthState?.botUserId || env.x.botUserId || null;
+}
+
+export function getXBotUsername(): string | null {
+  return cachedAuthState?.botUsername || env.x.botUsername || null;
+}
+
+export async function storeXBotCredentials(params: {
+  accessToken: string;
+  refreshToken?: string | null;
+  botUserId: string;
+  botUsername?: string | null;
+  tokenType?: string | null;
+  scope?: string | null;
+  expiresInSeconds?: number | null;
+}): Promise<XBotAuthState> {
+  if (!isEncryptionAvailable()) {
+    throw new Error('Refusing to store X bot credentials without a valid 32-character ENCRYPTION_KEY');
+  }
+
+  const expiresAt = params.expiresInSeconds
+    ? new Date(Date.now() + Math.max(0, params.expiresInSeconds) * 1000)
+    : null;
+
+  const record = await prisma.xOAuthCredential.upsert({
+    where: { provider: 'x' },
+    update: {
+      botUserId: params.botUserId,
+      botUsername: params.botUsername || null,
+      accessToken: encodeStored(params.accessToken),
+      refreshToken: encodeStored(params.refreshToken || null),
+      tokenType: params.tokenType || null,
+      scope: params.scope || null,
+      expiresAt,
+      lastAuthorizedAt: new Date(),
+    },
+    create: {
+      provider: 'x',
+      botUserId: params.botUserId,
+      botUsername: params.botUsername || null,
+      accessToken: encodeStored(params.accessToken),
+      refreshToken: encodeStored(params.refreshToken || null),
+      tokenType: params.tokenType || null,
+      scope: params.scope || null,
+      expiresAt,
+      lastAuthorizedAt: new Date(),
+    },
+  });
+
+  cachedAuthState = {
+    accessToken: params.accessToken,
+    refreshToken: params.refreshToken || null,
+    botUserId: params.botUserId,
+    botUsername: params.botUsername || null,
+    tokenType: params.tokenType || null,
+    scope: params.scope || null,
+    expiresAt,
+  };
+
+  return cachedAuthState;
+}
+
+export async function clearXBotCredentials(): Promise<void> {
+  await prisma.xOAuthCredential.deleteMany({
+    where: { provider: 'x' },
+  }).catch(() => {});
+  cachedAuthState = null;
+}
+
+export async function getStoredXBotCredentials(): Promise<StoredXCredential | null> {
+  const row = await prisma.xOAuthCredential.findUnique({
+    where: { provider: 'x' },
+  }).catch(() => null);
+  if (!row?.accessToken || !row.botUserId) return null;
+  return {
+    accessToken: decodeStored(row.accessToken) || '',
+    refreshToken: decodeStored(row.refreshToken) || null,
+    botUserId: row.botUserId,
+    botUsername: row.botUsername || null,
+    tokenType: row.tokenType || null,
+    scope: row.scope || null,
+    expiresAt: row.expiresAt || null,
+  };
+}
