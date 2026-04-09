@@ -4,7 +4,7 @@
  */
 
 // CONTEXT MEMORY
-// Updated: 2026-04-09
+// Updated: 2026-04-10
 // Author: Almurat
 // Reason: global API throttling now coexists with privileged OAuth bootstrap
 //         flows, so the limiter must explicitly protect interactive traffic
@@ -20,6 +20,7 @@
 // - Treat limiter backend faults as non-fatal to request handling.
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-x-oauth1-helper-flow.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-x-auth-rate-limit-bypass.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
@@ -62,6 +63,10 @@ export async function rateLimiterMiddleware(
         request.url.startsWith('/api/auth/x/start?') ||
         request.url === '/api/auth/x/callback' ||
         request.url.startsWith('/api/auth/x/callback?') ||
+        request.url === '/api/auth/x/oauth1/start' ||
+        request.url.startsWith('/api/auth/x/oauth1/start?') ||
+        request.url === '/api/auth/x/oauth1/callback' ||
+        request.url.startsWith('/api/auth/x/oauth1/callback?') ||
         request.url.startsWith('/api/webhook/') ||
         request.url.startsWith('/webhook/') ||
         request.url.startsWith('/assets/') ||

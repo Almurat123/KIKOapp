@@ -254,10 +254,13 @@ CREATE TABLE IF NOT EXISTS "x_oauth_credentials" (
   "bot_username" TEXT,
   "access_token" TEXT,
   "refresh_token" TEXT,
+  "oauth1_access_token" TEXT,
+  "oauth1_access_token_secret" TEXT,
   "token_type" TEXT,
   "scope" TEXT,
   "expires_at" TIMESTAMP,
   "last_authorized_at" TIMESTAMP,
+  "oauth1_authorized_at" TIMESTAMP,
   "created_at" TIMESTAMP DEFAULT NOW(),
   "updated_at" TIMESTAMP DEFAULT NOW()
 );

@@ -265,6 +265,8 @@ fastify.addHook('preHandler', async (request, reply) => {
         '/v2/chat/ws',
         '/api/auth/x/start',
         '/api/auth/x/callback',
+        '/api/auth/x/oauth1/start',
+        '/api/auth/x/oauth1/callback',
         '/api/webhook/',
         '/webhook/',
         '/api/images',

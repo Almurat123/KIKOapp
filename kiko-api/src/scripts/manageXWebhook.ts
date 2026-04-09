@@ -38,11 +38,14 @@ interface XWebhookRecord {
 interface XBotCredentialRecord {
   accessToken: string | null;
   refreshToken: string | null;
+  oauth1AccessToken: string | null;
+  oauth1AccessTokenSecret: string | null;
   botUserId: string | null;
   botUsername: string | null;
   tokenType: string | null;
   scope: string | null;
   expiresAt: Date | null;
+  oauth1AuthorizedAt: Date | null;
 }
 
 const __filename = fileURLToPath(import.meta.url);
@@ -97,6 +100,7 @@ function buildOAuth1Header(params: {
   accessToken: string;
   accessTokenSecret: string;
 }): string {
+  const parsedUrl = new URL(params.url);
   const oauthParams: Record<string, string> = {
     oauth_consumer_key: params.consumerKey,
     oauth_nonce: oauthNonce(),
@@ -106,14 +110,19 @@ function buildOAuth1Header(params: {
     oauth_version: '1.0',
   };
 
-  const paramString = Object.entries(oauthParams)
+  const signatureParams: Array<[string, string]> = [
+    ...Array.from(parsedUrl.searchParams.entries()),
+    ...Object.entries(oauthParams),
+  ];
+
+  const paramString = signatureParams
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => `${percentEncode(key)}=${percentEncode(value)}`)
     .join('&');
 
   const baseString = [
     params.method,
-    percentEncode(params.url),
+    percentEncode(`${parsedUrl.origin}${parsedUrl.pathname}`),
     percentEncode(paramString),
   ].join('&');
 
@@ -143,11 +152,14 @@ async function readBotCredential(databaseUrl: string): Promise<XBotCredentialRec
     return {
       accessToken: decodeStoredToken(row.accessToken),
       refreshToken: decodeStoredToken(row.refreshToken),
+      oauth1AccessToken: decodeStoredToken((row as any).oauth1AccessToken),
+      oauth1AccessTokenSecret: decodeStoredToken((row as any).oauth1AccessTokenSecret),
       botUserId: row.botUserId,
       botUsername: row.botUsername,
       tokenType: row.tokenType,
       scope: row.scope,
       expiresAt: row.expiresAt,
+      oauth1AuthorizedAt: (row as any).oauth1AuthorizedAt,
     };
   } finally {
     await prisma.$disconnect();
@@ -303,9 +315,12 @@ async function main() {
   const oauth1 = {
     consumerKey: requireEnv('X_CONSUMER_KEY'),
     consumerSecret: requireEnv('X_WEBHOOK_SECRET'),
-    accessToken: requireEnv('X_OAUTH1_ACCESS_TOKEN'),
-    accessTokenSecret: requireEnv('X_OAUTH1_ACCESS_TOKEN_SECRET'),
+    accessToken: String(process.env.X_OAUTH1_ACCESS_TOKEN || bot.oauth1AccessToken || '').trim(),
+    accessTokenSecret: String(process.env.X_OAUTH1_ACCESS_TOKEN_SECRET || bot.oauth1AccessTokenSecret || '').trim(),
   };
+  if (!oauth1.accessToken || !oauth1.accessTokenSecret) {
+    throw new Error('Missing OAuth1 bot credentials. Complete /api/auth/x/oauth1/start first or set X_OAUTH1_ACCESS_TOKEN and X_OAUTH1_ACCESS_TOKEN_SECRET.');
+  }
 
   const webhook = matched || await createWebhook(appBearerToken, callbackUrl);
   const subscribed = await checkSubscription(webhook.id, oauth1).catch(() => false);

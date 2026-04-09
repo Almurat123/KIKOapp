@@ -754,10 +754,13 @@ model XOAuthCredential {
   botUsername      String?   @map("bot_username")
   accessToken      String?   @map("access_token")
   refreshToken     String?   @map("refresh_token")
+  oauth1AccessToken String?  @map("oauth1_access_token")
+  oauth1AccessTokenSecret String? @map("oauth1_access_token_secret")
   tokenType        String?   @map("token_type")
   scope            String?   @map("scope")
   expiresAt        DateTime? @map("expires_at")
   lastAuthorizedAt DateTime? @map("last_authorized_at")
+  oauth1AuthorizedAt DateTime? @map("oauth1_authorized_at")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 

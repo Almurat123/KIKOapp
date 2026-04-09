@@ -3,10 +3,11 @@
  * Validates and loads environment variables
  */
 // CONTEXT MEMORY
-// Updated: 2026-04-09
+// Updated: 2026-04-10
 // Author: Almurat
 // Reason: X OAuth now depends on explicit operator allowlisting, encrypted
-//         bot-token storage, and a distinct CRC signing secret for webhook setup.
+//         bot-token storage, a distinct CRC signing secret for webhook setup,
+//         and an OAuth1 helper flow for Account Activity subscription setup.
 // Goal: keep startup validation as the single owner for deployment-time security
 //       requirements around X bot authorization and token storage.
 // Owns: env parsing and hard-fail validation for X auth configuration.
@@ -19,6 +20,7 @@
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
+// - system-journal/fix-log/2026-04-10-x-oauth1-helper-flow.md
 // - system-journal/fix-log/2026-04-09-x-webhook-crc-secret-boundary.md
 // - system-journal/conflicts.md
 import dotenv from 'dotenv';
@@ -153,7 +155,9 @@ export interface EnvConfig {
         ingressMode: 'webhook' | 'polling';
         clientId: string;
         clientSecret: string;
+        consumerKey: string;
         oauthRedirectUri: string;
+        oauth1CallbackUri: string;
         authorizedPrivyDids: string[];
         accessToken: string;
         botUserId: string;
@@ -241,7 +245,9 @@ function validateEnv(): EnvConfig {
     const xWebhookSecret = process.env.X_WEBHOOK_SECRET || '';
     const xClientId = process.env.X_CLIENT_ID || '';
     const xClientSecret = process.env.X_CLIENT_SECRET || '';
+    const xConsumerKey = process.env.X_CONSUMER_KEY || '';
     const xOauthRedirectUri = process.env.X_OAUTH_REDIRECT_URI || 'https://api.kikoapp.app/api/auth/x/callback';
+    const xOauth1CallbackUri = process.env.X_OAUTH1_CALLBACK_URI || 'https://api.kikoapp.app/api/auth/x/oauth1/callback';
     const xAuthorizedPrivyDids = String(
         process.env.X_BOT_AUTHORIZED_PRIVY_DIDS || process.env.X_BOT_AUTHORIZED_PRIVY_DID || ''
     )
@@ -458,7 +464,9 @@ function validateEnv(): EnvConfig {
             ingressMode: xIngressMode,
             clientId: xClientId,
             clientSecret: xClientSecret,
+            consumerKey: xConsumerKey,
             oauthRedirectUri: xOauthRedirectUri,
+            oauth1CallbackUri: xOauth1CallbackUri,
             authorizedPrivyDids: xAuthorizedPrivyDids,
             accessToken: process.env.X_BOT_ACCESS_TOKEN || '',
             botUserId: process.env.X_BOT_USER_ID || '',
