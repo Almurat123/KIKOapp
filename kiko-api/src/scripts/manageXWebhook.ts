@@ -3,7 +3,8 @@
 // Author: Almurat
 // Reason: the X webhook receiver was already implemented, but operator setup on
 //         the X platform remained manual and error-prone, and subscription setup
-//         must use OAuth1 user context rather than OAuth2 bearer auth.
+//         must use OAuth1 user context rather than OAuth2 bearer auth, with
+//         request shapes kept as close as possible to the official examples.
 // Goal: provide one repeatable operator script that can create or reuse the
 //       webhook, then attach the official bot subscription with the correct
 //       authentication boundary for each step.
@@ -13,6 +14,7 @@
 // - Create-or-reuse by callback URL instead of spraying duplicate webhooks.
 // - Use app bearer for webhook management and OAuth1 user context for activity subscription.
 // - Fail loudly with exact upstream response details; never silently partially configure.
+// - Do not add JSON bodies or content types to OAuth1 subscription endpoints unless required.
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
@@ -171,13 +173,17 @@ async function xRequest<T>(
   init?: RequestInit,
   headers?: Record<string, string>,
 ): Promise<T> {
+  const mergedHeaders: Record<string, string> = {
+    ...(headers || {}),
+    ...(init?.headers as Record<string, string> | undefined || {}),
+  };
+  if (init?.body && !mergedHeaders['Content-Type']) {
+    mergedHeaders['Content-Type'] = 'application/json';
+  }
+
   const response = await fetch(url, {
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(headers || {}),
-      ...(init?.headers as Record<string, string> | undefined || {}),
-    },
+    headers: mergedHeaders,
   });
 
   const text = await response.text();
@@ -251,10 +257,7 @@ async function createSubscription(
   const url = `https://api.x.com/2/account_activity/webhooks/${webhookId}/subscriptions/all`;
   const result = await xRequest<{ data?: { subscribed?: boolean } }>(
     url,
-    {
-      method: 'POST',
-      body: JSON.stringify({}),
-    },
+    { method: 'POST' },
     {
       Authorization: buildOAuth1Header({
         method: 'POST',
