@@ -8,6 +8,8 @@ owner boundaries, and major fixes.
 - [Design Language: Loading Resilience](./design-language/loading-resilience.md)
 - [Owner Map: Frontend Data Loading](./owner-map/frontend-data-loading.md)
 - [Owner Map: Backend Swap Validation](./owner-map/backend-swap-validation.md)
+- [Fix Log: 2026-04-09 X Auth Allowlist Diagnostics](./fix-log/2026-04-09-x-auth-allowlist-diagnostics.md)
+- [Fix Log: 2026-04-09 X Auth Rate Limit Bypass](./fix-log/2026-04-09-x-auth-rate-limit-bypass.md)
 - [Fix Log: 2026-04-09 User Username Foundation](./fix-log/2026-04-09-user-username-foundation.md)
 - [Fix Log: 2026-04-09 Auth Debug Cleanup](./fix-log/2026-04-09-auth-debug-cleanup.md)
 - [Fix Log: 2026-04-09 Auth Debug Instrumentation](./fix-log/2026-04-09-auth-debug-instrumentation.md)

@@ -52,6 +52,19 @@ interface PkceStateRecord {
   createdAt: string;
 }
 
+function redactDid(value: string | null | undefined): string | null {
+  const normalized = String(value || '').trim();
+  if (!normalized) return null;
+  if (normalized.length <= 16) return normalized;
+  return `${normalized.slice(0, 12)}...${normalized.slice(-8)}`;
+}
+
+function summarizeAuthorizedDidList(values: string[]): string[] {
+  return values
+    .map((value) => redactDid(value))
+    .filter((value): value is string => !!value);
+}
+
 function normalizeUsername(value: string | null | undefined): string {
   return String(value || '').trim().replace(/^@/, '').toLowerCase();
 }
@@ -252,7 +265,15 @@ export async function xAuthRoutes(fastify: FastifyInstance) {
       return reply.status(401).send({ success: false, error: 'Unauthorized' });
     }
     if (!isAuthorizedXBotAuthInitiator(userId)) {
-      return reply.status(403).send({ success: false, error: 'Caller is not allowed to authorize the X bot account' });
+      return reply.status(403).send({
+        success: false,
+        error: 'Caller is not allowed to authorize the X bot account',
+        debug: {
+          callerDid: redactDid(userId),
+          allowedDidCount: env.x.authorizedPrivyDids.length,
+          allowedDidSamples: summarizeAuthorizedDidList(env.x.authorizedPrivyDids),
+        },
+      });
     }
 
     const codeVerifier = generateCodeVerifier();
