@@ -3,6 +3,27 @@
  * Uses Redis to track request frequency and prevent abuse.
  */
 
+// CONTEXT MEMORY
+// Updated: 2026-04-09
+// Author: Almurat
+// Reason: global API throttling now coexists with privileged OAuth bootstrap
+//         flows, so the limiter must explicitly protect interactive traffic
+//         without breaking one-time operator authorization paths.
+// Goal: preserve broad abuse protection while allowing security-sensitive but
+//       low-frequency bootstrap routes to complete deterministically.
+// Owns: request throttling categories, bypass rules, and fail-open behavior for
+//       limiter backend faults.
+// Does Not Own: endpoint-level authorization, webhook validation, or OAuth token exchange.
+// Design Language:
+// - Keep global limits on by default.
+// - Explicitly exempt privileged bootstrap routes instead of relying on retries.
+// - Treat limiter backend faults as non-fatal to request handling.
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-x-auth-rate-limit-bypass.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
+
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { redis } from '../cache/cacheClient.js';
 import prisma from '../db/prisma.js';
@@ -37,6 +58,10 @@ export async function rateLimiterMiddleware(
         request.url.startsWith('/api/chat/ws?') ||
         request.url === '/v2/chat/ws' ||
         request.url.startsWith('/v2/chat/ws?') ||
+        request.url === '/api/auth/x/start' ||
+        request.url.startsWith('/api/auth/x/start?') ||
+        request.url === '/api/auth/x/callback' ||
+        request.url.startsWith('/api/auth/x/callback?') ||
         request.url.startsWith('/api/webhook/') ||
         request.url.startsWith('/webhook/') ||
         request.url.startsWith('/assets/') ||
