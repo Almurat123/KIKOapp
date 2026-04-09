@@ -5,8 +5,8 @@
 // CONTEXT MEMORY
 // Updated: 2026-04-09
 // Author: Almurat
-// Reason: X OAuth now depends on explicit operator allowlisting and encrypted
-//         bot-token storage, so env validation must reject unsafe production setup.
+// Reason: X OAuth now depends on explicit operator allowlisting, encrypted
+//         bot-token storage, and a distinct CRC signing secret for webhook setup.
 // Goal: keep startup validation as the single owner for deployment-time security
 //       requirements around X bot authorization and token storage.
 // Owns: env parsing and hard-fail validation for X auth configuration.
@@ -15,9 +15,11 @@
 // - Production must fail closed when X auth security prerequisites are missing.
 // - Operator authorization must be explicit, never inferred from generic login.
 // - Sensitive token storage must require a valid encryption key.
+// - Webhook CRC must use the X app API/consumer secret, never OAuth2 client secret fallback.
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
+// - system-journal/fix-log/2026-04-09-x-webhook-crc-secret-boundary.md
 // - system-journal/conflicts.md
 import dotenv from 'dotenv';
 import path from 'node:path';
@@ -236,7 +238,7 @@ function validateEnv(): EnvConfig {
     const xIngressMode = String(process.env.X_INGRESS_MODE || 'webhook').trim().toLowerCase() === 'polling'
         ? 'polling'
         : 'webhook';
-    const xWebhookSecret = process.env.X_WEBHOOK_SECRET || process.env.X_CLIENT_SECRET || '';
+    const xWebhookSecret = process.env.X_WEBHOOK_SECRET || '';
     const xClientId = process.env.X_CLIENT_ID || '';
     const xClientSecret = process.env.X_CLIENT_SECRET || '';
     const xOauthRedirectUri = process.env.X_OAUTH_REDIRECT_URI || 'https://api.kikoapp.app/api/auth/x/callback';
