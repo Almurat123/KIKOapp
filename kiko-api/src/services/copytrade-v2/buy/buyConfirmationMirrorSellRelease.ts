@@ -7,6 +7,26 @@ import { upsertTargetSellEvent } from '../exit/targetSellEventStore.js';
 import { armPendingAttributedPositionsForMirrorSell } from '../positions/pendingAttributedPositionLedger.js';
 import type { MirrorSellIntentDisposition } from '../positions/mirrorSellIntentPolicy.js';
 
+// CONTEXT MEMORY
+// Updated: 2026-04-10
+// Author: Avery Lin
+// Reason: Buy confirmation can discover a target-sell after the live webhook path
+//         already ran, so this helper replays the missed sell into durable exit work.
+// Goal: Convert historical mirror-sell evidence into the same persisted event and
+//       exit-intent flow used by the live runtime, without leaving silent open positions.
+// Owns: Releasing a historical target sell from buy-confirmation into event store and
+//       exit-intent scheduling.
+// Does Not Own: Deciding whether historical sell evidence exists, or executing the exit.
+// Design Language:
+// - Buy-confirm replay must go through the same durable event path as live sell webhooks.
+// - Preserve target-sell metadata when replaying history.
+// - Do not silently mark order state armed without creating or reusing durable exit work.
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
+// - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-buy-confirm-target-sell-replay-gap.md
+
 export async function releaseMirrorSellAfterBuyConfirm(params: {
   position: {
     id: string;
@@ -23,6 +43,9 @@ export async function releaseMirrorSellAfterBuyConfirm(params: {
   tokenAddress: string;
   targetWallet: string;
   targetSellTxHash?: string | null;
+  targetSellRatioBps?: number | null;
+  targetFullExitVerified?: boolean;
+  targetRemainingBalanceRaw?: string | null;
   reasonCode?: string | null;
   disposition: Exclude<MirrorSellIntentDisposition, 'none'>;
   deps?: {
@@ -44,20 +67,25 @@ export async function releaseMirrorSellAfterBuyConfirm(params: {
   }
 
   const targetSellTxHash = String(params.targetSellTxHash || '').trim();
+  const buildReplayEvent = () => buildEventPayload({
+    chainId: params.chainId,
+    targetWallet: params.targetWallet,
+    tokenAddress: params.tokenAddress,
+    targetSellTxHash,
+    targetSellRatioBps: params.targetSellRatioBps ?? null,
+    targetFullExitVerified: params.targetFullExitVerified,
+    targetRemainingBalanceRaw: params.targetRemainingBalanceRaw ?? null,
+    source: 'buy_confirmation',
+    metadata: {
+      sourceRuntime: 'legacy_buy_confirmation_release',
+      releaseReasonCode: params.reasonCode || null,
+      releaseDisposition: params.disposition,
+    },
+  });
+
   if (params.disposition === 'arm_exit') {
     if (targetSellTxHash) {
-      await upsertSellEvent(buildEventPayload({
-        chainId: params.chainId,
-        targetWallet: params.targetWallet,
-        tokenAddress: params.tokenAddress,
-        targetSellTxHash,
-        source: 'buy_confirmation',
-        metadata: {
-          sourceRuntime: 'legacy_buy_confirmation_release',
-          releaseReasonCode: params.reasonCode || null,
-          releaseDisposition: params.disposition,
-        },
-      })).catch(() => null);
+      await upsertSellEvent(buildReplayEvent()).catch(() => null);
     }
     await armPendingPosition({
       userId: position.userId,
@@ -92,18 +120,9 @@ export async function releaseMirrorSellAfterBuyConfirm(params: {
   }
 
   const scheduled = await persistTargetSell({
-    event: buildEventPayload({
-      chainId: params.chainId,
-      targetWallet: params.targetWallet,
-      tokenAddress: params.tokenAddress,
-      targetSellTxHash,
-      source: 'buy_confirmation',
-      metadata: {
-        sourceRuntime: 'legacy_buy_confirmation_release',
-        releaseReasonCode: params.reasonCode || null,
-        releaseDisposition: params.disposition,
-      },
-    }),
+    // Replay through the durable event scheduler so buy-confirm and live sell webhook
+    // produce one canonical exit-intent path.
+    event: buildReplayEvent(),
     positions: [{
       id: position.id,
       orderId: position.orderId || null,

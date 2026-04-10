@@ -5,6 +5,26 @@ import { getJson as cacheGetJson, setJson as cacheSetJson } from '../../../cache
 import { normalizeToken, normalizeWallet } from '../runtime/chainIdentityNormalizer.js';
 import type { TargetSellEventPayload } from './intentTypes.js';
 
+// CONTEXT MEMORY
+// Updated: 2026-04-10
+// Author: Avery Lin
+// Reason: Buy confirmation can arrive after a durable target-sell webhook, so the
+//         store must support bounded historical replay instead of only exact-key lookups.
+// Goal: Preserve a durable mirror-sell memory that later owner layers can replay
+//       without silently leaving open positions stranded in monitoring loops.
+// Owns: Target-sell event persistence, normalization, and bounded replay queries.
+// Does Not Own: Buy-confirmation state transitions, exit-intent scheduling, or
+//               deciding whether a replayed sell should execute immediately.
+// Design Language:
+// - Durable sell events must be queryable by token wallet scope, not only by hash.
+// - Historical replay must be bounded by caller-provided anchors to avoid stale reuse.
+// - Do not hide race recovery inside cache-only behavior.
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
+// - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-buy-confirm-target-sell-replay-gap.md
+
 const TARGET_SELL_EVENT_TTL_SEC = Math.max(30, Number(process.env.COPYTRADE_TARGET_SELL_EVENT_TTL_SEC || '60'));
 
 export interface TargetSellEventRecord {
@@ -168,6 +188,34 @@ export async function findLatestTargetSellEvent(input: {
   await cacheSetJson(key, record, TARGET_SELL_EVENT_TTL_SEC).catch(() => undefined);
   await cacheSetJson(cacheKey(record), record, TARGET_SELL_EVENT_TTL_SEC).catch(() => undefined);
   return record;
+}
+
+export async function findLatestTargetSellEventSince(input: {
+  chainId: number;
+  targetWallet: string;
+  tokenAddress: string;
+  detectedAfter?: Date | null;
+}): Promise<TargetSellEventRecord | null> {
+  if (!(input.detectedAfter instanceof Date)) {
+    return findLatestTargetSellEvent(input);
+  }
+
+  const normalized = {
+    chainId: input.chainId,
+    targetWallet: normalizeWallet(input.chainId, input.targetWallet),
+    tokenAddress: normalizeToken(input.chainId, input.tokenAddress),
+  };
+
+  const row = await prisma.targetSellEvent.findFirst({
+    where: {
+      chainId: normalized.chainId,
+      targetWallet: normalized.targetWallet,
+      tokenAddress: normalized.tokenAddress,
+      detectedAt: { gte: input.detectedAfter },
+    },
+    orderBy: [{ updatedAt: 'desc' }, { detectedAt: 'desc' }],
+  });
+  return row ? toRecord(row) : null;
 }
 
 export async function findRecentTargetSellEvents(input: {

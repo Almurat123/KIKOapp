@@ -194,6 +194,64 @@ test('applyBuyConfirmationTransition arms exit without immediate mirror sell for
   assert.equal(advanceCalls.some((call) => call.eventType === 'ORDER_BUY_CONFIRMED_RELEASED_TO_EXIT'), false);
 });
 
+test('applyBuyConfirmationTransition replays durable target sell history into exit scheduling after promotion', async () => {
+  const advanceCalls: any[] = [];
+  let releasedPayload: any = null;
+
+  const result = await applyBuyConfirmationTransition({
+    ...buildBaseParams(),
+    deps: {
+      prisma: {
+        position: {
+          updateMany: async () => ({ count: 1 }),
+        },
+      } as any,
+      resolvePendingMirrorSellIntent: async () => ({
+        disposition: 'none',
+        reasonCode: 'NO_PENDING_MIRROR_SELL_INTENT',
+      }),
+      resolveHistoricalTargetSellIntent: async () => ({
+        disposition: 'execute_immediately',
+        targetSellTxHash: '0xhistoricalsell',
+        reasonCode: 'TARGET_SELL_EVENT_REPLAYED_FROM_STORE',
+        targetSellRatioBps: null,
+        targetFullExitVerified: false,
+        targetRemainingBalanceRaw: null,
+      }),
+      releaseMirrorSellAfterBuyConfirm: async (payload: any) => {
+        releasedPayload = payload;
+        return true;
+      },
+      resolveBuyConfirmationPromotionAction: async () => ({ action: 'promote_open' }),
+      emitCopytradeDomainAudit: () => undefined,
+      resolveConfirmedReceiptTokenAmount: async () => '1000',
+      persistConfirmedBuyAmount: async () => null,
+      recordFollowerTransactionFactByPosition: async () => undefined,
+      claimOrCreateCanonicalOrder: (async () => ({ id: 'canonical-order-history' })) as any,
+      advanceCanonicalOrderState: async (payload: any) => {
+        advanceCalls.push(payload);
+        return null;
+      },
+      recordCanonicalOrderExecution: async () => undefined,
+      preheatSellApprovalForToken: async () => {
+        throw new Error('preheat should be skipped when historical mirror sell is replayed');
+      },
+    } as any,
+  });
+
+  assert.equal(result, 'confirmed_success');
+  assert.equal(releasedPayload?.targetSellTxHash, '0xhistoricalsell');
+  assert.equal(releasedPayload?.position?.id, 'position-1');
+  assert.equal(
+    advanceCalls.some((call) =>
+      call.lifecycleState === 'EXIT_ARMED'
+      && call.eventType === 'ORDER_BUY_CONFIRMED_ARMED_FOR_EXIT'
+      && call.metadataPatch?.targetSellTxHash === '0xhistoricalsell'
+    ),
+    true,
+  );
+});
+
 test('applyBuyConfirmationTransition repairs deferred fee settlement with confirmed amount before scheduling recovery', async () => {
   const deferredRecoveries: any[] = [];
   const advanceCalls: any[] = [];

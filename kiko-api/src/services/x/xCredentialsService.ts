@@ -3,20 +3,23 @@
 // Author: Almurat
 // Reason: the official X bot account now needs a stable runtime source of truth
 //         for both OAuth2 bot tokens and OAuth1 user-context credentials after
-//         authorization completes.
+//         authorization completes, including OAuth2 refresh when runtime bearer
+//         tokens expire.
 // Goal: resolve bot credentials from env or storage, cache them safely, and keep
 //       runtime callers agnostic to where the credentials came from.
 // Owns: credential loading, caching, encryption/decryption, and persistence of
-//       the official bot account token material.
+//       the official bot account token material, including OAuth2 refresh.
 // Does Not Own: OAuth redirects, mention polling, DM handling, or webhook logic.
 // Design Language:
 // - Prefer stored encrypted credentials over ad hoc env overrides.
 // - Never require callers to know whether credentials came from env or DB.
 // - Treat missing bot identity as a hard runtime miss for X outbound actions.
+// - Refresh expired OAuth2 bot tokens before outbound X writes rely on them.
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-10-x-oauth1-helper-flow.md
+// - system-journal/fix-log/2026-04-10-x-oauth2-refresh-runtime.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
 // - system-journal/owner-map/backend-swap-validation.md
 // - system-journal/conflicts.md
@@ -57,6 +60,8 @@ type StoredXCredential = {
 
 let cachedAuthState: XBotAuthState | null = null;
 let cachedOAuth1State: XBotOAuth1State | null = null;
+let refreshInFlight: Promise<XBotAuthState | null> | null = null;
+const X_REFRESH_SKEW_MS = 60_000;
 
 function decodeStored(value?: string | null): string | null {
   if (!value) return null;
@@ -159,6 +164,12 @@ export function getXBotUsername(): string | null {
   return cachedAuthState?.botUsername || env.x.botUsername || null;
 }
 
+function isOAuth2TokenFresh(state: XBotAuthState | null): boolean {
+  if (!state?.accessToken) return false;
+  if (!state.expiresAt) return true;
+  return state.expiresAt.getTime() > (Date.now() + X_REFRESH_SKEW_MS);
+}
+
 export async function ensureXBotOAuth1CredentialsLoaded(): Promise<XBotOAuth1State | null> {
   if (cachedOAuth1State?.accessToken && cachedOAuth1State.accessTokenSecret && cachedOAuth1State.botUserId) {
     return cachedOAuth1State;
@@ -224,6 +235,67 @@ export async function storeXBotCredentials(params: {
   };
 
   return cachedAuthState;
+}
+
+export async function refreshXBotAccessToken(options?: {
+  force?: boolean;
+}): Promise<XBotAuthState | null> {
+  const current = await ensureXBotCredentialsLoaded();
+  if (!current?.accessToken) return current;
+
+  if (!options?.force && isOAuth2TokenFresh(current)) {
+    return current;
+  }
+
+  if (!current.refreshToken || !env.x.clientId || !env.x.clientSecret) {
+    return current;
+  }
+
+  if (refreshInFlight) {
+    return refreshInFlight;
+  }
+
+  refreshInFlight = (async () => {
+    const body = new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: current.refreshToken || '',
+      client_id: env.x.clientId,
+    });
+
+    const response = await fetch('https://api.x.com/2/oauth2/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Authorization: `Basic ${Buffer.from(`${env.x.clientId}:${env.x.clientSecret}`).toString('base64')}`,
+      },
+      body,
+    });
+
+    const raw = await response.text().catch(() => '');
+    if (!response.ok) {
+      throw new Error(`X token refresh failed: ${response.status} ${raw.slice(0, 240)}`);
+    }
+
+    const json = raw ? JSON.parse(raw) : {};
+    const accessToken = String(json.access_token || '').trim();
+    if (!accessToken) {
+      throw new Error('X token refresh returned no access token');
+    }
+
+    return storeXBotCredentials({
+      accessToken,
+      refreshToken: json.refresh_token ? String(json.refresh_token) : (current.refreshToken || null),
+      botUserId: current.botUserId,
+      botUsername: current.botUsername || null,
+      tokenType: json.token_type ? String(json.token_type) : (current.tokenType || 'bearer'),
+      scope: json.scope ? String(json.scope) : (current.scope || null),
+      expiresInSeconds: json.expires_in ? Number(json.expires_in) : null,
+    });
+  })().finally(() => {
+    refreshInFlight = null;
+  });
+
+  return refreshInFlight;
 }
 
 export async function storeXBotOAuth1Credentials(params: {

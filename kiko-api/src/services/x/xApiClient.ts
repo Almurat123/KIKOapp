@@ -1,8 +1,9 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-09
+// Updated: 2026-04-10
 // Author: Almurat
 // Reason: X outbound requests must resolve the current official bot token at
-//         runtime, not assume a single static env-only credential.
+//         runtime, not assume a single static env-only credential, and must
+//         survive OAuth2 bearer expiry without operator re-authorization.
 // Goal: keep all X API calls using the same credential source and filtering
 //       rules that the webhook and auth layers rely on.
 // Owns: authenticated X REST access for bot replies, DM sends, and lookup calls.
@@ -11,15 +12,17 @@
 // - Resolve bot credentials through the shared credential service first.
 // - Fail fast when bot identity or access token is absent.
 // - Keep API URL construction and auth header formation centralized here.
+// - Retry once after OAuth2 refresh when X returns 401 for outbound bot calls.
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
+// - system-journal/fix-log/2026-04-10-x-oauth2-refresh-runtime.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
 // - system-journal/conflicts.md
 import { env } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
-import { getXBotAccessToken, getXBotUserId } from './xCredentialsService.js';
+import { getXBotAccessToken, getXBotUserId, refreshXBotAccessToken } from './xCredentialsService.js';
 import type { XDirectMessageEvent, XMentionEvent, XSendResult } from './types.js';
 
 function baseUrl(path: string): string {
@@ -28,8 +31,7 @@ function baseUrl(path: string): string {
   return `${base}${suffix}`;
 }
 
-function authHeaders() {
-  const accessToken = getXBotAccessToken();
+function authHeaders(accessToken: string) {
   if (!accessToken) {
     throw new Error('X bot access token is not configured');
   }
@@ -92,8 +94,25 @@ function parseDirectMessage(item: any, usersById: Map<string, any>): XDirectMess
   };
 }
 
-async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
+async function requestJson<T>(
+  url: string,
+  buildInit: (accessToken: string) => RequestInit,
+): Promise<T> {
+  const initialState = await refreshXBotAccessToken();
+  const initialToken = initialState?.accessToken || getXBotAccessToken();
+  if (!initialToken) {
+    throw new Error('X bot access token is not configured');
+  }
+
+  let response = await fetch(url, buildInit(initialToken));
+  if (response.status === 401) {
+    const refreshedState = await refreshXBotAccessToken({ force: true }).catch(() => null);
+    const refreshedToken = refreshedState?.accessToken || getXBotAccessToken();
+    if (refreshedToken && refreshedToken !== initialToken) {
+      response = await fetch(url, buildInit(refreshedToken));
+    }
+  }
+
   if (!response.ok) {
     const body = await response.text().catch(() => '');
     throw new Error(`X API ${response.status}: ${body.slice(0, 240)}`);
@@ -118,7 +137,9 @@ export class XApiClient {
         ['user.fields', 'username'],
       ])}`,
     );
-    const payload = await requestJson<any>(url, { headers: authHeaders() });
+    const payload = await requestJson<any>(url, (accessToken) => ({
+      headers: authHeaders(accessToken),
+    }));
     const usersById = new Map<string, any>((payload?.includes?.users || []).map((user: any) => [String(user.id), user]));
     return (payload?.data || [])
       .map((item: any) => parseMention(item, usersById))
@@ -136,7 +157,9 @@ export class XApiClient {
         ['user.fields', 'username'],
       ])}`,
     );
-    const payload = await requestJson<any>(url, { headers: authHeaders() });
+    const payload = await requestJson<any>(url, (accessToken) => ({
+      headers: authHeaders(accessToken),
+    }));
     const usersById = new Map<string, any>((payload?.includes?.users || []).map((user: any) => [String(user.id), user]));
     return (payload?.data || [])
       .map((item: any) => parseDirectMessage(item, usersById))
@@ -144,14 +167,14 @@ export class XApiClient {
   }
 
   async replyToMention(params: { tweetId: string; text: string }): Promise<XSendResult> {
-    const payload = await requestJson<any>(baseUrl('/tweets'), {
+    const payload = await requestJson<any>(baseUrl('/tweets'), (accessToken) => ({
       method: 'POST',
-      headers: authHeaders(),
+      headers: authHeaders(accessToken),
       body: JSON.stringify({
         text: params.text,
         reply: { in_reply_to_tweet_id: params.tweetId },
       }),
-    });
+    }));
     return {
       id: payload?.data?.id ? String(payload.data.id) : null,
       raw: payload,
@@ -159,11 +182,14 @@ export class XApiClient {
   }
 
   async sendDirectMessage(params: { recipientId: string; text: string }): Promise<XSendResult> {
-    const payload = await requestJson<any>(baseUrl(`/dm_conversations/with/${params.recipientId}/messages`), {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ text: params.text }),
-    });
+    const payload = await requestJson<any>(
+      baseUrl(`/dm_conversations/with/${params.recipientId}/messages`),
+      (accessToken) => ({
+        method: 'POST',
+        headers: authHeaders(accessToken),
+        body: JSON.stringify({ text: params.text }),
+      }),
+    );
     return {
       id: payload?.data?.dm_event_id
         ? String(payload.data.dm_event_id)

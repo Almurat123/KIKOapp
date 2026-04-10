@@ -2,8 +2,10 @@ import prisma from '../../../db/prisma.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { logger } from '../../../utils/logger.js';
 import type { ConfirmationOutcome } from '../../swap/confirmationCoordinator.js';
+import { releaseMirrorSellAfterBuyConfirm } from './buyConfirmationMirrorSellRelease.js';
 import { cancelPendingAttributedPosition } from '../positions/pendingAttributedPositionLedger.js';
 import {
+  resolveHistoricalTargetSellIntent,
   resolveBuyConfirmationPromotionAction,
   resolvePendingMirrorSellIntent,
   type ResolvedPendingMirrorSellIntent,
@@ -31,6 +33,27 @@ import {
   chooseMirrorSellIntent,
   hasMirrorSellIntent,
 } from '../positions/mirrorSellIntentPolicy.js';
+
+// CONTEXT MEMORY
+// Updated: 2026-04-10
+// Author: Avery Lin
+// Reason: Buy confirmation is the owner boundary where a pending position becomes
+//         durable exposure. It must also replay any already-seen target sell so the
+//         position does not linger as open with no exit work scheduled.
+// Goal: Promote confirmed buys exactly once, recover historical mirror-sell races,
+//       and keep canonical order / position / exit-intent state aligned.
+// Owns: Buy-confirmation state transition, receipt persistence, and historical
+//       target-sell release into exit work.
+// Does Not Own: Target-sell detection, exit execution, or monitor-side stale cleanup.
+// Design Language:
+// - Promotion to open and mirror-sell replay must happen in the same owner layer.
+// - Durable historical sell evidence must be released before falling back to TP/SL monitoring.
+// - Do not mark an order armed for exit unless durable exit work was actually created or reused.
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
+// - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-buy-confirm-target-sell-replay-gap.md
 
 export type BuyConfirmationTransitionResult = 'confirmed_success' | 'confirmed_failed' | 'deferred';
 export interface MirrorSellAbortContext {
@@ -136,6 +159,8 @@ export async function applyBuyConfirmationTransition(params: {
     claimOrCreateCanonicalOrder?: typeof claimOrCreateCanonicalOrder;
     advanceCanonicalOrderState?: typeof advanceCanonicalOrderState;
     recordCanonicalOrderExecution?: typeof recordCanonicalOrderExecution;
+    resolveHistoricalTargetSellIntent?: typeof resolveHistoricalTargetSellIntent;
+    releaseMirrorSellAfterBuyConfirm?: typeof releaseMirrorSellAfterBuyConfirm;
   };
 }): Promise<BuyConfirmationTransitionResult> {
   const {
@@ -173,6 +198,8 @@ export async function applyBuyConfirmationTransition(params: {
   const claimOrder = deps?.claimOrCreateCanonicalOrder || claimOrCreateCanonicalOrder;
   const advanceOrderState = deps?.advanceCanonicalOrderState || advanceCanonicalOrderState;
   const recordOrderExecution = deps?.recordCanonicalOrderExecution || recordCanonicalOrderExecution;
+  const resolveHistoricalSellIntent = deps?.resolveHistoricalTargetSellIntent || resolveHistoricalTargetSellIntent;
+  const releaseHistoricalMirrorSell = deps?.releaseMirrorSellAfterBuyConfirm || releaseMirrorSellAfterBuyConfirm;
   const resolvedTxHash = confirmation.resolvedTxHash || txHash;
   const confirmationLifecycle = confirmationToTxLifecycle({
     confirmation,
@@ -311,6 +338,8 @@ export async function applyBuyConfirmationTransition(params: {
     confirmedAmountRaw,
   });
 
+  // Gather every already-known mirror-sell signal before we decide whether the
+  // confirmed buy should stay open or immediately release into exit work.
   const pendingMirrorIntent = await resolveMirrorIntent({
     positionId: persistedPositionId,
     targetWallet,
@@ -320,10 +349,19 @@ export async function applyBuyConfirmationTransition(params: {
     positionCreatedAt: pendingPositionCreatedAt
   }).catch(() => null);
   const canonicalMirrorIntent = resolveCanonicalSellPreemption(canonicalOrder);
-  const resolvedMirrorIntent = chooseMirrorSellIntent(
+  const directMirrorIntent = chooseMirrorSellIntent(
     pendingMirrorIntent,
     canonicalMirrorIntent,
   );
+  const historicalMirrorIntent = !hasMirrorSellIntent(directMirrorIntent)
+    ? await resolveHistoricalSellIntent({
+        targetWallet,
+        tokenAddress: tokenToBuy,
+        chainId,
+        leaderBuyTxHash: leaderBuyTxHash || undefined,
+        positionCreatedAt: pendingPositionCreatedAt,
+      }).catch(() => null)
+    : null;
 
   const promotionAction = await resolvePromotionAction({
     positionId: persistedPositionId
@@ -388,9 +426,61 @@ export async function applyBuyConfirmationTransition(params: {
       chainId,
       token: tokenToBuy,
       recoverySource,
-      targetSellTxHash: resolvedMirrorIntent?.targetSellTxHash || undefined,
-      targetSellReasonCode: resolvedMirrorIntent?.reasonCode || undefined
+      targetSellTxHash: directMirrorIntent?.targetSellTxHash || historicalMirrorIntent?.targetSellTxHash || undefined,
+      targetSellReasonCode: directMirrorIntent?.reasonCode || historicalMirrorIntent?.reasonCode || undefined
     });
+  }
+
+  let resolvedMirrorIntent = directMirrorIntent;
+  if (
+    persistedPositionId
+    && configId
+    && !hasMirrorSellIntent(directMirrorIntent)
+    && historicalMirrorIntent?.disposition === 'execute_immediately'
+    && (promotionAction.action === 'promote_open' || promotionAction.action === 'already_open')
+  ) {
+    const released = await releaseHistoricalMirrorSell({
+      position: {
+        id: persistedPositionId,
+        status: 'open',
+        userId,
+        configId,
+        chainId,
+        tokenAddress: tokenToBuy,
+        orderId: canonicalOrder?.id || runtimeContext?.orderId || null,
+        entryAmountExact: confirmedAmountRaw,
+      },
+      chainId,
+      tokenAddress: tokenToBuy,
+      targetWallet,
+      targetSellTxHash: historicalMirrorIntent.targetSellTxHash || null,
+      targetSellRatioBps: historicalMirrorIntent.targetSellRatioBps ?? null,
+      targetFullExitVerified: historicalMirrorIntent.targetFullExitVerified,
+      targetRemainingBalanceRaw: historicalMirrorIntent.targetRemainingBalanceRaw ?? null,
+      reasonCode: historicalMirrorIntent.reasonCode,
+      disposition: historicalMirrorIntent.disposition,
+    }).catch((error) => {
+      logger.error(LogCode.SYS_ERROR, 'Failed to release historical target sell after buy confirmation', {
+        positionId: persistedPositionId,
+        chainId,
+        token: tokenToBuy,
+        targetSellTxHash: historicalMirrorIntent.targetSellTxHash || undefined,
+        reasonCode: historicalMirrorIntent.reasonCode,
+        error,
+      });
+      return false;
+    });
+
+    if (released) {
+      logger.info(LogCode.SYS_INFO, '[CopyTradeBuyConfirm] Historical target sell replay released into exit flow', {
+        positionId: persistedPositionId,
+        chainId,
+        token: tokenToBuy,
+        targetSellTxHash: historicalMirrorIntent.targetSellTxHash || undefined,
+        reasonCode: historicalMirrorIntent.reasonCode,
+      });
+      resolvedMirrorIntent = chooseMirrorSellIntent(directMirrorIntent, historicalMirrorIntent);
+    }
   }
 
   const hasExitIntent = hasMirrorSellIntent(resolvedMirrorIntent);
