@@ -1,8 +1,10 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-09
+// Updated: 2026-04-10
 // Author: Almurat
 // Reason: webhook ingress is now the production path for X mentions and DMs,
-//         replacing polling while keeping fast ACK and async processing.
+//         replacing polling while keeping fast ACK and async processing. Test
+//         diagnostics now require a minimal raw-ingress audit trail so we can
+//         distinguish "X never delivered" from "we failed after receipt".
 // Goal: verify inbound X events, filter bot-authored noise, and hand off clean
 //       events to the internal conversation pipeline.
 // Owns: X webhook CRC/signature handling and event extraction.
@@ -11,14 +13,18 @@
 // - ACK fast and process asynchronously.
 // - Fail closed on signature and bot identity checks.
 // - Keep inbound event parsing separate from session creation.
+// - Log raw ingress metadata without logging sensitive DM/tweet body text.
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
+// - system-journal/fix-log/2026-04-10-x-webhook-ingress-audit.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
 // - system-journal/conflicts.md
 import crypto from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { env } from '../config/env.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 import { safeSecretEquals } from './webhookHelpers.js';
 import type { XDirectMessageEvent, XMentionEvent } from '../services/x/types.js';
 import { xIngressWorker } from '../services/x/xIngressWorker.js';
@@ -42,6 +48,13 @@ function toId(value: unknown): string {
 function toUsername(value: unknown): string | null {
   const normalized = String(value || '').trim().replace(/^@/, '');
   return normalized || null;
+}
+
+function sampleIds<T>(items: T[], select: (item: T) => string | null | undefined): string[] {
+  return items
+    .map((item) => String(select(item) || '').trim())
+    .filter(Boolean)
+    .slice(0, 5);
 }
 
 function buildUsersById(users: XActivityPayload['users']): Map<string, any> {
@@ -203,10 +216,27 @@ export async function xWebhookRoutes(fastify: FastifyInstance) {
     const mentions = extractMentionEvents(payload);
     const directMessages = extractDirectMessageEvents(payload);
 
+    logger.info(LogCode.SYS_INFO, '[X] webhook ingress received', {
+      forUserId: toId(payload.for_user_id),
+      mentionCount: mentions.length,
+      dmCount: directMessages.length,
+      mentionIds: sampleIds(mentions, (item) => item.id),
+      dmIds: sampleIds(directMessages, (item) => item.id),
+      mentionAuthorIds: sampleIds(mentions, (item) => item.authorId),
+      dmSenderIds: sampleIds(directMessages, (item) => item.senderId),
+    });
+
     const accepted = await Promise.all([
       ...mentions.map((mention) => xIngressWorker.enqueueMention(mention)),
       ...directMessages.map((event) => xIngressWorker.enqueueDirectMessage(event)),
     ]);
+
+    logger.info(LogCode.SYS_INFO, '[X] webhook ingress enqueued', {
+      forUserId: toId(payload.for_user_id),
+      mentionCount: mentions.length,
+      dmCount: directMessages.length,
+      acceptedCount: accepted.filter(Boolean).length,
+    });
 
     return reply.send({
       ok: true,
