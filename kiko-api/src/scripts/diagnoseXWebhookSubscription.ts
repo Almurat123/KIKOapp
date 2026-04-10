@@ -3,7 +3,8 @@
 // Author: Almurat
 // Reason: webhook subscription failures reached the point where operator guesses
 //         were wasting time; we need a direct server-side diagnosis path using
-//         the exact stored bot credentials and current app configuration.
+//         the exact stored bot credentials and current app configuration, with
+//         explicit visibility when the stored OAuth2 bot token is already stale.
 // Goal: identify whether failures come from OAuth2 bot identity, webhook ownership,
 //       or current X Activity subscription state without mutating data by default.
 // Owns: read-only diagnosis for X Activity webhook subscription setup.
@@ -12,11 +13,13 @@
 // - Diagnose with the exact stored credentials, not copied tokens.
 // - Prefer read-only checks before any mutation.
 // - Print exact upstream status/body pairs for operator decisions.
+// - Surface expired-token refresh failures explicitly instead of silently falling back.
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-10-x-oauth1-helper-flow.md
 // - system-journal/fix-log/2026-04-10-x-webhook-subscription-diagnostics.md
 // - system-journal/fix-log/2026-04-10-x-activity-api-migration.md
+// - system-journal/fix-log/2026-04-10-x-expired-bot-token-hard-fail.md
 // - system-journal/conflicts.md
 import dotenv from 'dotenv';
 import path from 'node:path';
@@ -109,19 +112,24 @@ async function main() {
   const stored = await readStoredCreds(databaseUrl);
   const webhooks = await listWebhooks(appBearerToken);
   const webhook = webhooks.find((item) => normalizeUrl(item.url) === callbackUrl) || null;
-  const botState = await refreshXBotAccessToken().catch(() => null);
-  const botAccessToken = String(botState?.accessToken || stored.accessToken || '').trim();
-  if (!botAccessToken) {
-    throw new Error('Stored OAuth2 bot credentials are missing');
-  }
+  const refresh = await refreshXBotAccessToken({ requireFresh: true })
+    .then((state) => ({ ok: true as const, state, error: null }))
+    .catch((error) => ({
+      ok: false as const,
+      state: null,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+  const botAccessToken = String(refresh.state?.accessToken || stored.accessToken || '').trim();
 
   const meUrl = 'https://api.x.com/2/users/me?user.fields=username';
-  const me = await fetchJsonOrText(meUrl, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${botAccessToken}`,
-    },
-  });
+  const me = botAccessToken
+    ? await fetchJsonOrText(meUrl, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${botAccessToken}`,
+        },
+      })
+    : { status: 0, ok: false, body: 'missing bot access token' };
 
   const activitySubscriptions = await fetchJsonOrText('https://api.x.com/2/activity/subscriptions', {
     method: 'GET',
@@ -148,6 +156,7 @@ async function main() {
       oauth1AuthorizedAt: stored.oauth1AuthorizedAt,
       lastAuthorizedAt: stored.lastAuthorizedAt,
     },
+    oauth2Refresh: refresh,
     oauth2UsersMe: me,
     activitySubscriptions,
   }, null, 2));

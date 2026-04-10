@@ -4,7 +4,8 @@
 // Reason: the official X bot account now needs a stable runtime source of truth
 //         for both OAuth2 bot tokens and OAuth1 user-context credentials after
 //         authorization completes, including OAuth2 refresh when runtime bearer
-//         tokens expire.
+//         tokens expire; stale bot tokens must now fail hard instead of silently
+//         leaking into runtime/API setup calls.
 // Goal: resolve bot credentials from env or storage, cache them safely, and keep
 //       runtime callers agnostic to where the credentials came from.
 // Owns: credential loading, caching, encryption/decryption, and persistence of
@@ -15,11 +16,13 @@
 // - Never require callers to know whether credentials came from env or DB.
 // - Treat missing bot identity as a hard runtime miss for X outbound actions.
 // - Refresh expired OAuth2 bot tokens before outbound X writes rely on them.
+// - Never silently continue with an expired OAuth2 token when refresh is impossible.
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-10-x-oauth1-helper-flow.md
 // - system-journal/fix-log/2026-04-10-x-oauth2-refresh-runtime.md
+// - system-journal/fix-log/2026-04-10-x-expired-bot-token-hard-fail.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
 // - system-journal/owner-map/backend-swap-validation.md
 // - system-journal/conflicts.md
@@ -170,6 +173,11 @@ function isOAuth2TokenFresh(state: XBotAuthState | null): boolean {
   return state.expiresAt.getTime() > (Date.now() + X_REFRESH_SKEW_MS);
 }
 
+function buildExpiredTokenError(state: XBotAuthState, reason: string): Error {
+  const expiresAt = state.expiresAt ? state.expiresAt.toISOString() : 'unknown';
+  return new Error(`X OAuth2 bot token is expired/stale (expiresAt=${expiresAt}) and cannot be refreshed: ${reason}`);
+}
+
 export async function ensureXBotOAuth1CredentialsLoaded(): Promise<XBotOAuth1State | null> {
   if (cachedOAuth1State?.accessToken && cachedOAuth1State.accessTokenSecret && cachedOAuth1State.botUserId) {
     return cachedOAuth1State;
@@ -239,15 +247,26 @@ export async function storeXBotCredentials(params: {
 
 export async function refreshXBotAccessToken(options?: {
   force?: boolean;
+  requireFresh?: boolean;
 }): Promise<XBotAuthState | null> {
   const current = await ensureXBotCredentialsLoaded();
   if (!current?.accessToken) return current;
 
-  if (!options?.force && isOAuth2TokenFresh(current)) {
+  const tokenIsFresh = isOAuth2TokenFresh(current);
+  const mustRefresh = Boolean(options?.force || !tokenIsFresh);
+
+  if (!mustRefresh) {
     return current;
   }
 
   if (!current.refreshToken || !env.x.clientId || !env.x.clientSecret) {
+    if (options?.requireFresh || !tokenIsFresh) {
+      const missing: string[] = [];
+      if (!current.refreshToken) missing.push('refresh_token');
+      if (!env.x.clientId) missing.push('X_CLIENT_ID');
+      if (!env.x.clientSecret) missing.push('X_CLIENT_SECRET');
+      throw buildExpiredTokenError(current, `missing ${missing.join(', ')}`);
+    }
     return current;
   }
 
@@ -273,13 +292,13 @@ export async function refreshXBotAccessToken(options?: {
 
     const raw = await response.text().catch(() => '');
     if (!response.ok) {
-      throw new Error(`X token refresh failed: ${response.status} ${raw.slice(0, 240)}`);
+      throw buildExpiredTokenError(current, `refresh failed: ${response.status} ${raw.slice(0, 240)}`);
     }
 
     const json = raw ? JSON.parse(raw) : {};
     const accessToken = String(json.access_token || '').trim();
     if (!accessToken) {
-      throw new Error('X token refresh returned no access token');
+      throw buildExpiredTokenError(current, 'refresh returned no access token');
     }
 
     return storeXBotCredentials({

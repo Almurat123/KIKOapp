@@ -3,7 +3,9 @@
 // Author: Almurat
 // Reason: X outbound requests must resolve the current official bot token at
 //         runtime, not assume a single static env-only credential, and must
-//         survive OAuth2 bearer expiry without operator re-authorization.
+//         survive OAuth2 bearer expiry without operator re-authorization; stale
+//         credentials must now fail loudly instead of silently retrying with
+//         known-expired tokens.
 // Goal: keep all X API calls using the same credential source and filtering
 //       rules that the webhook and auth layers rely on.
 // Owns: authenticated X REST access for bot replies, DM sends, and lookup calls.
@@ -13,10 +15,12 @@
 // - Fail fast when bot identity or access token is absent.
 // - Keep API URL construction and auth header formation centralized here.
 // - Retry once after OAuth2 refresh when X returns 401 for outbound bot calls.
+// - Never re-use a stale OAuth2 token after refresh failed or config is missing.
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-10-x-oauth2-refresh-runtime.md
+// - system-journal/fix-log/2026-04-10-x-expired-bot-token-hard-fail.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
 // - system-journal/conflicts.md
 import { env } from '../../config/env.js';
@@ -98,7 +102,7 @@ async function requestJson<T>(
   url: string,
   buildInit: (accessToken: string) => RequestInit,
 ): Promise<T> {
-  const initialState = await refreshXBotAccessToken();
+  const initialState = await refreshXBotAccessToken({ requireFresh: true });
   const initialToken = initialState?.accessToken || getXBotAccessToken();
   if (!initialToken) {
     throw new Error('X bot access token is not configured');
@@ -106,7 +110,7 @@ async function requestJson<T>(
 
   let response = await fetch(url, buildInit(initialToken));
   if (response.status === 401) {
-    const refreshedState = await refreshXBotAccessToken({ force: true }).catch(() => null);
+    const refreshedState = await refreshXBotAccessToken({ force: true, requireFresh: true });
     const refreshedToken = refreshedState?.accessToken || getXBotAccessToken();
     if (refreshedToken && refreshedToken !== initialToken) {
       response = await fetch(url, buildInit(refreshedToken));

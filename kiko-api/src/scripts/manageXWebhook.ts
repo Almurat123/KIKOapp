@@ -4,7 +4,9 @@
 // Reason: the X webhook receiver was already implemented, but operator setup on
 //         the X platform remained manual and error-prone, and subscription setup
 //         must now follow the latest X Activity API docs rather than relying on
-//         the legacy account_activity subscription path.
+//         the legacy account_activity subscription path; expired OAuth2 bot
+//         tokens must now hard-fail instead of silently producing misleading
+//         401s from the X Activity API.
 // Goal: provide one repeatable operator script that can create or reuse the
 //       webhook, then attach the official bot's DM/chat activity subscriptions
 //       using the currently documented X Activity API.
@@ -16,12 +18,14 @@
 // - Use bot OAuth2 user access token for creating private DM/chat subscriptions.
 // - Fail loudly with exact upstream response details; never silently partially configure.
 // - Ensure current documented event types, not legacy subscription-all endpoints.
+// - Refuse to create subscriptions with a known-expired bot OAuth2 token.
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-09-x-webhook-operator-script.md
 // - system-journal/fix-log/2026-04-10-x-webhook-subscription-oauth1.md
 // - system-journal/fix-log/2026-04-10-x-activity-api-migration.md
+// - system-journal/fix-log/2026-04-10-x-expired-bot-token-hard-fail.md
 // - system-journal/conflicts.md
 import dotenv from 'dotenv';
 import path from 'node:path';
@@ -291,7 +295,7 @@ async function main() {
   const appBearerToken = requireEnv('X_APP_BEARER_TOKEN');
   const databaseUrl = requireEnv('DATABASE_URL');
   const bot = await readBotCredential(databaseUrl);
-  const botState = await refreshXBotAccessToken().catch(() => null);
+  const botState = await refreshXBotAccessToken({ requireFresh: true });
   const botAccessToken = String(botState?.accessToken || bot.accessToken || '').trim();
   const existing = await listWebhooks(appBearerToken);
   const matched = existing.find((item) => normalizeUrl(item.url) === callbackUrl) || null;
