@@ -175,7 +175,8 @@ async function createWebhook(appBearerToken: string, callbackUrl: string): Promi
 }
 
 type ActivitySubscriptionRecord = {
-  id: string;
+  id?: string;
+  subscription_id?: string;
   event_type: string;
   filter?: {
     user_id?: string | null;
@@ -184,6 +185,10 @@ type ActivitySubscriptionRecord = {
   webhook_id?: string | null;
   tag?: string | null;
 };
+
+function getActivitySubscriptionId(item: ActivitySubscriptionRecord): string {
+  return String(item.subscription_id || item.id || '').trim();
+}
 
 async function listActivitySubscriptions(appBearerToken: string): Promise<ActivitySubscriptionRecord[]> {
   const result = await xRequest<{ data?: ActivitySubscriptionRecord[] }>(
@@ -195,6 +200,9 @@ async function listActivitySubscriptions(appBearerToken: string): Promise<Activi
 }
 
 async function deleteActivitySubscription(appBearerToken: string, subscriptionId: string): Promise<void> {
+  if (!subscriptionId) {
+    throw new Error('Cannot delete X Activity subscription: missing subscription_id');
+  }
   await xRequest(
     `https://api.x.com/2/activity/subscriptions/${subscriptionId}`,
     { method: 'DELETE' },
@@ -215,7 +223,7 @@ async function ensureActivitySubscriptions(params: {
   );
 
   for (const subscription of managed) {
-    await deleteActivitySubscription(params.appBearerToken, subscription.id);
+    await deleteActivitySubscription(params.appBearerToken, getActivitySubscriptionId(subscription));
   }
 
   const after = await listActivitySubscriptions(params.appBearerToken);
@@ -232,7 +240,13 @@ function summarizeWebhook(webhook: XWebhookRecord | null, subscriptions: Activit
     webhookId: webhook?.id || null,
     webhookUrl: webhook?.url || null,
     webhookValid: webhook?.valid ?? null,
-    subscriptions,
+    subscriptions: subscriptions.map((item) => ({
+      subscriptionId: getActivitySubscriptionId(item),
+      eventType: item.event_type,
+      filter: item.filter || null,
+      webhookId: item.webhook_id || null,
+      tag: item.tag || null,
+    })),
     botUserId: bot.botUserId,
     botUsername: bot.botUsername,
     tokenType: bot.tokenType,
