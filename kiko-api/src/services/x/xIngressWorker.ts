@@ -1,22 +1,35 @@
 // CONTEXT MEMORY
 // Updated: 2026-04-10
 // Author: Almurat
-// Reason: X ingress now owns the transition from webhook events into the shared
-//         chat/session pipeline and must keep mention/DM handling deterministic.
-// Goal: preserve dedupe, session mapping, and reply handoff while avoiding any
-//       direct model or chain coupling inside the ingress layer.
-// Owns: inbound X event processing, session routing, dedupe, and reply dispatch.
+// Reason: X ingress now owns only mention-driven interaction. Product direction
+//         changed after runtime/document evidence showed XChat webhook events do
+//         not expose readable DM bodies through public lookup APIs, so inbound X
+//         DMs are no longer treated as a conversation surface.
+// Goal: preserve deterministic mention handling while keeping X DMs outbound-only.
+// Owns: inbound X mention processing, session routing, dedupe, and reply dispatch.
 // Does Not Own: OAuth exchange, X webhook signature checks, or token persistence.
 // Design Language:
 // - Never process the same inbound event twice.
 // - Keep public replies short and move detail into DM when allowed.
 // - Use the shared conversation mapping as the source of truth.
-// - Treat `chat.received` as a notification envelope and resolve readable text
-//   through DM lookup before handing the message to the chat pipeline.
+// - X DM/chat is an outbound notification channel, not an inbound chat surface.
+// - Ignore inbound DM payloads even if the webhook receives them unexpectedly.
+// Document Provenance:
+// - Source: X Activity API docs + X Direct Messages lookup docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-10
+// - Applied To: removing inbound DM handling after confirming no documented readable
+//   XChat body path exists for `chat.received`
+// - Verification: partially verified
+// - Source: production webhook + local lookup probes
+// - Kind: runtime observation
+// - Retrieved: 2026-04-10
+// - Applied To: confirmed `chat.received` arrives but lookup returns no readable text
+// - Verification: verified in runtime
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
-// - system-journal/fix-log/2026-04-10-x-chat-lookup-main-path.md
+// - system-journal/fix-log/2026-04-10-x-dm-outbound-only.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
 // - system-journal/conflicts.md
 import prisma from '../../db/prisma.js';
@@ -31,10 +44,9 @@ import { enqueueXAgentMessage, waitForTaskAssistantText } from './xChatBridge.js
 import { xApiClient } from './xApiClient.js';
 import { xReplyService } from './xReplyService.js';
 import { getXBotUserId } from './xCredentialsService.js';
-import type { XDirectMessageEvent, XMentionEvent } from './types.js';
+import type { XMentionEvent } from './types.js';
 
 const MENTION_CURSOR_KEY = 'x:ingress:mentions:since_id';
-const DM_CURSOR_KEY = 'x:ingress:dm:since_id';
 const RECOVERY_BATCH_SIZE = Math.max(1, Number(process.env.X_WEBHOOK_RECOVERY_BATCH_SIZE || '20'));
 
 function sortByNumericId<T extends { id: string }>(items: T[]): T[] {
@@ -74,27 +86,6 @@ function normalizeMentionPayload(payload: unknown): XMentionEvent | null {
     authorUsername: item?.authorUsername || item?.author_username || null,
     conversationId: item?.conversationId || item?.conversation_id || null,
     createdAt: item?.createdAt || item?.created_at || null,
-  };
-}
-
-function normalizeDirectMessagePayload(payload: unknown): XDirectMessageEvent | null {
-  const item = payload as any;
-  const id = String(item?.id || '').trim();
-  const senderId = String(item?.senderId || item?.sender_id || '').trim();
-  const text = item?.text == null ? null : String(item.text).trim();
-  const requiresLookup = Boolean(item?.requiresLookup);
-  if (!id || !senderId) return null;
-  if (!text && !requiresLookup) return null;
-  return {
-    id,
-    text,
-    senderId,
-    senderUsername: item?.senderUsername || item?.sender_username || null,
-    dmConversationId: item?.dmConversationId || item?.dm_conversation_id || null,
-    createdAt: item?.createdAt || item?.created_at || null,
-    sourceEventType: item?.sourceEventType || item?.source_event_type || null,
-    requiresLookup,
-    lookupCreatedAtMs: item?.lookupCreatedAtMs || item?.lookup_created_at_ms || null,
   };
 }
 
@@ -153,34 +144,28 @@ export async function markInboundProcessed(eventId: string, status: 'processed' 
 
 export class XIngressWorker {
   private mentionsTimer: NodeJS.Timeout | null = null;
-  private dmTimer: NodeJS.Timeout | null = null;
   private recoveryTimer: NodeJS.Timeout | null = null;
   private runningMentions = false;
-  private runningDm = false;
   private runningRecovery = false;
 
   start(): void {
     if (!env.x.enabled) return;
     if (env.x.ingressMode === 'polling') {
       this.scheduleMentions(1000);
-      this.scheduleDm(1500);
     }
     this.scheduleRecovery(2000);
     logger.info(LogCode.SYS_STARTUP, '[X] ingress worker started', {
       mode: env.x.ingressMode,
       botUserId: getXBotUserId() || env.x.botUserId || null,
       pollMentionsMs: env.x.pollMentionsMs,
-      pollDmMs: env.x.pollDmMs,
       webhookRecoveryMs: env.x.webhookRecoveryMs,
     });
   }
 
   stop(): void {
     if (this.mentionsTimer) clearTimeout(this.mentionsTimer);
-    if (this.dmTimer) clearTimeout(this.dmTimer);
     if (this.recoveryTimer) clearTimeout(this.recoveryTimer);
     this.mentionsTimer = null;
-    this.dmTimer = null;
     this.recoveryTimer = null;
   }
 
@@ -194,19 +179,6 @@ export class XIngressWorker {
     });
     if (!accepted.accepted) return false;
     this.kickMentionProcessing(mention);
-    return true;
-  }
-
-  async enqueueDirectMessage(event: XDirectMessageEvent): Promise<boolean> {
-    const accepted = await createInboundEventLog({
-      eventId: event.id,
-      xUserId: event.senderId,
-      channel: 'dm',
-      sourceId: event.dmConversationId || event.id,
-      payload: event,
-    });
-    if (!accepted.accepted) return false;
-    this.kickDirectMessageProcessing(event);
     return true;
   }
 
@@ -225,26 +197,6 @@ export class XIngressWorker {
       }
     } finally {
       this.runningMentions = false;
-    }
-  }
-
-  async pollDirectMessagesOnce(): Promise<void> {
-    if (this.runningDm || env.x.ingressMode !== 'polling' || !xApiClient.isConfigured()) return;
-    this.runningDm = true;
-    try {
-      const sinceId = await cacheClient.get(DM_CURSOR_KEY).catch(() => null);
-      const events = sortByNumericId(await xApiClient.fetchDirectMessages({ sinceId }));
-      const botUserId = getXBotUserId();
-      for (const event of events) {
-        if (botUserId && String(event.senderId) === String(botUserId)) continue;
-        await this.enqueueDirectMessage(event);
-      }
-      const latestId = events.at(-1)?.id;
-      if (latestId) {
-        await cacheClient.set(DM_CURSOR_KEY, latestId, 7 * 24 * 60 * 60).catch(() => {});
-      }
-    } finally {
-      this.runningDm = false;
     }
   }
 
@@ -271,13 +223,7 @@ export class XIngressWorker {
           this.kickMentionProcessing(mention);
           continue;
         }
-
-        const directMessage = normalizeDirectMessagePayload(row.payload);
-        if (!directMessage) {
-          await markInboundProcessed(row.eventId, 'failed', new Error('invalid_dm_payload'));
-          continue;
-        }
-        this.kickDirectMessageProcessing(directMessage);
+        await markInboundProcessed(row.eventId, 'failed', new Error('x_dm_inbound_disabled'));
       }
     } finally {
       this.runningRecovery = false;
@@ -292,17 +238,6 @@ export class XIngressWorker {
         });
       });
       this.scheduleMentions(env.x.pollMentionsMs);
-    }, delayMs);
-  }
-
-  private scheduleDm(delayMs: number): void {
-    this.dmTimer = setTimeout(async () => {
-      await this.pollDirectMessagesOnce().catch((error) => {
-        logger.warn(LogCode.API_NOTIFY_FAILED, '[X] dm poll failed', {
-          error: String((error as any)?.message || error || 'unknown_error'),
-        });
-      });
-      this.scheduleDm(env.x.pollDmMs);
     }, delayMs);
   }
 
@@ -326,15 +261,6 @@ export class XIngressWorker {
     });
   }
 
-  private kickDirectMessageProcessing(event: XDirectMessageEvent): void {
-    void this.processDirectMessageRecorded(event).catch((error) => {
-      logger.warn(LogCode.API_NOTIFY_FAILED, '[X] dm processing failed', {
-        eventId: event.id,
-        error: String((error as any)?.message || error || 'unknown_error'),
-      });
-    });
-  }
-
   private async processMentionRecorded(mention: XMentionEvent): Promise<void> {
     const claimed = await claimInboundEvent(mention.id);
     if (!claimed) return;
@@ -343,18 +269,6 @@ export class XIngressWorker {
       await markInboundProcessed(mention.id, 'processed');
     } catch (error) {
       await markInboundProcessed(mention.id, 'failed', error);
-      throw error;
-    }
-  }
-
-  private async processDirectMessageRecorded(event: XDirectMessageEvent): Promise<void> {
-    const claimed = await claimInboundEvent(event.id);
-    if (!claimed) return;
-    try {
-      await this.handleDirectMessageBusiness(event);
-      await markInboundProcessed(event.id, 'processed');
-    } catch (error) {
-      await markInboundProcessed(event.id, 'failed', error);
       throw error;
     }
   }
@@ -445,110 +359,6 @@ export class XIngressWorker {
       text: dmSent ? publicAckText() : trimForPublicReply(assistantText),
       idempotencyKey: `x:reply:mention:${mention.id}`,
     });
-  }
-
-  private async handleDirectMessageBusiness(event: XDirectMessageEvent): Promise<void> {
-    const resolvedEvent = await this.resolveDirectMessageEventText(event);
-    if (!resolvedEvent?.text) {
-      throw new Error(`missing_dm_text:${event.id}`);
-    }
-
-    const user = await getUserByXUserId(resolvedEvent.senderId);
-    if (!user?.privyDid) {
-      await xReplyService.sendDirectMessage({
-        xUserId: resolvedEvent.senderId,
-        text: publicBindText(resolvedEvent.senderUsername),
-        sourceMessageId: resolvedEvent.id,
-        idempotencyKey: `x:dm:bind:${resolvedEvent.id}`,
-        incrementRoundTrip: false,
-      });
-      return;
-    }
-
-    const messageQuota = await recordXQuotaMetric({ userId: user.privyDid, metric: 'messages' });
-    const runQuota = await recordXQuotaMetric({ userId: user.privyDid, metric: 'agent_runs' });
-    if (!messageQuota.allowed || !runQuota.allowed) {
-      await xReplyService.sendDirectMessage({
-        userId: user.privyDid,
-        xUserId: resolvedEvent.senderId,
-        text: 'Daily X usage limit reached. Continue in the KIKO app tomorrow or raise your plan limit.',
-        sourceMessageId: resolvedEvent.id,
-        idempotencyKey: `x:dm:quota:${resolvedEvent.id}`,
-        incrementRoundTrip: false,
-      });
-      return;
-    }
-
-    const mapping = await findOrCreateXConversation({
-      userId: user.privyDid,
-      xUserId: resolvedEvent.senderId,
-      xUsername: resolvedEvent.senderUsername || user.xUsername || null,
-      channel: 'dm',
-      xDmConversationId: resolvedEvent.dmConversationId || resolvedEvent.senderId,
-    });
-    await markXConversationInbound({
-      mappingId: mapping.id,
-      eventId: resolvedEvent.id,
-      messageId: resolvedEvent.id,
-      username: resolvedEvent.senderUsername || user.xUsername || null,
-    });
-
-    const queued = await enqueueXAgentMessage({
-      userId: user.privyDid,
-      sessionId: mapping.chatSessionId,
-      content: resolvedEvent.text,
-      channel: 'dm',
-      xUserId: resolvedEvent.senderId,
-      xUsername: resolvedEvent.senderUsername || user.xUsername || null,
-      sourceMessageId: resolvedEvent.id,
-      xDmConversationId: resolvedEvent.dmConversationId || resolvedEvent.senderId,
-    });
-    const assistantText = queued.completedSynchronously
-      ? queued.assistantContent
-      : await waitForTaskAssistantText({
-          taskId: queued.task?.id,
-          assistantMessageId: queued.assistantMessage.id,
-        });
-
-    await xReplyService.sendDirectMessage({
-      userId: user.privyDid,
-      xUserId: resolvedEvent.senderId,
-      conversationMappingId: mapping.id,
-      text: assistantText,
-      sourceMessageId: resolvedEvent.id,
-      idempotencyKey: `x:dm:reply:${resolvedEvent.id}`,
-      incrementRoundTrip: true,
-    });
-  }
-
-  private async resolveDirectMessageEventText(event: XDirectMessageEvent): Promise<XDirectMessageEvent> {
-    if (!event.requiresLookup) {
-      return event;
-    }
-
-    const text = await xApiClient.lookupDirectMessageText({
-      senderId: event.senderId,
-      dmConversationId: event.dmConversationId || null,
-      createdAt: event.createdAt || null,
-      lookupCreatedAtMs: event.lookupCreatedAtMs || null,
-      limit: 20,
-    });
-
-    if (!text) {
-      logger.warn(LogCode.API_NOTIFY_FAILED, '[X] chat lookup returned no readable text', {
-        eventId: event.id,
-        senderId: event.senderId,
-        dmConversationId: event.dmConversationId || null,
-        sourceEventType: event.sourceEventType || null,
-      });
-      return event;
-    }
-
-    return {
-      ...event,
-      text,
-      requiresLookup: false,
-    };
   }
 }
 

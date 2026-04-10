@@ -5,12 +5,12 @@
 //         runtime, not assume a single static env-only credential, and must
 //         survive OAuth2 bearer expiry without operator re-authorization; stale
 //         credentials must now fail loudly instead of silently retrying with
-//         known-expired tokens. X Activity `chat.received` webhook events now
-//         require DM lookup to recover message text because the webhook payload
-//         may only contain encrypted event material.
+//         known-expired tokens. The X channel is now outbound-only for DMs:
+//         KIKO may send direct messages, but it no longer attempts to read or
+//         reconstruct inbound XChat message text from webhook events.
 // Goal: keep all X API calls using the same credential source and filtering
 //       rules that the webhook and auth layers rely on.
-// Owns: authenticated X REST access for bot replies, DM sends, and lookup calls.
+// Owns: authenticated X REST access for bot replies and outbound DM sends.
 // Does Not Own: OAuth exchange, webhook subscription setup, or chat orchestration.
 // Design Language:
 // - Resolve bot credentials through the shared credential service first.
@@ -18,21 +18,33 @@
 // - Keep API URL construction and auth header formation centralized here.
 // - Retry once after OAuth2 refresh when X returns 401 for outbound bot calls.
 // - Never re-use a stale OAuth2 token after refresh failed or config is missing.
-// - Treat `chat.received` webhook payloads as notifications and use `/2/dm_events`
-//   as the source of truth for the latest readable message text.
+// - Treat inbound X DM/chat content as unsupported product surface until X
+//   exposes a documented readable path for XChat payloads.
+// Document Provenance:
+// - Source: X Direct Messages API docs (Send DM / lookup docs)
+// - Kind: official API doc
+// - Retrieved: 2026-04-10
+// - Applied To: keep outbound DM sends while removing unsupported inbound chat lookup
+// - Verification: partially verified
+// - Source: production webhook + lookup logs
+// - Kind: runtime observation
+// - Retrieved: 2026-04-10
+// - Applied To: confirmed `chat.received` arrives without readable text and public
+//   lookup endpoints returned no usable DM body
+// - Verification: verified in runtime
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-10-x-oauth2-refresh-runtime.md
 // - system-journal/fix-log/2026-04-10-x-expired-bot-token-hard-fail.md
-// - system-journal/fix-log/2026-04-10-x-chat-lookup-main-path.md
+// - system-journal/fix-log/2026-04-10-x-dm-outbound-only.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
 // - system-journal/conflicts.md
 import { env } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { getXBotAccessToken, getXBotUserId, refreshXBotAccessToken } from './xCredentialsService.js';
-import type { XDirectMessageEvent, XMentionEvent, XSendResult } from './types.js';
+import type { XMentionEvent, XSendResult } from './types.js';
 
 function baseUrl(path: string): string {
   const base = String(env.x.apiBaseUrl || 'https://api.x.com/2').replace(/\/+$/, '');
@@ -75,33 +87,6 @@ function parseMention(item: any, usersById: Map<string, any>): XMentionEvent | n
   };
 }
 
-function parseDirectMessage(item: any, usersById: Map<string, any>): XDirectMessageEvent | null {
-  const id = String(item?.id || item?.dm_event_id || '').trim();
-  const senderId = String(
-    item?.sender_id ||
-    item?.message_create?.sender_id ||
-    item?.event?.sender_id ||
-    '',
-  ).trim();
-  const text = String(
-    item?.text ||
-    item?.message_create?.message_data?.text ||
-    item?.message_data?.text ||
-    '',
-  ).trim();
-  if (!id || !senderId || !text) return null;
-  const user = usersById.get(senderId);
-  return {
-    id,
-    text,
-    senderId,
-    senderUsername: user?.username || null,
-    dmConversationId: item?.dm_conversation_id
-      ? String(item.dm_conversation_id)
-      : (item?.conversation_id ? String(item.conversation_id) : null),
-    createdAt: item?.created_at ? String(item.created_at) : null,
-  };
-}
 
 async function requestJson<T>(
   url: string,
@@ -153,69 +138,6 @@ export class XApiClient {
     return (payload?.data || [])
       .map((item: any) => parseMention(item, usersById))
       .filter(Boolean);
-  }
-
-  async fetchDirectMessages(params: { sinceId?: string | null; maxResults?: number | null }): Promise<XDirectMessageEvent[]> {
-    if (!this.isConfigured()) return [];
-    const url = baseUrl(
-      `/dm_events${toSearchParams([
-        ['since_id', params.sinceId || undefined],
-        ['max_results', String(params.maxResults || env.x.pollBatchSize || 20)],
-        ['dm_event.fields', 'sender_id,created_at,dm_conversation_id,text'],
-        ['expansions', 'sender_id'],
-        ['user.fields', 'username'],
-      ])}`,
-    );
-    const payload = await requestJson<any>(url, (accessToken) => ({
-      headers: authHeaders(accessToken),
-    }));
-    const usersById = new Map<string, any>((payload?.includes?.users || []).map((user: any) => [String(user.id), user]));
-    return (payload?.data || [])
-      .map((item: any) => parseDirectMessage(item, usersById))
-      .filter(Boolean);
-  }
-
-  async lookupDirectMessageText(params: {
-    senderId: string;
-    dmConversationId?: string | null;
-    createdAt?: string | null;
-    lookupCreatedAtMs?: string | null;
-    limit?: number;
-  }): Promise<string | null> {
-    const events = await this.fetchDirectMessages({
-      maxResults: Math.max(5, Math.min(50, Number(params.limit || 20))),
-    });
-    const targetCreatedAtMs = Number(params.lookupCreatedAtMs || '') || null;
-
-    const candidates = events.filter((event) => {
-      if (String(event.senderId) !== String(params.senderId)) return false;
-      if (params.dmConversationId && String(event.dmConversationId || '') !== String(params.dmConversationId)) {
-        return false;
-      }
-      return Boolean(String(event.text || '').trim());
-    });
-
-    const scored = candidates
-      .map((event) => {
-        const eventCreatedMs = event.createdAt ? Date.parse(event.createdAt) : NaN;
-        const distance = Number.isFinite(eventCreatedMs) && targetCreatedAtMs
-          ? Math.abs(eventCreatedMs - targetCreatedAtMs)
-          : Number.MAX_SAFE_INTEGER;
-        return { event, distance, eventCreatedMs };
-      })
-      .sort((a, b) => {
-        if (a.distance !== b.distance) return a.distance - b.distance;
-        if (Number.isFinite(a.eventCreatedMs) && Number.isFinite(b.eventCreatedMs)) {
-          return b.eventCreatedMs - a.eventCreatedMs;
-        }
-        try {
-          return Number(BigInt(b.event.id) - BigInt(a.event.id));
-        } catch {
-          return b.event.id.localeCompare(a.event.id);
-        }
-      });
-
-    return String(scored[0]?.event.text || '').trim() || null;
   }
 
   async replyToMention(params: { tweetId: string; text: string }): Promise<XSendResult> {

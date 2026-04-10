@@ -4,38 +4,33 @@
 // Reason: the X webhook receiver was already implemented, but operator setup on
 //         the X platform remained manual and error-prone, and subscription setup
 //         must now follow the latest X Activity API docs rather than relying on
-//         the legacy account_activity subscription path; expired OAuth2 bot
-//         tokens must now hard-fail instead of silently producing misleading
-//         401s from the X Activity API.
+//         the legacy account_activity subscription path. Product direction then
+//         changed: X DMs are outbound-only, so this script must remove DM/chat
+//         subscriptions instead of recreating them.
 // Goal: provide one repeatable operator script that can create or reuse the
-//       webhook, then attach the official bot's DM/chat activity subscriptions
-//       using the currently documented X Activity API.
-// Owns: X webhook registration, lookup, and X Activity subscription setup.
+//       webhook, then keep the app free of inbound DM/chat activity subscriptions.
+// Owns: X webhook registration, lookup, and X Activity subscription cleanup.
 // Does Not Own: webhook event parsing, OAuth callback storage, or runtime chat handling.
 // Design Language:
 // - Create-or-reuse by callback URL instead of spraying duplicate webhooks.
-// - Use app bearer for webhook management and listing current X Activity subscriptions.
-// - Use bot OAuth2 user access token for creating private DM/chat subscriptions.
+// - Use app bearer for webhook management and X Activity subscription cleanup.
+// - Treat inbound DM/chat subscriptions as unwanted operator drift.
 // - Fail loudly with exact upstream response details; never silently partially configure.
-// - Ensure current documented event types, not legacy subscription-all endpoints.
-// - Refuse to create subscriptions with a known-expired bot OAuth2 token.
+// - Keep the webhook alive for outbound DM support, but do not subscribe to DM/chat.
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-09-x-webhook-operator-script.md
-// - system-journal/fix-log/2026-04-10-x-webhook-subscription-oauth1.md
-// - system-journal/fix-log/2026-04-10-x-activity-api-migration.md
-// - system-journal/fix-log/2026-04-10-x-expired-bot-token-hard-fail.md
+// - system-journal/fix-log/2026-04-10-x-dm-outbound-only.md
 // - system-journal/conflicts.md
 import dotenv from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PrismaClient } from '@prisma/client';
 import { decrypt, isEncrypted } from '../utils/encryption.js';
-import { refreshXBotAccessToken } from '../services/x/xCredentialsService.js';
 
 type Command = 'ensure' | 'list';
-const PRIVATE_EVENT_TYPES = ['dm.received', 'chat.received'] as const;
+const DISABLED_EVENT_TYPES = ['dm.received', 'chat.received', 'dm.sent', 'chat.sent'] as const;
 
 interface XWebhookRecord {
   id: string;
@@ -199,68 +194,33 @@ async function listActivitySubscriptions(appBearerToken: string): Promise<Activi
   return Array.isArray(result?.data) ? result.data : [];
 }
 
-async function createActivitySubscription(params: {
-  botAccessToken: string;
-  webhookId: string;
-  botUserId: string;
-  eventType: string;
-  tag: string;
-}): Promise<ActivitySubscriptionRecord> {
-  const result = await xRequest<{ data?: any }>(
-    'https://api.x.com/2/activity/subscriptions',
-    {
-      method: 'POST',
-      body: JSON.stringify({
-        event_type: params.eventType,
-        webhook_id: params.webhookId,
-        tag: params.tag,
-        filter: {
-          user_id: params.botUserId,
-        },
-      }),
-    },
-    { Authorization: `Bearer ${params.botAccessToken}` },
+async function deleteActivitySubscription(appBearerToken: string, subscriptionId: string): Promise<void> {
+  await xRequest(
+    `https://api.x.com/2/activity/subscriptions/${subscriptionId}`,
+    { method: 'DELETE' },
+    { Authorization: `Bearer ${appBearerToken}` },
   );
-  const subscription = result?.data?.subscription || result?.data;
-  if (!subscription?.subscription_id && !subscription?.id) {
-    throw new Error(`X Activity API did not return subscription id for ${params.eventType}`);
-  }
-  return {
-    id: String(subscription.subscription_id || subscription.id),
-    event_type: String(subscription.event_type || params.eventType),
-    filter: subscription.filter || { user_id: params.botUserId },
-    webhook_id: String(subscription.webhook_id || params.webhookId),
-    tag: String(subscription.tag || params.tag),
-  };
 }
 
 async function ensureActivitySubscriptions(params: {
   appBearerToken: string;
-  botAccessToken: string;
   webhookId: string;
   botUserId: string;
 }): Promise<ActivitySubscriptionRecord[]> {
   const existing = await listActivitySubscriptions(params.appBearerToken);
-  const ensured = [...existing];
+  const managed = existing.filter((item) =>
+    DISABLED_EVENT_TYPES.includes(item.event_type as any)
+    && String(item.filter?.user_id || '') === params.botUserId
+    && String(item.webhook_id || '') === params.webhookId,
+  );
 
-  for (const eventType of PRIVATE_EVENT_TYPES) {
-    const matched = ensured.find((item) =>
-      item.event_type === eventType
-      && String(item.filter?.user_id || '') === params.botUserId
-      && String(item.webhook_id || '') === params.webhookId,
-    );
-    if (matched) continue;
-    ensured.push(await createActivitySubscription({
-      botAccessToken: params.botAccessToken,
-      webhookId: params.webhookId,
-      botUserId: params.botUserId,
-      eventType,
-      tag: `kiko:${eventType}`,
-    }));
+  for (const subscription of managed) {
+    await deleteActivitySubscription(params.appBearerToken, subscription.id);
   }
 
-  return ensured.filter((item) =>
-    PRIVATE_EVENT_TYPES.includes(item.event_type as any)
+  const after = await listActivitySubscriptions(params.appBearerToken);
+  return after.filter((item) =>
+    DISABLED_EVENT_TYPES.includes(item.event_type as any)
     && String(item.filter?.user_id || '') === params.botUserId
     && String(item.webhook_id || '') === params.webhookId,
   );
@@ -295,8 +255,6 @@ async function main() {
   const appBearerToken = requireEnv('X_APP_BEARER_TOKEN');
   const databaseUrl = requireEnv('DATABASE_URL');
   const bot = await readBotCredential(databaseUrl);
-  const botState = await refreshXBotAccessToken({ requireFresh: true });
-  const botAccessToken = String(botState?.accessToken || bot.accessToken || '').trim();
   const existing = await listWebhooks(appBearerToken);
   const matched = existing.find((item) => normalizeUrl(item.url) === callbackUrl) || null;
 
@@ -316,14 +274,10 @@ async function main() {
   if (!bot.botUserId) {
     throw new Error('Missing stored bot user id. Complete /api/auth/x/start first.');
   }
-  if (!botAccessToken) {
-    throw new Error('Missing stored bot OAuth2 access token. Complete /api/auth/x/start first.');
-  }
 
   const webhook = matched || await createWebhook(appBearerToken, callbackUrl);
   const activitySubscriptions = await ensureActivitySubscriptions({
     appBearerToken,
-    botAccessToken,
     webhookId: webhook.id,
     botUserId: bot.botUserId,
   });

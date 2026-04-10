@@ -1,36 +1,38 @@
 // CONTEXT MEMORY
 // Updated: 2026-04-10
 // Author: Almurat
-// Reason: webhook ingress is now the production path for X mentions and DMs,
-//         replacing polling while keeping fast ACK and async processing. Test
-//         diagnostics now require a minimal raw-ingress audit trail so we can
-//         distinguish "X never delivered" from "we failed after receipt", and
-//         the route now needs to parse both legacy Account Activity payloads
-//         and the newer X Activity event envelope. Empty-but-delivered payloads
-//         now need extra structural audit so parser gaps can be fixed from logs,
-//         and `chat.received` must now be forwarded as a lookup-required event
-//         instead of being dropped as unreadable.
-// Goal: verify inbound X events, filter bot-authored noise, and hand off clean
-//       events to the internal conversation pipeline.
-// Owns: X webhook CRC/signature handling and event extraction.
+// Reason: webhook ingress remains the production path for X mentions, but X DM
+//         input is no longer a supported chat surface after runtime/document
+//         evidence showed `chat.received` does not expose readable message text
+//         through public APIs. The route still keeps raw-ingress audit logs so
+//         operator debugging can distinguish "X never delivered" from "we chose
+//         to ignore unsupported DM payloads".
+// Goal: verify inbound X events, filter bot-authored noise, and hand off only
+//       supported mention events to the internal conversation pipeline.
+// Owns: X webhook CRC/signature handling, mention extraction, and inbound audit.
 // Does Not Own: OAuth login, outbound token persistence, or chat execution.
 // Design Language:
 // - ACK fast and process asynchronously.
 // - Fail closed on signature and bot identity checks.
-// - Keep inbound event parsing separate from session creation.
+// - Keep inbound mention parsing separate from session creation.
 // - Log raw ingress metadata without logging sensitive DM/tweet body text.
 // - Prefer current X Activity event envelopes, but keep legacy payload support
 //   until platform delivery behavior is fully stable.
 // - When delivery is empty, log payload structure, not body text, so parsing
 //   gaps can be debugged without leaking private message contents.
-// - Treat `chat.received` as a signal to perform DM lookup, not a source of
-//   readable message text.
+// - Ignore inbound DM/chat events at the product layer; X DMs are outbound-only.
+// Document Provenance:
+// - Source: X Activity API docs + production lookup probes
+// - Kind: official API doc | runtime observation
+// - Retrieved: 2026-04-10
+// - Applied To: disabling DM/chat webhook handling while preserving mention ingress
+// - Verification: verified in runtime
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-10-x-webhook-ingress-audit.md
 // - system-journal/fix-log/2026-04-10-x-webhook-empty-payload-audit.md
-// - system-journal/fix-log/2026-04-10-x-chat-lookup-main-path.md
+// - system-journal/fix-log/2026-04-10-x-dm-outbound-only.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
 // - system-journal/conflicts.md
 import crypto from 'node:crypto';
@@ -326,7 +328,7 @@ export async function xWebhookRoutes(fastify: FastifyInstance) {
     }
 
     const mentions = extractMentionEvents(payload);
-    const directMessages = [
+    const ignoredDirectMessages = [
       ...extractDirectMessageEvents(payload),
       ...extractModernActivityDirectMessageEvents(payload),
     ];
@@ -334,14 +336,22 @@ export async function xWebhookRoutes(fastify: FastifyInstance) {
     logger.info(LogCode.SYS_INFO, '[X] webhook ingress received', {
       forUserId: toId(payload.for_user_id),
       mentionCount: mentions.length,
-      dmCount: directMessages.length,
+      dmCount: ignoredDirectMessages.length,
       mentionIds: sampleIds(mentions, (item) => item.id),
-      dmIds: sampleIds(directMessages, (item) => item.id),
+      dmIds: sampleIds(ignoredDirectMessages, (item) => item.id),
       mentionAuthorIds: sampleIds(mentions, (item) => item.authorId),
-      dmSenderIds: sampleIds(directMessages, (item) => item.senderId),
+      dmSenderIds: sampleIds(ignoredDirectMessages, (item) => item.senderId),
     });
 
-    if (mentions.length === 0 && directMessages.length === 0) {
+    if (ignoredDirectMessages.length > 0) {
+      logger.info(LogCode.SYS_INFO, '[X] webhook ingress ignored dm payload', {
+        forUserId: toId(payload.for_user_id),
+        ignoredDmCount: ignoredDirectMessages.length,
+        activityEventTypes: sampleActivityEventTypes(payload),
+      });
+    }
+
+    if (mentions.length === 0 && ignoredDirectMessages.length === 0) {
       logger.info(LogCode.SYS_INFO, '[X] webhook ingress empty payload', {
         forUserId: toId(payload.for_user_id),
         topLevelKeys: sampleObjectKeys(payload),
@@ -357,13 +367,12 @@ export async function xWebhookRoutes(fastify: FastifyInstance) {
 
     const accepted = await Promise.all([
       ...mentions.map((mention) => xIngressWorker.enqueueMention(mention)),
-      ...directMessages.map((event) => xIngressWorker.enqueueDirectMessage(event)),
     ]);
 
     logger.info(LogCode.SYS_INFO, '[X] webhook ingress enqueued', {
       forUserId: toId(payload.for_user_id),
       mentionCount: mentions.length,
-      dmCount: directMessages.length,
+      dmCount: ignoredDirectMessages.length,
       acceptedCount: accepted.filter(Boolean).length,
     });
 
