@@ -59,6 +59,14 @@ as idempotent success.
 - Applied To: treating `DuplicateSubscriptionFailed` as successful ensure behavior
 - Verification: verified in runtime
 
+### Source 4
+
+- Source: runtime response from `GET /2/account_activity/webhooks/{webhook_id}/subscriptions/all`
+- Kind: runtime observation
+- Retrieved: 2026-04-10
+- Applied To: correcting verification requests to use user-context auth instead of app-only bearer
+- Verification: verified in runtime
+
 ## Decision
 
 Until mention ingress is migrated away from legacy webhook envelopes, operator
@@ -67,3 +75,4 @@ setup must ensure two conditions simultaneously:
 1. DM/chat activity subscriptions remain removed
 2. the legacy account activity user subscription remains present for the bot
 3. duplicate-create responses must be treated as idempotent success
+4. legacy subscription verification must also use user-context auth

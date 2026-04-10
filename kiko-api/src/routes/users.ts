@@ -6,12 +6,12 @@
 // CONTEXT MEMORY
 // Updated: 2026-04-10
 // Author: Almurat
-// Reason: user identity sync now spans Privy, Farcaster, X, and wallet flows.
-//         X linkage previously depended on a frontend-only sync effect and
-//         incorrectly required an embedded wallet even for existing users.
+// Reason: user identity sync now spans Privy, Farcaster, X, wallet flows, and
+//         persisted per-user model policy. X mention replies must follow the
+//         same saved default model a user selected on the website.
 // Goal: preserve one stable owner for user-profile persistence, including the
-//       canonical in-app username field and verified social-account linkage
-//       state for already-registered users.
+//       canonical in-app username field, verified social-account linkage state,
+//       and the user's saved default chat model for cross-channel replies.
 // Owns: authenticated user settings routes, social identity sync endpoints, and
 //       persistence rules for the shared User row.
 // Does Not Own: Privy token verification, wallet custody, or X webhook ingress.
@@ -21,9 +21,18 @@
 // - Do not let social-link sync silently drift from the User schema.
 // - Existing authenticated users must not need a second wallet gate just to
 //   persist a verified X linkage that Privy already knows.
+// - Persist the user's default reply model in one backend setting row, not
+//   only in frontend localStorage.
+// Document Provenance:
+// - Source: current repo model catalog + website/X model binding requirement
+// - Kind: repo doc
+// - Retrieved: 2026-04-10
+// - Applied To: adding UserSettings.defaultChatModel and exposing it through authenticated settings routes
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/owner-map/backend-swap-validation.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-user-username-foundation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-x-user-auto-sync.md
@@ -35,10 +44,12 @@ import { requireAuth } from '../middleware/auth.js';
 import { trackLogin } from '../services/userActivityService.js';
 import { getCachedKikoFollowState, resolveKikoFollowState } from '../services/farcasterRelationshipService.js';
 import { buildXLinkUrl, getXContextForUser, serializeXContext, syncVerifiedPrivyXUser } from '../services/x/xIdentityService.js';
+import { normalizeSupportedChatModel } from '../config/chatModels.js';
 
 // Types
 interface UserSettingsBody {
     // userRole removed 
+    defaultChatModel?: string;
     defaultSwapAmount?: number;
     defaultSwapUnit?: string;
     checkTokenBeforeSwap?: boolean;
@@ -154,6 +165,9 @@ export async function registerUserRoutes(app: FastifyInstance) {
                 const settings = await prisma.userSettings.upsert({
                     where: { userId: user.privyDid },
                     update: {
+                        ...(body.defaultChatModel !== undefined
+                            ? { defaultChatModel: normalizeSupportedChatModel(body.defaultChatModel) }
+                            : {}),
                         // userRole removed
                         defaultSwapAmount: body.defaultSwapAmount,
                         defaultSwapUnit: body.defaultSwapUnit,
@@ -172,6 +186,7 @@ export async function registerUserRoutes(app: FastifyInstance) {
                     },
                     create: {
                         userId: user.privyDid,
+                        defaultChatModel: normalizeSupportedChatModel(body.defaultChatModel),
                         // userRole removed
                         defaultSwapAmount: body.defaultSwapAmount || 100,
                         defaultSwapUnit: body.defaultSwapUnit || 'native',

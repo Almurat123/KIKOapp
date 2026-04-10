@@ -5,10 +5,10 @@ import { evaluateUsageAccess, isCurrentRequestFree } from '../usageAccess.js';
 import { recordUsage } from '../usageCounter.js';
 import { getEmbeddedWalletAddress, getSolanaEmbeddedWalletAddress } from '../privyWallet.js';
 import { chatWorker } from '../../jobs/chatWorker.js';
+import { normalizeSupportedChatModel } from '../../config/chatModels.js';
 
 function normalizeTaskModel(model?: string): string {
-  const normalized = (model || '').toLowerCase().trim();
-  return normalized || 'deepseek-chat';
+  return normalizeSupportedChatModel(model);
 }
 
 function buildUsageLimitMessage(usageDecision: any): string {

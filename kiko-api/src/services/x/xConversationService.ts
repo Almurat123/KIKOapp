@@ -1,5 +1,32 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-10
+// Author: Almurat
+// Reason: X mention sessions must inherit the authenticated user's saved
+//         default model instead of falling back to an unrelated repository
+//         default. Existing X-linked sessions must also be able to realign when
+//         the user changes their preferred model on the website.
+// Goal: keep X conversation mapping and X session model selection deterministic
+//       and tied to persisted user preference.
+// Owns: X conversation mapping creation/reuse and the model assigned to the
+//       underlying chat session for X channels.
+// Does Not Own: authenticated user settings writes, agent execution, or webhook parsing.
+// Design Language:
+// - New X sessions must receive an explicit normalized model when available.
+// - Reused X sessions may be updated to the user's latest saved model.
+// - Do not let X mention sessions silently drift to a legacy default model.
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-10
+// - Applied To: using persisted per-user model preference for X mention sessions
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
 import prisma from '../../db/prisma.js';
 import * as chatRepo from '../../repositories/chatRepository.js';
+import { normalizeSupportedChatModel } from '../../config/chatModels.js';
 import type { XChannel } from './types.js';
 
 export const MAX_DM_ROUND_TRIPS = 30;
@@ -21,10 +48,12 @@ async function createConversationMapping(params: {
   rootTweetId?: string | null;
   xDmConversationId?: string | null;
   rolloverCount?: number;
+  preferredModel?: string | null;
 }) {
   const session = await chatRepo.createSession(
     params.userId,
     buildXSessionTitle({ channel: params.channel, username: params.xUsername }),
+    normalizeSupportedChatModel(params.preferredModel),
   );
 
   return prisma.xConversationMapping.create({
@@ -49,6 +78,7 @@ export async function findOrCreateXConversation(params: {
   channel: XChannel;
   rootTweetId?: string | null;
   xDmConversationId?: string | null;
+  preferredModel?: string | null;
 }) {
   if (params.channel === 'mention' && params.rootTweetId) {
     const existing = await prisma.xConversationMapping.findFirst({
@@ -111,6 +141,18 @@ export async function findOrCreateXConversation(params: {
   }
 
   return existing;
+}
+
+export async function syncXConversationModel(params: {
+  chatSessionId: string;
+  preferredModel?: string | null;
+}) {
+  const preferredModel = normalizeSupportedChatModel(params.preferredModel);
+  const session = await chatRepo.getSession(params.chatSessionId);
+  if (!session || session.model === preferredModel) {
+    return session;
+  }
+  return chatRepo.updateSession(params.chatSessionId, { model: preferredModel });
 }
 
 export async function markXConversationInbound(params: {

@@ -17,6 +17,7 @@ import { ethers } from 'ethers';
 import cacheClient from '../cache/cacheClient.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { normalizeSupportedChatModel } from '../config/chatModels.js';
 import { resolveToolContextChainSwitchAck } from '../jobs/chat/toolContextChainState.js';
 import { recordUsage } from '../services/usageCounter.js';
 
@@ -61,9 +62,7 @@ interface ReportChainSwitchBody {
 }
 
 function normalizeTaskModel(model?: string): string {
-    const normalized = (model || '').toLowerCase().trim();
-    if (!normalized) return 'deepseek-chat';
-    return normalized;
+    return normalizeSupportedChatModel(model);
 }
 
 export async function chatRoutes(fastify: FastifyInstance) {

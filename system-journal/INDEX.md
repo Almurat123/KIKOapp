@@ -26,6 +26,7 @@ owner boundaries, and major fixes.
 - [Fix Log: 2026-04-10 X DM Outbound Only](./fix-log/2026-04-10-x-dm-outbound-only.md)
 - [Fix Log: 2026-04-10 X Activity Subscription ID Shape](./fix-log/2026-04-10-x-activity-subscription-id-shape.md)
 - [Fix Log: 2026-04-10 X Mention Webhook Subscription Restored](./fix-log/2026-04-10-x-mention-webhook-subscription-restored.md)
+- [Fix Log: 2026-04-10 User Default Chat Model For X Mentions](./fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md)
 - [Fix Log: 2026-04-10 X Verified Mentions Only](./fix-log/2026-04-10-x-verified-mentions-only.md)
 - [Fix Log: 2026-04-10 X Trade Notifications Disabled](./fix-log/2026-04-10-x-trade-notifications-disabled.md)
 - [Fix Log: 2026-04-10 X Webhook Replay Script](./fix-log/2026-04-10-x-webhook-replay-script.md)

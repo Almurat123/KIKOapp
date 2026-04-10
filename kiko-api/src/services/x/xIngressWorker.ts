@@ -4,8 +4,10 @@
 // Reason: X ingress now owns only mention-driven interaction. Product direction
 //         changed after runtime/document evidence showed XChat webhook events do
 //         not expose readable DM bodies through public lookup APIs, so inbound X
-//         DMs are no longer treated as a conversation surface.
-// Goal: preserve deterministic mention handling while keeping X DMs outbound-only.
+//         DMs are no longer treated as a conversation surface. Mention replies
+//         must also follow each user's saved default web model.
+// Goal: preserve deterministic mention handling while keeping X DMs outbound-only
+//       and aligning X reply model selection with persisted per-user preference.
 // Owns: inbound X mention processing, session routing, dedupe, and reply dispatch.
 // Does Not Own: OAuth exchange, X webhook signature checks, or token persistence.
 // Design Language:
@@ -15,6 +17,7 @@
 // - X DM/chat is an outbound notification channel, not an inbound chat surface.
 // - Ignore inbound DM payloads even if the webhook receives them unexpectedly.
 // - Mentions from non-verified X accounts must not trigger automated replies.
+// - X mention sessions must use the same persisted default model the user chose on web.
 // Document Provenance:
 // - Source: X Activity API docs + X Direct Messages lookup docs
 // - Kind: official API doc
@@ -32,8 +35,14 @@
 // - Retrieved: 2026-04-10
 // - Applied To: requiring `verified=true` before mention replies to control cost and spam
 // - Verification: partially verified
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-10
+// - Applied To: selecting X mention reply model from persisted user settings
+// - Verification: verified in code
 // See also:
 // - system-journal/INDEX.md
+// - system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-10-x-dm-outbound-only.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
@@ -41,10 +50,11 @@
 import prisma from '../../db/prisma.js';
 import cacheClient from '../../cache/cacheClient.js';
 import { env } from '../../config/env.js';
+import { normalizeSupportedChatModel } from '../../config/chatModels.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { buildXLinkUrl, getUserByXUserId } from './xIdentityService.js';
-import { findOrCreateXConversation, markXConversationInbound } from './xConversationService.js';
+import { findOrCreateXConversation, markXConversationInbound, syncXConversationModel } from './xConversationService.js';
 import { recordXQuotaMetric } from './xQuotaService.js';
 import { enqueueXAgentMessage, waitForTaskAssistantText } from './xChatBridge.js';
 import { xApiClient } from './xApiClient.js';
@@ -325,12 +335,18 @@ export class XIngressWorker {
       return;
     }
 
+    const preferredModel = normalizeSupportedChatModel(user.settings?.defaultChatModel);
     const mapping = await findOrCreateXConversation({
       userId: user.privyDid,
       xUserId: mention.authorId,
       xUsername: mention.authorUsername || user.xUsername || null,
       channel: 'mention',
       rootTweetId: mention.conversationId || mention.id,
+      preferredModel,
+    });
+    await syncXConversationModel({
+      chatSessionId: mapping.chatSessionId,
+      preferredModel,
     });
     await markXConversationInbound({
       mappingId: mapping.id,

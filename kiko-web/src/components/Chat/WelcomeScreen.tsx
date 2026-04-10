@@ -10,27 +10,19 @@ import { CustomAISettingsModal } from './CustomAISettingsModal';
 import { useSmartSuggestions } from './useSmartSuggestions.tsx';
 import { ChatInputSuggestions } from './ChatInputSuggestions';
 import { logger } from '../../utils/logger';
+import { usePrivy } from '@privy-io/react-auth';
+import { getUserSettings, saveUserSettings } from '../../services/userSettingsApi';
 import { LiquidGlassEffect } from '../Effects/LiquidGlassEffect';
 import { StardustBackground } from '../Effects/StardustBackground';
 import { agentAttrs } from '../../agent/attrs';
-
-// Model options
-// According to DeepSeek API docs: https://api-docs.deepseek.com/zh-cn/quick_start/pricing
-// - deepseek-chat: DeepSeek-V3.2 (非思考模式)
-// - deepseek-reasoner: DeepSeek-V3.2 (思考模式)
-const MODEL_OPTIONS = [
-  { id: 'deepseek-chat', name: 'DeepSeek-V3.2', mode: 'fast' },
-  { id: 'deepseek-reasoner', name: 'DeepSeek-V3.2', mode: 'thinking' },
-  { id: 'gpt-5.4-mini-2026-03-17', name: 'GPT-5.4-mini', mode: 'thinking' },
-  { id: 'grok-4-1-fast-reasoning', name: 'Grok-4.1-Fast', mode: 'thinking' },
-  { id: 'grok-4-1-fast-non-reasoning', name: 'Grok-4.1-Fast', mode: 'fast' },
-];
+import { MODEL_OPTIONS, findChatModelOption, getDefaultChatModelOption } from './chatConstants';
 
 interface WelcomeScreenProps {
   onSuggestionClick: (text: string) => void;
 }
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick }) => {
+  const { authenticated, getAccessToken } = usePrivy();
   const [isFocused, setIsFocused] = useState(false);
   const [inputValue, setInputValue] = useState(() => {
     const stored = sessionStorage.getItem('kiko-prefill-prompt');
@@ -93,12 +85,13 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
     } catch (e) {
       logger.warn('Failed to load saved model from localStorage:', e);
     }
-    return MODEL_OPTIONS[0];
+    return getDefaultChatModelOption();
   };
 
   const [selectedModel, setSelectedModel] = useState(getInitialModel);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const skipInitialRemoteModelPersistRef = useRef(true);
 
   // Save model selection to localStorage whenever it changes
   useEffect(() => {
@@ -110,6 +103,46 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
       logger.warn('Failed to save model selection to localStorage:', e);
     }
   }, [selectedModel]);
+
+  useEffect(() => {
+    if (!authenticated) return;
+    let cancelled = false;
+    const loadSavedModel = async () => {
+      try {
+        const token = await getAccessToken();
+        if (!token) return;
+        const settings = await getUserSettings(token);
+        const found = findChatModelOption(settings?.defaultChatModel);
+        if (!cancelled && found && found.id !== selectedModel.id) {
+          setSelectedModel(found);
+        }
+      } catch (error) {
+        logger.warn('Failed to load saved default chat model:', error);
+      }
+    };
+    void loadSavedModel();
+    return () => {
+      cancelled = true;
+    };
+  }, [authenticated, getAccessToken]);
+
+  useEffect(() => {
+    if (!authenticated) return;
+    if (skipInitialRemoteModelPersistRef.current) {
+      skipInitialRemoteModelPersistRef.current = false;
+      return;
+    }
+    const persist = async () => {
+      try {
+        const token = await getAccessToken();
+        if (!token) return;
+        await saveUserSettings(token, { defaultChatModel: selectedModel.id });
+      } catch (error) {
+        logger.warn('Failed to persist default chat model:', error);
+      }
+    };
+    void persist();
+  }, [authenticated, getAccessToken, selectedModel.id]);
   const { resolvedTheme } = useThemeContext();
   const modelSelectorRef = useRef<HTMLDivElement>(null);
 

@@ -3,7 +3,33 @@
  * Database operations for chat sessions, messages, and AI tasks
  */
 
+// CONTEXT MEMORY
+// Updated: 2026-04-10
+// Author: Almurat
+// Reason: session creation previously defaulted to `deepseek-chat`, which
+//         drifted from the website default selector and from X mention reply
+//         expectations. New sessions now need one canonical default model.
+// Goal: ensure every newly created chat session gets a normalized supported
+//       model that matches the product-default model policy.
+// Owns: chat session persistence defaults and model normalization at write time.
+// Does Not Own: frontend dropdown state, model pricing, or X mention routing.
+// Design Language:
+// - Normalize model ids before persisting them into ChatSession.
+// - Use one canonical default model across all new session creation paths.
+// - Do not let empty model inputs silently fall back to a legacy model.
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-10
+// - Applied To: aligning new ChatSession defaults with website and X mention model policy
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
+
 import prisma, { withRetry } from '../db/prisma.js';
+import { normalizeSupportedChatModel } from '../config/chatModels.js';
 
 
 // Types (re-exported from Prisma or defined locally if needed)
@@ -78,11 +104,7 @@ export async function createSession(
     title?: string,
     model?: string
 ): Promise<any> {
-    const normalizedModel = (() => {
-        const normalized = (model || '').toLowerCase().trim();
-        if (!normalized) return 'deepseek-chat';
-        return normalized;
-    })();
+    const normalizedModel = normalizeSupportedChatModel(model);
     return prisma.chatSession.create({
         data: {
             userId,

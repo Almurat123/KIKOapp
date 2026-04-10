@@ -13,6 +13,7 @@ import {
 } from './conversationStateResolver.js';
 import { extractRecentPolymarketSelection } from './polymarketSelectionState.js';
 import { resolveRuntimeDirectives } from './runtimeDirectiveResolver.js';
+import { DEFAULT_CHAT_MODEL } from '../../config/chatModels.js';
 
 const CHAT_CONTEXT_RECENT_WINDOW = Math.max(4, parseInt(process.env.CHAT_CONTEXT_RECENT_WINDOW || '12', 10) || 12);
 const CHAT_CONTEXT_MAX_INPUT_TOKENS = Math.max(2048, parseInt(process.env.CHAT_CONTEXT_MAX_INPUT_TOKENS || '16000', 10) || 16000);
@@ -155,7 +156,7 @@ export function assembleChatContext(params: {
         taskId: task.id,
         userMessageId: task.userMessageId,
         assistantMessageId: task.assistantMessageId,
-        model: task.model || session?.model || 'deepseek-chat',
+        model: task.model || session?.model || DEFAULT_CHAT_MODEL,
         history,
         lastUserMessage,
         recentToolTrace: extractRecentToolTrace(messages),

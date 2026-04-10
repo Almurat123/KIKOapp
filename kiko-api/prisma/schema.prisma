@@ -76,6 +76,7 @@ model WalletExport {
 model UserSettings {
   id                            String   @id @default(cuid())
   userId                        String   @unique
+  defaultChatModel              String   @default("grok-4-1-fast-non-reasoning")
   defaultSwapAmount             Float    @default(100)
   defaultSwapUnit               String   @default("native")
   checkTokenBeforeSwap          Boolean  @default(true)
@@ -652,7 +653,7 @@ model ChatSession {
   id                       String        @id @default(cuid())
   userId                   String
   title                    String
-  model                    String        @default("grok-4-1-fast-reasoning")
+  model                    String        @default("grok-4-1-fast-non-reasoning")
   status                   String        @default("active")
   createdAt                DateTime      @default(now())
   updatedAt                DateTime      @updatedAt

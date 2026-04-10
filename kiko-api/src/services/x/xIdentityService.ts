@@ -106,6 +106,13 @@ export async function getUserByXUserId(xUserId: string) {
   if (!xUserId) return null;
   return prisma.user.findUnique({
     where: { xUserId },
+    include: {
+      settings: {
+        select: {
+          defaultChatModel: true,
+        },
+      },
+    },
   });
 }
 

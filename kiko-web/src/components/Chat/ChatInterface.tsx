@@ -26,9 +26,10 @@ import { useFarcasterContext } from '../../contexts/FarcasterContext';
 import { moderationService } from '../../services/moderation';
 import { logger } from '../../utils/logger';
 import { getStoredSlippageBps } from '@/config/slippageConfig';
+import { getUserSettings, saveUserSettings } from '../../services/userSettingsApi';
 import { ChatMessageList } from './ChatMessageList';
 import { ChatComposer } from './ChatComposer';
-import { ACTION_CARD_TYPE_MAP, COMMON_TOKENS, MODEL_OPTIONS } from './chatConstants';
+import { ACTION_CARD_TYPE_MAP, COMMON_TOKENS, MODEL_OPTIONS, findChatModelOption, getDefaultChatModelOption } from './chatConstants';
 import { requiresContractAddressInFastMode, resolveNativeToken, resolveTokenForChat, resolveTokenForFastSwap } from './chatTokenResolution';
 import { mergeTransactionCardData } from '../../utils/transactionCardState';
 
@@ -135,7 +136,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         registerPendingLocalUserMessage,
     } = useConversationContext();
 
-    const { user, authenticated, ready, login } = usePrivy();
+    const { user, authenticated, ready, login, getAccessToken } = usePrivy();
     const { wallets } = useWallets();
     const farcasterContext = useFarcasterContext();
     const { currentChain, switchChain } = useChain();
@@ -252,7 +253,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             const saved = localStorage.getItem('kiko-selected-model');
             if (saved) {
                 const parsed = JSON.parse(saved);
-                const found = MODEL_OPTIONS.find(m => m.id === parsed.id);
+                const found = findChatModelOption(parsed.id);
                 if (found) {
                     return found;
                 }
@@ -260,7 +261,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         } catch (e) {
             logger.warn('Failed to load saved model from localStorage:', e);
         }
-        return MODEL_OPTIONS[0];
+        return getDefaultChatModelOption();
     };
 
     const [selectedModel, setSelectedModel] = useState(getInitialModel);
@@ -271,7 +272,17 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         } catch (e) {
             logger.warn('Failed to persist model selection to localStorage:', e);
         }
-    }, []);
+        if (!authenticated) return;
+        void (async () => {
+            try {
+                const token = await getAccessToken();
+                if (!token) return;
+                await saveUserSettings(token, { defaultChatModel: nextModel.id });
+            } catch (error) {
+                logger.warn('Failed to persist default chat model:', error);
+            }
+        })();
+    }, [authenticated, getAccessToken]);
 
     // Suggestions State (Managed by Hook)
     const {
@@ -797,7 +808,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 const saved = localStorage.getItem('kiko-selected-model');
                 if (saved) {
                     const parsed = JSON.parse(saved);
-                    const found = MODEL_OPTIONS.find(m => m.id === parsed.id);
+                    const found = findChatModelOption(parsed.id);
                     if (found) {
                         setSelectedModel(current => {
                             if (found.id !== current.id) {
@@ -819,7 +830,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         // Listen for custom event from WelcomeScreen
         const handleModelChange = (event: CustomEvent) => {
             const newModel = event.detail;
-            const found = MODEL_OPTIONS.find(m => m.id === newModel.id);
+            const found = findChatModelOption(newModel.id);
             if (found) {
                 setSelectedModel(current => {
                     if (found.id !== current.id) {
@@ -841,6 +852,29 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             window.removeEventListener('storage', syncModelFromStorage);
         };
     }, []);
+
+    useEffect(() => {
+        if (!ready || !authenticated) return;
+        let cancelled = false;
+        const loadSavedModel = async () => {
+            try {
+                const token = await getAccessToken();
+                if (!token) return;
+                const settings = await getUserSettings(token);
+                const found = findChatModelOption(settings?.defaultChatModel);
+                if (!cancelled && found) {
+                    setSelectedModel(current => (current.id === found.id ? current : found));
+                    localStorage.setItem('kiko-selected-model', JSON.stringify(found));
+                }
+            } catch (error) {
+                logger.warn('Failed to load saved default chat model:', error);
+            }
+        };
+        void loadSavedModel();
+        return () => {
+            cancelled = true;
+        };
+    }, [ready, authenticated, getAccessToken]);
 
     useEffect(() => {
         if (!conversationId || !currentConv?.model) return;

@@ -1,3 +1,27 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-10
+// Author: Almurat
+// Reason: web chat and X mention replies now share one canonical default model.
+//         The selector list still defines UI choices, but default selection must
+//         no longer depend on array order alone.
+// Goal: keep one stable frontend default model id that matches backend session
+//       creation and X mention reply policy.
+// Owns: frontend-visible model catalog and canonical default selection helper.
+// Does Not Own: backend persistence, pricing, or agent execution.
+// Design Language:
+// - Do not rely on list order for the default model.
+// - Keep UI model ids aligned with backend-supported model ids.
+// - Prefer explicit helpers over duplicated literal ids in components.
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-10
+// - Applied To: setting `grok-4-1-fast-non-reasoning` as canonical frontend default
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
 export interface ChatModelOption {
     id: string;
     name: string;
@@ -11,6 +35,17 @@ export const MODEL_OPTIONS: ChatModelOption[] = [
     { id: 'grok-4-1-fast-reasoning', name: 'Grok-4.1-Fast', mode: 'thinking' },
     { id: 'grok-4-1-fast-non-reasoning', name: 'Grok-4.1-Fast', mode: 'fast' },
 ];
+
+export const DEFAULT_CHAT_MODEL_ID = 'grok-4-1-fast-non-reasoning';
+
+export function findChatModelOption(modelId?: string | null): ChatModelOption | undefined {
+    const normalized = String(modelId || '').trim().toLowerCase();
+    return MODEL_OPTIONS.find((model) => model.id === normalized);
+}
+
+export function getDefaultChatModelOption(): ChatModelOption {
+    return findChatModelOption(DEFAULT_CHAT_MODEL_ID) || MODEL_OPTIONS[0];
+}
 
 export const COMMON_TOKENS: Record<number, Array<{ address: string; symbol: string; decimals: number }>> = {
     1: [
