@@ -16,7 +16,8 @@
 // Design Language:
 // - Create-or-reuse by callback URL instead of spraying duplicate webhooks.
 // - Use app bearer for webhook management and X Activity subscription cleanup.
-// - Use stored OAuth1 user credentials only for legacy account_activity user subscription.
+// - Use stored OAuth1 user credentials only for legacy account_activity user subscription
+//   creation and verification.
 // - Treat inbound DM/chat subscriptions as unwanted operator drift.
 // - Keep mention/reply webhook ingress alive until runtime stops depending on
 //   `tweet_create_events`.
@@ -28,7 +29,8 @@
 // - Kind: official API doc
 // - Retrieved: 2026-04-10
 // - Applied To: restoring `/2/account_activity/webhooks/:webhook_id/subscriptions/all`
-//   for mention/reply webhook ingress while keeping DM/chat activity subscriptions disabled
+//   for mention/reply webhook ingress and verifying it with user-context auth
+//   while keeping DM/chat activity subscriptions disabled
 // - Verification: partially verified
 // See also:
 // - system-journal/INDEX.md
@@ -341,12 +343,23 @@ async function createLegacyWebhookSubscription(params: {
 
 async function getLegacyWebhookSubscription(params: {
   webhookId: string;
-  appBearerToken: string;
+  consumerKey: string;
+  consumerSecret: string;
+  accessToken: string;
+  accessTokenSecret: string;
 }) {
-  return fetch(`https://api.x.com/2/account_activity/webhooks/${params.webhookId}/subscriptions/all`, {
+  const url = `https://api.x.com/2/account_activity/webhooks/${params.webhookId}/subscriptions/all`;
+  return fetch(url, {
     method: 'GET',
     headers: {
-      Authorization: `Bearer ${params.appBearerToken}`,
+      Authorization: buildOAuth1Header({
+        method: 'GET',
+        url,
+        consumerKey: params.consumerKey,
+        consumerSecret: params.consumerSecret,
+        token: params.accessToken,
+        tokenSecret: params.accessTokenSecret,
+      }),
     },
   }).then(async (response) => {
     const text = await response.text().catch(() => '');
@@ -361,12 +374,23 @@ async function getLegacyWebhookSubscription(params: {
 
 async function listLegacyWebhookSubscriptions(params: {
   webhookId: string;
-  appBearerToken: string;
+  consumerKey: string;
+  consumerSecret: string;
+  accessToken: string;
+  accessTokenSecret: string;
 }) {
-  return fetch(`https://api.x.com/2/account_activity/webhooks/${params.webhookId}/subscriptions/all/list`, {
+  const url = `https://api.x.com/2/account_activity/webhooks/${params.webhookId}/subscriptions/all/list`;
+  return fetch(url, {
     method: 'GET',
     headers: {
-      Authorization: `Bearer ${params.appBearerToken}`,
+      Authorization: buildOAuth1Header({
+        method: 'GET',
+        url,
+        consumerKey: params.consumerKey,
+        consumerSecret: params.consumerSecret,
+        token: params.accessToken,
+        tokenSecret: params.accessTokenSecret,
+      }),
     },
   }).then(async (response) => {
     const text = await response.text().catch(() => '');
@@ -421,7 +445,13 @@ async function main() {
   if (command === 'list') {
     const activitySubscriptions = await listActivitySubscriptions(appBearerToken).catch(() => []);
     const legacySubscriptions = matched
-      ? await listLegacyWebhookSubscriptions({ webhookId: matched.id, appBearerToken }).catch(() => null)
+      ? await listLegacyWebhookSubscriptions({
+          webhookId: matched.id,
+          consumerKey: requireEnv('X_CONSUMER_KEY'),
+          consumerSecret: requireEnv('X_WEBHOOK_SECRET'),
+          accessToken: bot.oauth1AccessToken || '',
+          accessTokenSecret: bot.oauth1AccessTokenSecret || '',
+        }).catch(() => null)
       : null;
     console.log(JSON.stringify({
       callbackUrl,
@@ -457,7 +487,10 @@ async function main() {
   });
   const legacyMentionSubscription = await getLegacyWebhookSubscription({
     webhookId: webhook.id,
-    appBearerToken,
+    consumerKey: requireEnv('X_CONSUMER_KEY'),
+    consumerSecret: requireEnv('X_WEBHOOK_SECRET'),
+    accessToken: bot.oauth1AccessToken,
+    accessTokenSecret: bot.oauth1AccessTokenSecret,
   });
 
   console.log(JSON.stringify(
