@@ -6,6 +6,7 @@ import {
   computeXWebhookSignature,
   extractDirectMessageEvents,
   extractMentionEvents,
+  extractModernActivityDirectMessageEvents,
   verifyXWebhookSignature,
 } from './xWebhook.js';
 
@@ -109,5 +110,50 @@ test('extractDirectMessageEvents keeps inbound DMs to the bot only', () => {
     senderUsername: 'alice',
     dmConversationId: '999',
     createdAt: '1710000000000',
+  });
+});
+
+test('extractModernActivityDirectMessageEvents keeps inbound X Activity dm/chat events', () => {
+  const originalUserId = env.x.botUserId;
+  env.x.botUserId = '999';
+
+  const events = extractModernActivityDirectMessageEvents({
+    data: [
+      {
+        event_uuid: 'evt-1',
+        event_type: 'dm.received',
+        filter: { user_id: '999' },
+        payload: {
+          id: 'msg-1',
+          sender_id: '111',
+          target: { recipient_id: '999' },
+          conversation_id: 'conv-1',
+          message_data: { text: 'hello from activity api' },
+          created_at: '2026-04-10T05:00:00.000Z',
+        },
+      },
+      {
+        event_uuid: 'evt-2',
+        event_type: 'chat.sent',
+        filter: { user_id: '999' },
+        payload: {
+          sender_id: '999',
+          target: { recipient_id: '111' },
+          message_data: { text: 'bot outbound' },
+        },
+      },
+    ],
+  });
+
+  env.x.botUserId = originalUserId;
+
+  assert.equal(events.length, 1);
+  assert.deepEqual(events[0], {
+    id: 'evt-1',
+    text: 'hello from activity api',
+    senderId: '111',
+    senderUsername: null,
+    dmConversationId: 'conv-1',
+    createdAt: '2026-04-10T05:00:00.000Z',
   });
 });

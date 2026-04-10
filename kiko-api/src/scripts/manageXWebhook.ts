@@ -3,32 +3,34 @@
 // Author: Almurat
 // Reason: the X webhook receiver was already implemented, but operator setup on
 //         the X platform remained manual and error-prone, and subscription setup
-//         must use OAuth1 user context rather than OAuth2 bearer auth, with
-//         request shapes kept as close as possible to the official examples.
+//         must now follow the latest X Activity API docs rather than relying on
+//         the legacy account_activity subscription path.
 // Goal: provide one repeatable operator script that can create or reuse the
-//       webhook, then attach the official bot subscription with the correct
-//       authentication boundary for each step.
-// Owns: X webhook registration, lookup, and Account Activity subscription setup.
+//       webhook, then attach the official bot's DM/chat activity subscriptions
+//       using the currently documented X Activity API.
+// Owns: X webhook registration, lookup, and X Activity subscription setup.
 // Does Not Own: webhook event parsing, OAuth callback storage, or runtime chat handling.
 // Design Language:
 // - Create-or-reuse by callback URL instead of spraying duplicate webhooks.
-// - Use app bearer for webhook management and OAuth1 user context for activity subscription.
+// - Use app bearer for webhook management and bot OAuth2 bearer for private activity subscriptions.
 // - Fail loudly with exact upstream response details; never silently partially configure.
-// - Do not add JSON bodies or content types to OAuth1 subscription endpoints unless required.
+// - Ensure current documented event types, not legacy subscription-all endpoints.
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-09-x-webhook-operator-script.md
 // - system-journal/fix-log/2026-04-10-x-webhook-subscription-oauth1.md
+// - system-journal/fix-log/2026-04-10-x-activity-api-migration.md
 // - system-journal/conflicts.md
-import crypto from 'node:crypto';
 import dotenv from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PrismaClient } from '@prisma/client';
 import { decrypt, isEncrypted } from '../utils/encryption.js';
+import { refreshXBotAccessToken } from '../services/x/xCredentialsService.js';
 
 type Command = 'ensure' | 'list';
+const PRIVATE_EVENT_TYPES = ['dm.received', 'chat.received'] as const;
 
 interface XWebhookRecord {
   id: string;
@@ -79,62 +81,6 @@ function requireEnv(name: string): string {
     throw new Error(`Missing required env: ${name}`);
   }
   return value;
-}
-
-function percentEncode(value: string): string {
-  return encodeURIComponent(value)
-    .replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
-}
-
-function oauthNonce(): string {
-  return crypto.randomBytes(16).toString('hex');
-}
-
-function oauthTimestamp(): string {
-  return String(Math.floor(Date.now() / 1000));
-}
-
-function buildOAuth1Header(params: {
-  method: 'GET' | 'POST';
-  url: string;
-  consumerKey: string;
-  consumerSecret: string;
-  accessToken: string;
-  accessTokenSecret: string;
-}): string {
-  const parsedUrl = new URL(params.url);
-  const oauthParams: Record<string, string> = {
-    oauth_consumer_key: params.consumerKey,
-    oauth_nonce: oauthNonce(),
-    oauth_signature_method: 'HMAC-SHA1',
-    oauth_timestamp: oauthTimestamp(),
-    oauth_token: params.accessToken,
-    oauth_version: '1.0',
-  };
-
-  const signatureParams: Array<[string, string]> = [
-    ...Array.from(parsedUrl.searchParams.entries()),
-    ...Object.entries(oauthParams),
-  ];
-
-  const paramString = signatureParams
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => `${percentEncode(key)}=${percentEncode(value)}`)
-    .join('&');
-
-  const baseString = [
-    params.method,
-    percentEncode(`${parsedUrl.origin}${parsedUrl.pathname}`),
-    percentEncode(paramString),
-  ].join('&');
-
-  const signingKey = `${percentEncode(params.consumerSecret)}&${percentEncode(params.accessTokenSecret)}`;
-  oauthParams.oauth_signature = crypto.createHmac('sha1', signingKey).update(baseString).digest('base64');
-
-  return `OAuth ${Object.entries(oauthParams)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => `${percentEncode(key)}="${percentEncode(value)}"`)
-    .join(', ')}`;
 }
 
 async function readBotCredential(databaseUrl: string): Promise<XBotCredentialRecord> {
@@ -228,57 +174,91 @@ async function createWebhook(appBearerToken: string, callbackUrl: string): Promi
   return result.data;
 }
 
-async function checkSubscription(
-  webhookId: string,
-  oauth1: { consumerKey: string; consumerSecret: string; accessToken: string; accessTokenSecret: string },
-): Promise<boolean> {
-  const url = `https://api.x.com/2/account_activity/webhooks/${webhookId}/subscriptions/all`;
-  const result = await xRequest<{ data?: { subscribed?: boolean } }>(
-    url,
+type ActivitySubscriptionRecord = {
+  id: string;
+  event_type: string;
+  filter?: {
+    user_id?: string | null;
+    webhook_id?: string | null;
+    tag?: string | null;
+  } | null;
+};
+
+async function listActivitySubscriptions(botAccessToken: string): Promise<ActivitySubscriptionRecord[]> {
+  const result = await xRequest<{ data?: ActivitySubscriptionRecord[] }>(
+    'https://api.x.com/2/activity/subscriptions',
     { method: 'GET' },
-    {
-      Authorization: buildOAuth1Header({
-        method: 'GET',
-        url,
-        consumerKey: oauth1.consumerKey,
-        consumerSecret: oauth1.consumerSecret,
-        accessToken: oauth1.accessToken,
-        accessTokenSecret: oauth1.accessTokenSecret,
-      }),
-    },
+    { Authorization: `Bearer ${botAccessToken}` },
   );
-  return Boolean(result?.data?.subscribed);
+  return Array.isArray(result?.data) ? result.data : [];
 }
 
-async function createSubscription(
-  webhookId: string,
-  oauth1: { consumerKey: string; consumerSecret: string; accessToken: string; accessTokenSecret: string },
-): Promise<boolean> {
-  const url = `https://api.x.com/2/account_activity/webhooks/${webhookId}/subscriptions/all`;
-  const result = await xRequest<{ data?: { subscribed?: boolean } }>(
-    url,
-    { method: 'POST' },
+async function createActivitySubscription(params: {
+  botAccessToken: string;
+  webhookId: string;
+  botUserId: string;
+  eventType: string;
+  tag: string;
+}): Promise<ActivitySubscriptionRecord> {
+  const result = await xRequest<{ data?: ActivitySubscriptionRecord }>(
+    'https://api.x.com/2/activity/subscriptions',
     {
-      Authorization: buildOAuth1Header({
-        method: 'POST',
-        url,
-        consumerKey: oauth1.consumerKey,
-        consumerSecret: oauth1.consumerSecret,
-        accessToken: oauth1.accessToken,
-        accessTokenSecret: oauth1.accessTokenSecret,
+      method: 'POST',
+      body: JSON.stringify({
+        event_type: params.eventType,
+        filter: {
+          user_id: params.botUserId,
+          webhook_id: params.webhookId,
+          tag: params.tag,
+        },
       }),
     },
+    { Authorization: `Bearer ${params.botAccessToken}` },
   );
-  return Boolean(result?.data?.subscribed);
+  if (!result?.data?.id) {
+    throw new Error(`X Activity API did not return subscription id for ${params.eventType}`);
+  }
+  return result.data;
 }
 
-function summarizeWebhook(webhook: XWebhookRecord | null, subscribed: boolean | null, bot: XBotCredentialRecord, callbackUrl: string) {
+async function ensureActivitySubscriptions(params: {
+  botAccessToken: string;
+  webhookId: string;
+  botUserId: string;
+}): Promise<ActivitySubscriptionRecord[]> {
+  const existing = await listActivitySubscriptions(params.botAccessToken);
+  const ensured = [...existing];
+
+  for (const eventType of PRIVATE_EVENT_TYPES) {
+    const matched = ensured.find((item) =>
+      item.event_type === eventType
+      && String(item.filter?.user_id || '') === params.botUserId
+      && String(item.filter?.webhook_id || '') === params.webhookId,
+    );
+    if (matched) continue;
+    ensured.push(await createActivitySubscription({
+      botAccessToken: params.botAccessToken,
+      webhookId: params.webhookId,
+      botUserId: params.botUserId,
+      eventType,
+      tag: `kiko:${eventType}`,
+    }));
+  }
+
+  return ensured.filter((item) =>
+    PRIVATE_EVENT_TYPES.includes(item.event_type as any)
+    && String(item.filter?.user_id || '') === params.botUserId
+    && String(item.filter?.webhook_id || '') === params.webhookId,
+  );
+}
+
+function summarizeWebhook(webhook: XWebhookRecord | null, subscriptions: ActivitySubscriptionRecord[], bot: XBotCredentialRecord, callbackUrl: string) {
   return {
     callbackUrl,
     webhookId: webhook?.id || null,
     webhookUrl: webhook?.url || null,
     webhookValid: webhook?.valid ?? null,
-    subscribed,
+    subscriptions,
     botUserId: bot.botUserId,
     botUsername: bot.botUsername,
     tokenType: bot.tokenType,
@@ -305,32 +285,36 @@ async function main() {
   const matched = existing.find((item) => normalizeUrl(item.url) === callbackUrl) || null;
 
   if (command === 'list') {
+    const botState = await refreshXBotAccessToken().catch(() => null);
+    const activitySubscriptions = botState?.accessToken
+      ? await listActivitySubscriptions(botState.accessToken).catch(() => [])
+      : [];
     console.log(JSON.stringify({
       callbackUrl,
       webhooks: existing,
       matchedWebhookId: matched?.id || null,
       botUserId: bot.botUserId,
       botUsername: bot.botUsername,
+      activitySubscriptions,
     }, null, 2));
     return;
   }
 
-  const oauth1 = {
-    consumerKey: requireEnv('X_CONSUMER_KEY'),
-    consumerSecret: requireEnv('X_WEBHOOK_SECRET'),
-    accessToken: String(process.env.X_OAUTH1_ACCESS_TOKEN || bot.oauth1AccessToken || '').trim(),
-    accessTokenSecret: String(process.env.X_OAUTH1_ACCESS_TOKEN_SECRET || bot.oauth1AccessTokenSecret || '').trim(),
-  };
-  if (!oauth1.accessToken || !oauth1.accessTokenSecret) {
-    throw new Error('Missing OAuth1 bot credentials. Complete /api/auth/x/oauth1/start first or set X_OAUTH1_ACCESS_TOKEN and X_OAUTH1_ACCESS_TOKEN_SECRET.');
+  const botState = await refreshXBotAccessToken().catch(() => null);
+  const botAccessToken = String(botState?.accessToken || bot.accessToken || '').trim();
+  if (!botAccessToken || !bot.botUserId) {
+    throw new Error('Missing OAuth2 bot credentials. Complete /api/auth/x/start first.');
   }
 
   const webhook = matched || await createWebhook(appBearerToken, callbackUrl);
-  const subscribed = await checkSubscription(webhook.id, oauth1).catch(() => false);
-  const finalSubscribed = subscribed || await createSubscription(webhook.id, oauth1);
+  const activitySubscriptions = await ensureActivitySubscriptions({
+    botAccessToken,
+    webhookId: webhook.id,
+    botUserId: bot.botUserId,
+  });
 
   console.log(JSON.stringify(
-    summarizeWebhook(webhook, finalSubscribed, bot, callbackUrl),
+    summarizeWebhook(webhook, activitySubscriptions, bot, callbackUrl),
     null,
     2,
   ));

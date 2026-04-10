@@ -4,7 +4,9 @@
 // Reason: webhook ingress is now the production path for X mentions and DMs,
 //         replacing polling while keeping fast ACK and async processing. Test
 //         diagnostics now require a minimal raw-ingress audit trail so we can
-//         distinguish "X never delivered" from "we failed after receipt".
+//         distinguish "X never delivered" from "we failed after receipt", and
+//         the route now needs to parse both legacy Account Activity payloads
+//         and the newer X Activity event envelope.
 // Goal: verify inbound X events, filter bot-authored noise, and hand off clean
 //       events to the internal conversation pipeline.
 // Owns: X webhook CRC/signature handling and event extraction.
@@ -14,6 +16,8 @@
 // - Fail closed on signature and bot identity checks.
 // - Keep inbound event parsing separate from session creation.
 // - Log raw ingress metadata without logging sensitive DM/tweet body text.
+// - Prefer current X Activity event envelopes, but keep legacy payload support
+//   until platform delivery behavior is fully stable.
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
@@ -39,6 +43,7 @@ interface XActivityPayload {
   tweet_create_events?: any[];
   direct_message_events?: any[];
   users?: Record<string, any> | any[];
+  data?: any;
 }
 
 function toId(value: unknown): string {
@@ -169,6 +174,80 @@ export function extractDirectMessageEvents(payload: XActivityPayload): XDirectMe
   return parsed.filter((item): item is XDirectMessageEvent => item !== null);
 }
 
+function extractModernActivityItems(payload: XActivityPayload): any[] {
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (payload?.data && typeof payload.data === 'object') return [payload.data];
+  return [];
+}
+
+function parseModernActivityDirectMessage(item: any): XDirectMessageEvent | null {
+  const eventType = String(item?.event_type || '').trim().toLowerCase();
+  if (!['dm.received', 'chat.received', 'dm.sent', 'chat.sent'].includes(eventType)) {
+    return null;
+  }
+
+  const filterUserId = toId(item?.filter?.user_id);
+  const payload = item?.payload || {};
+  const botUserId = String(getXBotUserId() || env.x.botUserId || '').trim();
+  const eventId = toId(item?.event_uuid || item?.id || payload?.id || payload?.dm_event_id || payload?.message_id);
+  const text = String(
+    payload?.text
+    || payload?.message_data?.text
+    || payload?.body?.text
+    || payload?.content?.text
+    || '',
+  ).trim();
+  const senderId = toId(
+    payload?.sender_id
+    || payload?.sender?.id
+    || payload?.from_user_id
+    || payload?.from?.id,
+  );
+  const conversationId = toId(
+    payload?.dm_conversation_id
+    || payload?.conversation_id
+    || payload?.conversation?.id
+    || item?.filter?.conversation_id,
+  ) || null;
+  const recipientId = toId(
+    payload?.recipient_id
+    || payload?.target?.recipient_id
+    || payload?.to_user_id
+    || payload?.to?.id
+    || filterUserId,
+  );
+  const username = toUsername(
+    payload?.sender?.username
+    || payload?.sender_username
+    || payload?.from?.username,
+  );
+
+  if (!eventId || !senderId || !text) return null;
+  if (botUserId && senderId === botUserId && eventType.endsWith('.sent')) return null;
+  if (botUserId && senderId === botUserId) return null;
+  if (botUserId && recipientId && recipientId !== botUserId && filterUserId !== botUserId) return null;
+
+  return {
+    id: eventId,
+    text,
+    senderId,
+    senderUsername: username,
+    dmConversationId: conversationId || recipientId || senderId || null,
+    createdAt: String(
+      payload?.created_at
+      || payload?.created_timestamp
+      || item?.created_at
+      || '',
+    ).trim() || null,
+  };
+}
+
+export function extractModernActivityDirectMessageEvents(payload: XActivityPayload): XDirectMessageEvent[] {
+  return extractModernActivityItems(payload)
+    .map((item) => parseModernActivityDirectMessage(item))
+    .filter((item): item is XDirectMessageEvent => item !== null);
+}
+
 export async function xWebhookRoutes(fastify: FastifyInstance) {
   fastify.get<{ Querystring: XWebhookCrcQuery }>('/', async (request, reply) => {
     if (!env.x.enabled || env.x.ingressMode !== 'webhook') {
@@ -214,7 +293,10 @@ export async function xWebhookRoutes(fastify: FastifyInstance) {
     }
 
     const mentions = extractMentionEvents(payload);
-    const directMessages = extractDirectMessageEvents(payload);
+    const directMessages = [
+      ...extractDirectMessageEvents(payload),
+      ...extractModernActivityDirectMessageEvents(payload),
+    ];
 
     logger.info(LogCode.SYS_INFO, '[X] webhook ingress received', {
       forUserId: toId(payload.for_user_id),

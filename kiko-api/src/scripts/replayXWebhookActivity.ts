@@ -3,10 +3,11 @@
 // Author: Almurat
 // Reason: real-time X DM delivery became ambiguous even with a valid webhook
 //         and subscription, so operators need a platform-side replay tool to
-//         distinguish missed delivery from local parsing failures.
-// Goal: trigger an Account Activity replay job against the exact registered
-//       webhook without mutating webhook registration or user subscriptions.
-// Owns: operator-triggered X Account Activity replay requests.
+//         distinguish missed delivery from local parsing failures using the
+//         current webhooks replay endpoint.
+// Goal: trigger a webhook replay job against the exact registered webhook
+//       without mutating webhook registration or user subscriptions.
+// Owns: operator-triggered X webhook replay requests.
 // Does Not Own: webhook creation, subscription creation, or event ingestion.
 // Design Language:
 // - Reuse the registered callback URL to resolve the webhook id.
@@ -117,13 +118,16 @@ async function main() {
   }
 
   const { fromDate, toDate } = resolveWindow();
-  const replayUrl = new URL(`https://api.x.com/2/account_activity/replay/webhooks/${webhook.id}/subscriptions/all`);
-  replayUrl.searchParams.set('from_date', fromDate);
-  replayUrl.searchParams.set('to_date', toDate);
-
   const result = await xRequest<{ created_at: string; job_id: string }>(
-    replayUrl.toString(),
-    { method: 'POST' },
+    'https://api.x.com/2/webhooks/replay',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        webhook_id: webhook.id,
+        from_date: fromDate,
+        to_date: toDate,
+      }),
+    },
     { Authorization: `Bearer ${appBearerToken}` },
   );
 

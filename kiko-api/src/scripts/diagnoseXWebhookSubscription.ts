@@ -3,10 +3,10 @@
 // Author: Almurat
 // Reason: webhook subscription failures reached the point where operator guesses
 //         were wasting time; we need a direct server-side diagnosis path using
-//         the exact stored OAuth1 credentials and current app configuration.
-// Goal: identify whether failures come from OAuth1 identity, signature shape,
-//       webhook ownership, or subscription state without mutating data by default.
-// Owns: read-only diagnosis for X Account Activity webhook subscription setup.
+//         the exact stored bot credentials and current app configuration.
+// Goal: identify whether failures come from OAuth2 bot identity, webhook ownership,
+//       or current X Activity subscription state without mutating data by default.
+// Owns: read-only diagnosis for X Activity webhook subscription setup.
 // Does Not Own: creating OAuth credentials, webhook event ingestion, or chat logic.
 // Design Language:
 // - Diagnose with the exact stored credentials, not copied tokens.
@@ -16,13 +16,14 @@
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-10-x-oauth1-helper-flow.md
 // - system-journal/fix-log/2026-04-10-x-webhook-subscription-diagnostics.md
+// - system-journal/fix-log/2026-04-10-x-activity-api-migration.md
 // - system-journal/conflicts.md
-import crypto from 'node:crypto';
 import dotenv from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PrismaClient } from '@prisma/client';
 import { decrypt, isEncrypted } from '../utils/encryption.js';
+import { refreshXBotAccessToken } from '../services/x/xCredentialsService.js';
 
 interface XWebhookRecord {
   id: string;
@@ -52,62 +53,6 @@ function decodeStoredToken(value?: string | null): string | null {
   } catch {
     return isEncrypted(value) ? null : value;
   }
-}
-
-function percentEncode(value: string): string {
-  return encodeURIComponent(value)
-    .replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
-}
-
-function oauthNonce(): string {
-  return crypto.randomBytes(16).toString('hex');
-}
-
-function oauthTimestamp(): string {
-  return String(Math.floor(Date.now() / 1000));
-}
-
-function buildOAuth1Header(params: {
-  method: 'GET' | 'POST';
-  url: string;
-  consumerKey: string;
-  consumerSecret: string;
-  accessToken: string;
-  accessTokenSecret: string;
-}): string {
-  const parsedUrl = new URL(params.url);
-  const oauthParams: Record<string, string> = {
-    oauth_consumer_key: params.consumerKey,
-    oauth_nonce: oauthNonce(),
-    oauth_signature_method: 'HMAC-SHA1',
-    oauth_timestamp: oauthTimestamp(),
-    oauth_token: params.accessToken,
-    oauth_version: '1.0',
-  };
-
-  const signatureParams: Array<[string, string]> = [
-    ...Array.from(parsedUrl.searchParams.entries()),
-    ...Object.entries(oauthParams),
-  ];
-
-  const paramString = signatureParams
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => `${percentEncode(key)}=${percentEncode(value)}`)
-    .join('&');
-
-  const baseString = [
-    params.method.toUpperCase(),
-    percentEncode(`${parsedUrl.origin}${parsedUrl.pathname}`),
-    percentEncode(paramString),
-  ].join('&');
-
-  const signingKey = `${percentEncode(params.consumerSecret)}&${percentEncode(params.accessTokenSecret)}`;
-  oauthParams.oauth_signature = crypto.createHmac('sha1', signingKey).update(baseString).digest('base64');
-
-  return `OAuth ${Object.entries(oauthParams)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => `${percentEncode(key)}="${percentEncode(value)}"`)
-    .join(', ')}`;
 }
 
 async function readStoredCreds(databaseUrl: string) {
@@ -159,59 +104,31 @@ async function listWebhooks(appBearerToken: string): Promise<XWebhookRecord[]> {
 async function main() {
   const databaseUrl = requireEnv('DATABASE_URL');
   const appBearerToken = requireEnv('X_APP_BEARER_TOKEN');
-  const consumerKey = requireEnv('X_CONSUMER_KEY');
-  const consumerSecret = requireEnv('X_WEBHOOK_SECRET');
   const callbackUrl = normalizeUrl(process.env.X_WEBHOOK_CALLBACK_URL || 'https://api.kikoapp.app/api/webhook/x');
 
   const stored = await readStoredCreds(databaseUrl);
   const webhooks = await listWebhooks(appBearerToken);
   const webhook = webhooks.find((item) => normalizeUrl(item.url) === callbackUrl) || null;
-
-  const oauth1Token = String(stored.oauth1AccessToken || '').trim();
-  const oauth1Secret = String(stored.oauth1AccessTokenSecret || '').trim();
-  if (!oauth1Token || !oauth1Secret) {
-    throw new Error('Stored OAuth1 credentials are missing');
+  const botState = await refreshXBotAccessToken().catch(() => null);
+  const botAccessToken = String(botState?.accessToken || stored.accessToken || '').trim();
+  if (!botAccessToken) {
+    throw new Error('Stored OAuth2 bot credentials are missing');
   }
 
   const meUrl = 'https://api.x.com/2/users/me?user.fields=username';
   const me = await fetchJsonOrText(meUrl, {
     method: 'GET',
     headers: {
-      Authorization: buildOAuth1Header({
-        method: 'GET',
-        url: meUrl,
-        consumerKey,
-        consumerSecret,
-        accessToken: oauth1Token,
-        accessTokenSecret: oauth1Secret,
-      }),
+      Authorization: `Bearer ${botAccessToken}`,
     },
   });
 
-  const subscriptionCheck = webhook
-    ? await fetchJsonOrText(`https://api.x.com/2/account_activity/webhooks/${webhook.id}/subscriptions/all`, {
-        method: 'GET',
-        headers: {
-          Authorization: buildOAuth1Header({
-            method: 'GET',
-            url: `https://api.x.com/2/account_activity/webhooks/${webhook.id}/subscriptions/all`,
-            consumerKey,
-            consumerSecret,
-            accessToken: oauth1Token,
-            accessTokenSecret: oauth1Secret,
-          }),
-        },
-      })
-    : null;
-
-  const subscriptionList = webhook
-    ? await fetchJsonOrText(`https://api.x.com/2/account_activity/webhooks/${webhook.id}/subscriptions/all/list`, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${appBearerToken}`,
-        },
-      })
-    : null;
+  const activitySubscriptions = await fetchJsonOrText('https://api.x.com/2/activity/subscriptions', {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${botAccessToken}`,
+    },
+  });
 
   console.log(JSON.stringify({
     callbackUrl,
@@ -231,9 +148,8 @@ async function main() {
       oauth1AuthorizedAt: stored.oauth1AuthorizedAt,
       lastAuthorizedAt: stored.lastAuthorizedAt,
     },
-    oauth1UsersMe: me,
-    subscriptionCheck,
-    subscriptionList,
+    oauth2UsersMe: me,
+    activitySubscriptions,
   }, null, 2));
 }
 
