@@ -12,7 +12,7 @@
 // Does Not Own: webhook event parsing, OAuth callback storage, or runtime chat handling.
 // Design Language:
 // - Create-or-reuse by callback URL instead of spraying duplicate webhooks.
-// - Use app bearer for webhook management and bot OAuth2 bearer for private activity subscriptions.
+// - Use app bearer for webhook management and current X Activity subscription endpoints.
 // - Fail loudly with exact upstream response details; never silently partially configure.
 // - Ensure current documented event types, not legacy subscription-all endpoints.
 // See also:
@@ -27,7 +27,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PrismaClient } from '@prisma/client';
 import { decrypt, isEncrypted } from '../utils/encryption.js';
-import { refreshXBotAccessToken } from '../services/x/xCredentialsService.js';
 
 type Command = 'ensure' | 'list';
 const PRIVATE_EVENT_TYPES = ['dm.received', 'chat.received'] as const;
@@ -179,65 +178,73 @@ type ActivitySubscriptionRecord = {
   event_type: string;
   filter?: {
     user_id?: string | null;
-    webhook_id?: string | null;
-    tag?: string | null;
+    keyword?: string | null;
   } | null;
+  webhook_id?: string | null;
+  tag?: string | null;
 };
 
-async function listActivitySubscriptions(botAccessToken: string): Promise<ActivitySubscriptionRecord[]> {
+async function listActivitySubscriptions(appBearerToken: string): Promise<ActivitySubscriptionRecord[]> {
   const result = await xRequest<{ data?: ActivitySubscriptionRecord[] }>(
     'https://api.x.com/2/activity/subscriptions',
     { method: 'GET' },
-    { Authorization: `Bearer ${botAccessToken}` },
+    { Authorization: `Bearer ${appBearerToken}` },
   );
   return Array.isArray(result?.data) ? result.data : [];
 }
 
 async function createActivitySubscription(params: {
-  botAccessToken: string;
+  appBearerToken: string;
   webhookId: string;
   botUserId: string;
   eventType: string;
   tag: string;
 }): Promise<ActivitySubscriptionRecord> {
-  const result = await xRequest<{ data?: ActivitySubscriptionRecord }>(
+  const result = await xRequest<{ data?: any }>(
     'https://api.x.com/2/activity/subscriptions',
     {
       method: 'POST',
       body: JSON.stringify({
         event_type: params.eventType,
+        webhook_id: params.webhookId,
+        tag: params.tag,
         filter: {
           user_id: params.botUserId,
-          webhook_id: params.webhookId,
-          tag: params.tag,
         },
       }),
     },
-    { Authorization: `Bearer ${params.botAccessToken}` },
+    { Authorization: `Bearer ${params.appBearerToken}` },
   );
-  if (!result?.data?.id) {
+  const subscription = result?.data?.subscription || result?.data;
+  if (!subscription?.subscription_id && !subscription?.id) {
     throw new Error(`X Activity API did not return subscription id for ${params.eventType}`);
   }
-  return result.data;
+  return {
+    id: String(subscription.subscription_id || subscription.id),
+    event_type: String(subscription.event_type || params.eventType),
+    filter: subscription.filter || { user_id: params.botUserId },
+    webhook_id: String(subscription.webhook_id || params.webhookId),
+    tag: String(subscription.tag || params.tag),
+  };
 }
 
 async function ensureActivitySubscriptions(params: {
-  botAccessToken: string;
+  appBearerToken: string;
   webhookId: string;
   botUserId: string;
 }): Promise<ActivitySubscriptionRecord[]> {
-  const existing = await listActivitySubscriptions(params.botAccessToken);
+  const existing = await listActivitySubscriptions(params.appBearerToken);
   const ensured = [...existing];
 
   for (const eventType of PRIVATE_EVENT_TYPES) {
     const matched = ensured.find((item) =>
       item.event_type === eventType
       && String(item.filter?.user_id || '') === params.botUserId
-      && String(item.filter?.webhook_id || '') === params.webhookId,
+      && String(item.webhook_id || '') === params.webhookId,
     );
     if (matched) continue;
     ensured.push(await createActivitySubscription({
-      botAccessToken: params.botAccessToken,
+      appBearerToken: params.appBearerToken,
       webhookId: params.webhookId,
       botUserId: params.botUserId,
       eventType,
@@ -248,7 +255,7 @@ async function ensureActivitySubscriptions(params: {
   return ensured.filter((item) =>
     PRIVATE_EVENT_TYPES.includes(item.event_type as any)
     && String(item.filter?.user_id || '') === params.botUserId
-    && String(item.filter?.webhook_id || '') === params.webhookId,
+    && String(item.webhook_id || '') === params.webhookId,
   );
 }
 
@@ -285,10 +292,7 @@ async function main() {
   const matched = existing.find((item) => normalizeUrl(item.url) === callbackUrl) || null;
 
   if (command === 'list') {
-    const botState = await refreshXBotAccessToken().catch(() => null);
-    const activitySubscriptions = botState?.accessToken
-      ? await listActivitySubscriptions(botState.accessToken).catch(() => [])
-      : [];
+    const activitySubscriptions = await listActivitySubscriptions(appBearerToken).catch(() => []);
     console.log(JSON.stringify({
       callbackUrl,
       webhooks: existing,
@@ -300,15 +304,13 @@ async function main() {
     return;
   }
 
-  const botState = await refreshXBotAccessToken().catch(() => null);
-  const botAccessToken = String(botState?.accessToken || bot.accessToken || '').trim();
-  if (!botAccessToken || !bot.botUserId) {
-    throw new Error('Missing OAuth2 bot credentials. Complete /api/auth/x/start first.');
+  if (!bot.botUserId) {
+    throw new Error('Missing stored bot user id. Complete /api/auth/x/start first.');
   }
 
   const webhook = matched || await createWebhook(appBearerToken, callbackUrl);
   const activitySubscriptions = await ensureActivitySubscriptions({
-    botAccessToken,
+    appBearerToken,
     webhookId: webhook.id,
     botUserId: bot.botUserId,
   });

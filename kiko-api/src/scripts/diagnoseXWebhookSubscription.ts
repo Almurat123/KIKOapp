@@ -126,7 +126,7 @@ async function main() {
   const activitySubscriptions = await fetchJsonOrText('https://api.x.com/2/activity/subscriptions', {
     method: 'GET',
     headers: {
-      Authorization: `Bearer ${botAccessToken}`,
+      Authorization: `Bearer ${appBearerToken}`,
     },
   });
 
