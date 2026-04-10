@@ -21,11 +21,14 @@ export interface XMentionEvent {
 
 export interface XDirectMessageEvent {
   id: string;
-  text: string;
+  text?: string | null;
   senderId: string;
   senderUsername?: string | null;
   dmConversationId?: string | null;
   createdAt?: string | null;
+  sourceEventType?: string | null;
+  requiresLookup?: boolean;
+  lookupCreatedAtMs?: string | null;
 }
 
 export interface XSendResult {

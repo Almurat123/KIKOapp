@@ -5,7 +5,9 @@
 //         runtime, not assume a single static env-only credential, and must
 //         survive OAuth2 bearer expiry without operator re-authorization; stale
 //         credentials must now fail loudly instead of silently retrying with
-//         known-expired tokens.
+//         known-expired tokens. X Activity `chat.received` webhook events now
+//         require DM lookup to recover message text because the webhook payload
+//         may only contain encrypted event material.
 // Goal: keep all X API calls using the same credential source and filtering
 //       rules that the webhook and auth layers rely on.
 // Owns: authenticated X REST access for bot replies, DM sends, and lookup calls.
@@ -16,11 +18,14 @@
 // - Keep API URL construction and auth header formation centralized here.
 // - Retry once after OAuth2 refresh when X returns 401 for outbound bot calls.
 // - Never re-use a stale OAuth2 token after refresh failed or config is missing.
+// - Treat `chat.received` webhook payloads as notifications and use `/2/dm_events`
+//   as the source of truth for the latest readable message text.
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-10-x-oauth2-refresh-runtime.md
 // - system-journal/fix-log/2026-04-10-x-expired-bot-token-hard-fail.md
+// - system-journal/fix-log/2026-04-10-x-chat-lookup-main-path.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
 // - system-journal/conflicts.md
 import { env } from '../../config/env.js';
@@ -150,12 +155,12 @@ export class XApiClient {
       .filter(Boolean);
   }
 
-  async fetchDirectMessages(params: { sinceId?: string | null }): Promise<XDirectMessageEvent[]> {
+  async fetchDirectMessages(params: { sinceId?: string | null; maxResults?: number | null }): Promise<XDirectMessageEvent[]> {
     if (!this.isConfigured()) return [];
     const url = baseUrl(
       `/dm_events${toSearchParams([
         ['since_id', params.sinceId || undefined],
-        ['max_results', String(env.x.pollBatchSize || 20)],
+        ['max_results', String(params.maxResults || env.x.pollBatchSize || 20)],
         ['dm_event.fields', 'sender_id,created_at,dm_conversation_id,text'],
         ['expansions', 'sender_id'],
         ['user.fields', 'username'],
@@ -168,6 +173,49 @@ export class XApiClient {
     return (payload?.data || [])
       .map((item: any) => parseDirectMessage(item, usersById))
       .filter(Boolean);
+  }
+
+  async lookupDirectMessageText(params: {
+    senderId: string;
+    dmConversationId?: string | null;
+    createdAt?: string | null;
+    lookupCreatedAtMs?: string | null;
+    limit?: number;
+  }): Promise<string | null> {
+    const events = await this.fetchDirectMessages({
+      maxResults: Math.max(5, Math.min(50, Number(params.limit || 20))),
+    });
+    const targetCreatedAtMs = Number(params.lookupCreatedAtMs || '') || null;
+
+    const candidates = events.filter((event) => {
+      if (String(event.senderId) !== String(params.senderId)) return false;
+      if (params.dmConversationId && String(event.dmConversationId || '') !== String(params.dmConversationId)) {
+        return false;
+      }
+      return Boolean(String(event.text || '').trim());
+    });
+
+    const scored = candidates
+      .map((event) => {
+        const eventCreatedMs = event.createdAt ? Date.parse(event.createdAt) : NaN;
+        const distance = Number.isFinite(eventCreatedMs) && targetCreatedAtMs
+          ? Math.abs(eventCreatedMs - targetCreatedAtMs)
+          : Number.MAX_SAFE_INTEGER;
+        return { event, distance, eventCreatedMs };
+      })
+      .sort((a, b) => {
+        if (a.distance !== b.distance) return a.distance - b.distance;
+        if (Number.isFinite(a.eventCreatedMs) && Number.isFinite(b.eventCreatedMs)) {
+          return b.eventCreatedMs - a.eventCreatedMs;
+        }
+        try {
+          return Number(BigInt(b.event.id) - BigInt(a.event.id));
+        } catch {
+          return b.event.id.localeCompare(a.event.id);
+        }
+      });
+
+    return String(scored[0]?.event.text || '').trim() || null;
   }
 
   async replyToMention(params: { tweetId: string; text: string }): Promise<XSendResult> {

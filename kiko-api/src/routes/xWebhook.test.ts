@@ -155,5 +155,41 @@ test('extractModernActivityDirectMessageEvents keeps inbound X Activity dm/chat 
     senderUsername: null,
     dmConversationId: 'conv-1',
     createdAt: '2026-04-10T05:00:00.000Z',
+    sourceEventType: 'dm.received',
+    requiresLookup: false,
+    lookupCreatedAtMs: null,
+  });
+});
+
+test('extractModernActivityDirectMessageEvents marks encrypted chat payloads for lookup', () => {
+  const originalUserId = env.x.botUserId;
+  env.x.botUserId = '999';
+
+  const events = extractModernActivityDirectMessageEvents({
+    data: {
+      event_type: 'chat.received',
+      payload: {
+        id: 'msg-2',
+        sender_id: '111',
+        conversation_id: 'conv-2',
+        created_at_msec: '1775805781950',
+        encoded_event: 'ciphertext',
+      },
+    },
+  });
+
+  env.x.botUserId = originalUserId;
+
+  assert.equal(events.length, 1);
+  assert.deepEqual(events[0], {
+    id: 'msg-2',
+    text: null,
+    senderId: '111',
+    senderUsername: null,
+    dmConversationId: 'conv-2',
+    createdAt: null,
+    sourceEventType: 'chat.received',
+    requiresLookup: true,
+    lookupCreatedAtMs: '1775805781950',
   });
 });

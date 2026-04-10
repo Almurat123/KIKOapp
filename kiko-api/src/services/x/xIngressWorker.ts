@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-09
+// Updated: 2026-04-10
 // Author: Almurat
 // Reason: X ingress now owns the transition from webhook events into the shared
 //         chat/session pipeline and must keep mention/DM handling deterministic.
@@ -11,9 +11,12 @@
 // - Never process the same inbound event twice.
 // - Keep public replies short and move detail into DM when allowed.
 // - Use the shared conversation mapping as the source of truth.
+// - Treat `chat.received` as a notification envelope and resolve readable text
+//   through DM lookup before handing the message to the chat pipeline.
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
+// - system-journal/fix-log/2026-04-10-x-chat-lookup-main-path.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
 // - system-journal/conflicts.md
 import prisma from '../../db/prisma.js';
@@ -78,8 +81,10 @@ function normalizeDirectMessagePayload(payload: unknown): XDirectMessageEvent | 
   const item = payload as any;
   const id = String(item?.id || '').trim();
   const senderId = String(item?.senderId || item?.sender_id || '').trim();
-  const text = String(item?.text || '').trim();
-  if (!id || !senderId || !text) return null;
+  const text = item?.text == null ? null : String(item.text).trim();
+  const requiresLookup = Boolean(item?.requiresLookup);
+  if (!id || !senderId) return null;
+  if (!text && !requiresLookup) return null;
   return {
     id,
     text,
@@ -87,6 +92,9 @@ function normalizeDirectMessagePayload(payload: unknown): XDirectMessageEvent | 
     senderUsername: item?.senderUsername || item?.sender_username || null,
     dmConversationId: item?.dmConversationId || item?.dm_conversation_id || null,
     createdAt: item?.createdAt || item?.created_at || null,
+    sourceEventType: item?.sourceEventType || item?.source_event_type || null,
+    requiresLookup,
+    lookupCreatedAtMs: item?.lookupCreatedAtMs || item?.lookup_created_at_ms || null,
   };
 }
 
@@ -440,13 +448,18 @@ export class XIngressWorker {
   }
 
   private async handleDirectMessageBusiness(event: XDirectMessageEvent): Promise<void> {
-    const user = await getUserByXUserId(event.senderId);
+    const resolvedEvent = await this.resolveDirectMessageEventText(event);
+    if (!resolvedEvent?.text) {
+      throw new Error(`missing_dm_text:${event.id}`);
+    }
+
+    const user = await getUserByXUserId(resolvedEvent.senderId);
     if (!user?.privyDid) {
       await xReplyService.sendDirectMessage({
-        xUserId: event.senderId,
-        text: publicBindText(event.senderUsername),
-        sourceMessageId: event.id,
-        idempotencyKey: `x:dm:bind:${event.id}`,
+        xUserId: resolvedEvent.senderId,
+        text: publicBindText(resolvedEvent.senderUsername),
+        sourceMessageId: resolvedEvent.id,
+        idempotencyKey: `x:dm:bind:${resolvedEvent.id}`,
         incrementRoundTrip: false,
       });
       return;
@@ -457,10 +470,10 @@ export class XIngressWorker {
     if (!messageQuota.allowed || !runQuota.allowed) {
       await xReplyService.sendDirectMessage({
         userId: user.privyDid,
-        xUserId: event.senderId,
+        xUserId: resolvedEvent.senderId,
         text: 'Daily X usage limit reached. Continue in the KIKO app tomorrow or raise your plan limit.',
-        sourceMessageId: event.id,
-        idempotencyKey: `x:dm:quota:${event.id}`,
+        sourceMessageId: resolvedEvent.id,
+        idempotencyKey: `x:dm:quota:${resolvedEvent.id}`,
         incrementRoundTrip: false,
       });
       return;
@@ -468,27 +481,27 @@ export class XIngressWorker {
 
     const mapping = await findOrCreateXConversation({
       userId: user.privyDid,
-      xUserId: event.senderId,
-      xUsername: event.senderUsername || user.xUsername || null,
+      xUserId: resolvedEvent.senderId,
+      xUsername: resolvedEvent.senderUsername || user.xUsername || null,
       channel: 'dm',
-      xDmConversationId: event.dmConversationId || event.senderId,
+      xDmConversationId: resolvedEvent.dmConversationId || resolvedEvent.senderId,
     });
     await markXConversationInbound({
       mappingId: mapping.id,
-      eventId: event.id,
-      messageId: event.id,
-      username: event.senderUsername || user.xUsername || null,
+      eventId: resolvedEvent.id,
+      messageId: resolvedEvent.id,
+      username: resolvedEvent.senderUsername || user.xUsername || null,
     });
 
     const queued = await enqueueXAgentMessage({
       userId: user.privyDid,
       sessionId: mapping.chatSessionId,
-      content: event.text,
+      content: resolvedEvent.text,
       channel: 'dm',
-      xUserId: event.senderId,
-      xUsername: event.senderUsername || user.xUsername || null,
-      sourceMessageId: event.id,
-      xDmConversationId: event.dmConversationId || event.senderId,
+      xUserId: resolvedEvent.senderId,
+      xUsername: resolvedEvent.senderUsername || user.xUsername || null,
+      sourceMessageId: resolvedEvent.id,
+      xDmConversationId: resolvedEvent.dmConversationId || resolvedEvent.senderId,
     });
     const assistantText = queued.completedSynchronously
       ? queued.assistantContent
@@ -499,13 +512,43 @@ export class XIngressWorker {
 
     await xReplyService.sendDirectMessage({
       userId: user.privyDid,
-      xUserId: event.senderId,
+      xUserId: resolvedEvent.senderId,
       conversationMappingId: mapping.id,
       text: assistantText,
-      sourceMessageId: event.id,
-      idempotencyKey: `x:dm:reply:${event.id}`,
+      sourceMessageId: resolvedEvent.id,
+      idempotencyKey: `x:dm:reply:${resolvedEvent.id}`,
       incrementRoundTrip: true,
     });
+  }
+
+  private async resolveDirectMessageEventText(event: XDirectMessageEvent): Promise<XDirectMessageEvent> {
+    if (!event.requiresLookup) {
+      return event;
+    }
+
+    const text = await xApiClient.lookupDirectMessageText({
+      senderId: event.senderId,
+      dmConversationId: event.dmConversationId || null,
+      createdAt: event.createdAt || null,
+      lookupCreatedAtMs: event.lookupCreatedAtMs || null,
+      limit: 20,
+    });
+
+    if (!text) {
+      logger.warn(LogCode.API_NOTIFY_FAILED, '[X] chat lookup returned no readable text', {
+        eventId: event.id,
+        senderId: event.senderId,
+        dmConversationId: event.dmConversationId || null,
+        sourceEventType: event.sourceEventType || null,
+      });
+      return event;
+    }
+
+    return {
+      ...event,
+      text,
+      requiresLookup: false,
+    };
   }
 }
 

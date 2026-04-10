@@ -5,10 +5,11 @@
 //         replacing polling while keeping fast ACK and async processing. Test
 //         diagnostics now require a minimal raw-ingress audit trail so we can
 //         distinguish "X never delivered" from "we failed after receipt", and
-//         distinguish "X never delivered" from "we failed after receipt", and
 //         the route now needs to parse both legacy Account Activity payloads
 //         and the newer X Activity event envelope. Empty-but-delivered payloads
-//         now need extra structural audit so parser gaps can be fixed from logs.
+//         now need extra structural audit so parser gaps can be fixed from logs,
+//         and `chat.received` must now be forwarded as a lookup-required event
+//         instead of being dropped as unreadable.
 // Goal: verify inbound X events, filter bot-authored noise, and hand off clean
 //       events to the internal conversation pipeline.
 // Owns: X webhook CRC/signature handling and event extraction.
@@ -22,11 +23,14 @@
 //   until platform delivery behavior is fully stable.
 // - When delivery is empty, log payload structure, not body text, so parsing
 //   gaps can be debugged without leaking private message contents.
+// - Treat `chat.received` as a signal to perform DM lookup, not a source of
+//   readable message text.
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-10-x-webhook-ingress-audit.md
 // - system-journal/fix-log/2026-04-10-x-webhook-empty-payload-audit.md
+// - system-journal/fix-log/2026-04-10-x-chat-lookup-main-path.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
 // - system-journal/conflicts.md
 import crypto from 'node:crypto';
@@ -245,14 +249,17 @@ function parseModernActivityDirectMessage(item: any): XDirectMessageEvent | null
     || payload?.from?.username,
   );
 
-  if (!eventId || !senderId || !text) return null;
+  if (!eventId || !senderId) return null;
   if (botUserId && senderId === botUserId && eventType.endsWith('.sent')) return null;
   if (botUserId && senderId === botUserId) return null;
   if (botUserId && recipientId && recipientId !== botUserId && filterUserId !== botUserId) return null;
 
+  const requiresLookup = !text && eventType === 'chat.received';
+  if (!text && !requiresLookup) return null;
+
   return {
     id: eventId,
-    text,
+    text: text || null,
     senderId,
     senderUsername: username,
     dmConversationId: conversationId || recipientId || senderId || null,
@@ -262,6 +269,9 @@ function parseModernActivityDirectMessage(item: any): XDirectMessageEvent | null
       || item?.created_at
       || '',
     ).trim() || null,
+    sourceEventType: eventType,
+    requiresLookup,
+    lookupCreatedAtMs: String(payload?.created_at_msec || item?.created_at_msec || '').trim() || null,
   };
 }
 
