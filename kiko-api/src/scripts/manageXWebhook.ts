@@ -12,7 +12,8 @@
 // Does Not Own: webhook event parsing, OAuth callback storage, or runtime chat handling.
 // Design Language:
 // - Create-or-reuse by callback URL instead of spraying duplicate webhooks.
-// - Use app bearer for webhook management and current X Activity subscription endpoints.
+// - Use app bearer for webhook management and listing current X Activity subscriptions.
+// - Use bot OAuth2 user access token for creating private DM/chat subscriptions.
 // - Fail loudly with exact upstream response details; never silently partially configure.
 // - Ensure current documented event types, not legacy subscription-all endpoints.
 // See also:
@@ -27,6 +28,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PrismaClient } from '@prisma/client';
 import { decrypt, isEncrypted } from '../utils/encryption.js';
+import { refreshXBotAccessToken } from '../services/x/xCredentialsService.js';
 
 type Command = 'ensure' | 'list';
 const PRIVATE_EVENT_TYPES = ['dm.received', 'chat.received'] as const;
@@ -194,7 +196,7 @@ async function listActivitySubscriptions(appBearerToken: string): Promise<Activi
 }
 
 async function createActivitySubscription(params: {
-  appBearerToken: string;
+  botAccessToken: string;
   webhookId: string;
   botUserId: string;
   eventType: string;
@@ -213,7 +215,7 @@ async function createActivitySubscription(params: {
         },
       }),
     },
-    { Authorization: `Bearer ${params.appBearerToken}` },
+    { Authorization: `Bearer ${params.botAccessToken}` },
   );
   const subscription = result?.data?.subscription || result?.data;
   if (!subscription?.subscription_id && !subscription?.id) {
@@ -230,6 +232,7 @@ async function createActivitySubscription(params: {
 
 async function ensureActivitySubscriptions(params: {
   appBearerToken: string;
+  botAccessToken: string;
   webhookId: string;
   botUserId: string;
 }): Promise<ActivitySubscriptionRecord[]> {
@@ -244,7 +247,7 @@ async function ensureActivitySubscriptions(params: {
     );
     if (matched) continue;
     ensured.push(await createActivitySubscription({
-      appBearerToken: params.appBearerToken,
+      botAccessToken: params.botAccessToken,
       webhookId: params.webhookId,
       botUserId: params.botUserId,
       eventType,
@@ -288,6 +291,8 @@ async function main() {
   const appBearerToken = requireEnv('X_APP_BEARER_TOKEN');
   const databaseUrl = requireEnv('DATABASE_URL');
   const bot = await readBotCredential(databaseUrl);
+  const botState = await refreshXBotAccessToken().catch(() => null);
+  const botAccessToken = String(botState?.accessToken || bot.accessToken || '').trim();
   const existing = await listWebhooks(appBearerToken);
   const matched = existing.find((item) => normalizeUrl(item.url) === callbackUrl) || null;
 
@@ -307,10 +312,14 @@ async function main() {
   if (!bot.botUserId) {
     throw new Error('Missing stored bot user id. Complete /api/auth/x/start first.');
   }
+  if (!botAccessToken) {
+    throw new Error('Missing stored bot OAuth2 access token. Complete /api/auth/x/start first.');
+  }
 
   const webhook = matched || await createWebhook(appBearerToken, callbackUrl);
   const activitySubscriptions = await ensureActivitySubscriptions({
     appBearerToken,
+    botAccessToken,
     webhookId: webhook.id,
     botUserId: bot.botUserId,
   });
