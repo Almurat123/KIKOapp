@@ -14,6 +14,7 @@
 // - Use the shared conversation mapping as the source of truth.
 // - X DM/chat is an outbound notification channel, not an inbound chat surface.
 // - Ignore inbound DM payloads even if the webhook receives them unexpectedly.
+// - Mentions from non-verified X accounts must not trigger automated replies.
 // Document Provenance:
 // - Source: X Activity API docs + X Direct Messages lookup docs
 // - Kind: official API doc
@@ -26,6 +27,11 @@
 // - Retrieved: 2026-04-10
 // - Applied To: confirmed `chat.received` arrives but lookup returns no readable text
 // - Verification: verified in runtime
+// - Source: X users/mentions and user lookup docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-10
+// - Applied To: requiring `verified=true` before mention replies to control cost and spam
+// - Verification: partially verified
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
@@ -274,6 +280,15 @@ export class XIngressWorker {
   }
 
   private async handleMentionBusiness(mention: XMentionEvent): Promise<void> {
+    if (!mention.authorVerified) {
+      logger.info(LogCode.API_NOTIFY_FAILED, '[X] Mention skipped: author not verified', {
+        eventId: mention.id,
+        xUserId: mention.authorId,
+        username: mention.authorUsername || null,
+      });
+      return;
+    }
+
     const user = await getUserByXUserId(mention.authorId);
     if (!user?.privyDid) {
       await xReplyService.replyToMention({

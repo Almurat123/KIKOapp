@@ -7,7 +7,9 @@
 //         credentials must now fail loudly instead of silently retrying with
 //         known-expired tokens. The X channel is now outbound-only for DMs:
 //         KIKO may send direct messages, but it no longer attempts to read or
-//         reconstruct inbound XChat message text from webhook events.
+//         reconstruct inbound XChat message text from webhook events. Mention
+//         intake also needs author verification metadata so policy can ignore
+//         non-verified accounts before starting expensive agent work.
 // Goal: keep all X API calls using the same credential source and filtering
 //       rules that the webhook and auth layers rely on.
 // Owns: authenticated X REST access for bot replies and outbound DM sends.
@@ -20,6 +22,8 @@
 // - Never re-use a stale OAuth2 token after refresh failed or config is missing.
 // - Treat inbound X DM/chat content as unsupported product surface until X
 //   exposes a documented readable path for XChat payloads.
+// - Always request enough mention author metadata to enforce reply policy in
+//   the worker layer.
 // Document Provenance:
 // - Source: X Direct Messages API docs (Send DM / lookup docs)
 // - Kind: official API doc
@@ -82,6 +86,7 @@ function parseMention(item: any, usersById: Map<string, any>): XMentionEvent | n
     text,
     authorId,
     authorUsername: user?.username || null,
+    authorVerified: Boolean(user?.verified),
     conversationId: item?.conversation_id ? String(item.conversation_id) : null,
     createdAt: item?.created_at ? String(item.created_at) : null,
   };
@@ -128,7 +133,7 @@ export class XApiClient {
         ['max_results', String(env.x.pollBatchSize || 20)],
         ['tweet.fields', 'author_id,conversation_id,created_at'],
         ['expansions', 'author_id'],
-        ['user.fields', 'username'],
+        ['user.fields', 'username,verified'],
       ])}`,
     );
     const payload = await requestJson<any>(url, (accessToken) => ({

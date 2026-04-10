@@ -2,30 +2,45 @@
 // Updated: 2026-04-10
 // Author: Almurat
 // Reason: the X webhook receiver was already implemented, but operator setup on
-//         the X platform remained manual and error-prone, and subscription setup
-//         must now follow the latest X Activity API docs rather than relying on
-//         the legacy account_activity subscription path. Product direction then
-//         changed: X DMs are outbound-only, so this script must remove DM/chat
-//         subscriptions instead of recreating them.
+//         the X platform remained manual and error-prone. Product direction then
+//         changed twice: first, X DMs became outbound-only and DM/chat activity
+//         subscriptions had to be removed; second, public mention/reply ingress
+//         still needed the legacy account_activity user subscription because the
+//         current runtime parser consumes `tweet_create_events` from that path.
 // Goal: provide one repeatable operator script that can create or reuse the
-//       webhook, then keep the app free of inbound DM/chat activity subscriptions.
-// Owns: X webhook registration, lookup, and X Activity subscription cleanup.
+//       webhook, remove unwanted DM/chat activity subscriptions, and ensure the
+//       legacy mention/reply webhook subscription still exists for the bot user.
+// Owns: X webhook registration, lookup, X Activity subscription cleanup, and
+//       legacy account_activity mention subscription setup.
 // Does Not Own: webhook event parsing, OAuth callback storage, or runtime chat handling.
 // Design Language:
 // - Create-or-reuse by callback URL instead of spraying duplicate webhooks.
 // - Use app bearer for webhook management and X Activity subscription cleanup.
+// - Use stored OAuth1 user credentials only for legacy account_activity user subscription.
 // - Treat inbound DM/chat subscriptions as unwanted operator drift.
+// - Keep mention/reply webhook ingress alive until runtime stops depending on
+//   `tweet_create_events`.
 // - Fail loudly with exact upstream response details; never silently partially configure.
-// - Keep the webhook alive for outbound DM support, but do not subscribe to DM/chat.
+// - Keep the webhook alive for mention ingress and outbound DM support, but do
+//   not subscribe to DM/chat.
+// Document Provenance:
+// - Source: X Account Activity API docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-10
+// - Applied To: restoring `/2/account_activity/webhooks/:webhook_id/subscriptions/all`
+//   for mention/reply webhook ingress while keeping DM/chat activity subscriptions disabled
+// - Verification: partially verified
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-09-x-webhook-operator-script.md
 // - system-journal/fix-log/2026-04-10-x-dm-outbound-only.md
+// - system-journal/fix-log/2026-04-10-x-mention-webhook-subscription-restored.md
 // - system-journal/conflicts.md
 import dotenv from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import { decrypt, isEncrypted } from '../utils/encryption.js';
 
@@ -150,6 +165,64 @@ function safeJsonParse(text: string): any {
   }
 }
 
+function percentEncode(value: string): string {
+  return encodeURIComponent(value)
+    .replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+function oauth1Nonce(): string {
+  return crypto.randomBytes(16).toString('hex');
+}
+
+function oauth1Timestamp(): string {
+  return String(Math.floor(Date.now() / 1000));
+}
+
+function buildOAuth1Header(params: {
+  method: 'GET' | 'POST' | 'DELETE';
+  url: string;
+  consumerKey: string;
+  consumerSecret: string;
+  token: string;
+  tokenSecret: string;
+  extraOauthParams?: Record<string, string>;
+}): string {
+  const parsedUrl = new URL(params.url);
+  const oauthParams: Record<string, string> = {
+    oauth_consumer_key: params.consumerKey,
+    oauth_nonce: oauth1Nonce(),
+    oauth_signature_method: 'HMAC-SHA1',
+    oauth_timestamp: oauth1Timestamp(),
+    oauth_token: params.token,
+    oauth_version: '1.0',
+    ...(params.extraOauthParams || {}),
+  };
+
+  const signatureParams: Array<[string, string]> = [
+    ...Array.from(parsedUrl.searchParams.entries()),
+    ...Object.entries(oauthParams),
+  ];
+
+  const paramString = signatureParams
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${percentEncode(key)}=${percentEncode(value)}`)
+    .join('&');
+
+  const baseString = [
+    params.method.toUpperCase(),
+    percentEncode(`${parsedUrl.origin}${parsedUrl.pathname}`),
+    percentEncode(paramString),
+  ].join('&');
+
+  const signingKey = `${percentEncode(params.consumerSecret)}&${percentEncode(params.tokenSecret)}`;
+  oauthParams.oauth_signature = crypto.createHmac('sha1', signingKey).update(baseString).digest('base64');
+
+  return `OAuth ${Object.entries(oauthParams)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${percentEncode(key)}="${percentEncode(value)}"`)
+    .join(', ')}`;
+}
+
 async function listWebhooks(appBearerToken: string): Promise<XWebhookRecord[]> {
   const result = await xRequest<{ data?: XWebhookRecord[] }>(
     'https://api.x.com/2/webhooks',
@@ -234,6 +307,70 @@ async function ensureActivitySubscriptions(params: {
   );
 }
 
+async function createLegacyWebhookSubscription(params: {
+  webhookId: string;
+  consumerKey: string;
+  consumerSecret: string;
+  accessToken: string;
+  accessTokenSecret: string;
+}): Promise<void> {
+  const url = `https://api.x.com/2/account_activity/webhooks/${params.webhookId}/subscriptions/all`;
+  await xRequest(
+    url,
+    { method: 'POST' },
+    {
+      Authorization: buildOAuth1Header({
+        method: 'POST',
+        url,
+        consumerKey: params.consumerKey,
+        consumerSecret: params.consumerSecret,
+        token: params.accessToken,
+        tokenSecret: params.accessTokenSecret,
+      }),
+    },
+  );
+}
+
+async function getLegacyWebhookSubscription(params: {
+  webhookId: string;
+  appBearerToken: string;
+}) {
+  return fetch(`https://api.x.com/2/account_activity/webhooks/${params.webhookId}/subscriptions/all`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${params.appBearerToken}`,
+    },
+  }).then(async (response) => {
+    const text = await response.text().catch(() => '');
+    const body = text ? safeJsonParse(text) : null;
+    return {
+      status: response.status,
+      ok: response.ok,
+      body,
+    };
+  });
+}
+
+async function listLegacyWebhookSubscriptions(params: {
+  webhookId: string;
+  appBearerToken: string;
+}) {
+  return fetch(`https://api.x.com/2/account_activity/webhooks/${params.webhookId}/subscriptions/all/list`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${params.appBearerToken}`,
+    },
+  }).then(async (response) => {
+    const text = await response.text().catch(() => '');
+    const body = text ? safeJsonParse(text) : null;
+    return {
+      status: response.status,
+      ok: response.ok,
+      body,
+    };
+  });
+}
+
 function summarizeWebhook(webhook: XWebhookRecord | null, subscriptions: ActivitySubscriptionRecord[], bot: XBotCredentialRecord, callbackUrl: string) {
   return {
     callbackUrl,
@@ -247,6 +384,7 @@ function summarizeWebhook(webhook: XWebhookRecord | null, subscriptions: Activit
       webhookId: item.webhook_id || null,
       tag: item.tag || null,
     })),
+    legacyMentionSubscription: null,
     botUserId: bot.botUserId,
     botUsername: bot.botUsername,
     tokenType: bot.tokenType,
@@ -274,6 +412,9 @@ async function main() {
 
   if (command === 'list') {
     const activitySubscriptions = await listActivitySubscriptions(appBearerToken).catch(() => []);
+    const legacySubscriptions = matched
+      ? await listLegacyWebhookSubscriptions({ webhookId: matched.id, appBearerToken }).catch(() => null)
+      : null;
     console.log(JSON.stringify({
       callbackUrl,
       webhooks: existing,
@@ -281,12 +422,16 @@ async function main() {
       botUserId: bot.botUserId,
       botUsername: bot.botUsername,
       activitySubscriptions,
+      legacySubscriptions,
     }, null, 2));
     return;
   }
 
   if (!bot.botUserId) {
     throw new Error('Missing stored bot user id. Complete /api/auth/x/start first.');
+  }
+  if (!bot.oauth1AccessToken || !bot.oauth1AccessTokenSecret) {
+    throw new Error('Missing stored OAuth1 bot credentials. Complete /api/auth/x/oauth1/start first.');
   }
 
   const webhook = matched || await createWebhook(appBearerToken, callbackUrl);
@@ -295,9 +440,23 @@ async function main() {
     webhookId: webhook.id,
     botUserId: bot.botUserId,
   });
+  await createLegacyWebhookSubscription({
+    webhookId: webhook.id,
+    consumerKey: requireEnv('X_CONSUMER_KEY'),
+    consumerSecret: requireEnv('X_WEBHOOK_SECRET'),
+    accessToken: bot.oauth1AccessToken,
+    accessTokenSecret: bot.oauth1AccessTokenSecret,
+  });
+  const legacyMentionSubscription = await getLegacyWebhookSubscription({
+    webhookId: webhook.id,
+    appBearerToken,
+  });
 
   console.log(JSON.stringify(
-    summarizeWebhook(webhook, activitySubscriptions, bot, callbackUrl),
+    {
+      ...summarizeWebhook(webhook, activitySubscriptions, bot, callbackUrl),
+      legacyMentionSubscription,
+    },
     null,
     2,
   ));

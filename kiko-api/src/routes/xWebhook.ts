@@ -21,12 +21,20 @@
 // - When delivery is empty, log payload structure, not body text, so parsing
 //   gaps can be debugged without leaking private message contents.
 // - Ignore inbound DM/chat events at the product layer; X DMs are outbound-only.
+// - Preserve mention author verification metadata so worker policy can reject
+//   non-verified accounts without extra lookup.
 // Document Provenance:
 // - Source: X Activity API docs + production lookup probes
 // - Kind: official API doc | runtime observation
 // - Retrieved: 2026-04-10
 // - Applied To: disabling DM/chat webhook handling while preserving mention ingress
 // - Verification: verified in runtime
+// - Source: X users/mentions and user lookup docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-10
+// - Applied To: carrying `verified` into mention events so only verified accounts
+//   can receive automated mention replies
+// - Verification: partially verified
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
@@ -157,6 +165,7 @@ export function extractMentionEvents(payload: XActivityPayload): XMentionEvent[]
         text,
         authorId,
         authorUsername: toUsername(user?.username || user?.screen_name),
+        authorVerified: Boolean(user?.verified),
         conversationId: toId(item?.conversation_id || item?.conversation_id_str || item?.in_reply_to_status_id || item?.in_reply_to_status_id_str) || null,
         createdAt: String(item?.created_at || item?.created_timestamp || '').trim() || null,
       };
