@@ -5,8 +5,10 @@
 //         replacing polling while keeping fast ACK and async processing. Test
 //         diagnostics now require a minimal raw-ingress audit trail so we can
 //         distinguish "X never delivered" from "we failed after receipt", and
+//         distinguish "X never delivered" from "we failed after receipt", and
 //         the route now needs to parse both legacy Account Activity payloads
-//         and the newer X Activity event envelope.
+//         and the newer X Activity event envelope. Empty-but-delivered payloads
+//         now need extra structural audit so parser gaps can be fixed from logs.
 // Goal: verify inbound X events, filter bot-authored noise, and hand off clean
 //       events to the internal conversation pipeline.
 // Owns: X webhook CRC/signature handling and event extraction.
@@ -18,10 +20,13 @@
 // - Log raw ingress metadata without logging sensitive DM/tweet body text.
 // - Prefer current X Activity event envelopes, but keep legacy payload support
 //   until platform delivery behavior is fully stable.
+// - When delivery is empty, log payload structure, not body text, so parsing
+//   gaps can be debugged without leaking private message contents.
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-10-x-webhook-ingress-audit.md
+// - system-journal/fix-log/2026-04-10-x-webhook-empty-payload-audit.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
 // - system-journal/conflicts.md
 import crypto from 'node:crypto';
@@ -60,6 +65,24 @@ function sampleIds<T>(items: T[], select: (item: T) => string | null | undefined
     .map((item) => String(select(item) || '').trim())
     .filter(Boolean)
     .slice(0, 5);
+}
+
+function sampleObjectKeys(value: any): string[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+  return Object.keys(value).slice(0, 12);
+}
+
+function sampleActivityEventTypes(payload: XActivityPayload): string[] {
+  const items = extractModernActivityItems(payload);
+  return items
+    .map((item) => String(item?.event_type || '').trim())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function sampleModernPayloadKeys(payload: XActivityPayload): string[] {
+  const first = extractModernActivityItems(payload)[0];
+  return sampleObjectKeys(first?.payload || first?.data || null);
 }
 
 function buildUsersById(users: XActivityPayload['users']): Map<string, any> {
@@ -307,6 +330,20 @@ export async function xWebhookRoutes(fastify: FastifyInstance) {
       mentionAuthorIds: sampleIds(mentions, (item) => item.authorId),
       dmSenderIds: sampleIds(directMessages, (item) => item.senderId),
     });
+
+    if (mentions.length === 0 && directMessages.length === 0) {
+      logger.info(LogCode.SYS_INFO, '[X] webhook ingress empty payload', {
+        forUserId: toId(payload.for_user_id),
+        topLevelKeys: sampleObjectKeys(payload),
+        legacyMentionEventCount: Array.isArray(payload?.tweet_create_events) ? payload.tweet_create_events.length : 0,
+        legacyDmEventCount: Array.isArray(payload?.direct_message_events) ? payload.direct_message_events.length : 0,
+        activityDataType: Array.isArray(payload?.data) ? 'array' : (payload?.data && typeof payload.data === 'object' ? 'object' : typeof payload?.data),
+        activityItemCount: extractModernActivityItems(payload).length,
+        activityEventTypes: sampleActivityEventTypes(payload),
+        firstActivityPayloadKeys: sampleModernPayloadKeys(payload),
+        rawBodyBytes: Buffer.byteLength(rawBody, 'utf8'),
+      });
+    }
 
     const accepted = await Promise.all([
       ...mentions.map((mention) => xIngressWorker.enqueueMention(mention)),
