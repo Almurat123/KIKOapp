@@ -1,8 +1,36 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-10
+// Author: Almurat
+// Reason: X trade/copytrade notifications were removed from the publish path after
+//         product review concluded X DM is too expensive for high-frequency trading alerts.
+// Goal: keep copytrade notifications limited to lower-cost channels and prevent
+//       accidental reintroduction of X notification fanout.
+// Owns: channel fanout policy for copytrade notification publishing.
+// Does Not Own: Farcaster notification formatting, X mention interaction, or generic X DM sending.
+// Design Language:
+// - Do not fan out copytrade notifications to X.
+// - Keep X mention interaction separate from high-frequency notification delivery.
+// - Prefer explicit channel lists over implicit "send everywhere" patterns.
+// Document Provenance:
+// - Source: repo cost-path review of X notification publishing
+// - Kind: repo code
+// - Retrieved: 2026-04-10
+// - Applied To: removing X notification fanout from copytrade publish path
+// - Verification: verified in code
+// - Source: runtime/product cost review
+// - Kind: runtime observation
+// - Retrieved: 2026-04-10
+// - Applied To: disabling X as a high-frequency trade notification channel
+// - Verification: partially verified
+// See also:
+// - system-journal/INDEX.md
+// - system-journal/fix-log/2026-04-10-x-trade-notifications-disabled.md
+// - system-journal/fix-log/2026-04-10-x-dm-outbound-only.md
+// - system-journal/conflicts.md
 import prisma from '../../../db/prisma.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { logger } from '../../../utils/logger.js';
 import { notificationService } from '../../notifications/farcaster/index.js';
-import { xNotificationService } from '../../notifications/x/index.js';
 import type { TradeNotificationData, TradeNotificationType } from '../../notifications/farcaster/types.js';
 import { getTokenInfo } from '../../tokenService.js';
 import type { CopytradeNotificationEvent } from '../contracts/notifications.js';
@@ -73,19 +101,12 @@ export async function publishCopytradeRawNotification(params: {
 }): Promise<void> {
   if (!params.userId) return;
   if (shouldSkipByDedupeKey(params.dedupeKey)) return;
-  await Promise.allSettled([
-    notificationService.sendNotification({
-      userId: params.userId,
-      farcasterFid: params.farcasterFid,
-      type: params.type,
-      data: params.data,
-    }),
-    xNotificationService.sendNotification({
-      userId: params.userId,
-      type: params.type,
-      data: params.data,
-    }),
-  ]);
+  await notificationService.sendNotification({
+    userId: params.userId,
+    farcasterFid: params.farcasterFid,
+    type: params.type,
+    data: params.data,
+  });
 }
 
 export function resolveUserNotificationPayload(params: {
