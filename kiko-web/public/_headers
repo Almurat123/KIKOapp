@@ -7,5 +7,20 @@
 /manifest.json
   Cache-Control: public, max-age=0, must-revalidate
 
+/.well-known/farcaster.json
+  Cache-Control: public, max-age=0, must-revalidate
+
+/farcaster-miniapp-card.png
+  Cache-Control: public, max-age=31536000, immutable
+
+/farcaster-og-card.png
+  Cache-Control: public, max-age=31536000, immutable
+
+/farcaster-icon.png
+  Cache-Control: public, max-age=31536000, immutable
+
+/farcaster-splash.png
+  Cache-Control: public, max-age=31536000, immutable
+
 /assets/*
   Cache-Control: public, max-age=31536000, immutable

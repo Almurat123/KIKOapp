@@ -15,6 +15,32 @@ import { agentAttrs } from '../../agent/attrs';
 import styles from './Sidebar.module.css';
 import type { Conversation } from '../../hooks/useConversations';
 
+// CONTEXT MEMORY
+// Updated: 2026-04-10
+// Author: Rowan
+// Reason: Sidebar usage-summary reads were firing even when the mobile sidebar
+//         was hidden, and passive page-focus listeners kept adding authenticated
+//         reads during ordinary navigation.
+// Goal: limit billing-summary reads to moments when the sidebar is actually
+//       visible or when an explicit refresh is requested.
+// Owns: Sidebar-driven usage-summary refresh timing and visibility gating.
+// Does Not Own: Billing quota computation, token balance mutations, or auth state.
+// Design Language:
+// - hidden mobile sidebar state must not trigger authenticated read traffic
+// - passive focus/visibility changes should not refetch quota by default
+// - forbidden local patch patterns: unconditional usage-summary fetches on every page activation
+// Document Provenance:
+// - Source: Production console traces showing `/api/billing/usage-summary` 429s while entering the token page
+// - Kind: runtime observation
+// - Retrieved: 2026-04-10
+// - Applied To: gate sidebar quota reads by actual sidebar visibility
+// - Verification: partially verified
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
+// - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-token-page-stray-read-rate-limit.md
+
 interface SidebarProps {
   // activeTab and onTabChange removed - utilizing router
   isOpen: boolean;
@@ -70,8 +96,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     tokenBalance: number;
     usesTotalLimitOnly: boolean;
   } | null>(null);
+  const isSidebarVisible = isMobile ? isOpen : isDesktopOpen;
 
   const fetchUsageSummary = React.useCallback(async () => {
+    if (!isSidebarVisible) {
+      return;
+    }
     if (!authenticated || !ready) {
       setUsageSummary(null);
       return;
@@ -87,11 +117,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     } catch {
       setUsageSummary(null);
     }
-  }, [authenticated, ready, getAccessToken]);
+  }, [authenticated, ready, getAccessToken, isSidebarVisible]);
 
   useEffect(() => {
+    if (!isSidebarVisible) return;
     fetchUsageSummary();
-  }, [fetchUsageSummary]);
+  }, [fetchUsageSummary, isSidebarVisible]);
 
   useEffect(() => {
     const handler = () => {
@@ -99,21 +130,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     };
     window.addEventListener('kiko-usage-refresh', handler as EventListener);
     return () => window.removeEventListener('kiko-usage-refresh', handler as EventListener);
-  }, [fetchUsageSummary]);
-
-  useEffect(() => {
-    const handleVisibilityOrFocus = () => {
-      if (document.hidden) return;
-      fetchUsageSummary();
-    };
-
-    window.addEventListener('focus', handleVisibilityOrFocus);
-    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
-
-    return () => {
-      window.removeEventListener('focus', handleVisibilityOrFocus);
-      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
-    };
   }, [fetchUsageSummary]);
 
   useEffect(() => {

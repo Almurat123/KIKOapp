@@ -6,7 +6,6 @@ import {
 } from 'lucide-react';
 import styles from './WelcomeScreen.module.css';
 import { useThemeContext } from '../../contexts/ThemeContext';
-import { CustomAISettingsModal } from './CustomAISettingsModal';
 import { useSmartSuggestions } from './useSmartSuggestions.tsx';
 import { ChatInputSuggestions } from './ChatInputSuggestions';
 import { logger } from '../../utils/logger';
@@ -16,6 +15,35 @@ import { LiquidGlassEffect } from '../Effects/LiquidGlassEffect';
 import { StardustBackground } from '../Effects/StardustBackground';
 import { agentAttrs } from '../../agent/attrs';
 import { MODEL_OPTIONS, findChatModelOption, getDefaultChatModelOption } from './chatConstants';
+
+const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsModal').then((m) => ({ default: m.CustomAISettingsModal })));
+
+// CONTEXT MEMORY
+// Updated: 2026-04-10
+// Author: Rowan
+// Reason: The welcome screen is the lightweight first-paint owner for the
+//         homepage, so its optional settings surface must not pin the heavier
+//         modal runtime into the default bundle.
+// Goal: preserve a responsive welcome shell that can collect the first prompt
+//       immediately while deferring optional settings UI until the user opens it.
+// Owns: welcome-screen prompt collection, model selection persistence, and the
+//       local settings-modal entry point for the welcome shell.
+// Does Not Own: full chat runtime boot, conversation creation, or chat message rendering.
+// Design Language:
+// - welcome-shell controls should stay lightweight and immediately interactive
+// - optional modal surfaces must load on demand
+// - forbidden local patch patterns: static imports of optional settings UI in the welcome shell
+// Document Provenance:
+// - Source: Vite production build output warning about static import preventing chunk split
+// - Kind: build evidence
+// - Retrieved: 2026-04-10
+// - Applied To: defer the welcome-screen settings modal behind a lazy boundary
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
+// - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-homepage-welcome-shell-split.md
 
 interface WelcomeScreenProps {
   onSuggestionClick: (text: string) => void;
@@ -356,10 +384,14 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
         </div>
       </div>
 
-      <CustomAISettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-      />
+      {isSettingsOpen && (
+        <React.Suspense fallback={null}>
+          <LazyCustomAISettingsModal
+            isOpen={isSettingsOpen}
+            onClose={() => setIsSettingsOpen(false)}
+          />
+        </React.Suspense>
+      )}
     </div >
   );
 };

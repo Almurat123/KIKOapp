@@ -1,6 +1,38 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { resolveCoreApiBase } from '../utils/coreApiBase';
+import { useMiniAppContext } from './MiniAppContext';
+
+// CONTEXT MEMORY
+// Updated: 2026-04-10
+// Author: Rowan
+// Reason: Farcaster identity now needs to work in two launch modes: Privy
+//         logged-in users and Mini App sessions that only expose client context.
+// Goal: preserve one social identity surface that can fall back to the Mini App
+//       user context when Privy has not established a session yet.
+// Owns: Farcaster identity lookup, profile sync, and follow-status hydration.
+// Does Not Own: Privy session issuance, Mini App host detection, or wallet
+//               transaction authorization.
+// Design Language:
+// - Prefer Privy-backed identity when it exists.
+// - Fall back to Mini App context for read-only identity in Farcaster clients.
+// - Keep backend sync gated behind an actual access token.
+// Document Provenance:
+// - Source: Farcaster Mini Apps context guide
+// - Kind: official API doc
+// - Retrieved: 2026-04-10
+// - Applied To: use `sdk.context.user` as a read-only identity fallback
+// - Verification: verified in docs
+// - Source: Installed `@farcaster/miniapp-sdk` package source
+// - Kind: repo doc
+// - Retrieved: 2026-04-10
+// - Applied To: confirm Mini App context is a promise and can be consumed by a provider
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/farcaster-miniapp-shell.md
+// - /Users/almurat/KiKo/system-journal/owner-map/farcaster-miniapp-support.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-miniapp-support.md
 
 type FollowStatus = 'following' | 'not_following' | 'unknown';
 
@@ -42,8 +74,16 @@ function getPrivyFarcasterAccount(user: any): { fid: number | null; username: st
     };
 }
 
+function getMiniAppFarcasterAccount(context: ReturnType<typeof useMiniAppContext>['context']): { fid: number | null; username: string | null } {
+    return {
+        fid: context?.user?.fid ?? null,
+        username: context?.user?.username ?? null,
+    };
+}
+
 export const FarcasterProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { user, authenticated, ready, getAccessToken } = usePrivy();
+    const miniAppContext = useMiniAppContext();
     const [state, setState] = useState<Omit<FarcasterContextValue, 'refresh'>>({
         fid: null,
         username: null,
@@ -67,15 +107,39 @@ export const FarcasterProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         });
     }, []);
 
+    const resolveReadOnlyMiniAppState = useCallback((): { fid: number | null; username: string | null } => {
+        const miniAppAccount = getMiniAppFarcasterAccount(miniAppContext.context);
+        if (!miniAppAccount.fid) {
+            return { fid: null, username: null };
+        }
+
+        setState((prev) => ({
+            ...prev,
+            fid: miniAppAccount.fid,
+            username: miniAppAccount.username,
+            profileUrl: miniAppAccount.username ? `https://warpcast.com/${String(miniAppAccount.username).replace(/^@/, '')}` : null,
+            followsKiko: null,
+            followStatus: 'unknown',
+            checkedAt: null,
+            loading: false,
+        }));
+
+        return miniAppAccount;
+    }, [miniAppContext.context]);
+
     const syncProfile = useCallback(async (): Promise<{ fid: number | null; username: string | null }> => {
-        if (!ready || !authenticated || !user) {
+        if (!ready) {
             resetState();
             return { fid: null, username: null };
         }
+
+        if (!authenticated || !user) {
+            return resolveReadOnlyMiniAppState();
+        }
+
         const { fid, username } = getPrivyFarcasterAccount(user);
         if (!fid) {
-            resetState();
-            return { fid: null, username: null };
+            return resolveReadOnlyMiniAppState();
         }
 
         setState((prev) => ({
@@ -109,22 +173,13 @@ export const FarcasterProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const refresh = useCallback(async (options?: { force?: boolean }) => {
         if (!ready) return;
         if (!authenticated || !user) {
-            resetState();
+            resolveReadOnlyMiniAppState();
             return;
         }
 
         const privyAccount = await syncProfile().catch(() => getPrivyFarcasterAccount(user));
         if (!privyAccount.fid) {
-            setState((prev) => ({
-                ...prev,
-                fid: null,
-                username: null,
-                profileUrl: null,
-                followsKiko: null,
-                followStatus: 'unknown',
-                checkedAt: null,
-                loading: false,
-            }));
+            resolveReadOnlyMiniAppState();
             return;
         }
 
@@ -166,7 +221,7 @@ export const FarcasterProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 loading: false,
             });
         }
-    }, [authenticated, getAccessToken, ready, resetState, syncProfile, user]);
+    }, [authenticated, getAccessToken, ready, resolveReadOnlyMiniAppState, resetState, syncProfile, user]);
 
     useEffect(() => {
         syncProfile().catch(() => undefined);

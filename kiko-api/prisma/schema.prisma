@@ -56,6 +56,9 @@ model User {
   billingUsage        BillingUsageLedger[]
   dailyBilling        DailyBilling[]
   copytradeOrdersV2   CopytradeOrder[]
+  farcasterConversationMappings FarcasterConversationMapping[]
+  farcasterEventLogs  FarcasterEventLog[]
+  farcasterMessageDeliveries FarcasterMessageDelivery[]
   xConversationMappings XConversationMapping[]
   xEventLogs          XEventLog[]
   xMessageDeliveries  XMessageDelivery[]
@@ -662,10 +665,124 @@ model ChatSession {
   conversationStateVersion Int           @default(1)
   tasks                    AITask[]
   messages                 ChatMessage[]
+  farcasterConversationMappings FarcasterConversationMapping[]
   xConversationMappings    XConversationMapping[]
   user                     User          @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@index([userId])
+}
+
+// CONTEXT MEMORY
+// Updated: 2026-04-10
+// Author: Linh Tran
+// Reason: Farcaster agent ingress now needs its own durable conversation/event
+//         ownership instead of overloading X-specific tables. Mention polling,
+//         public cast replies, and idempotent delivery all need storage with
+//         Farcaster-native identifiers.
+// Goal: preserve a clean boundary between Farcaster mention automation and the
+//       existing X ingress pipeline while keeping shared chat sessions reusable.
+// Owns: persistence shape for Farcaster conversation mappings, inbound event
+//       logs, and outbound delivery records tied to chat sessions.
+// Does Not Own: webhook/polling implementation details, AI prompt policy, or
+//               Farcaster account provisioning.
+// Design Language:
+// - Keep Farcaster agent persistence separate from X persistence.
+// - Use cast hashes and FIDs as canonical external identifiers.
+// - Preserve idempotency and recovery metadata for every inbound and outbound event.
+// - Reuse ChatSession as the shared execution substrate instead of inventing a second chat store.
+// Document Provenance:
+// - Source: Neynar Notifications API docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-10
+// - Applied To: storing notification-derived inbound events keyed by cast hash/FID
+// - Verification: inferred
+// - Source: Neynar Post a cast API docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-10
+// - Applied To: storing outbound reply idempotency and provider cast hash metadata
+// - Verification: inferred
+// See also:
+// - system-journal/INDEX.md
+// - system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
+// - system-journal/conflicts.md
+
+model FarcasterConversationMapping {
+  id                    String                       @id @default(cuid())
+  platform              String                       @default("farcaster")
+  userId                String?                      @map("user_id")
+  farcasterFid          Int                          @map("farcaster_fid")
+  farcasterUsername     String?                      @map("farcaster_username")
+  channel               String
+  rootCastHash          String?                      @map("root_cast_hash")
+  parentCastHash        String?                      @map("parent_cast_hash")
+  chatSessionId         String                       @map("chat_session_id")
+  roundTripCount        Int                          @default(0) @map("round_trip_count")
+  rolloverCount         Int                          @default(0) @map("rollover_count")
+  status                String                       @default("active")
+  lastInboundAt         DateTime?                    @map("last_inbound_at")
+  lastOutboundAt        DateTime?                    @map("last_outbound_at")
+  lastInboundCastHash   String?                      @map("last_inbound_cast_hash")
+  lastOutboundCastHash  String?                      @map("last_outbound_cast_hash")
+  lastInboundEventId    String?                      @map("last_inbound_event_id")
+  lastOutboundEventId   String?                      @map("last_outbound_event_id")
+  createdAt             DateTime                     @default(now()) @map("created_at")
+  updatedAt             DateTime                     @updatedAt @map("updated_at")
+  user                  User?                        @relation(fields: [userId], references: [privyDid], onDelete: SetNull)
+  chatSession           ChatSession                  @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+  deliveries            FarcasterMessageDelivery[]
+
+  @@index([userId, status])
+  @@index([farcasterFid, channel, status])
+  @@index([rootCastHash])
+  @@map("farcaster_conversation_mappings")
+}
+
+model FarcasterEventLog {
+  id            String    @id @default(cuid())
+  eventId       String    @unique @map("event_id")
+  userId        String?   @map("user_id")
+  farcasterFid  Int       @map("farcaster_fid")
+  channel       String
+  direction     String
+  sourceId      String?   @map("source_id")
+  payload       Json?
+  status        String    @default("received")
+  errorMessage  String?   @map("error_message")
+  processedAt   DateTime? @map("processed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  user          User?     @relation(fields: [userId], references: [privyDid], onDelete: SetNull)
+
+  @@index([farcasterFid, channel, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("farcaster_event_logs")
+}
+
+model FarcasterMessageDelivery {
+  id                    String                        @id @default(cuid())
+  userId                String?                       @map("user_id")
+  farcasterFid          Int                           @map("farcaster_fid")
+  conversationMappingId String?                       @map("conversation_mapping_id")
+  channel               String
+  direction             String
+  messageType           String                        @map("message_type")
+  sourceMessageId       String?                       @map("source_message_id")
+  providerMessageId     String?                       @map("provider_message_id")
+  idempotencyKey        String                        @unique @map("idempotency_key")
+  payload               Json?
+  status                String                        @default("pending")
+  errorMessage          String?                       @map("error_message")
+  attemptCount          Int                           @default(0) @map("attempt_count")
+  createdAt             DateTime                      @default(now()) @map("created_at")
+  updatedAt             DateTime                      @updatedAt @map("updated_at")
+  user                  User?                         @relation(fields: [userId], references: [privyDid], onDelete: SetNull)
+  conversationMapping   FarcasterConversationMapping? @relation(fields: [conversationMappingId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([farcasterFid, channel, createdAt(sort: Desc)])
+  @@index([conversationMappingId, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("farcaster_message_deliveries")
 }
 
 model XConversationMapping {

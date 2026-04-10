@@ -6,23 +6,28 @@
   <link rel="icon" type="image/png" href="/kiko-logo-dark.png" />
   <meta name="viewport"
     content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>kikoapp</title>
-  <meta name="description" content="kikoapp - The ultimate AI-powered Web3 trading terminal for intelligent asset management and market analysis." />
+  <title>KIKO AI Terminal</title>
+  <meta name="description" content="KIKO AI Terminal is an AI-powered Web3 trading terminal for chat, swaps, market analysis, and social discovery." />
   <meta name="keywords" content="kikoapp, Web3, AI, Crypto, Trading, Terminal, AI Agent" />
   
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://kikoapp.app/" />
-  <meta property="og:title" content="kikoapp" />
-  <meta property="og:description" content="The ultimate AI-powered Web3 trading terminal." />
-  <meta property="og:image" content="https://kikoapp.app/KIKOdark.png" />
+  <meta property="og:title" content="KIKO AI Terminal" />
+  <meta property="og:description" content="AI-powered Web3 trading terminal for chat, swaps, market analysis, and social discovery." />
+  <meta property="og:image" content="https://kikoapp.app/farcaster-og-card.png" />
 
   <!-- Twitter -->
   <meta property="twitter:card" content="summary_large_image" />
   <meta property="twitter:url" content="https://kikoapp.app/" />
-  <meta property="twitter:title" content="kikoapp" />
-  <meta property="twitter:description" content="The ultimate AI-powered Web3 trading terminal." />
-  <meta property="twitter:image" content="https://kikoapp.app/KIKOdark.png" />
+  <meta property="twitter:title" content="KIKO AI Terminal" />
+  <meta property="twitter:description" content="AI-powered Web3 trading terminal for chat, swaps, market analysis, and social discovery." />
+  <meta property="twitter:image" content="https://kikoapp.app/farcaster-og-card.png" />
+  
+  <!-- Farcaster Mini App embed metadata -->
+  <meta name="fc:miniapp" content='{"version":"1","imageUrl":"https://kikoapp.app/farcaster-miniapp-card.png","button":{"title":"Open KIKO","action":{"type":"launch_miniapp","url":"https://kikoapp.app/","name":"KIKO AI Terminal","splashImageUrl":"https://kikoapp.app/farcaster-splash.png","splashBackgroundColor":"#09090b"}}}' />
+  <!-- Backward compatibility for older Farcaster clients -->
+  <meta name="fc:frame" content='{"version":"1","imageUrl":"https://kikoapp.app/farcaster-miniapp-card.png","button":{"title":"Open KIKO","action":{"type":"launch_frame","url":"https://kikoapp.app/","name":"KIKO AI Terminal","splashImageUrl":"https://kikoapp.app/farcaster-splash.png","splashBackgroundColor":"#09090b"}}}' />
   <!-- Content Security Policy and Permissions Policy are set via HTTP headers in vite.config.ts -->
   <!-- This ensures proper support for frame-ancestors and other directives that require HTTP headers -->
 
@@ -30,19 +35,25 @@
   <link rel="manifest" href="/manifest.json">
 
   <!-- CONTEXT MEMORY
-  Updated: 2026-04-08
+  Updated: 2026-04-10
   Author: Codex
-  Reason: The shell metadata should use the standards-based PWA capability flag
-          so modern browsers stop warning about the deprecated Apple variant.
-  Goal: Keep install metadata stable without reintroducing console noise.
-  Owns: Web app shell metadata only.
-  Does Not Own: Runtime rendering, auth, or token loading.
+  Reason: The shell metadata now serves both standard PWA install fields and
+          Farcaster Mini App embed metadata from the same document.
+  Goal: Keep browser install metadata and Farcaster share metadata aligned
+        without introducing route-specific runtime injection.
+  Owns: Web app shell metadata, share-card hints, and Farcaster embed tags.
+  Does Not Own: Runtime rendering, auth, token loading, or manifest signing.
   Design Language:
   - Prefer standards-based PWA flags over deprecated vendor-only variants.
+  - Keep Farcaster embed metadata static in the HTML shell unless a route
+    explicitly needs its own embed card.
   - Keep install metadata minimal and explicit.
   See also:
   - /Users/almurat/KiKo/system-journal/INDEX.md
   - /Users/almurat/KiKo/system-journal/fix-log/2026-04-08-rate-limit-loading-stall.md
+  - /Users/almurat/KiKo/system-journal/design-language/farcaster-miniapp-shell.md
+  - /Users/almurat/KiKo/system-journal/owner-map/farcaster-miniapp-support.md
+  - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-miniapp-support.md
   -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">

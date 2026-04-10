@@ -4,23 +4,34 @@
  */
 
 // CONTEXT MEMORY
-// Updated: 2026-04-09
+// Updated: 2026-04-10
 // Author: Almurat
 // Reason: the server bootstrap now owns X OAuth preload and route registration
 //         so the bot can authorize once and serve credentials at runtime.
+//         Farcaster polling ingress now also starts here because it shares the
+//         chat worker and needs explicit startup/shutdown ordering.
 // Goal: keep X auth routes mounted before startup, preload stored credentials,
-//       and preserve existing worker boot order.
+//       Farcaster agent polling after chat worker boot, and preserve existing
+//       worker boot order.
 // Owns: top-level route wiring and startup sequencing for the API server.
 // Does Not Own: OAuth token exchange details, webhook parsing, or chat logic.
 // Design Language:
 // - Register auth infrastructure before starting workers.
 // - Preload runtime credentials before X ingress comes up.
 // - Keep startup order explicit and fail fast when auth is misconfigured.
+// - Bring Farcaster polling up only after chat execution is available.
+// Document Provenance:
+// - Source: Neynar Notifications API docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-10
+// - Applied To: booting a polling worker instead of webhook ingress for Farcaster mentions
+// - Verification: inferred
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-09-x-auth-origin-bypass.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
+// - system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
 // - system-journal/conflicts.md
 
 import 'dotenv/config';
@@ -87,6 +98,7 @@ import { markEndUserActivity } from './services/runtimeActivityService.js';
 import { xIngressWorker } from './services/x/index.js';
 import { ensureXBotCredentialsLoaded } from './services/x/xCredentialsService.js';
 import { xAuthRoutes } from './routes/xAuth.js';
+import { farcasterIngressWorker } from './services/farcaster-agent/index.js';
 
 const fastify = Fastify({
     logger: {
@@ -579,6 +591,13 @@ async function start() {
             logger.error(LogCode.SYS_ERROR, 'X ingress worker failed to start', { error: xError.message });
         }
 
+        try {
+            farcasterIngressWorker.start();
+            logger.info(LogCode.SYS_STARTUP, 'Farcaster ingress worker started');
+        } catch (farcasterError: any) {
+            logger.error(LogCode.SYS_ERROR, 'Farcaster ingress worker failed to start', { error: farcasterError.message });
+        }
+
         logger.info(LogCode.SYS_STARTUP, '🎉 All services initialized!');
     } catch (error: any) {
         logger.error(LogCode.SYS_ERROR, 'Error starting server', { error: error.message || error });
@@ -594,6 +613,7 @@ process.on('SIGTERM', async () => {
     stopOrderObservationJob();
     stopPolymarketWatcher();
     xIngressWorker.stop();
+    farcasterIngressWorker.stop();
     await stopAutoTradeService();
     if (prisma) await (prisma as any).$disconnect();
     await fastify.close();
@@ -607,6 +627,7 @@ process.on('SIGINT', async () => {
     stopOrderObservationJob();
     stopPolymarketWatcher();
     xIngressWorker.stop();
+    farcasterIngressWorker.stop();
     await stopAutoTradeService();
     if (prisma) await (prisma as any).$disconnect();
     await fastify.close();

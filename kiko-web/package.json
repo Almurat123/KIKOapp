@@ -16,6 +16,7 @@
     "check:agent-ids": "node scripts/check-agent-ids.mjs"
   },
   "dependencies": {
+    "@farcaster/miniapp-sdk": "^0.3.0",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@metaplex-foundation/mpl-token-metadata": "^3.4.0",
     "@metaplex-foundation/umi": "^1.4.1",

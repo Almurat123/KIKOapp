@@ -5,6 +5,7 @@ import App from './App';
 import { ChainProvider } from './contexts/ChainContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AgentModeProvider } from './contexts/AgentModeContext';
+import { MiniAppProvider } from './contexts/MiniAppContext';
 import { FarcasterProvider } from './contexts/FarcasterContext';
 import { XProvider } from './contexts/XContext';
 import { ThemedPrivyProvider } from './components/ThemedPrivyProvider';
@@ -18,25 +19,29 @@ import './styles/theme.css';
 import './styles/design-tokens.css';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-09
+// Updated: 2026-04-10
 // Author: Codex
-// Reason: Temporary auth-debug boot paths were removed after the X/Privy flow
-//         was stabilized; the root should return to a single, predictable boot
-//         mode instead of carrying special-case debugging behavior.
-// Goal: Preserve stable provider composition and normal StrictMode semantics
-//       without browser-wide auth instrumentation.
+// Reason: The root boot chain now includes a dedicated Farcaster Mini App
+//         bootstrap layer, and the earlier auth-debug boot paths were removed
+//         after the X/Privy flow stabilized.
+// Goal: Preserve stable provider composition, Mini App readiness handshake,
+//       and normal StrictMode semantics without browser-wide instrumentation.
 // Owns: Frontend root boot mode and top-level provider composition.
-// Does Not Own: Privy SDK session behavior, route-level auth UX, backend auth
-//               verification, or ad hoc browser debug tooling.
+// Does Not Own: Privy SDK session behavior, Mini App context semantics,
+//               route-level auth UX, backend auth verification, or ad hoc
+//               browser debug tooling.
 // Design Language:
 // - Keep one root render mode across local and production environments.
 // - Do not install browser-wide auth debugging from the app entrypoint.
 // - Keep provider composition stable and easy to reason about.
+// - Let the Mini App bootstrap layer own safe-area and ready signaling.
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
+// - /Users/almurat/KiKo/system-journal/owner-map/farcaster-miniapp-support.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-miniapp-support.md
 
 // Global error logging and console sanitization
 if (typeof window !== 'undefined') {
@@ -108,19 +113,21 @@ if (
       <ErrorBoundary>
         <ThemeProvider>
           <AgentModeProvider>
-            <ThemedPrivyProvider>
-              <AuthTokenBridge>
-                <XProvider>
-                  <FarcasterProvider>
-                    <QueryClientProvider client={queryClient}>
-                      <ChainProvider>
-                        <App />
-                      </ChainProvider>
-                    </QueryClientProvider>
-                  </FarcasterProvider>
-                </XProvider>
-              </AuthTokenBridge>
-            </ThemedPrivyProvider>
+            <MiniAppProvider>
+              <ThemedPrivyProvider>
+                <AuthTokenBridge>
+                  <XProvider>
+                    <FarcasterProvider>
+                      <QueryClientProvider client={queryClient}>
+                        <ChainProvider>
+                          <App />
+                        </ChainProvider>
+                      </QueryClientProvider>
+                    </FarcasterProvider>
+                  </XProvider>
+                </AuthTokenBridge>
+              </ThemedPrivyProvider>
+            </MiniAppProvider>
           </AgentModeProvider>
         </ThemeProvider>
       </ErrorBoundary>

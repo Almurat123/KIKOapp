@@ -8,20 +8,38 @@
 // Reason: X OAuth now depends on explicit operator allowlisting, encrypted
 //         bot-token storage, a distinct CRC signing secret for webhook setup,
 //         and an OAuth1 helper flow for Account Activity subscription setup.
+//         Farcaster agent ingress now also needs explicit polling and signer
+//         env boundaries so low-cost Neynar polling can be enabled without
+//         changing X runtime assumptions.
 // Goal: keep startup validation as the single owner for deployment-time security
-//       requirements around X bot authorization and token storage.
-// Owns: env parsing and hard-fail validation for X auth configuration.
-// Does Not Own: runtime OAuth exchange, token persistence, or webhook handling.
+//       and connectivity requirements around X auth and Farcaster agent ingress.
+// Owns: env parsing and hard-fail validation for X auth configuration and
+//       Farcaster agent runtime toggles.
+// Does Not Own: runtime OAuth exchange, token persistence, webhook handling, or
+//               Farcaster polling logic.
 // Design Language:
 // - Production must fail closed when X auth security prerequisites are missing.
 // - Operator authorization must be explicit, never inferred from generic login.
 // - Sensitive token storage must require a valid encryption key.
 // - Webhook CRC must use the X app API/consumer secret, never OAuth2 client secret fallback.
+// - Farcaster agent ingress must stay disabled unless its signer and bot identity are configured.
+// Document Provenance:
+// - Source: Neynar Notifications API docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-10
+// - Applied To: polling env shape for `fid`, notification types, and page size
+// - Verification: inferred
+// - Source: Neynar Post a cast API docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-10
+// - Applied To: signer UUID and reply publishing env requirements
+// - Verification: inferred
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-10-x-oauth1-helper-flow.md
 // - system-journal/fix-log/2026-04-09-x-webhook-crc-secret-boundary.md
+// - system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
 // - system-journal/conflicts.md
 import dotenv from 'dotenv';
 import path from 'node:path';
@@ -170,6 +188,17 @@ export interface EnvConfig {
         pollBatchSize: number;
         linkBaseUrl: string;
     };
+    farcasterAgent: {
+        enabled: boolean;
+        apiBaseUrl: string;
+        botFid: number;
+        botUsername: string;
+        signerUuid: string;
+        pollMentionsMs: number;
+        pollPageSize: number;
+        pollMaxPages: number;
+        linkBaseUrl: string;
+    };
     security: {
         alchemyWebhookSecret?: string; // Legacy global secret for verifying Alchemy webhooks
         alchemyWebhookSecretEth?: string; // Ethereum-specific webhook signing key
@@ -255,6 +284,11 @@ function validateEnv(): EnvConfig {
         .map((value) => value.trim())
         .filter(Boolean);
     const encryptionKey = process.env.ENCRYPTION_KEY || '';
+    const farcasterAgentEnabled =
+        (process.env.FARCASTER_AGENT_ENABLED || '').toLowerCase() === 'true' ||
+        (process.env.FARCASTER_AGENT_ENABLED || '') === '1';
+    const farcasterBotFid = parseInt(process.env.FARCASTER_AGENT_BOT_FID || process.env.KIKO_FARCASTER_FID || '0', 10);
+    const farcasterSignerUuid = process.env.FARCASTER_AGENT_SIGNER_UUID || '';
 
     if (isProduction && !internalWebhookSecret) {
         throw new Error('Missing required webhook security env var in production: INTERNAL_WEBHOOK_SECRET');
@@ -270,6 +304,18 @@ function validateEnv(): EnvConfig {
 
     if (isProduction && (xClientId || xClientSecret) && encryptionKey.length !== 32) {
         throw new Error('ENCRYPTION_KEY must be exactly 32 characters in production when X OAuth is enabled');
+    }
+
+    if (isProduction && farcasterAgentEnabled) {
+        if (!process.env.NEYNAR_API_KEY) {
+            throw new Error('Missing required Farcaster agent env var in production: NEYNAR_API_KEY');
+        }
+        if (!Number.isFinite(farcasterBotFid) || farcasterBotFid <= 0) {
+            throw new Error('Missing required Farcaster agent env var in production: FARCASTER_AGENT_BOT_FID');
+        }
+        if (!farcasterSignerUuid) {
+            throw new Error('Missing required Farcaster agent env var in production: FARCASTER_AGENT_SIGNER_UUID');
+        }
     }
 
     const hasAlchemyWebhookSecret =
@@ -478,6 +524,17 @@ function validateEnv(): EnvConfig {
             pollDmMs: parseInt(process.env.X_POLL_DM_MS || '60000', 10),
             pollBatchSize: parseInt(process.env.X_POLL_BATCH_SIZE || '20', 10),
             linkBaseUrl: process.env.X_LINK_BASE_URL || 'https://kikoapp.app/settings',
+        },
+        farcasterAgent: {
+            enabled: farcasterAgentEnabled,
+            apiBaseUrl: process.env.NEYNAR_API_BASE_URL || 'https://api.neynar.com/v2',
+            botFid: Number.isFinite(farcasterBotFid) ? farcasterBotFid : 0,
+            botUsername: process.env.FARCASTER_AGENT_BOT_USERNAME || process.env.KIKO_FARCASTER_USERNAME || 'kikoapp',
+            signerUuid: farcasterSignerUuid,
+            pollMentionsMs: parseInt(process.env.FARCASTER_AGENT_POLL_MENTIONS_MS || '60000', 10),
+            pollPageSize: parseInt(process.env.FARCASTER_AGENT_POLL_PAGE_SIZE || '15', 10),
+            pollMaxPages: parseInt(process.env.FARCASTER_AGENT_POLL_MAX_PAGES || '3', 10),
+            linkBaseUrl: process.env.FARCASTER_LINK_BASE_URL || 'https://kikoapp.app/settings',
         },
         security: {
             alchemyWebhookSecret,

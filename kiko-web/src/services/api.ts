@@ -241,7 +241,9 @@ import { adaptLoopbackUrlForBrowser, isLocalLikeHost } from '../utils/runtimeHos
 // Reason: This is the shared client request layer for high-traffic screens.
 //         It now needs to absorb transient 429s and support the aggregate token
 //         trend route so token pages can avoid client-side chain fan-out and
-//         avoid route-churn burst reads.
+//         avoid route-churn burst reads. It also now needs a short read cooldown
+//         after a 429 so remount churn does not immediately re-hit the same
+//         throttled endpoint.
 // Goal: Keep read requests deduped and cache-backed so the app stays usable under
 //       burst traffic and backend throttling.
 // Owns: Request assembly, dedupe, short-lived response reuse, and fail-soft reads.
@@ -252,18 +254,29 @@ import { adaptLoopbackUrlForBrowser, isLocalLikeHost } from '../utils/runtimeHos
 // - Prefer a single aggregate read over N client-side reads when the backend can
 //   safely serve the merged view.
 // - Keep fallback logic generic so individual pages do not reimplement recovery.
+// - After a 429, identical reads should cool down briefly instead of immediately retrying.
+// Document Provenance:
+// - Source: Production console traces for `/api/tokens/trending/all` and throttled
+//   copy-trade/polymarket reads during token-page navigation
+// - Kind: runtime observation
+// - Retrieved: 2026-04-10
+// - Applied To: add read-side 429 cooldown and extend aggregate token cache reuse
+// - Verification: partially verified
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
 // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-08-rate-limit-loading-stall.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-navigation-burst-read-throttle.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-token-page-stray-read-rate-limit.md
 
 /**
  * Request deduplication map
  */
 const pendingRequests = new Map<string, Promise<unknown>>();
 const STALE_READ_FALLBACK_WINDOW_MS = 5 * 60 * 1000;
+const READ_429_COOLDOWN_MS = 60 * 1000;
+const readCooldowns = new Map<string, number>();
 
 async function ensureChatStreamReady(timeoutMs = 1800): Promise<boolean> {
     const token = await getAuthToken();
@@ -292,7 +305,7 @@ async function ensureChatStreamReady(timeoutMs = 1800): Promise<boolean> {
 function getCacheTime(endpoint: string): number {
     // Live trending stays very fresh, but still gets a tiny cache window so
     // concurrent mounts and immediate follow-up refreshes can collapse.
-    if (endpoint.includes('/tokens/trending/all')) return 15000;
+    if (endpoint.includes('/tokens/trending/all')) return 60000;
     if (endpoint.includes('/tokens/trending/live')) return 3000;
     if (endpoint.includes('/copy-trade/') || endpoint.includes('/polymarket/copy/')) return 5000;
     // Chains data: NO CACHE - always fetch fresh data
@@ -314,6 +327,7 @@ export async function fetchApi<T>(endpoint: string, options?: RequestInit): Prom
     // Create a unique key for this request
     const cacheKey = `${endpoint}-${JSON.stringify(options || {})}`;
     const staleFallback = () => apiCache.getStale<T>(cacheKey, STALE_READ_FALLBACK_WINDOW_MS);
+    const isReadRequest = !options?.method || options.method === 'GET';
 
     // 1. Check for pending duplicate requests (Deduplication)
     if (pendingRequests.has(cacheKey)) {
@@ -321,11 +335,20 @@ export async function fetchApi<T>(endpoint: string, options?: RequestInit): Prom
     }
 
     // 2. Check cache (if not a POST/PUT/DELETE request)
-    const isReadRequest = !options?.method || options.method === 'GET';
     if (isReadRequest) {
         const cachedData = apiCache.get<T>(cacheKey);
         if (cachedData) {
             return cachedData;
+        }
+
+        const cooldownUntil = readCooldowns.get(cacheKey) || 0;
+        if (cooldownUntil > Date.now()) {
+            const fallback = staleFallback();
+            if (fallback !== null) {
+                logger.warn(`[API] Using stale cache during 429 cooldown [${endpoint}]`);
+                return fallback;
+            }
+            throw new Error('You have exceeded the request limit. Please try again later.');
         }
     }
 
@@ -385,6 +408,9 @@ export async function fetchApi<T>(endpoint: string, options?: RequestInit): Prom
 
                 // Handle rate limiting (429)
                 if (response.status === 429) {
+                    if (isReadRequest) {
+                        readCooldowns.set(cacheKey, Date.now() + READ_429_COOLDOWN_MS);
+                    }
                     const fallback = isReadRequest ? staleFallback() : null;
                     if (fallback !== null) {
                         logger.warn(`[API] Using stale cache after 429 [${endpoint}]`);
@@ -439,6 +465,7 @@ export async function fetchApi<T>(endpoint: string, options?: RequestInit): Prom
 
             // 3. Cache the successful result
             if (isReadRequest) {
+                readCooldowns.delete(cacheKey);
                 const ttl = getCacheTime(endpoint);
                 apiCache.set(cacheKey, result, ttl);
             }
