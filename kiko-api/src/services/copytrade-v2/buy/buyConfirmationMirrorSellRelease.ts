@@ -10,17 +10,27 @@ import type { MirrorSellIntentDisposition } from '../positions/mirrorSellIntentP
 // CONTEXT MEMORY
 // Updated: 2026-04-10
 // Author: Avery Lin
-// Reason: Buy confirmation can discover a target-sell after the live webhook path
-//         already ran, so this helper replays the missed sell into durable exit work.
+// Reason: Historical target-sell evidence can surface after buy-confirm or later from
+//         monitor-side orphan recovery, so both owners must share one durable release path.
 // Goal: Convert historical mirror-sell evidence into the same persisted event and
 //       exit-intent flow used by the live runtime, without leaving silent open positions.
-// Owns: Releasing a historical target sell from buy-confirmation into event store and
-//       exit-intent scheduling.
+// Owns: Releasing historical target-sell evidence into event store and exit-intent scheduling.
 // Does Not Own: Deciding whether historical sell evidence exists, or executing the exit.
 // Design Language:
-// - Buy-confirm replay must go through the same durable event path as live sell webhooks.
+// - Historical replay must go through the same durable event path as live sell webhooks.
 // - Preserve target-sell metadata when replaying history.
 // - Do not silently mark order state armed without creating or reusing durable exit work.
+// Document Provenance:
+// - Source: system-journal/fix-log/2026-04-10-buy-confirm-target-sell-replay-gap.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-10
+// - Applied To: durable historical target-sell release after buy confirmation
+// - Verification: verified in code
+// - Source: system-journal/fix-log/2026-04-10-open-position-historical-target-sell-reconciler.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-10
+// - Applied To: reusing the same helper for monitor-side orphan repair
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
@@ -48,6 +58,7 @@ export async function releaseMirrorSellAfterBuyConfirm(params: {
   targetRemainingBalanceRaw?: string | null;
   reasonCode?: string | null;
   disposition: Exclude<MirrorSellIntentDisposition, 'none'>;
+  sourceRuntime?: string;
   deps?: {
     buildTargetSellEventPayload?: typeof buildTargetSellEventPayload;
     persistTargetSellEventAndSchedulePositions?: typeof persistTargetSellEventAndSchedulePositions;
@@ -67,6 +78,7 @@ export async function releaseMirrorSellAfterBuyConfirm(params: {
   }
 
   const targetSellTxHash = String(params.targetSellTxHash || '').trim();
+  const sourceRuntime = String(params.sourceRuntime || 'legacy_buy_confirmation_release').trim() || 'legacy_buy_confirmation_release';
   const buildReplayEvent = () => buildEventPayload({
     chainId: params.chainId,
     targetWallet: params.targetWallet,
@@ -77,7 +89,7 @@ export async function releaseMirrorSellAfterBuyConfirm(params: {
     targetRemainingBalanceRaw: params.targetRemainingBalanceRaw ?? null,
     source: 'buy_confirmation',
     metadata: {
-      sourceRuntime: 'legacy_buy_confirmation_release',
+      sourceRuntime,
       releaseReasonCode: params.reasonCode || null,
       releaseDisposition: params.disposition,
     },
@@ -111,7 +123,7 @@ export async function releaseMirrorSellAfterBuyConfirm(params: {
       exitReason: 'mirror_sell',
       priority: 230,
       metadata: {
-        sourceRuntime: 'legacy_buy_confirmation_release',
+        sourceRuntime,
         releaseReasonCode: params.reasonCode || null,
         releaseDisposition: params.disposition,
         targetWallet: params.targetWallet,
@@ -135,7 +147,7 @@ export async function releaseMirrorSellAfterBuyConfirm(params: {
     }],
     priority: 230,
     metadata: {
-      sourceRuntime: 'legacy_buy_confirmation_release',
+      sourceRuntime,
       releaseReasonCode: params.reasonCode || null,
       releaseDisposition: params.disposition,
     },

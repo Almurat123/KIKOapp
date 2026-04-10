@@ -46,6 +46,7 @@ import { getGuardPriceSnapshot } from './guardPrice.js';
 import { reconcileMirrorSellDustPosition } from './mirrorSellDustReconciler.js';
 import { reconcileStaleOpenClosedPosition } from './staleOpenPositionReconciler.js';
 import { reconcileTerminalExitGhostPosition } from './terminalExitGhostPositionReconciler.js';
+import { reconcileHistoricalTargetSellGhostPosition } from './historicalTargetSellGhostPositionReconciler.js';
 import {
   ExitHotPathDeferredError,
   hasIntentContext,
@@ -57,19 +58,35 @@ import { listActiveExitIntentPositionIds } from '../exit/positionExitIntentStore
 // Updated: 2026-04-10
 // Author: Avery Lin
 // Reason: The monitor is the last owner before noisy TP/SL logs, so it must sweep
-//         stale open positions that were already terminally resolved elsewhere.
+//         stale open positions that were already terminally resolved elsewhere or
+//         that missed their historical target-sell replay entirely.
 // Goal: Keep only truly actionable open positions in the TP/SL loop and evict ghosts
-//       created by stale close markers or terminal exit-intent failures.
+//       created by stale close markers, missed historical target-sell replay, or
+//       terminal exit-intent failures.
 // Owns: Open-position monitoring, pre-TP/SL reconciliation, and last-mile ghost cleanup.
 // Does Not Own: Creating target-sell events, buy-confirm replay, or executing exits.
 // Design Language:
 // - Reconcile stale state before consulting price snapshots.
+// - Open positions with active exit work should not re-enter TP/SL evaluation.
 // - Terminal failures should leave the monitor pool immediately.
 // - Do not let missing price data mask already-terminal positions.
+// Document Provenance:
+// - Source: /Users/almurat/Downloads/logs.1775805546761.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-10
+// - Applied To: confirming repeated Price not available warnings still came from one open LIQ ghost position
+// - Verification: verified in runtime
+// - Source: system-journal/fix-log/2026-04-10-open-position-historical-target-sell-reconciler.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-10
+// - Applied To: monitor-side historical target-sell self-heal and active-exit skip policy
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
+// - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-08-terminal-exit-ghost-position.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-open-position-historical-target-sell-reconciler.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-terminal-exit-ghost-reconciler.md
 
 const NO_OPEN_POSITIONS_LOG_WINDOW_MS = Number(process.env.NO_OPEN_POSITIONS_LOG_WINDOW_MS || '180000');
@@ -1104,6 +1121,7 @@ export async function checkPositionsForExits(): Promise<void> {
                 },
             }).catch(() => [])
             : [];
+        const activeExitIntentPositionIds = await listActiveExitIntentPositionIds(batchPositionIds);
         const latestTerminalExitIntentByPosition = new Map<string, {
             id: string;
             lifecycleState: string;
@@ -1132,6 +1150,7 @@ export async function checkPositionsForExits(): Promise<void> {
                 // STEP A: Use cached price data only. If no cached price exists, skip this cycle.
                 const tokenKey = `${position.tokenAddress.toLowerCase()}_${position.chainId}`;
                 const tokenInfo = tokenPriceMap.get(tokenKey);
+                const config = configMap.get(position.configId);
 
                 const staleOpenRepair = await reconcileStaleOpenClosedPosition({
                     position: {
@@ -1169,6 +1188,30 @@ export async function checkPositionsForExits(): Promise<void> {
                     return;
                 }
 
+                const historicalTargetSellRepair = config
+                    ? await reconcileHistoricalTargetSellGhostPosition({
+                        position: {
+                            id: position.id,
+                            status: position.status,
+                            userId: position.userId,
+                            configId: position.configId,
+                            chainId: position.chainId,
+                            tokenAddress: position.tokenAddress,
+                            tokenSymbol: position.tokenSymbol,
+                            leaderTxHash: position.leaderTxHash,
+                            createdAt: position.createdAt,
+                            entryAmountExact: position.entryAmountExact,
+                            entryAmountDec: position.entryAmountDec,
+                        },
+                        targetWallet: config.targetWallet,
+                        hasActiveExitIntent: activeExitIntentPositionIds.has(position.id),
+                    })
+                    : { repaired: false };
+                if (historicalTargetSellRepair.repaired) {
+                    clearTpslHit(position.id);
+                    return;
+                }
+
                 const mirrorSellDustReconciliation = await reconcileMirrorSellDustPosition({
                     position: {
                         id: position.id,
@@ -1185,6 +1228,17 @@ export async function checkPositionsForExits(): Promise<void> {
                 });
                 if (mirrorSellDustReconciliation.closed) {
                     markPositionLocallyClosed(position.id);
+                    return;
+                }
+
+                if (activeExitIntentPositionIds.has(position.id)) {
+                    clearTpslHit(position.id);
+                    return;
+                }
+
+                if (!config) {
+                    logger.warn(LogCode.WTC_TX_SKIPPED, 'Orphaned position: Config not found', { positionId: position.id, configId: position.configId });
+                    clearTpslHit(position.id);
                     return;
                 }
 
@@ -1210,14 +1264,6 @@ export async function checkPositionsForExits(): Promise<void> {
                         where: { id: position.id },
                         data: { currentPrice, profitLossPct },
                     }).catch(() => undefined);
-                }
-
-                // Get config
-                const config = configMap.get(position.configId);
-                if (!config) {
-                    logger.warn(LogCode.WTC_TX_SKIPPED, 'Orphaned position: Config not found', { positionId: position.id, configId: position.configId });
-                    clearTpslHit(position.id);
-                    return;
                 }
 
                 // Log position status periodically (every ~5 min based on position createdAt)
