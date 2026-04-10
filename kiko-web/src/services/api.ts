@@ -236,11 +236,12 @@ import { getRuntimeConfigUrl, getEnvUrl } from '../utils/runtimeConfig';
 import { adaptLoopbackUrlForBrowser, isLocalLikeHost } from '../utils/runtimeHosts';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-08
-// Author: Codex
+// Updated: 2026-04-10
+// Author: Rowan
 // Reason: This is the shared client request layer for high-traffic screens.
 //         It now needs to absorb transient 429s and support the aggregate token
-//         trend route so token pages can avoid client-side chain fan-out.
+//         trend route so token pages can avoid client-side chain fan-out and
+//         avoid route-churn burst reads.
 // Goal: Keep read requests deduped and cache-backed so the app stays usable under
 //       burst traffic and backend throttling.
 // Owns: Request assembly, dedupe, short-lived response reuse, and fail-soft reads.
@@ -256,6 +257,7 @@ import { adaptLoopbackUrlForBrowser, isLocalLikeHost } from '../utils/runtimeHos
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
 // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-08-rate-limit-loading-stall.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-navigation-burst-read-throttle.md
 
 /**
  * Request deduplication map
@@ -290,7 +292,7 @@ async function ensureChatStreamReady(timeoutMs = 1800): Promise<boolean> {
 function getCacheTime(endpoint: string): number {
     // Live trending stays very fresh, but still gets a tiny cache window so
     // concurrent mounts and immediate follow-up refreshes can collapse.
-    if (endpoint.includes('/tokens/trending/all')) return 3000;
+    if (endpoint.includes('/tokens/trending/all')) return 15000;
     if (endpoint.includes('/tokens/trending/live')) return 3000;
     if (endpoint.includes('/copy-trade/') || endpoint.includes('/polymarket/copy/')) return 5000;
     // Chains data: NO CACHE - always fetch fresh data

@@ -12,22 +12,60 @@ import { toast } from 'sonner';
 import { resolveChainPresentation } from '../utils/chainPresentation';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-08
-// Author: Codex
-// Reason: Strategy loading was dropping the entire copy-trade surface when one
-//         backend read hit 429, which made the UI look frozen or empty.
-// Goal: Preserve the best available strategy snapshot even if one source fails.
+// Updated: 2026-04-10
+// Author: Rowan
+// Reason: Strategy loading was both fragile under 429s and too eager on route
+//         remounts, which turned ordinary navigation into repeat burst reads.
+// Goal: Preserve the best available strategy snapshot and reuse it briefly
+//       across page switches so the strategy surface does not re-flood the backend.
 // Owns: Merging local, copy-trade, and Polymarket strategy views into one list.
 // Does Not Own: Backend retry policy, auth token lifecycles, or mutation semantics.
 // Design Language:
 // - Partial data is better than a full loading failure.
 // - Never let one third-party source erase already recovered data from another.
 // - Keep fallback behavior visible in logs, not hidden in silent catches.
+// - Route remounts should reuse a recent merged snapshot before re-reading.
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
 // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-08-rate-limit-loading-stall.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-navigation-burst-read-throttle.md
+
+const STRATEGIES_CACHE_TTL_MS = 15_000;
+
+interface StrategiesStatsSnapshot {
+  totalExecutions: number;
+  totalPnL: number;
+}
+
+interface StrategiesSnapshot {
+  cacheKey: string;
+  strategies: TradingStrategy[];
+  stats: StrategiesStatsSnapshot;
+  cachedAt: number;
+}
+
+let strategiesSnapshotCache: StrategiesSnapshot | null = null;
+const strategiesInFlight = new Map<string, Promise<StrategiesSnapshot>>();
+
+function hasFreshStrategiesSnapshot(cacheKey: string): boolean {
+  return !!strategiesSnapshotCache
+    && strategiesSnapshotCache.cacheKey === cacheKey
+    && (Date.now() - strategiesSnapshotCache.cachedAt) < STRATEGIES_CACHE_TTL_MS;
+}
+
+function invalidateStrategiesSnapshot(cacheKey?: string) {
+  if (!cacheKey) {
+    strategiesSnapshotCache = null;
+    strategiesInFlight.clear();
+    return;
+  }
+  if (strategiesSnapshotCache?.cacheKey === cacheKey) {
+    strategiesSnapshotCache = null;
+  }
+  strategiesInFlight.delete(cacheKey);
+}
 
 export interface ExecutionRecord {
   id: string;
@@ -83,182 +121,214 @@ export const useStrategies = () => {
   const [isLoading, setIsLoading] = useState(true);
   const { ready, authenticated, user } = usePrivy();
   const { wallets } = useWallets();
+  const strategiesCacheKey = authenticated ? `auth:${user?.id || 'unknown'}` : 'guest';
+
+  useEffect(() => {
+    if (isLoading) return;
+    strategiesSnapshotCache = {
+      cacheKey: strategiesCacheKey,
+      strategies,
+      stats,
+      cachedAt: Date.now(),
+    };
+  }, [strategies, stats, isLoading, strategiesCacheKey]);
 
   // Fetch from LocalStorage and Real API
   const fetchAllStrategies = useCallback(async () => {
     // Wait for Privy to initialize
     if (!ready) return;
 
+    if (hasFreshStrategiesSnapshot(strategiesCacheKey)) {
+      setStrategies(strategiesSnapshotCache!.strategies);
+      setStats(strategiesSnapshotCache!.stats);
+      setIsLoading(false);
+      return;
+    }
+
+    const inFlight = strategiesInFlight.get(strategiesCacheKey);
+    if (inFlight) {
+      setIsLoading(true);
+      const snapshot = await inFlight;
+      setStrategies(snapshot.strategies);
+      setStats(snapshot.stats);
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
-    const allStrategies: TradingStrategy[] = [];
+    const request = (async (): Promise<StrategiesSnapshot> => {
+      const allStrategies: TradingStrategy[] = [];
+      let nextStats: StrategiesStatsSnapshot = { totalExecutions: 0, totalPnL: 0 };
 
-    // 1. Load Local Mock/Demo Strategies
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          // STRICTLY filter out any 'copy_trade' types from local storage
-          // Copy trades must only come from the backend to avoid "ghosts"
-          const localStrats = parsed
-            .filter((s: any) => s.type !== 'copy_trade')
-            .map((s: any) => ({
-              ...s,
-              id: String(s.id),
-              executionHistory: s.executionHistory || []
-            }));
-          allStrategies.push(...localStrats);
-        }
-      }
-    } catch (e) {
-      console.warn('Failed to load local strategies', e);
-    }
-
-    // 2. Load Real Copy Trade Configs AND Positions (ONLY if authenticated)
-    if (authenticated) {
+      // 1. Load Local Mock/Demo Strategies
       try {
-        const [configsResult, positionsResult, polyConfigsResult] = await Promise.allSettled([
-          getConfigs(),
-          getPositions(),
-          getPolymarketCopyConfigs(),
-        ]);
-
-        const configs = configsResult.status === 'fulfilled' ? configsResult.value : [];
-        const positions = positionsResult.status === 'fulfilled' ? positionsResult.value : [];
-        const polyConfigs = polyConfigsResult.status === 'fulfilled' ? polyConfigsResult.value : [];
-
-        if (configsResult.status === 'rejected') {
-          console.warn('[useStrategies] Copy trade configs failed; continuing with other sources:', configsResult.reason);
-        }
-        if (positionsResult.status === 'rejected') {
-          console.warn('[useStrategies] Copy trade positions failed; continuing with other sources:', positionsResult.reason);
-        }
-        if (polyConfigsResult.status === 'rejected') {
-          console.warn('[useStrategies] Polymarket copy configs failed; continuing with other sources:', polyConfigsResult.reason);
-        }
-
-        // Calculate Stats
-        const totalExecutions = positions.filter((p: any) => p.status === 'open' || p.status === 'closed').length;
-        // Sum up realized PNL from closed positions + unrealized PNL from open positions
-        // realizedPnlUsd: actual profit/loss from closed positions
-        // profitLossPct: current profit/loss percentage for open positions (need to convert to USD)
-        const totalPnL = positions.reduce((acc: number, pos: any) => {
-          // Closed positions: use realizedPnlUsd directly
-          if (pos.status === 'closed' && pos.realizedPnlUsd) {
-            const pnl = Number(pos.realizedPnlUsd);
-            // Skip implausible values (dirty data from legacy bugs)
-            const entry = Number(pos.entryUsdValue || 0);
-            const maxPlausible = Math.max(entry * 10, 100000);
-            if (!Number.isFinite(pnl) || Math.abs(pnl) > maxPlausible) return acc;
-            return acc + pnl;
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            const localStrats = parsed
+              .filter((s: any) => s.type !== 'copy_trade')
+              .map((s: any) => ({
+                ...s,
+                id: String(s.id),
+                executionHistory: s.executionHistory || []
+              }));
+            allStrategies.push(...localStrats);
           }
-          // Open positions: prefer price-based unrealized PNL when available, fallback to stored pct
-          if (pos.status === 'open' && pos.entryUsdValue) {
-            if (pos.currentPrice && pos.entryPrice && Number(pos.entryPrice) > 0) {
-              const pct = ((Number(pos.currentPrice) - Number(pos.entryPrice)) / Number(pos.entryPrice)) * 100;
-              const unrealizedPnl = (pct / 100) * Number(pos.entryUsdValue);
-              if (Number.isFinite(unrealizedPnl)) return acc + unrealizedPnl;
-            }
-            if (pos.profitLossPct !== null && pos.profitLossPct !== undefined) {
-              const unrealizedPnl = (Number(pos.profitLossPct) / 100) * Number(pos.entryUsdValue);
-              if (Number.isFinite(unrealizedPnl)) return acc + unrealizedPnl;
-            }
-          }
-          return acc;
-        }, 0);
-
-        setStats({ totalExecutions, totalPnL });
-
-        const mappedConfigs: TradingStrategy[] = configs.map(config => {
-          const chain = resolveChainPresentation(config.chainId);
-          return ({
-          id: config.id,
-          name: `Follow ${config.targetWallet.slice(0, 6)}...${config.targetWallet.slice(-4)}`,
-          type: 'copy_trade',
-          tokenIn: 'ETH', // Usually buying with ETH
-          tokenOut: 'ANY',
-          chain: chain.slug,
-          chainId: config.chainId,
-          triggerCondition: 'Target buys token',
-          executionAmount: config.buyAmountUsd.toString(),
-          amountAsset: 'USD',
-          limits: {
-            maxUsdPerDay: 'Unlimited',
-            maxTradesPerDay: 999,
-            cooldown: '0s'
-          },
-          status: config.status,
-          createdAt: new Date(config.createdAt).getTime(),
-          updatedAt: new Date(config.updatedAt).getTime(),
-          executionHistory: [], // TODO: fetch positions and map to history
-          copyTradeConfig: config
-        });
-        });
-
-        allStrategies.push(...mappedConfigs);
-
-        const mappedPolyConfigs: TradingStrategy[] = polyConfigs.map(config => ({
-          id: config.id,
-          name: `Polymarket Copy ${config.targetWallet.slice(0, 6)}...${config.targetWallet.slice(-4)}`,
-          type: 'polymarket_copy',
-          tokenIn: 'USDC',
-          tokenOut: 'POLY',
-          chain: 'polygon',
-          chainId: 137,
-          triggerCondition: 'Target opens position',
-          executionAmount: config.betSizeUsd.toString(),
-          amountAsset: 'USD',
-          limits: {
-            maxUsdPerDay: 'Unlimited',
-            maxTradesPerDay: config.maxOpenBets || 999,
-            cooldown: '0s'
-          },
-          status: config.status,
-          createdAt: new Date(config.createdAt).getTime(),
-          updatedAt: new Date(config.updatedAt).getTime(),
-          executionHistory: Array.from({
-            length: config.executionStats?.executedTrades || 0
-          }).map((_, index) => ({
-            id: `${config.id}-${index}`,
-            timestamp: config.executionStats?.lastCopiedAt ? new Date(config.executionStats.lastCopiedAt).getTime() : new Date(config.updatedAt).getTime(),
-            amount: String(config.betSizeUsd),
-            status: 'success' as const
-          })),
-          polymarketCopyConfig: config
-        }));
-
-        allStrategies.push(...mappedPolyConfigs);
-        const polymarketExecutions = polyConfigs.reduce((sum, config) => sum + (config.executionStats?.executedTrades || 0), 0);
-        setStats({ totalExecutions: totalExecutions + polymarketExecutions, totalPnL });
-
-      } catch (error) {
-        console.warn('[useStrategies] Failed to fetch copy trade data:', error);
+        }
+      } catch (e) {
+        console.warn('Failed to load local strategies', e);
       }
+
+      if (authenticated) {
+        try {
+          const [configsResult, positionsResult, polyConfigsResult] = await Promise.allSettled([
+            getConfigs(),
+            getPositions(),
+            getPolymarketCopyConfigs(),
+          ]);
+
+          const configs = configsResult.status === 'fulfilled' ? configsResult.value : [];
+          const positions = positionsResult.status === 'fulfilled' ? positionsResult.value : [];
+          const polyConfigs = polyConfigsResult.status === 'fulfilled' ? polyConfigsResult.value : [];
+
+          if (configsResult.status === 'rejected') {
+            console.warn('[useStrategies] Copy trade configs failed; continuing with other sources:', configsResult.reason);
+          }
+          if (positionsResult.status === 'rejected') {
+            console.warn('[useStrategies] Copy trade positions failed; continuing with other sources:', positionsResult.reason);
+          }
+          if (polyConfigsResult.status === 'rejected') {
+            console.warn('[useStrategies] Polymarket copy configs failed; continuing with other sources:', polyConfigsResult.reason);
+          }
+
+          const totalExecutions = positions.filter((p: any) => p.status === 'open' || p.status === 'closed').length;
+          const totalPnL = positions.reduce((acc: number, pos: any) => {
+            if (pos.status === 'closed' && pos.realizedPnlUsd) {
+              const pnl = Number(pos.realizedPnlUsd);
+              const entry = Number(pos.entryUsdValue || 0);
+              const maxPlausible = Math.max(entry * 10, 100000);
+              if (!Number.isFinite(pnl) || Math.abs(pnl) > maxPlausible) return acc;
+              return acc + pnl;
+            }
+            if (pos.status === 'open' && pos.entryUsdValue) {
+              if (pos.currentPrice && pos.entryPrice && Number(pos.entryPrice) > 0) {
+                const pct = ((Number(pos.currentPrice) - Number(pos.entryPrice)) / Number(pos.entryPrice)) * 100;
+                const unrealizedPnl = (pct / 100) * Number(pos.entryUsdValue);
+                if (Number.isFinite(unrealizedPnl)) return acc + unrealizedPnl;
+              }
+              if (pos.profitLossPct !== null && pos.profitLossPct !== undefined) {
+                const unrealizedPnl = (Number(pos.profitLossPct) / 100) * Number(pos.entryUsdValue);
+                if (Number.isFinite(unrealizedPnl)) return acc + unrealizedPnl;
+              }
+            }
+            return acc;
+          }, 0);
+
+          const mappedConfigs: TradingStrategy[] = configs.map(config => {
+            const chain = resolveChainPresentation(config.chainId);
+            return ({
+              id: config.id,
+              name: `Follow ${config.targetWallet.slice(0, 6)}...${config.targetWallet.slice(-4)}`,
+              type: 'copy_trade',
+              tokenIn: 'ETH',
+              tokenOut: 'ANY',
+              chain: chain.slug,
+              chainId: config.chainId,
+              triggerCondition: 'Target buys token',
+              executionAmount: config.buyAmountUsd.toString(),
+              amountAsset: 'USD',
+              limits: {
+                maxUsdPerDay: 'Unlimited',
+                maxTradesPerDay: 999,
+                cooldown: '0s'
+              },
+              status: config.status,
+              createdAt: new Date(config.createdAt).getTime(),
+              updatedAt: new Date(config.updatedAt).getTime(),
+              executionHistory: [],
+              copyTradeConfig: config
+            });
+          });
+
+          allStrategies.push(...mappedConfigs);
+
+          const mappedPolyConfigs: TradingStrategy[] = polyConfigs.map(config => ({
+            id: config.id,
+            name: `Polymarket Copy ${config.targetWallet.slice(0, 6)}...${config.targetWallet.slice(-4)}`,
+            type: 'polymarket_copy',
+            tokenIn: 'USDC',
+            tokenOut: 'POLY',
+            chain: 'polygon',
+            chainId: 137,
+            triggerCondition: 'Target opens position',
+            executionAmount: config.betSizeUsd.toString(),
+            amountAsset: 'USD',
+            limits: {
+              maxUsdPerDay: 'Unlimited',
+              maxTradesPerDay: config.maxOpenBets || 999,
+              cooldown: '0s'
+            },
+            status: config.status,
+            createdAt: new Date(config.createdAt).getTime(),
+            updatedAt: new Date(config.updatedAt).getTime(),
+            executionHistory: Array.from({
+              length: config.executionStats?.executedTrades || 0
+            }).map((_, index) => ({
+              id: `${config.id}-${index}`,
+              timestamp: config.executionStats?.lastCopiedAt ? new Date(config.executionStats.lastCopiedAt).getTime() : new Date(config.updatedAt).getTime(),
+              amount: String(config.betSizeUsd),
+              status: 'success' as const
+            })),
+            polymarketCopyConfig: config
+          }));
+
+          allStrategies.push(...mappedPolyConfigs);
+          const polymarketExecutions = polyConfigs.reduce((sum, config) => sum + (config.executionStats?.executedTrades || 0), 0);
+          nextStats = { totalExecutions: totalExecutions + polymarketExecutions, totalPnL };
+        } catch (error) {
+          console.warn('[useStrategies] Failed to fetch copy trade data:', error);
+        }
+      }
+
+      allStrategies.sort((a, b) => b.createdAt - a.createdAt);
+
+      const validStrategies = allStrategies.filter(s => {
+        if (s.type === 'copy_trade') {
+          const hasValidConfig = s.copyTradeConfig &&
+            s.copyTradeConfig.targetWallet &&
+            s.copyTradeConfig.targetWallet !== '0x0000000000000000000000000000000000000000';
+          if (!hasValidConfig) return false;
+        }
+        if (s.type === 'polymarket_copy') {
+          const hasValidConfig = s.polymarketCopyConfig &&
+            s.polymarketCopyConfig.targetWallet &&
+            s.polymarketCopyConfig.targetWallet !== '0x0000000000000000000000000000000000000000';
+          if (!hasValidConfig) return false;
+        }
+        return true;
+      });
+
+      return {
+        cacheKey: strategiesCacheKey,
+        strategies: validStrategies,
+        stats: nextStats,
+        cachedAt: Date.now(),
+      };
+    })();
+
+    strategiesInFlight.set(strategiesCacheKey, request);
+
+    try {
+      const snapshot = await request;
+      strategiesSnapshotCache = snapshot;
+      setStrategies(snapshot.strategies);
+      setStats(snapshot.stats);
+    } finally {
+      strategiesInFlight.delete(strategiesCacheKey);
+      setIsLoading(false);
     }
-
-    // Sort by createdAt desc
-    allStrategies.sort((a, b) => b.createdAt - a.createdAt);
-
-    // SAFETY: Filter out any copy_trade/polymarket_copy strategies that don't have valid configs
-    const validStrategies = allStrategies.filter(s => {
-      if (s.type === 'copy_trade') {
-        const hasValidConfig = s.copyTradeConfig &&
-          s.copyTradeConfig.targetWallet &&
-          s.copyTradeConfig.targetWallet !== '0x0000000000000000000000000000000000000000';
-        if (!hasValidConfig) return false;
-      }
-      if (s.type === 'polymarket_copy') {
-        const hasValidConfig = s.polymarketCopyConfig &&
-          s.polymarketCopyConfig.targetWallet &&
-          s.polymarketCopyConfig.targetWallet !== '0x0000000000000000000000000000000000000000';
-        if (!hasValidConfig) return false;
-      }
-      return true;
-    });
-
-    setStrategies(validStrategies);
-    setIsLoading(false);
-  }, [ready, authenticated]);
+  }, [ready, authenticated, strategiesCacheKey]);
 
   useEffect(() => {
     fetchAllStrategies();
@@ -273,6 +343,7 @@ export const useStrategies = () => {
   }, [strategies]);
 
   const createStrategy = useCallback((strategy: Omit<TradingStrategy, 'id' | 'createdAt' | 'updatedAt' | 'executionHistory'>): string => {
+    invalidateStrategiesSnapshot(strategiesCacheKey);
     const newStrategy: TradingStrategy = {
       ...strategy,
       id: `strategy-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -282,13 +353,14 @@ export const useStrategies = () => {
     };
     setStrategies(prev => [newStrategy, ...prev]);
     return newStrategy.id;
-  }, []);
+  }, [strategiesCacheKey]);
 
   const updateStrategy = useCallback(async (id: string, updates: Partial<TradingStrategy>) => {
     const previousStrategy = strategies.find(s => s.id === id);
     if (!previousStrategy) return;
 
     // Optimistic update
+    invalidateStrategiesSnapshot(strategiesCacheKey);
     setStrategies(prev =>
       prev.map(strat =>
         strat.id === id
@@ -382,7 +454,7 @@ export const useStrategies = () => {
         throw error;
       }
     }
-  }, [strategies, fetchAllStrategies, wallets, user]);
+  }, [strategies, fetchAllStrategies, wallets, user, strategiesCacheKey]);
 
   const deleteStrategy = useCallback(async (id: string) => {
     const strategy = strategies.find(s => s.id === id);
@@ -390,6 +462,7 @@ export const useStrategies = () => {
 
     if (strategy.type === 'copy_trade') {
       try {
+        invalidateStrategiesSnapshot(strategiesCacheKey);
         const signerWallet = wallets.find((w: any) => w.walletClientType === 'privy' && w.chainId?.includes?.('eip155'))
           || wallets.find((w: any) => w.chainId?.includes?.('eip155'));
         const signerAddress = signerWallet?.address || user?.wallet?.address || '';
@@ -436,6 +509,7 @@ export const useStrategies = () => {
 
     if (strategy.type === 'polymarket_copy') {
       try {
+        invalidateStrategiesSnapshot(strategiesCacheKey);
         await deletePolymarketCopyConfig(id);
         setStrategies(prev => prev.filter(strat => strat.id !== id));
       } catch (error) {
@@ -445,8 +519,9 @@ export const useStrategies = () => {
     }
 
     // Non-copy-trade local strategies: remove immediately
+    invalidateStrategiesSnapshot(strategiesCacheKey);
     setStrategies(prev => prev.filter(strat => strat.id !== id));
-  }, [strategies, wallets, user]);
+  }, [strategies, wallets, user, strategiesCacheKey]);
 
   const toggleStrategyStatus = useCallback(async (id: string) => {
     const strategy = strategies.find(s => s.id === id);
@@ -456,6 +531,7 @@ export const useStrategies = () => {
     const previousStrategies = [...strategies];
 
     // Optimistic update
+    invalidateStrategiesSnapshot(strategiesCacheKey);
     setStrategies(prev =>
       prev.map(strat => {
         if (strat.id === id) {
@@ -485,7 +561,7 @@ export const useStrategies = () => {
         toast.error('Failed to update Polymarket strategy status. Please try again.');
       }
     }
-  }, [strategies]);
+  }, [strategies, strategiesCacheKey]);
 
   const addExecutionRecord = useCallback(() => {
     // Local only
@@ -496,9 +572,10 @@ export const useStrategies = () => {
   }, [strategies]);
 
   const clearAllStrategies = useCallback(() => {
+    invalidateStrategiesSnapshot(strategiesCacheKey);
     setStrategies([]);
     localStorage.removeItem(STORAGE_KEY);
-  }, []);
+  }, [strategiesCacheKey]);
 
   return {
     strategies,

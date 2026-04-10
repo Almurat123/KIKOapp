@@ -1,5 +1,6 @@
 import React from 'react';
 import { usePrivy } from '@privy-io/react-auth';
+import { Loader2 } from 'lucide-react';
 import { ExportWalletButton } from '../components/Wallet/ExportWalletButton';
 import { SessionSignerButton } from '../components/Wallet/SessionSignerButton';
 import { PolymarketAuthButton } from '../components/Wallet/PolymarketAuthButton';
@@ -81,15 +82,44 @@ const FollowKikoButton: React.FC = () => {
 };
 
 interface SettingsPageProps {
-    onDisconnect?: () => void;
+    onDisconnect?: () => void | Promise<void>;
 }
 
+// CONTEXT MEMORY
+// Updated: 2026-04-10
+// Author: Rowan
+// Reason: Wallet settings owns the last-mile logout affordance and previously exposed a dead-feeling button with no visible pending state.
+// Goal: preserve immediate user feedback during logout so repeated clicks and "did it work?" ambiguity do not regress.
+// Owns: local pending UI, logout button copy, click dedupe, and settings-page level interaction feedback.
+// Does Not Own: auth session invalidation semantics, redirect policy after logout, or Privy provider behavior.
+// Design Language:
+// - destructive actions must acknowledge the first click immediately with visible state change
+// - settings-page buttons may disable during async work to prevent duplicate mutations
+// - forbidden local patch patterns: binding async auth mutations directly to buttons with no pending UI
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
+// - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-wallet-settings-logout-feedback.md
 // [Logic]: Primary settings page component, converted from Modal.
 // [Ref]: Replaced WalletSettingsModal.tsx with standalone page implementation.
 export default function SettingsPage({ onDisconnect }: SettingsPageProps) {
     const { logout } = usePrivy();
     const { agentModeEnabled, setAgentModeEnabled, agentModeSource, isQueryOverride } = useAgentMode();
+    const [isLoggingOut, setIsLoggingOut] = React.useState(false);
     const handleLogout = onDisconnect || logout;
+
+    const handleLogoutClick = React.useCallback(async () => {
+        if (isLoggingOut) return;
+        setIsLoggingOut(true);
+        try {
+            await Promise.resolve(handleLogout());
+        } catch (error) {
+            console.error('[SettingsPage] Logout failed', error);
+            setIsLoggingOut(false);
+        }
+    }, [handleLogout, isLoggingOut]);
+
     return (
         <PageContainer title="Settings" {...agentAttrs({ id: 'settings.page', role: 'card', page: 'settings' })}>
             <div className={styles.settingsPage} {...agentAttrs({ id: 'settings.layout', role: 'card', page: 'settings' })}>
@@ -156,11 +186,18 @@ export default function SettingsPage({ onDisconnect }: SettingsPageProps) {
 
                     <div className={styles.dangerZone} {...agentAttrs({ id: 'settings.group.danger', role: 'card', page: 'settings' })}>
                         <button
-                            onClick={handleLogout}
-                            className={styles.disconnectButton}
+                            onClick={handleLogoutClick}
+                            className={`${styles.disconnectButton} ${isLoggingOut ? styles.disconnectButtonLoading : ''}`}
+                            disabled={isLoggingOut}
+                            aria-busy={isLoggingOut}
                             {...agentAttrs({ id: 'settings.logout', role: 'button', action: 'confirm', page: 'settings' })}
                         >
-                            Logout
+                            {isLoggingOut ? (
+                                <>
+                                    <Loader2 size={18} className={styles.spinner} />
+                                    Logging out...
+                                </>
+                            ) : 'Logout'}
                         </button>
                     </div>
                 </div>

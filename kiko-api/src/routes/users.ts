@@ -4,13 +4,14 @@
  */
 
 // CONTEXT MEMORY
-// Updated: 2026-04-09
+// Updated: 2026-04-10
 // Author: Almurat
-// Reason: user identity sync now spans Privy, Farcaster, X, and wallet flows,
-//         so this route layer must own how the persisted User record is
-//         hydrated without relying on hidden migration history.
+// Reason: user identity sync now spans Privy, Farcaster, X, and wallet flows.
+//         X linkage previously depended on a frontend-only sync effect and
+//         incorrectly required an embedded wallet even for existing users.
 // Goal: preserve one stable owner for user-profile persistence, including the
-//       canonical in-app username field and social-account linkage state.
+//       canonical in-app username field and verified social-account linkage
+//       state for already-registered users.
 // Owns: authenticated user settings routes, social identity sync endpoints, and
 //       persistence rules for the shared User row.
 // Does Not Own: Privy token verification, wallet custody, or X webhook ingress.
@@ -18,11 +19,14 @@
 // - Persist canonical user profile fields from authenticated identity sources.
 // - Prefer stable normalization over ad hoc per-route formatting.
 // - Do not let social-link sync silently drift from the User schema.
+// - Existing authenticated users must not need a second wallet gate just to
+//   persist a verified X linkage that Privy already knows.
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/owner-map/backend-swap-validation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-user-username-foundation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-x-user-auto-sync.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
@@ -30,8 +34,7 @@ import prisma from '../db/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { trackLogin } from '../services/userActivityService.js';
 import { getCachedKikoFollowState, resolveKikoFollowState } from '../services/farcasterRelationshipService.js';
-import { buildXLinkUrl, getVerifiedPrivyXAccount, getXContextForUser, normalizeXUsername, serializeXContext } from '../services/x/xIdentityService.js';
-import { getEmbeddedWalletAddress } from '../services/privyWallet.js';
+import { buildXLinkUrl, getXContextForUser, serializeXContext, syncVerifiedPrivyXUser } from '../services/x/xIdentityService.js';
 
 // Types
 interface UserSettingsBody {
@@ -205,9 +208,7 @@ export async function registerUserRoutes(app: FastifyInstance) {
         username?: string;
     }
 
-    interface XSyncBody {
-        xUserId: string;
-        username?: string;
+interface XSyncBody {
         dmOptIn?: boolean;
         accessTokenRef?: string;
         refreshTokenRef?: string;
@@ -330,70 +331,30 @@ export async function registerUserRoutes(app: FastifyInstance) {
                     return reply.status(401).send({ success: false, error: 'Unauthorized' });
                 }
 
-                const verifiedXAccount = await getVerifiedPrivyXAccount(userId);
-                const xUserId = String(verifiedXAccount.xUserId || '').trim();
-                const username = normalizeXUsername(verifiedXAccount.username);
-                const dmOptIn = request.body?.dmOptIn !== false;
-                const accessTokenRef = String(request.body?.accessTokenRef || '').trim() || null;
-                const refreshTokenRef = String(request.body?.refreshTokenRef || '').trim() || null;
+                const result = await syncVerifiedPrivyXUser({
+                    userId,
+                    dmOptIn: request.body?.dmOptIn !== false,
+                    accessTokenRef: request.body?.accessTokenRef,
+                    refreshTokenRef: request.body?.refreshTokenRef,
+                });
 
-                if (!xUserId) {
+                if (result.status === 'no_x_account') {
                     return reply.status(400).send({ success: false, error: 'No verified X account is linked to this Privy user' });
                 }
 
-                const existingOwner = await prisma.user.findFirst({
-                    where: {
-                        xUserId,
-                        NOT: { privyDid: userId }
-                    },
-                    select: { privyDid: true }
-                });
-                if (existingOwner) {
-                    return reply.status(409).send({ success: false, error: 'X account already linked to another user' });
-                }
-
-                const embeddedWalletAddress = await getEmbeddedWalletAddress(userId).catch(() => null);
-                if (!embeddedWalletAddress) {
+                if (result.status === 'missing_wallet' || !result.user) {
                     return reply.status(400).send({ success: false, error: 'Embedded wallet not available for this account' });
                 }
 
-                const existingUser = await prisma.user.findUnique({
-                    where: { privyDid: userId },
-                    select: { username: true }
-                });
-
-                const user = await prisma.user.upsert({
-                    where: { privyDid: userId },
-                    update: {
-                        username: existingUser?.username || username,
-                        xUserId,
-                        xUsername: username,
-                        xLinkedAt: new Date(),
-                        xDmOptInAt: dmOptIn ? new Date() : null,
-                        xAccessTokenRef: accessTokenRef,
-                        xRefreshTokenRef: refreshTokenRef,
-                        xNotificationsMutedAt: null,
-                    },
-                    create: {
-                        privyDid: userId,
-                        username: username,
-                        walletAddress: embeddedWalletAddress,
-                        xUserId,
-                        xUsername: username,
-                        xLinkedAt: new Date(),
-                        xDmOptInAt: dmOptIn ? new Date() : null,
-                        xAccessTokenRef: accessTokenRef,
-                        xRefreshTokenRef: refreshTokenRef,
-                        xNotificationsMutedAt: null,
-                    }
-                });
-
                 return {
                     success: true,
-                    data: serializeXContext(user)
+                    data: serializeXContext(result.user)
                 };
             } catch (error: any) {
                 console.error('[X] Error syncing profile:', error);
+                if (String(error?.message || '').includes('already linked to another user')) {
+                    return reply.status(409).send({ success: false, error: 'X account already linked to another user' });
+                }
                 return reply.status(500).send({ success: false, error: error.message });
             }
         }

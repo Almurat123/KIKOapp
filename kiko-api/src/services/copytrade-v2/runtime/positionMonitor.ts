@@ -45,12 +45,32 @@ import { evaluateAutoExitPriceGuard } from './autoExitPriceGuard.js';
 import { getGuardPriceSnapshot } from './guardPrice.js';
 import { reconcileMirrorSellDustPosition } from './mirrorSellDustReconciler.js';
 import { reconcileStaleOpenClosedPosition } from './staleOpenPositionReconciler.js';
+import { reconcileTerminalExitGhostPosition } from './terminalExitGhostPositionReconciler.js';
 import {
   ExitHotPathDeferredError,
   hasIntentContext,
   resolveExitIntentRetryDelayMs,
 } from '../exit/exitHotPathPolicy.js';
 import { listActiveExitIntentPositionIds } from '../exit/positionExitIntentStore.js';
+
+// CONTEXT MEMORY
+// Updated: 2026-04-10
+// Author: Avery Lin
+// Reason: The monitor is the last owner before noisy TP/SL logs, so it must sweep
+//         stale open positions that were already terminally resolved elsewhere.
+// Goal: Keep only truly actionable open positions in the TP/SL loop and evict ghosts
+//       created by stale close markers or terminal exit-intent failures.
+// Owns: Open-position monitoring, pre-TP/SL reconciliation, and last-mile ghost cleanup.
+// Does Not Own: Creating target-sell events, buy-confirm replay, or executing exits.
+// Design Language:
+// - Reconcile stale state before consulting price snapshots.
+// - Terminal failures should leave the monitor pool immediately.
+// - Do not let missing price data mask already-terminal positions.
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-08-terminal-exit-ghost-position.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-terminal-exit-ghost-reconciler.md
 
 const NO_OPEN_POSITIONS_LOG_WINDOW_MS = Number(process.env.NO_OPEN_POSITIONS_LOG_WINDOW_MS || '180000');
 const COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP = (process.env.COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP || 'true') === 'true';
@@ -1065,6 +1085,44 @@ export async function checkPositionsForExits(): Promise<void> {
     const POSITION_BATCH_SIZE = 20; // Process 20 positions at a time
     for (let i = 0; i < positions.length; i += POSITION_BATCH_SIZE) {
         const batch = positions.slice(i, i + POSITION_BATCH_SIZE);
+        const batchPositionIds = batch.map((position) => position.id);
+        const terminalExitIntentRows = batchPositionIds.length > 0
+            ? await prisma.positionExitIntent.findMany({
+                where: {
+                    positionId: { in: batchPositionIds },
+                    lifecycleState: 'EXIT_FAILED_TERMINAL',
+                },
+                orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+                select: {
+                    id: true,
+                    positionId: true,
+                    lifecycleState: true,
+                    lastReasonCode: true,
+                    targetSellTxHash: true,
+                    metadataJson: true,
+                    closedAt: true,
+                },
+            }).catch(() => [])
+            : [];
+        const latestTerminalExitIntentByPosition = new Map<string, {
+            id: string;
+            lifecycleState: string;
+            lastReasonCode: string | null;
+            targetSellTxHash: string | null;
+            metadata: Record<string, unknown> | null;
+            closedAt: Date | null;
+        }>();
+        for (const row of terminalExitIntentRows) {
+            if (latestTerminalExitIntentByPosition.has(row.positionId)) continue;
+            latestTerminalExitIntentByPosition.set(row.positionId, {
+                id: row.id,
+                lifecycleState: row.lifecycleState,
+                lastReasonCode: row.lastReasonCode || null,
+                targetSellTxHash: row.targetSellTxHash || null,
+                metadata: (row.metadataJson as Record<string, unknown> | null) || null,
+                closedAt: row.closedAt || null,
+            });
+        }
 
         await Promise.all(batch.map(async (position) => {
             // Skip if this position is already being processed
@@ -1090,6 +1148,23 @@ export async function checkPositionsForExits(): Promise<void> {
                     },
                 });
                 if (staleOpenRepair.repaired) {
+                    markPositionLocallyClosed(position.id);
+                    return;
+                }
+
+                const terminalGhostRepair = await reconcileTerminalExitGhostPosition({
+                    position: {
+                        id: position.id,
+                        status: position.status,
+                        tokenAddress: position.tokenAddress,
+                        tokenSymbol: position.tokenSymbol,
+                        chainId: position.chainId,
+                        userId: position.userId,
+                        configId: position.configId,
+                    },
+                    terminalIntent: latestTerminalExitIntentByPosition.get(position.id) || null,
+                });
+                if (terminalGhostRepair.repaired) {
                     markPositionLocallyClosed(position.id);
                     return;
                 }

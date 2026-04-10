@@ -101,6 +101,10 @@
     font-size: var(--settings-label-fs);
     font-weight: 600;
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -112,6 +116,33 @@
 
 .disconnectButton:active {
     transform: scale(0.98);
+}
+
+.disconnectButton:disabled {
+    cursor: not-allowed;
+}
+
+.disconnectButtonLoading,
+.disconnectButtonLoading:hover,
+.disconnectButtonLoading:active {
+    background: rgba(239, 68, 68, 0.18);
+    border-color: rgba(239, 68, 68, 0.34);
+    transform: none;
+    opacity: 0.92;
+}
+
+.spinner {
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 /* Community Section Styles */

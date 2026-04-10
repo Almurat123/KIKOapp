@@ -3,10 +3,32 @@
  * Validates Bearer token against Privy JWKS
  */
 
+// CONTEXT MEMORY
+// Updated: 2026-04-10
+// Author: Almurat
+// Reason: authenticated requests now need a server-owned fallback that can
+//         persist verified Privy X linkage even when the frontend-side sync
+//         effect does not run or silently fails.
+// Goal: keep token verification authoritative while allowing the backend to
+//       opportunistically repair authenticated user linkage state.
+// Owns: Bearer token verification, end-user/service auth gates, and best-effort
+//       post-auth hydration of verified social identity.
+// Does Not Own: social identity verification rules, X bot OAuth, or webhook ingress.
+// Design Language:
+// - Authentication must not depend on frontend side effects for persisted identity.
+// - Best-effort linkage repair must never block auth success on non-critical errors.
+// - Service-key auth must remain isolated from end-user identity hydration.
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-x-user-auto-sync.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
+
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { createRemoteJWKSet, jwtVerify, decodeJwt } from 'jose';
 import { AppError } from './errorHandler.js';
 import { resolvePrivyServerConfig } from '../config/privy.js';
+import { maybeAutoSyncVerifiedPrivyXUser } from '../services/x/xIdentityService.js';
 
 const PRIVY_JWKS_URL = process.env.PRIVY_JWKS_URL || '';
 const { appId: PRIVY_APP_ID } = resolvePrivyServerConfig();
@@ -144,6 +166,10 @@ export async function requireAuth(request: FastifyRequest, _reply: FastifyReply)
 
   // Attach decoded payload for downstream use if needed
   (request as any).user = await verifyPrivyToken(token);
+  const endUserId = String((request as any).user?.sub || '').trim();
+  if (endUserId && (request as any).user?.role !== 'service') {
+    await maybeAutoSyncVerifiedPrivyXUser(endUserId).catch(() => undefined);
+  }
 
   // Log successful authentication (only in dev or for debugging)
   if (process.env.AUTH_DEBUG === 'true') {
