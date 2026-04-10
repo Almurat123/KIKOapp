@@ -1060,28 +1060,77 @@ interface TokensPageProps {
 }
 
 // ─── Module-level cache: survives page navigation (component unmount/remount) ───
+const TOKENS_CACHE_STORAGE_KEY = 'kiko_tokens_all_cache_v1';
+const TOKENS_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+const TOKENS_STALE_FALLBACK_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+
 const _tokensCache: {
   data: Token[] | null;
   timestamp: number;
   timeframe: string;
 } = { data: null, timestamp: 0, timeframe: '' };
-const TOKENS_CACHE_TTL = 2 * 60 * 1000; // 2 minutes
+const tokensPageInFlight = new Map<string, Promise<Token[]>>();
 
-function getTokensCache(timeframe: string): Token[] | null {
+function readPersistedTokensCache(timeframe: string): { data: Token[]; timestamp: number } | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(TOKENS_CACHE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      timeframe?: string;
+      timestamp?: number;
+      data?: Token[];
+    };
+    if (
+      parsed.timeframe !== timeframe
+      || !Array.isArray(parsed.data)
+      || typeof parsed.timestamp !== 'number'
+    ) {
+      return null;
+    }
+    if ((Date.now() - parsed.timestamp) > TOKENS_STALE_FALLBACK_WINDOW_MS) {
+      return null;
+    }
+    return { data: parsed.data, timestamp: parsed.timestamp };
+  } catch {
+    window.localStorage.removeItem(TOKENS_CACHE_STORAGE_KEY);
+    return null;
+  }
+}
+
+function getTokensCache(timeframe: string, options: { allowStale?: boolean } = {}): { data: Token[]; timestamp: number } | null {
+  const maxAge = options.allowStale ? TOKENS_STALE_FALLBACK_WINDOW_MS : TOKENS_CACHE_TTL;
   if (
     _tokensCache.data &&
     _tokensCache.timeframe === timeframe &&
-    Date.now() - _tokensCache.timestamp < TOKENS_CACHE_TTL
+    Date.now() - _tokensCache.timestamp < maxAge
   ) {
-    return _tokensCache.data;
+    return {
+      data: _tokensCache.data,
+      timestamp: _tokensCache.timestamp,
+    };
   }
-  return null;
+
+  const persisted = readPersistedTokensCache(timeframe);
+  if (!persisted) return null;
+
+  _tokensCache.data = persisted.data;
+  _tokensCache.timestamp = persisted.timestamp;
+  _tokensCache.timeframe = timeframe;
+  return persisted;
 }
 
 function setTokensCache(data: Token[], timeframe: string) {
   _tokensCache.data = data;
   _tokensCache.timestamp = Date.now();
   _tokensCache.timeframe = timeframe;
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(TOKENS_CACHE_STORAGE_KEY, JSON.stringify({
+      data,
+      timeframe,
+      timestamp: _tokensCache.timestamp,
+    }));
+  }
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1112,11 +1161,11 @@ export const TokensPage: React.FC<TokensPageProps> = ({
 
 
   const [internalSearchQuery, setInternalSearchQuery] = useState('');
-  const [allTokens, setAllTokens] = useState<Token[]>(() => getTokensCache(localStorage.getItem('kiko-trending-timeframe') || '5m') ?? []); // All chains cached data
+  const [allTokens, setAllTokens] = useState<Token[]>(() => getTokensCache(localStorage.getItem('kiko-trending-timeframe') || '5m', { allowStale: true })?.data ?? []); // All chains cached data
   const [tokens, setTokens] = useState<Token[]>([]); // Currently displayed tokens (for search)
   const [loading, setLoading] = useState(false);
   // Skip skeleton if we already have cached data for this timeframe
-  const [initialLoading, setInitialLoading] = useState(() => getTokensCache(localStorage.getItem('kiko-trending-timeframe') || '5m') === null);
+  const [initialLoading, setInitialLoading] = useState(() => getTokensCache(localStorage.getItem('kiko-trending-timeframe') || '5m', { allowStale: true }) === null);
   const [error, setError] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
   const [selectedChain, setSelectedChain] = useState<string>(
@@ -1140,27 +1189,45 @@ export const TokensPage: React.FC<TokensPageProps> = ({
   const mountedRef = useRef(true);
 
   // CONTEXT MEMORY
-  // Updated: 2026-04-08
-  // Author: Codex
-  // Reason: The tokens view should load from the aggregate trend endpoint first
-  //         so the page does not fan out seven live requests on every mount.
-  // Goal: Keep the trending list responsive while avoiding request bursts and
-  //       preserving stale-but-present data when the backend is throttled.
+  // Updated: 2026-04-10
+  // Author: Rowan
+  // Reason: The token page still rate-limited normal mobile navigation because
+  //         its cache died on full reload and each return could trigger another
+  //         aggregate trending read immediately.
+  // Goal: Keep the trending list responsive under mobile route churn by reusing
+  //       the last successful snapshot across reloads and sharing one refresh.
   // Owns: Page-level loader choice, refresh cadence, and list recovery behavior.
   // Does Not Own: Backend rate limits, token shaping, or cross-page caching.
   // Design Language:
   // - Prefer a single aggregate read over client-side fan-out when available.
-  // - Background refreshes should reuse the same loader path as initial load.
+  // - Recent snapshots should survive route switches and mobile reloads.
+  // - Background refreshes should reuse one in-flight loader, not stack duplicates.
   // - Do not add cache-busting query noise just to force network activity.
   // See also:
   // - /Users/almurat/KiKo/system-journal/INDEX.md
   // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
   // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
   // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-08-rate-limit-loading-stall.md
+  // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-token-page-mobile-rate-limit.md
 
-  const fetchTrendingTokens = useCallback(async () => {
-    const data = await tokenApi.getTrendingAll(TRENDING_ALL_LIMIT);
-    return data.map((token, index) => convertApiTokenToToken(token, index + 1));
+  const fetchTrendingTokens = useCallback(async (targetTimeframe: TrendingTimeframe) => {
+    const cacheKey = `tokens:${targetTimeframe}`;
+    const inFlight = tokensPageInFlight.get(cacheKey);
+    if (inFlight) return inFlight;
+
+    const request = (async () => {
+      const data = await tokenApi.getTrendingAll(TRENDING_ALL_LIMIT);
+      const mapped = data.map((token, index) => convertApiTokenToToken(token, index + 1));
+      mapped.sort((a, b) => computeTimeframeScore(b, targetTimeframe) - computeTimeframeScore(a, targetTimeframe));
+      return mapped.map((token, index) => ({ ...token, id: index + 1 }));
+    })();
+
+    tokensPageInFlight.set(cacheKey, request);
+    try {
+      return await request;
+    } finally {
+      tokensPageInFlight.delete(cacheKey);
+    }
   }, []);
 
   // Load all chains data on initial mount using the aggregate trend endpoint.
@@ -1169,47 +1236,24 @@ export const TokensPage: React.FC<TokensPageProps> = ({
     mountedRef.current = true;
 
     const loadAllChains = async () => {
-      // Check module-level cache first — avoids re-fetch on navigation back
-      const cached = getTokensCache(timeframe);
+      const cached = getTokensCache(timeframe, { allowStale: true });
       if (cached) {
-        setAllTokens(cached);
+        setAllTokens(cached.data);
         setInitialLoading(false);
         setError(null);
-        // Still refresh in background after a short delay, silently
-        setTimeout(async () => {
-          if (!mountedRef.current) return;
-          try {
-            let freshTokens = await fetchTrendingTokens();
-            freshTokens.sort((a, b) => computeTimeframeScore(b, timeframe) - computeTimeframeScore(a, timeframe));
-            if (mountedRef.current && freshTokens.length > 0) {
-              const displayTokens = freshTokens.map((t, idx) => ({ ...t, id: idx + 1 }));
-              setTokensCache(displayTokens, timeframe);
-              setAllTokens(displayTokens);
-            }
-          } catch { /* ignore */ }
-        }, 500);
-        return;
+        if ((Date.now() - cached.timestamp) < TOKENS_CACHE_TTL) return;
+        if (!isPageActive) return;
       }
 
-      setInitialLoading(true);
+      if (!cached) setInitialLoading(true);
       setError(null);
 
       try {
-        // Fetch fresh data (DB-backed API)
-        let freshTokens = await fetchTrendingTokens();
+        const freshTokens = await fetchTrendingTokens(timeframe);
 
-        // Rank tokens from all chains by selected timeframe
-        if (freshTokens.length > 0) {
-          freshTokens.sort((a, b) => computeTimeframeScore(b, timeframe) - computeTimeframeScore(a, timeframe));
-        }
-
-        // Batch update (also clear stale list if backend returns empty)
         if (mountedRef.current) {
-          // Assign unique IDs for the table display AFTER global sorting
-          const displayTokens = freshTokens.map((t, idx) => ({ ...t, id: idx + 1 }));
-          // Persist to module-level cache so navigation back is instant
-          if (displayTokens.length > 0) setTokensCache(displayTokens, timeframe);
-          setAllTokens(displayTokens);
+          if (freshTokens.length > 0) setTokensCache(freshTokens, timeframe);
+          setAllTokens(freshTokens);
         }
 
         if (mountedRef.current) {
@@ -1230,14 +1274,12 @@ export const TokensPage: React.FC<TokensPageProps> = ({
       }
     };
 
-    // Always load on mount, regardless of page visibility
     loadAllChains();
 
-    // Cleanup on unmount
     return () => {
-      // No in-flight chain fan-out remains on this path.
+      mountedRef.current = false;
     };
-  }, [timeframe, reloadNonce]); // Reload when timeframe changes or manual retry is triggered
+  }, [timeframe, reloadNonce, isPageActive, fetchTrendingTokens]); // Reload when timeframe changes or manual retry is triggered
 
   // 5-minute polling for real-time updates (matches backend refresh cadence)
   useEffect(() => {
@@ -1248,14 +1290,11 @@ export const TokensPage: React.FC<TokensPageProps> = ({
     const pollData = async () => {
       if (!mountedRef.current || !isPageActive) return;
       try {
-        let freshTokens = await fetchTrendingTokens();
+        const freshTokens = await fetchTrendingTokens(timeframe);
 
         if (mountedRef.current) {
-          // Keep the list ranked by selected timeframe
-          freshTokens.sort((a, b) => computeTimeframeScore(b, timeframe) - computeTimeframeScore(a, timeframe));
-
-          const displayTokens = freshTokens.map((t, idx) => ({ ...t, id: idx + 1 }));
-          setAllTokens(displayTokens);
+          if (freshTokens.length > 0) setTokensCache(freshTokens, timeframe);
+          setAllTokens(freshTokens);
         }
       } catch (e) {
         // Silently ignore
@@ -1265,13 +1304,10 @@ export const TokensPage: React.FC<TokensPageProps> = ({
     const intervalId = setInterval(pollData, POLL_INTERVAL);
 
     return () => clearInterval(intervalId);
-  }, [isPageActive, timeframe]);
+  }, [isPageActive, timeframe, fetchTrendingTokens]);
 
   // Cleanup on unmount
   useEffect(() => {
-    // Reset mounted ref on each mount (important for StrictMode)
-    mountedRef.current = true;
-
     return () => {
       mountedRef.current = false;
     };
@@ -1389,7 +1425,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
   // Fetch favorites when tab changes to favorites or on mount
   useEffect(() => {
     const loadFavorites = async () => {
-      if (!authenticated) {
+      if (!authenticated || activeTab !== 'favorites') {
         setFavoriteAddresses(new Set());
         return;
       }
@@ -1404,7 +1440,6 @@ export const TokensPage: React.FC<TokensPageProps> = ({
       }
     };
 
-    // Always load initially and when tab becomes favorites
     loadFavorites();
   }, [activeTab, authenticated]);
 

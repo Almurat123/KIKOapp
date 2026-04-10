@@ -315,20 +315,28 @@ async function createLegacyWebhookSubscription(params: {
   accessTokenSecret: string;
 }): Promise<void> {
   const url = `https://api.x.com/2/account_activity/webhooks/${params.webhookId}/subscriptions/all`;
-  await xRequest(
-    url,
-    { method: 'POST' },
-    {
-      Authorization: buildOAuth1Header({
-        method: 'POST',
-        url,
-        consumerKey: params.consumerKey,
-        consumerSecret: params.consumerSecret,
-        token: params.accessToken,
-        tokenSecret: params.accessTokenSecret,
-      }),
-    },
-  );
+  try {
+    await xRequest(
+      url,
+      { method: 'POST' },
+      {
+        Authorization: buildOAuth1Header({
+          method: 'POST',
+          url,
+          consumerKey: params.consumerKey,
+          consumerSecret: params.consumerSecret,
+          token: params.accessToken,
+          tokenSecret: params.accessTokenSecret,
+        }),
+      },
+    );
+  } catch (error) {
+    const message = String((error as any)?.message || error || '');
+    if (message.includes('DuplicateSubscriptionFailed: Subscription already exists')) {
+      return;
+    }
+    throw error;
+  }
 }
 
 async function getLegacyWebhookSubscription(params: {
