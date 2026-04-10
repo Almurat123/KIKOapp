@@ -23,6 +23,8 @@
 // - Ignore inbound DM/chat events at the product layer; X DMs are outbound-only.
 // - Preserve mention author verification metadata so worker policy can reject
 //   non-verified accounts without extra lookup.
+// - Treat only explicit `@bot` mentions as replyable inbound work; do not infer
+//   reply eligibility from thread structure alone.
 // Document Provenance:
 // - Source: X Activity API docs + production lookup probes
 // - Kind: official API doc | runtime observation
@@ -35,8 +37,14 @@
 // - Applied To: carrying `verified` into mention events so only verified accounts
 //   can receive automated mention replies
 // - Verification: partially verified
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-x-explicit-mention-only.md
+// - Kind: runtime observation
+// - Retrieved: 2026-04-10
+// - Applied To: requiring explicit `@bot` mention per turn after X rejected implicit thread replies
+// - Verification: verified in runtime
 // See also:
 // - system-journal/INDEX.md
+// - system-journal/fix-log/2026-04-10-x-explicit-mention-only.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-10-x-webhook-ingress-audit.md
 // - system-journal/fix-log/2026-04-10-x-webhook-empty-payload-audit.md
@@ -155,8 +163,7 @@ export function extractMentionEvents(payload: XActivityPayload): XMentionEvent[]
       if (!id || !authorId || !text) return null;
       if (botUserId && authorId === botUserId) return null;
 
-      const inReplyToUserId = toId(item?.in_reply_to_user_id || item?.in_reply_to_user_id_str);
-      const shouldHandle = textMentionsBot(text) || eventMentionsBot(item) || (botUserId && inReplyToUserId === botUserId);
+      const shouldHandle = textMentionsBot(text) || eventMentionsBot(item);
       if (!shouldHandle) return null;
 
       const user = item?.user || usersById.get(authorId) || null;
