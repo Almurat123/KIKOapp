@@ -62,6 +62,7 @@ model User {
   xConversationMappings XConversationMapping[]
   xEventLogs          XEventLog[]
   xMessageDeliveries  XMessageDelivery[]
+  xReplyShares        XReplyShare[]
 }
 
 model WalletExport {
@@ -667,6 +668,7 @@ model ChatSession {
   messages                 ChatMessage[]
   farcasterConversationMappings FarcasterConversationMapping[]
   xConversationMappings    XConversationMapping[]
+  xReplyShares             XReplyShare[]
   user                     User          @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@index([userId])
@@ -809,6 +811,7 @@ model XConversationMapping {
   user                User?            @relation(fields: [userId], references: [privyDid], onDelete: SetNull)
   chatSession         ChatSession      @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
   deliveries          XMessageDelivery[]
+  shares              XReplyShare[]
 
   @@index([userId, status])
   @@index([xUserId, channel, status])
@@ -863,6 +866,62 @@ model XMessageDelivery {
   @@index([conversationMappingId, createdAt(sort: Desc)])
   @@index([status, createdAt(sort: Desc)])
   @@map("x_message_deliveries")
+}
+
+// CONTEXT MEMORY
+// Updated: 2026-04-11
+// Author: Rowan
+// Reason: X mention replies no longer send AI body text directly on X. The
+//         product now replies with a short public link, while the readable AI
+//         output lives in a KIKO-owned share page with an OG/Twitter card.
+// Goal: preserve an opaque, short-lived public summary token that can power X
+//       card previews without exposing private chat sessions or raw session keys.
+// Owns: durable storage for public X reply share tokens and their preview-safe
+//       summary content.
+// Does Not Own: token generation policy, HTML card rendering, or X mention reply logic.
+// Design Language:
+// - Never expose private session keys or long-lived auth tokens in share URLs.
+// - Public share rows may contain preview-safe summary text, not full private chat history.
+// - Shares must point back to the owning chat session so the website can continue in-app.
+// Document Provenance:
+// - Source: X Cards markup + Open Graph protocol docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-11
+// - Applied To: storing per-reply public metadata for server-rendered share cards
+// - Verification: partially verified
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-11-x-reply-share-pages.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-11
+// - Applied To: reply-mode shift from public AI text to link-only X replies
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-11-x-reply-share-pages.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
+model XReplyShare {
+  id                    String                @id @default(cuid())
+  token                 String                @unique
+  userId                String?               @map("user_id")
+  xUserId               String                @map("x_user_id")
+  conversationMappingId String?               @map("conversation_mapping_id")
+  chatSessionId         String                @map("chat_session_id")
+  sourceTweetId         String?               @map("source_tweet_id")
+  title                 String
+  prompt                String
+  summary               String
+  expiresAt             DateTime              @map("expires_at")
+  openedAt              DateTime?             @map("opened_at")
+  createdAt             DateTime              @default(now()) @map("created_at")
+  updatedAt             DateTime              @updatedAt @map("updated_at")
+  user                  User?                 @relation(fields: [userId], references: [privyDid], onDelete: SetNull)
+  conversationMapping   XConversationMapping? @relation(fields: [conversationMappingId], references: [id], onDelete: SetNull)
+  chatSession           ChatSession           @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([chatSessionId, createdAt(sort: Desc)])
+  @@index([expiresAt])
+  @@map("x_reply_shares")
 }
 
 model XOAuthCredential {

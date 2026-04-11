@@ -1,4 +1,40 @@
 /**
+ * CONTEXT MEMORY
+ * Updated: 2026-04-11
+ * Author: Mina Zhou
+ * Reason: v4 池发现层同时承担“官方部署地址读取”和“第三方 hook 池启发式发现”，
+ *         需要明确哪些配置来自官方文档，哪些只是为生产流量保留的发现窗口。
+ * Goal: 保持 PoolId 计算、StateView 读取和 Base 上第三方 hook 池发现稳定，
+ *       同时不把启发式配置误记为官方规范。
+ * Owns: v4 PoolId 计算、StateView 地址映射、常用 hook 池组合的只读发现。
+ * Does Not Own: hook 家族归因、执行期能力判定、或 Universal Router 交易编码。
+ * Design Language:
+ * - 官方部署地址和本地发现启发式必须分开注释。
+ * - Base 第三方 hook 池的零流动性发现属于兼容策略，不是协议事实。
+ * - 扩大 fee/tickSpacing 搜索窗口时要保留来源说明。
+ * Document Provenance:
+ * - Source: Uniswap v4 deployments
+ * - Kind: official API doc
+ * - Retrieved: 2026-04-11
+ * - Applied To: StateView 官方部署地址映射
+ * - Verification: verified in docs
+ * - Source: Uniswap v4 PoolId / PoolKey docs
+ * - Kind: official API doc
+ * - Retrieved: 2026-04-11
+ * - Applied To: PoolId 计算与 PoolKey 编码方式
+ * - Verification: verified in docs
+ * - Source: DirectSwap v4 hook registry audit
+ * - Kind: repo doc
+ * - Retrieved: 2026-04-11
+ * - Applied To: Base hook 池搜索组合只作为启发式兼容窗口
+ * - Verification: verified in code
+ * See also:
+ * - /Users/almurat/KiKo/system-journal/INDEX.md
+ * - /Users/almurat/KiKo/system-journal/design-language/directswap-v4-hook-provenance.md
+ * - /Users/almurat/KiKo/system-journal/owner-map/backend-swap-validation.md
+ * - /Users/almurat/KiKo/system-journal/fix-log/2026-04-11-directswap-v4-hook-provenance-audit.md
+ * - /Users/almurat/KiKo/system-journal/conflicts.md
+ *
  * Uniswap V4 Pool Information Service - 纯链上实现
  * 
  * V4 架构:
@@ -23,12 +59,11 @@ const V4_STATE_VIEW_ABI = [
     'function getLiquidity(bytes32 poolId) view returns (uint128)'
 ];
 
-// StateView 地址 (官方部署地址)
-// [Ref]: https://docs.uniswap.org/contracts/v4/deployments
+// StateView 地址 (官方部署地址，2026-04-11 已按 Uniswap 官方 deployment 文档复核)
 export const V4_STATE_VIEW: Record<number, string> = {
-    1:     '0x7ffe42c4a5deea5b0fec41c94c136cf115597227', // Ethereum (updated)
+    1:     '0x7ffe42c4a5deea5b0fec41c94c136cf115597227', // Ethereum
     8453:  '0xa3c0c9b65bad0b08107aa264b0f3db444b867a71', // Base
-    56:    '0xd13dd3d6e93f276fafc9db9e6bb47c1180aee0c4', // BSC (Uniswap V4)
+    56:    '0xd13dd3d6e93f276fafc9db9e6bb47c1180aee0c4', // BNB Smart Chain
     42161: '0x76fd297e2d437cd7f76d50f01afe6160f86e9990', // Arbitrum
     10:    '0xc18a3169788f4f75a170290584eca6395c75ecdb', // Optimism
 };
@@ -36,13 +71,13 @@ export const V4_STATE_VIEW: Record<number, string> = {
 const stateViewInterface = new ethers.Interface(V4_STATE_VIEW_ABI);
 
 const CLANKER_HOOKS_BASE = CLANKER_HOOKS_BY_CHAIN[8453] || [];
-// [Ref]: Clanker 使用 DYNAMIC_FEE_FLAG (0x800000) 作为 fee
+// Clanker 在公开文档里说明 dynamic fee 池使用 Uniswap v4 的 0x800000 标志。
 const DYNAMIC_FEE_FLAG = 0x800000;
 
 const CLANKER_HOOKS_DYNAMIC_BASE = [
     '0xd60d6b218116cfd801e28f78d011a203d2b068cc', // ClankerHookDynamicFeeV2 v4.1.0
     '0x34a45c6b61876d739400bd71228cbcbd4f53e8cc', // ClankerHookDynamicFee v4.0.0
-    '0x7debe6943acefe85c4ee81aadd736466e07528cc', // Clanker hook variant (dynamic fee)
+    '0x7debe6943acefe85c4ee81aadd736466e07528cc', // Runtime-observed Clanker-like dynamic fee variant
 ];
 const CLANKER_HOOKS_STATIC_BASE = [
     '0xb429d62f8f3bffb98cdb9569533ea23bf0ba28cc', // ClankerHookStaticFeeV2 v4.1.0
@@ -70,22 +105,23 @@ interface V4PoolConfig {
     hooks: string[];
 }
 
-// 常见 V4 配置 - 精简版 (只保留最常用)
+// 常见 V4 配置。
+// 注意：这里只是发现窗口，不是官方“完整可用池参数表”。
 const V4_CONFIGS: Record<number, V4PoolConfig[]> = {
     8453: [ // Base
         // Clanker hooks (dynamic + static) - try multiple fee/tick combos
         ...CLANKER_FEE_TICK_SPACING.map(cfg => ({ ...cfg, hooks: CLANKER_HOOKS_DYNAMIC_BASE })),
         ...CLANKER_FEE_TICK_SPACING.map(cfg => ({ ...cfg, hooks: CLANKER_HOOKS_STATIC_BASE })),
 
-        // Common static fee tiers (hookless + known hooks from registry)
-        // Fee=0 pools are observed on Base in some flaunch-style hooks.
+        // Common static fee tiers (hookless + locally registered hooks).
+        // Fee=0 pools are production-observed on Base in some flaunch-style hooks.
         { fee: 0, tickSpacing: 60, hooks: ['0x0000000000000000000000000000000000000000', ...KNOWN_HOOKS_BASE] },
         { fee: 100, tickSpacing: 1, hooks: ['0x0000000000000000000000000000000000000000', ...KNOWN_HOOKS_BASE] },
         { fee: 500, tickSpacing: 10, hooks: ['0x0000000000000000000000000000000000000000', ...KNOWN_HOOKS_BASE] },
         { fee: 3000, tickSpacing: 60, hooks: ['0x0000000000000000000000000000000000000000', ...KNOWN_HOOKS_BASE] },
         { fee: 10000, tickSpacing: 200, hooks: ['0x0000000000000000000000000000000000000000', ...KNOWN_HOOKS_BASE] },
         { fee: 50000, tickSpacing: 1000, hooks: ['0x0000000000000000000000000000000000000000', ...KNOWN_HOOKS_BASE] },
-        // Dynamic fee hooks (covers newer hook families using DYNAMIC_FEE_FLAG)
+        // Dynamic fee hooks (local discovery window for known families using DYNAMIC_FEE_FLAG)
         ...DYNAMIC_FEE_TICK_SPACING_BASE.map((tickSpacing) => ({
             fee: DYNAMIC_FEE_FLAG,
             tickSpacing,
@@ -110,6 +146,8 @@ const V4_POOL_CACHE_TTL = 30000; // 30s cache
 const v4PoolCache = new Map<string, { pools: V4PoolInfo[]; timestamp: number }>();
 const v4PoolInflight = new Map<string, Promise<V4PoolInfo[]>>();
 
+// Base 上部分第三方 hook 池在 StateView 中可能以零流动性初始化态出现。
+// 这里是兼容发现逻辑，不代表这些家族天生等于“可执行池”。
 const BASE_V4_ZERO_LIQ_HOOK_FAMILIES = new Set(['clanker', 'doppler', 'flaunch', 'zora', 'custom']);
 const V4_FAST_DISCOVERY_WINDOW_MS = Number(process.env.V4_FAST_DISCOVERY_WINDOW_MS || '650');
 const V4_FAST_DISCOVERY_BATCH_SIZE = Number(process.env.V4_FAST_DISCOVERY_BATCH_SIZE || '18');

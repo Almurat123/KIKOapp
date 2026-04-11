@@ -1,20 +1,24 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-12
 // Author: Almurat
 // Reason: X ingress now owns only mention-driven interaction. Product direction
 //         changed after runtime/document evidence showed XChat webhook events do
 //         not expose readable DM bodies through public lookup APIs, so inbound X
 //         DMs are no longer treated as a conversation surface. Mention replies
-//         must also follow each user's saved default web model.
-// Goal: preserve deterministic mention handling while keeping X DMs outbound-only
-//       and aligning X reply model selection with persisted per-user preference.
+//         now also use a KIKO-hosted public share link instead of posting full
+//         AI text directly on X, while still following each user's saved web model.
+//         The public card image was later corrected to a conversation-screenshot
+//         visual, which requires the original user prompt to be persisted with
+//         every share record.
+// Goal: preserve deterministic mention handling while keeping X as a link-only
+//       public surface and aligning X reply model selection with persisted user preference.
 // Owns: inbound X mention processing, session routing, dedupe, and reply dispatch.
 // Does Not Own: OAuth exchange, X webhook signature checks, or token persistence.
 // Design Language:
 // - Never process the same inbound event twice.
-// - Keep public replies short and move detail into DM when allowed.
+// - Keep public replies short and move detail into a KIKO-owned share page.
 // - Use the shared conversation mapping as the source of truth.
-// - X DM/chat is an outbound notification channel, not an inbound chat surface.
+// - X DM/chat is not part of the mention reply path.
 // - Ignore inbound DM payloads even if the webhook receives them unexpectedly.
 // - Mentions from non-verified X accounts must not trigger automated replies.
 // - X mention sessions must use the same persisted default model the user chose on web.
@@ -40,9 +44,22 @@
 // - Retrieved: 2026-04-10
 // - Applied To: selecting X mention reply model from persisted user settings
 // - Verification: verified in code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-11-x-reply-share-pages.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-11
+// - Applied To: replacing direct public AI replies with a KIKO-hosted share link
+// - Verification: verified in code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-x-share-og-chat-preview.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-12
+// - Applied To: persisting the user's prompt so the public share image can render
+//   a real chat-style preview instead of a generic summary poster
+// - Verification: verified in code
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
+// - system-journal/fix-log/2026-04-11-x-reply-share-pages.md
+// - system-journal/fix-log/2026-04-12-x-share-og-chat-preview.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-10-x-dm-outbound-only.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
@@ -59,6 +76,7 @@ import { recordXQuotaMetric } from './xQuotaService.js';
 import { enqueueXAgentMessage, waitForTaskAssistantText } from './xChatBridge.js';
 import { xApiClient } from './xApiClient.js';
 import { xReplyService } from './xReplyService.js';
+import { createXReplyShare } from './xReplyShareService.js';
 import { getXBotUserId } from './xCredentialsService.js';
 import type { XMentionEvent } from './types.js';
 
@@ -75,18 +93,12 @@ function sortByNumericId<T extends { id: string }>(items: T[]): T[] {
   });
 }
 
-function publicAckText(): string {
-  return 'Received. I sent the details in DM.';
+function publicShareReplyText(shareUrl: string): string {
+  return `I replied in KIKO. View it here: ${shareUrl}`;
 }
 
 function publicBindText(username?: string | null): string {
   return `Link your X account in KIKO first: ${buildXLinkUrl({ username })}`;
-}
-
-function trimForPublicReply(text: string): string {
-  const normalized = String(text || '').replace(/\s+/g, ' ').trim();
-  if (normalized.length <= 260) return normalized;
-  return `${normalized.slice(0, 257)}...`;
 }
 
 function normalizeMentionPayload(payload: unknown): XMentionEvent | null {
@@ -323,18 +335,6 @@ export class XIngressWorker {
       return;
     }
 
-    const dmCapable = Boolean(user.xDmOptInAt && !user.xNotificationsMutedAt);
-    if (!dmCapable) {
-      await xReplyService.replyToMention({
-        userId: user.privyDid,
-        xUserId: mention.authorId,
-        tweetId: mention.id,
-        text: publicBindText(mention.authorUsername),
-        idempotencyKey: `x:reply:dmoptin:${mention.id}`,
-      });
-      return;
-    }
-
     const preferredModel = normalizeSupportedChatModel(user.settings?.defaultChatModel);
     const mapping = await findOrCreateXConversation({
       userId: user.privyDid,
@@ -371,15 +371,14 @@ export class XIngressWorker {
           taskId: queued.task?.id,
           assistantMessageId: queued.assistantMessage.id,
         });
-
-    const dmSent = await xReplyService.sendDirectMessage({
+    const share = await createXReplyShare({
       userId: user.privyDid,
       xUserId: mention.authorId,
       conversationMappingId: mapping.id,
-      text: assistantText,
-      sourceMessageId: mention.id,
-      idempotencyKey: `x:dm:mention:${mention.id}`,
-      incrementRoundTrip: false,
+      chatSessionId: mapping.chatSessionId,
+      sourceTweetId: mention.id,
+      promptText: mention.text,
+      assistantText,
     });
 
     await xReplyService.replyToMention({
@@ -387,7 +386,7 @@ export class XIngressWorker {
       xUserId: mention.authorId,
       tweetId: mention.id,
       conversationMappingId: mapping.id,
-      text: dmSent ? publicAckText() : trimForPublicReply(assistantText),
+      text: publicShareReplyText(share.shareUrl),
       idempotencyKey: `x:reply:mention:${mention.id}`,
     });
   }

@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <link rel="icon" type="image/png" href="/kiko-logo-dark.png" />
+  <link rel="icon" type="image/png" href="/icon.png" />
   <meta name="viewport"
     content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>KIKO AI Terminal</title>
@@ -41,13 +41,15 @@
           Farcaster Mini App embed metadata from the same document.
   Goal: Keep browser install metadata and Farcaster share metadata aligned
         without introducing route-specific runtime injection.
-  Owns: Web app shell metadata, share-card hints, and Farcaster embed tags.
+  Owns: Web app shell metadata, share-card hints, Farcaster embed tags, and the
+        canonical public icon filename.
   Does Not Own: Runtime rendering, auth, token loading, or manifest signing.
   Design Language:
   - Prefer standards-based PWA flags over deprecated vendor-only variants.
   - Keep Farcaster embed metadata static in the HTML shell unless a route
     explicitly needs its own embed card.
   - Keep install metadata minimal and explicit.
+  - Use /icon.png as the single public favicon / touch icon source.
   See also:
   - /Users/almurat/KiKo/system-journal/INDEX.md
   - /Users/almurat/KiKo/system-journal/fix-log/2026-04-08-rate-limit-loading-stall.md
@@ -58,7 +60,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="KIKO">
-  <link rel="apple-touch-icon" href="/kiko-logo-dark.png">
+  <link rel="apple-touch-icon" href="/icon.png">
 
   <!-- Theme Color for iOS 26 Liquid Glass -->
   <meta name="theme-color" content="#09090b" media="(prefers-color-scheme: dark)">

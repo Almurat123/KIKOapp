@@ -4,34 +4,43 @@
  */
 
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-11
 // Author: Almurat
 // Reason: the server bootstrap now owns X OAuth preload and route registration
 //         so the bot can authorize once and serve credentials at runtime.
 //         Farcaster polling ingress now also starts here because it shares the
-//         chat worker and needs explicit startup/shutdown ordering.
+//         chat worker and needs explicit startup/shutdown ordering. X public
+//         reply shares now also mount here because they must bypass browser-only
+//         origin/app-key checks and remain crawler-accessible.
 // Goal: keep X auth routes mounted before startup, preload stored credentials,
-//       Farcaster agent polling after chat worker boot, and preserve existing
-//       worker boot order.
-// Owns: top-level route wiring and startup sequencing for the API server.
+//       expose crawler-safe X share routes, bring Farcaster agent polling after
+//       chat worker boot, and preserve existing worker boot order.
+// Owns: top-level route wiring, public-route security bypasses, and startup sequencing for the API server.
 // Does Not Own: OAuth token exchange details, webhook parsing, or chat logic.
 // Design Language:
 // - Register auth infrastructure before starting workers.
 // - Preload runtime credentials before X ingress comes up.
 // - Keep startup order explicit and fail fast when auth is misconfigured.
 // - Bring Farcaster polling up only after chat execution is available.
+// - Public X share routes must bypass origin/app-key enforcement so X crawlers can fetch cards.
 // Document Provenance:
 // - Source: Neynar Notifications API docs
 // - Kind: official API doc
 // - Retrieved: 2026-04-10
 // - Applied To: booting a polling worker instead of webhook ingress for Farcaster mentions
 // - Verification: inferred
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-11-x-reply-share-pages.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-11
+// - Applied To: mounting public `/x/share/*` routes outside origin/app-key enforcement
+// - Verification: verified in code
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-09-x-auth-origin-bypass.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
 // - system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
+// - system-journal/fix-log/2026-04-11-x-reply-share-pages.md
 // - system-journal/conflicts.md
 
 import 'dotenv/config';
@@ -71,6 +80,7 @@ import { aiRoutes } from './routes/ai.js';
 import { internalToolsRoutes } from './routes/internalTools.js';
 import { imageRoutes } from './routes/images.js';
 import { billingRoutes } from './routes/billing.js';
+import { xShareRoutes } from './routes/xShare.js';
 import { initAutoTradeService, stopAutoTradeService } from './services/autoTradeService.js';
 import { tokenAlertService } from './services/tokenAlertService.js';
 import { startPositionMonitor } from './jobs/positionMonitorJob.js';
@@ -281,6 +291,7 @@ fastify.addHook('preHandler', async (request, reply) => {
         '/api/auth/x/oauth1/callback',
         '/api/webhook/',
         '/webhook/',
+        '/x/share/',
         '/api/images',
         '/internal/tools/'
     ];
@@ -413,6 +424,7 @@ fastify.register(async (fastify) => {
     fastify.register(rpcRoutes, { prefix: '/api/rpc' });
     fastify.register(zoraProxyRoutes, { prefix: '/api/zora-proxy' });
     fastify.register(imageRoutes, { prefix: '/api/images' });
+    fastify.register(xShareRoutes);
     fastify.register(billingRoutes, { prefix: '/api/billing' });
     fastify.register(aiRoutes, { prefix: '/api/ai' });
     fastify.register(internalToolsRoutes);

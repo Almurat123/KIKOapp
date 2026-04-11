@@ -3,11 +3,13 @@
  * Validates and loads environment variables
  */
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-11
 // Author: Almurat
 // Reason: X OAuth now depends on explicit operator allowlisting, encrypted
 //         bot-token storage, a distinct CRC signing secret for webhook setup,
 //         and an OAuth1 helper flow for Account Activity subscription setup.
+//         X mention replies also need an explicit public share base URL so the
+//         API can emit crawler-safe share pages instead of public AI text.
 //         Farcaster agent ingress now also needs explicit polling and signer
 //         env boundaries so low-cost Neynar polling can be enabled without
 //         changing X runtime assumptions.
@@ -23,6 +25,7 @@
 // - Sensitive token storage must require a valid encryption key.
 // - Webhook CRC must use the X app API/consumer secret, never OAuth2 client secret fallback.
 // - Farcaster agent ingress must stay disabled unless its signer and bot identity are configured.
+// - Public X share links must have an explicit base URL and must not be inferred from private session paths.
 // Document Provenance:
 // - Source: Neynar Notifications API docs
 // - Kind: official API doc
@@ -34,12 +37,18 @@
 // - Retrieved: 2026-04-10
 // - Applied To: signer UUID and reply publishing env requirements
 // - Verification: inferred
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-11-x-reply-share-pages.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-11
+// - Applied To: explicit `X_SHARE_BASE_URL` env boundary for public crawler-safe reply shares
+// - Verification: verified in code
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-10-x-oauth1-helper-flow.md
 // - system-journal/fix-log/2026-04-09-x-webhook-crc-secret-boundary.md
 // - system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
+// - system-journal/fix-log/2026-04-11-x-reply-share-pages.md
 // - system-journal/conflicts.md
 import dotenv from 'dotenv';
 import path from 'node:path';
@@ -187,6 +196,7 @@ export interface EnvConfig {
         pollDmMs: number;
         pollBatchSize: number;
         linkBaseUrl: string;
+        shareBaseUrl: string;
     };
     farcasterAgent: {
         enabled: boolean;
@@ -524,6 +534,7 @@ function validateEnv(): EnvConfig {
             pollDmMs: parseInt(process.env.X_POLL_DM_MS || '60000', 10),
             pollBatchSize: parseInt(process.env.X_POLL_BATCH_SIZE || '20', 10),
             linkBaseUrl: process.env.X_LINK_BASE_URL || 'https://kikoapp.app/settings',
+            shareBaseUrl: process.env.X_SHARE_BASE_URL || 'https://api.kikoapp.app/x/share',
         },
         farcasterAgent: {
             enabled: farcasterAgentEnabled,

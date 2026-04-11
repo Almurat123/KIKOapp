@@ -247,6 +247,23 @@ CREATE TABLE IF NOT EXISTS "x_message_deliveries" (
   "updated_at" TIMESTAMP DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS "x_reply_shares" (
+  "id" TEXT PRIMARY KEY,
+  "token" TEXT UNIQUE NOT NULL,
+  "user_id" TEXT REFERENCES "User"("privyDid") ON DELETE SET NULL,
+  "x_user_id" TEXT NOT NULL,
+  "conversation_mapping_id" TEXT REFERENCES "x_conversation_mappings"("id") ON DELETE SET NULL,
+  "chat_session_id" TEXT NOT NULL REFERENCES "ChatSession"("id") ON DELETE CASCADE,
+  "source_tweet_id" TEXT,
+  "title" TEXT NOT NULL,
+  "prompt" TEXT NOT NULL,
+  "summary" TEXT NOT NULL,
+  "expires_at" TIMESTAMP NOT NULL,
+  "opened_at" TIMESTAMP,
+  "created_at" TIMESTAMP DEFAULT NOW(),
+  "updated_at" TIMESTAMP DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS "x_oauth_credentials" (
   "id" TEXT PRIMARY KEY,
   "provider" TEXT UNIQUE NOT NULL DEFAULT 'x',

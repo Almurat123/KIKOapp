@@ -15,6 +15,8 @@
   - 200x200 splash image
 - Updated static headers so the manifest revalidates and the image assets can be
   cached long term.
+- Replaced screenshot-replica brand art with poster-first promotional art that
+  uses pure gradients, centered typography, and a brand-avatar loading mark.
 
 ## Why
 

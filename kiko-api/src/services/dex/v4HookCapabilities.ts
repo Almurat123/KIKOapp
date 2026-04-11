@@ -1,3 +1,38 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-11
+// Author: Mina Zhou
+// Reason: hook 能力判定之前把部分“地址已收录”直接等同于“供应商文档已证实
+//         且可安全直连”。这会掩盖第三方 hook 地址归因不足的问题。
+// Goal: 让 DirectSwap 的 capability 判定区分“已知家族适配”、“需要运行时
+//       探测”和“供应商文档已明确”的边界，避免把未知 custom hook 直接放行。
+// Owns: v4 hook 的本地 capability 画像、探测缓存、未知 hook 的预模拟降级策略。
+// Does Not Own: hook 地址登记、第三方协议地址发布、或交易构建动作编码。
+// Design Language:
+// - 已知家族不等于文档已证实， capability 与 provenance 必须分开看。
+// - 对缺少供应商公开地址归因的 custom hook，优先探测，不要静态放行。
+// - 只在本地有明确适配逻辑时，才把 hook 标为 `supported_with_adapter`。
+// Document Provenance:
+// - Source: Uniswap v4 `Actions.sol` and `V4Router.sol`
+// - Kind: official API doc
+// - Retrieved: 2026-04-11
+// - Applied To: router-level action compatibility assumptions for DirectSwap
+// - Verification: verified in code
+// - Source: DirectSwap v4 hook registry audit
+// - Kind: repo doc
+// - Retrieved: 2026-04-11
+// - Applied To: downgrade unverified custom hooks from static-safe to probe-first
+// - Verification: verified in code
+// - Source: Base production pre-sim failures and hook probe path
+// - Kind: runtime observation
+// - Retrieved: 2026-04-11
+// - Applied To: keep `probe_only` / `unsupported` as runtime-derived outcomes
+// - Verification: partially verified
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/directswap-v4-hook-provenance.md
+// - /Users/almurat/KiKo/system-journal/owner-map/backend-swap-validation.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-11-directswap-v4-hook-provenance-audit.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
 import { ethers } from 'ethers';
 
 import { getNativeAliasSetForChain } from '../evmCanonicalAsset.js';
@@ -109,7 +144,7 @@ function buildKnownProfile(params: {
     };
   }
 
-  if (hookFamily === 'zora' || hookFamily === 'doppler' || hookFamily === 'custom') {
+  if (hookFamily === 'zora' || hookFamily === 'doppler') {
     return {
       ...base,
       supportsEmptyHookData: true,
@@ -120,6 +155,20 @@ function buildKnownProfile(params: {
       routerCompatibility: 'uniswap_v4',
       status: 'supported_safe',
       reasonCode: `KNOWN_${hookFamily.toUpperCase()}_SAFE`,
+    };
+  }
+
+  if (hookFamily === 'custom') {
+    return {
+      ...base,
+      supportsEmptyHookData: false,
+      supportsPathSwap: false,
+      supportsSweepOut: false,
+      requiresCustomHookData: false,
+      customAccountingRisk: true,
+      routerCompatibility: 'unknown',
+      status: 'probe_only',
+      reasonCode: 'KNOWN_CUSTOM_PROBE_REQUIRED',
     };
   }
 
