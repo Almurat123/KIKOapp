@@ -48,13 +48,14 @@ function applySafeAreaInsets(insets: MiniAppSafeAreaInsets): void {
 }
 
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-12
 // Author: Rowan
 // Reason: Farcaster Mini App launches need a dedicated bootstrap layer so the
 //         client can detect the host, apply safe-area overrides, and mark the
 //         app as ready without leaking that logic into page components.
 // Goal: preserve a single, predictable Mini App bootstrap path that works in
-//       both normal browsers and Farcaster clients.
+//       both normal browsers and Farcaster clients, while hiding the Farcaster
+//       loading screen as soon as the shell is mounted.
 // Owns: Mini App environment detection, safe-area variable application, and the
 //       one-time `sdk.actions.ready()` handshake.
 // Does Not Own: Privy authentication, wallet ownership, share-card metadata, or
@@ -63,12 +64,14 @@ function applySafeAreaInsets(insets: MiniAppSafeAreaInsets): void {
 // - Keep Mini App host detection isolated from page rendering logic.
 // - Apply safe-area values at the document root so existing layout CSS can
 //   consume them without per-page conditionals.
+// - Call `sdk.actions.ready()` immediately after Mini App host detection so
+//   the client can display content without waiting on read-only context fetches.
 // - Do not move auth or backend sync concerns into this bootstrap layer.
 // Document Provenance:
 // - Source: Farcaster Mini Apps loading guide
 // - Kind: official API doc
-// - Retrieved: 2026-04-10
-// - Applied To: call `sdk.actions.ready()` after the app shell mounts
+// - Retrieved: 2026-04-12
+// - Applied To: call `sdk.actions.ready()` immediately after host detection
 // - Verification: verified in docs
 // - Source: Farcaster Mini Apps context guide
 // - Kind: official API doc
@@ -85,6 +88,7 @@ function applySafeAreaInsets(insets: MiniAppSafeAreaInsets): void {
 // - /Users/almurat/KiKo/system-journal/design-language/farcaster-miniapp-shell.md
 // - /Users/almurat/KiKo/system-journal/owner-map/farcaster-miniapp-support.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-miniapp-support.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-farcaster-miniapp-display-ready-fix.md
 
 export const MiniAppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [isMiniApp, setIsMiniApp] = useState(false);
@@ -110,17 +114,17 @@ export const MiniAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
                 setIsMiniApp(true);
 
+                if (!readyRequestedRef.current) {
+                    readyRequestedRef.current = true;
+                    await sdk.actions.ready();
+                }
+
                 const miniAppContext = await sdk.context.catch(() => null);
                 if (cancelled) return;
 
                 const nextContext = miniAppContext ?? null;
                 setContext(nextContext);
                 applySafeAreaInsets(normalizeSafeAreaInsets(nextContext?.client?.safeAreaInsets));
-
-                if (!readyRequestedRef.current) {
-                    readyRequestedRef.current = true;
-                    await sdk.actions.ready();
-                }
 
                 if (!cancelled) {
                     setIsReady(true);

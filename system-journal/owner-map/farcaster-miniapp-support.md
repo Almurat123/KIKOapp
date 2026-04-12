@@ -57,3 +57,4 @@ of splitting into a second frontend.
 - `system-journal/design-language/farcaster-miniapp-shell.md`
 - `system-journal/fix-log/2026-04-10-farcaster-miniapp-support.md`
 - `system-journal/fix-log/2026-04-12-farcaster-manifest-splash-fix.md`
+- `system-journal/fix-log/2026-04-12-farcaster-miniapp-display-ready-fix.md`

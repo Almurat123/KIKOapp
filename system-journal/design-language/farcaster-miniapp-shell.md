@@ -40,3 +40,4 @@ Mini App client.
 - `system-journal/owner-map/farcaster-miniapp-support.md`
 - `system-journal/fix-log/2026-04-10-farcaster-miniapp-support.md`
 - `system-journal/fix-log/2026-04-12-farcaster-manifest-splash-fix.md`
+- `system-journal/fix-log/2026-04-12-farcaster-miniapp-display-ready-fix.md`
