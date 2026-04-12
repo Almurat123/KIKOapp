@@ -1,31 +1,33 @@
 {
   "accountAssociation": {
-    "header": "REPLACE_WITH_WARPCAST_SIGNED_HEADER",
-    "payload": "REPLACE_WITH_WARPCAST_SIGNED_PAYLOAD",
-    "signature": "REPLACE_WITH_WARPCAST_SIGNED_SIGNATURE"
+    "header": "eyJmaWQiOjE1NzY2MTYsInR5cGUiOiJjdXN0b2R5Iiwia2V5IjoiMHhCQTAyYmJlRDg4YjgyZjc0QjdmYzdjOTY2RjM5YjVGMUQyZkI3MUIxIn0",
+    "payload": "eyJkb21haW4iOiJraWtvYXBwLmFwcCJ9",
+    "signature": "RcsfL213F6164ftRzddJ8V2T2RjxN7+7gGYagve4gPcLgSOo+Ql+J9siC1QIbQyLBUXVc+iT1eR2HvPmVcEurBw="
   },
-  "miniapp": {
+  "frame": {
     "version": "1",
-    "name": "KiKo your best way to trade !",
+    "name": "kikoapp",
     "homeUrl": "https://kikoapp.app/",
     "iconUrl": "https://kikoapp.app/icon.png",
+    "imageUrl": "https://kikoapp.app/farcaster-preview.png",
+    "buttonTitle": "Open KiKo",
     "splashImageUrl": "https://kikoapp.app/farcaster-splash.png",
     "splashBackgroundColor": "#09090b",
-    "subtitle": "Trade analysis copy trade",
+    "subtitle": "AI. Trend social. Trade analysis. Copy trade. Predication.",
     "description": "KiKo your best way to trade !",
     "primaryCategory": "finance",
     "tags": [
       "ai",
       "trading",
-      "finance",
-      "social",
+      "socail",
+      "token",
       "swap"
     ],
     "heroImageUrl": "https://kikoapp.app/farcaster-promo.png",
-    "tagline": "Copy faster trade smarter",
-    "ogTitle": "KiKo trade insights",
-    "ogDescription": "AI trading for analysis, copy trading, swaps, and social discovery.",
+    "tagline": "Copy faster. Trade smarter.",
+    "ogTitle": "Ask kiko what's trend token !",
+    "ogDescription": "KIKO is an AI trading terminal for chat, market analysis, copy trading, swaps, and social discovery.",
     "ogImageUrl": "https://kikoapp.app/farcaster-social.png",
-    "canonicalDomain": "kikoapp.app"
+    "castShareUrl": "https://warpcast.com/~/compose?text=Check%20out%20KIKO%20https%3A%2F%2Fkikoapp.app%2F"
   }
 }

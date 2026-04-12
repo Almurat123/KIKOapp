@@ -4,6 +4,33 @@ import { usePrivy } from '@privy-io/react-auth';
 import { mergeTransactionCardData } from '../utils/transactionCardState';
 import { chatWSClient } from '../utils/chatWebSocket';
 
+// CONTEXT MEMORY
+// Updated: 2026-04-12
+// Author: Rowan Hale
+// Reason: Conversation hydration must not erase live-rendered assistant cards while the database row is still catching up.
+// Goal: Preserve richer local chat rendering during websocket -> DB eventual consistency, especially for copy-trade and transaction confirmations.
+// Owns: Merging local conversation state with freshly loaded session messages from the backend.
+// Does Not Own: Emitting websocket client actions, card component rendering, or backend message persistence order.
+// Design Language:
+// - Prefer the richer local assistant presentation when the database row is temporarily behind.
+// - Only merge by message ID inside this owner; transport/runtime event ordering belongs elsewhere.
+// - Forbidden local patch pattern: replacing live non-text assistant cards with stale plain-text DB rows.
+// Document Provenance:
+// - Source: Copy-trade live card regression logs (`/Users/almurat/Downloads/logs.1775995828927.json`) and runtime screenshot (`/Users/almurat/Downloads/IMG_4739.PNG`)
+// - Kind: runtime observation
+// - Retrieved: 2026-04-12
+// - Applied To: Preserving `strategy-card` and other non-text assistant cards across `loadConversation` hydration.
+// - Verification: verified in code
+// - Source: `kiko-web/src/components/Chat/ChatInterface.tsx`
+// - Kind: repo doc
+// - Retrieved: 2026-04-12
+// - Applied To: Confirming the live websocket path already mutates messages to `strategy-card` on `show_strategy_card`.
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-copytrade-card-live-hydration.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-first-send-no-loading-chat-entry.md
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'system' | 'tool';
@@ -102,6 +129,58 @@ function mergeAgentRuntimeData(dbData: any, localData: any) {
   }
 
   return dbData;
+}
+
+function isRichAssistantMessageType(type: Message['type'] | undefined): boolean {
+  return Boolean(type && type !== 'text');
+}
+
+function mergeAssistantMessageFromLocal(dbMessage: any, localMessage: any) {
+  const dbType = dbMessage?.type || 'text';
+  const localType = localMessage?.type || 'text';
+  const localIsRich = isRichAssistantMessageType(localType);
+  const dbIsPlainText = dbType === 'text';
+
+  if (!localIsRich) {
+    return dbMessage;
+  }
+
+  if (localType === 'transaction-status-card') {
+    if (dbIsPlainText) {
+      return {
+        ...dbMessage,
+        type: localType,
+        data: mergeAgentRuntimeData(localMessage.data ?? dbMessage.data, localMessage.data),
+      };
+    }
+
+    if (dbType === 'transaction-status-card') {
+      return {
+        ...dbMessage,
+        type: localType,
+        data: mergeAgentRuntimeData(
+          mergeTransactionCardData(dbMessage.data ?? {}, localMessage.data ?? {}),
+          localMessage.data,
+        ),
+      };
+    }
+  }
+
+  if (dbIsPlainText || dbType === localType) {
+    return {
+      ...dbMessage,
+      type: localType,
+      data: mergeAgentRuntimeData(
+        {
+          ...(dbMessage.data ?? {}),
+          ...(localMessage.data ?? {}),
+        },
+        localMessage.data,
+      ),
+    };
+  }
+
+  return dbMessage;
 }
 
 export const useConversations = () => {
@@ -289,25 +368,9 @@ export const useConversations = () => {
           const dbMsg = dbMessages[i] as any;
           const localMsg = localById.get(dbMsg.id) as any;
           if (!localMsg) continue;
-          const localIsTxCard = localMsg.type === 'transaction-status-card';
-          const dbIsPlainText = !dbMsg.type || dbMsg.type === 'text';
-          if (localIsTxCard && dbIsPlainText) {
-            dbMessages[i] = {
-              ...dbMsg,
-              type: localMsg.type,
-              data: mergeAgentRuntimeData(localMsg.data ?? dbMsg.data, localMsg.data),
-            };
-            continue;
-          }
-          if (localIsTxCard && dbMsg.type === 'transaction-status-card') {
-            dbMessages[i] = {
-              ...dbMsg,
-              type: localMsg.type,
-              data: mergeAgentRuntimeData(
-                mergeTransactionCardData(dbMsg.data ?? {}, localMsg.data ?? {}),
-                localMsg.data,
-              ),
-            };
+          const mergedLocalPresentation = mergeAssistantMessageFromLocal(dbMsg, localMsg);
+          if (mergedLocalPresentation !== dbMsg) {
+            dbMessages[i] = mergedLocalPresentation;
             continue;
           }
 

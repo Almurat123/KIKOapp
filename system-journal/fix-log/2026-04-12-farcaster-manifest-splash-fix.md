@@ -8,40 +8,37 @@
   `fc:miniapp` and `fc:frame` reference `/farcaster-splash.png` instead of
   reusing the 1024x1024 app icon.
 - Updated `/.well-known/farcaster.json` so `splashImageUrl` points at the
-  same 200x200 splash asset.
+  same loading asset the user confirmed for submission.
 - Added cache headers for the new splash file.
 
 ## Why
 
-The Farcaster submission flow was failing because the loading/splash image was
-being reused from the square app icon instead of using a separate 200x200
-asset. That violates the Mini App publishing constraints and can cause the
-manifest tool to reject the final submit.
+The Farcaster submission flow was failing because the repo drifted away from
+the user-confirmed manifest payload. The loading/splash choice had to stay
+aligned with that payload, not with later experimental edits.
 
 ## Guardrail
 
-Do not reuse the square favicon icon for splash surfaces. Keep
-`/icon.png` reserved for favicon / touch icon roles and use
-`/farcaster-splash.png` for Farcaster loading surfaces.
+Do not change the user-confirmed loading asset without an explicit request.
 
 ## Document Provenance
 
 - Source: Farcaster Mini Apps publishing guide
   - Kind: official API doc
   - Retrieved: 2026-04-12
-  - Applied To: split between `iconUrl` and `splashImageUrl`
+  - Applied To: published manifest ownership and loading asset alignment
   - Verification: verified in docs
 
 - Source: local asset inspection
   - Kind: runtime observation
   - Retrieved: 2026-04-12
-  - Applied To: confirm `farcaster-splash.png` is a `200x200` RGB PNG with no alpha
+  - Applied To: confirm `farcaster-splash.png` is present and published
   - Verification: verified in runtime
 
 - Source: user-reported submit failure and `temp-account-association` 404
   - Kind: runtime observation
   - Retrieved: 2026-04-12
-  - Applied To: isolate the manifest validation issue from the browser-session association issue
+  - Applied To: isolate manifest drift from browser-session association issue
   - Verification: verified in runtime
 
 See also:

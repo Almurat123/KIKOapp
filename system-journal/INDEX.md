@@ -50,6 +50,7 @@ owner boundaries, and major fixes.
 - [Fix Log: 2026-04-12 X Share OG Chat Preview](./fix-log/2026-04-12-x-share-og-chat-preview.md)
 - [Fix Log: 2026-04-12 ETH Symbol Chain Ambiguity](./fix-log/2026-04-12-eth-symbol-chain-ambiguity.md)
 - [Fix Log: 2026-04-12 Copytrade Confirmation Soft Gate](./fix-log/2026-04-12-copytrade-confirmation-soft-gate.md)
+- [Fix Log: 2026-04-12 Copytrade Card Live Hydration](./fix-log/2026-04-12-copytrade-card-live-hydration.md)
 - [Fix Log: 2026-04-10 X Webhook Replay Script](./fix-log/2026-04-10-x-webhook-replay-script.md)
 - [Fix Log: 2026-04-12 Chat Home Shell Regression Revert](./fix-log/2026-04-12-chat-home-shell-regression-revert.md)
 - [Fix Log: 2026-04-12 First Send No Loading Chat Entry](./fix-log/2026-04-12-first-send-no-loading-chat-entry.md)
