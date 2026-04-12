@@ -14,6 +14,7 @@ Updated: 2026-04-12
 - `kiko-web/public/farcaster-promo.png`
 - `kiko-web/public/farcaster-social.png`
 - `kiko-web/public/icon.png`
+- `kiko-web/public/farcaster-splash.png`
 
 ## Ownership Boundaries
 
@@ -49,3 +50,10 @@ experiments.
 
 The Mini App shell should stay compatible with the existing browser app instead
 of splitting into a second frontend.
+
+## See Also
+
+- `system-journal/INDEX.md`
+- `system-journal/design-language/farcaster-miniapp-shell.md`
+- `system-journal/fix-log/2026-04-10-farcaster-miniapp-support.md`
+- `system-journal/fix-log/2026-04-12-farcaster-manifest-splash-fix.md`

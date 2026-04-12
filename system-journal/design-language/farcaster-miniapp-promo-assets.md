@@ -44,9 +44,10 @@ visual anchor, sparse supporting copy, and a controlled brand mark.
 
 The working render folders under `output/` were intentionally pruned from the
 repository after export so the branch keeps only the published assets. The
-loading surface is now canonicalized to the logo at `/icon.png`, and the
-public app naming now uses the longer `KiKo your best way to trade !` brand
-string in the shell and manifest.
+loading surface is now canonicalized to the separate logo splash at
+`/farcaster-splash.png`, while `/icon.png` remains the favicon / touch icon.
+The public app naming now uses the longer `KiKo your best way to trade !`
+brand string in the shell and manifest.
 
 ## Document Provenance
 
@@ -74,13 +75,21 @@ string in the shell and manifest.
   - Applied To: Farcaster manifest naming, subtitle, and share metadata
   - Verification: verified in shell and manifest updates
 
+- Source: Farcaster Mini Apps publishing guide
+  - Kind: official API doc
+  - Retrieved: 2026-04-12
+  - Applied To: canonical `iconUrl` and `splashImageUrl` size split, plus
+    the separate logo splash asset
+  - Verification: verified in docs
+
 - Source: Farcaster Mini Apps sharing guide
-- Kind: official API doc
-- Retrieved: 2026-04-10
-- Applied To: image size expectations for promotional surfaces
-- Verification: verified in docs
+  - Kind: official API doc
+  - Retrieved: 2026-04-10
+  - Applied To: image size expectations for promotional surfaces
+  - Verification: verified in docs
 
 See also:
 - `system-journal/INDEX.md`
 - `system-journal/design-language/farcaster-miniapp-shell.md`
 - `system-journal/fix-log/2026-04-10-farcaster-miniapp-support.md`
+- `system-journal/fix-log/2026-04-12-farcaster-manifest-splash-fix.md`

@@ -18,6 +18,7 @@ owner boundaries, and major fixes.
 - [Fix Log: 2026-04-11 DirectSwap V4 Hook Provenance Audit](./fix-log/2026-04-11-directswap-v4-hook-provenance-audit.md)
 - [Fix Log: 2026-04-11 Farcaster Mini App Poster Redesign](./fix-log/2026-04-11-farcaster-miniapp-poster-redesign.md)
 - [Fix Log: 2026-04-12 Farcaster Mini App Asset Export](./fix-log/2026-04-12-farcaster-miniapp-asset-export.md)
+- [Fix Log: 2026-04-12 Farcaster Manifest Splash Fix](./fix-log/2026-04-12-farcaster-manifest-splash-fix.md)
 - [Fix Log: 2026-04-10 Chat Home Deferred Runtime](./fix-log/2026-04-10-chat-home-deferred-runtime.md)
 - [Fix Log: 2026-04-10 Chat Home Route Eager Entry](./fix-log/2026-04-10-chat-home-route-eager-entry.md)
 - [Fix Log: 2026-04-10 Token Page Stray Read Rate Limit](./fix-log/2026-04-10-token-page-stray-read-rate-limit.md)

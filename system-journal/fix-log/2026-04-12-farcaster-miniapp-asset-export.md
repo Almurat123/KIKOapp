@@ -8,8 +8,9 @@
   - `/farcaster-preview.png`
   - `/farcaster-promo.png`
   - `/farcaster-social.png`
-- Unified the public logo filename to `/icon.png` and updated the web shell to
-  point at that canonical icon path, including the Farcaster loading splash.
+- Unified the public logo filename to `/icon.png` for favicon / touch icon use
+  and added a separate `/farcaster-splash.png` loading logo for Farcaster
+  surfaces.
 - Updated the PWA `manifest.json` icons to also use `/icon.png` so the public
   web entry points share one canonical logo asset.
 - Updated the public app naming to `KiKo your best way to trade !` and
@@ -24,7 +25,8 @@
 The asset pipeline is now simplified to one published layer in
 `kiko-web/public/`. The ephemeral working renders were useful during design
 iteration, but they are no longer kept in the repository. The loading surface
-is logo-first and points at `/icon.png`, not a poster-style splash image.
+is logo-first and points at `/farcaster-splash.png`, not a poster-style splash
+image.
 
 ## Guardrail
 
@@ -49,7 +51,7 @@ and the `farcaster-*.png` files as the published poster set.
 - Source: logo-only loading correction from user feedback
   - Kind: runtime observation
   - Retrieved: 2026-04-12
-  - Applied To: use of `/icon.png` as the Farcaster loading splash and removal of the poster-style loading asset from the published set
+  - Applied To: use of `/farcaster-splash.png` as the Farcaster loading splash and removal of the poster-style loading asset from the published set
   - Verification: verified in shell metadata and manifest JSON
 
 - Source: `/Users/almurat/KiKo/kiko-web/index.html`

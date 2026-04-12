@@ -17,8 +17,8 @@ Mini App client.
    only personalization, but backend sync still requires an actual access token.
 4. Use one 3:2 image for the `fc:miniapp` embed card and one 1200x630 image
    for Open Graph / promotional surfaces.
-5. The manifest icon must be a non-alpha PNG, and the splash image should be
-   logo-only rather than poster-style artwork.
+5. The manifest icon must be a non-alpha PNG, and the splash image should be a
+   separate 200x200 logo-only asset rather than poster-style artwork.
 
 ## Forbidden Local Patch Patterns
 
@@ -33,3 +33,10 @@ Mini App client.
 - Farcaster clients should get a ready Mini App shell without layout overlap.
 - Mini App users should see correct safe-area padding and a valid follow-up
   identity fallback when no Privy session exists.
+
+## See Also
+
+- `system-journal/INDEX.md`
+- `system-journal/owner-map/farcaster-miniapp-support.md`
+- `system-journal/fix-log/2026-04-10-farcaster-miniapp-support.md`
+- `system-journal/fix-log/2026-04-12-farcaster-manifest-splash-fix.md`
