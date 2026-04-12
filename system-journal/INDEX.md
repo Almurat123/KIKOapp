@@ -20,6 +20,7 @@ owner boundaries, and major fixes.
 - [Fix Log: 2026-04-12 Farcaster Mini App Asset Export](./fix-log/2026-04-12-farcaster-miniapp-asset-export.md)
 - [Fix Log: 2026-04-12 Farcaster Manifest Splash Fix](./fix-log/2026-04-12-farcaster-manifest-splash-fix.md)
 - [Fix Log: 2026-04-12 Farcaster Mini App Display Ready Fix](./fix-log/2026-04-12-farcaster-miniapp-display-ready-fix.md)
+- [Fix Log: 2026-04-12 Farcaster Manifest Validation Fix](./fix-log/2026-04-12-farcaster-manifest-validation-fix.md)
 - [Fix Log: 2026-04-10 Chat Home Deferred Runtime](./fix-log/2026-04-10-chat-home-deferred-runtime.md)
 - [Fix Log: 2026-04-10 Chat Home Route Eager Entry](./fix-log/2026-04-10-chat-home-route-eager-entry.md)
 - [Fix Log: 2026-04-10 Token Page Stray Read Rate Limit](./fix-log/2026-04-10-token-page-stray-read-rate-limit.md)

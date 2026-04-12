@@ -11,20 +11,20 @@
     "iconUrl": "https://kikoapp.app/icon.png",
     "splashImageUrl": "https://kikoapp.app/farcaster-splash.png",
     "splashBackgroundColor": "#09090b",
-    "subtitle": "Trade analysis. Copy trade.",
-    "description": "KiKo helps you analyze trades, copy trade smarter, swap faster, and discover opportunities through social signals.",
+    "subtitle": "Trade analysis copy trade",
+    "description": "KiKo your best way to trade !",
     "primaryCategory": "finance",
     "tags": [
-      "trading",
       "ai",
-      "web3",
+      "trading",
       "finance",
-      "social"
+      "social",
+      "swap"
     ],
     "heroImageUrl": "https://kikoapp.app/farcaster-promo.png",
-    "tagline": "Trade analysis. Copy trade.",
-    "ogTitle": "KiKo your best way to trade !",
-    "ogDescription": "KiKo helps you analyze trades, copy trade smarter, swap faster, and discover opportunities through social signals.",
+    "tagline": "Copy faster trade smarter",
+    "ogTitle": "KiKo trade insights",
+    "ogDescription": "AI trading for analysis, copy trading, swaps, and social discovery.",
     "ogImageUrl": "https://kikoapp.app/farcaster-social.png",
     "canonicalDomain": "kikoapp.app"
   }
