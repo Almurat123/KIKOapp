@@ -2,36 +2,35 @@
 
 ## What Changed
 
-- Restored the Farcaster manifest fields to the user-provided canonical
-  `frame` payload.
-- Kept `imageUrl`, `buttonTitle`, `subtitle`, `tags`, and `ogTitle` aligned to
-  the exact values the user confirmed for submission.
-- Updated the page shell metadata so the embed name stays consistent with the
-  user-provided `frame.name` value.
+- Kept the user-confirmed manifest structure in `frame` form.
+- Fixed the two validation failures shown in the screenshot:
+  - shortened `subtitle` to stay within the 30 character limit
+  - moved `castShareUrl` onto the same domain as `homeUrl`
+- Left the remaining fields aligned to the user's confirmed submission payload.
 
 ## Why
 
-The Farcaster Developer Tools submit flow was failing because the payload in
-the repo had drifted away from the exact manifest the user wanted to submit.
-Resetting the fields to the canonical user-provided payload removes that drift.
+The Farcaster Developer Tools submit flow was failing because the repo payload
+had one overlong subtitle and one cross-domain share URL. Resetting those two
+fields removes the validation errors shown in the screenshot.
 
 ## Guardrail
 
-Do not change the user-confirmed `frame` payload unless the user explicitly
-provides a new submission version.
+Do not exceed documented string limits, and keep share URLs on the same domain
+as `homeUrl`.
 
 ## Document Provenance
 
 - Source: Farcaster Mini Apps publishing guide
   - Kind: official API doc
   - Retrieved: 2026-04-12
-  - Applied To: general manifest publication and embed field ownership
+  - Applied To: `subtitle` length limit and share-URL same-origin rule
   - Verification: verified in docs
 
 - Source: user-provided failing manifest payload
   - Kind: runtime observation
   - Retrieved: 2026-04-12
-  - Applied To: canonical `frame` payload restored in repo files
+  - Applied To: updated `subtitle` and `castShareUrl` values in repo files
   - Verification: verified in runtime
 
 See also:

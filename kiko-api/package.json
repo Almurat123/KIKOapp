@@ -65,6 +65,7 @@
     "backfill:copytrade-ledger": "tsx src/scripts/backfillCopytradeLedger.ts",
     "migrate:copytrade-v2": "tsx src/scripts/migrateCopytradeV2Orders.ts",
     "validate:copytrade-v2": "tsx src/scripts/validateCopytradeV2Migration.ts",
+    "farcaster:create-signed-key-request": "tsx src/scripts/farcaster/createSignedKeyRequestDeeplink.ts",
     "export:remotion:trending-tokens": "node scripts/export-remotion-trending-token-snapshot.mjs"
   },
   "dependencies": {

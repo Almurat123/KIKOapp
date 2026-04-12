@@ -13,7 +13,7 @@
     "buttonTitle": "Open KiKo",
     "splashImageUrl": "https://kikoapp.app/farcaster-splash.png",
     "splashBackgroundColor": "#09090b",
-    "subtitle": "AI. Trend social. Trade analysis. Copy trade. Predication.",
+    "subtitle": "Trade analysis. Copy trade.",
     "description": "KiKo your best way to trade !",
     "primaryCategory": "finance",
     "tags": [
@@ -28,6 +28,6 @@
     "ogTitle": "Ask kiko what's trend token !",
     "ogDescription": "KIKO is an AI trading terminal for chat, market analysis, copy trading, swaps, and social discovery.",
     "ogImageUrl": "https://kikoapp.app/farcaster-social.png",
-    "castShareUrl": "https://warpcast.com/~/compose?text=Check%20out%20KIKO%20https%3A%2F%2Fkikoapp.app%2F"
+    "castShareUrl": "https://kikoapp.app/?share=1"
   }
 }
