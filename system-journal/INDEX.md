@@ -22,6 +22,7 @@ owner boundaries, and major fixes.
 - [Fix Log: 2026-04-12 Farcaster Mini App Display Ready Fix](./fix-log/2026-04-12-farcaster-miniapp-display-ready-fix.md)
 - [Fix Log: 2026-04-12 Farcaster Manifest Validation Fix](./fix-log/2026-04-12-farcaster-manifest-validation-fix.md)
 - [Fix Log: 2026-04-12 Privy WalletConnect CSP Fix](./fix-log/2026-04-12-privy-walletconnect-csp-fix.md)
+- [Fix Log: 2026-04-12 Farcaster Mini App Onboarding External Wallet Suppression](./fix-log/2026-04-12-farcaster-miniapp-onboarding-external-wallet-suppression.md)
 - [Fix Log: 2026-04-12 Farcaster Signed Key Request Deeplink](./fix-log/2026-04-12-farcaster-signed-key-request-deeplink.md)
 - [Fix Log: 2026-04-10 Chat Home Deferred Runtime](./fix-log/2026-04-10-chat-home-deferred-runtime.md)
 - [Fix Log: 2026-04-10 Chat Home Route Eager Entry](./fix-log/2026-04-10-chat-home-route-eager-entry.md)

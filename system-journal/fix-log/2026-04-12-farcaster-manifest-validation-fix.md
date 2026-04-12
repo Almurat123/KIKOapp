@@ -6,6 +6,8 @@
 - Fixed the two validation failures shown in the screenshot:
   - shortened `subtitle` to stay within the 30 character limit
   - moved `castShareUrl` onto the same domain as `homeUrl`
+- Corrected the `social` search tag spelling after the manifest passed primary
+  validation, without changing the user-confirmed `name`.
 - Left the remaining fields aligned to the user's confirmed submission payload.
 
 ## Why

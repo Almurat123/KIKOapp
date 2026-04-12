@@ -3,11 +3,44 @@ import { usePrivy, useFundWallet } from '@privy-io/react-auth';
 import type { WalletWithMetadata } from '@privy-io/react-auth';
 import { logger } from '../utils/logger';
 import { useFarcasterContext } from '../contexts/FarcasterContext';
+import { useMiniAppContext } from '../contexts/MiniAppContext';
 
 export type OnboardingStep = 'idle' | 'funding' | 'farcaster' | 'complete';
 
+// CONTEXT MEMORY
+// Updated: 2026-04-12
+// Author: Codex
+// Reason: Farcaster Mini App auth uses Farcaster/social login plus Privy
+//         embedded wallets; the automatic funding prompt can open Privy
+//         external funding surfaces that are outside the Mini App product
+//         scope and may trigger WalletConnect CSP failures.
+// Goal: Preserve normal browser onboarding while preventing Mini App launches
+//       from showing external funding/wallet connection UI.
+// Owns: Post-login onboarding step ordering and Mini App-specific suppression
+//       of optional funding prompts.
+// Does Not Own: Privy provider configuration, Farcaster manifest metadata,
+//               swap execution, or wallet transaction signing.
+// Design Language:
+// - Keep Farcaster Mini App onboarding focused on social identity and embedded
+//   wallets.
+// - Do not auto-open funding or external wallet surfaces inside Mini App hosts.
+// - Preserve browser funding onboarding outside Mini App unless product policy
+//   changes.
+// Document Provenance:
+// - Source: Farcaster Mini Apps loading guide
+// - Kind: official API doc
+// - Retrieved: 2026-04-12
+// - Applied To: Avoid opening optional third-party UI during Mini App startup
+//   and ready flow.
+// - Verification: verified in code; runtime effect to be rechecked after deploy
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/owner-map/farcaster-miniapp-support.md
+// - /Users/almurat/KiKo/system-journal/design-language/farcaster-miniapp-shell.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-farcaster-miniapp-onboarding-external-wallet-suppression.md
 export function useOnboardingFlow() {
     const { ready, authenticated, user } = usePrivy();
+    const { isMiniApp } = useMiniAppContext();
     const { fid, followsKiko, followStatus, loading: farcasterLoading } = useFarcasterContext();
     const [step, setStep] = useState<OnboardingStep>('idle');
     const isEvaluatingRef = useRef(false);
@@ -77,7 +110,7 @@ export function useOnboardingFlow() {
         // It might take 1-2 seconds after login for `user.linkedAccounts` to contain the wallet.
         evaluateNextStep();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [ready, authenticated, user, fid, followsKiko, followStatus, farcasterLoading]);
+    }, [ready, authenticated, user, fid, followsKiko, followStatus, farcasterLoading, isMiniApp]);
 
     const evaluateNextStep = async () => {
         if (isEvaluatingRef.current) return;
@@ -97,7 +130,7 @@ export function useOnboardingFlow() {
             const isWelcomeScreen = window.location.pathname === '/';
 
             // We do NOT use localStorage here because the user wants it to trigger on EVERY fresh login.
-            if (!hasTriggeredFunding && isWelcomeScreen && isInteractiveLogin) {
+            if (!isMiniApp && !hasTriggeredFunding && isWelcomeScreen && isInteractiveLogin) {
                 const evmWallet = user?.linkedAccounts?.find(
                     (acc): acc is WalletWithMetadata => acc.type === 'wallet' && acc.chainType === 'ethereum'
                 );
