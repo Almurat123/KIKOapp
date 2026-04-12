@@ -1,78 +1,79 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseNotificationEvents } from './farcasterApiClient.js';
+import { parseHubMentionEvents } from './farcasterApiClient.js';
 
-test('parseNotificationEvents extracts mention notifications into internal mention events', () => {
-  const events = parseNotificationEvents({
-    notifications: [
+test('parseHubMentionEvents extracts Hub cast mentions into internal mention events', () => {
+  const events = parseHubMentionEvents({
+    messages: [
       {
-        type: 'mentions',
-        most_recent_timestamp: '2026-04-10T10:00:00.000Z',
-        mentions: [
-          {
-            user: { fid: 123, username: 'alice' },
-            cast: {
-              hash: '0xabc',
-              text: '@kikoapp what do you think about BTC?',
-              parent_hash: '0xparent',
-              parent_author: { fid: 999 },
-              thread_hash: '0xroot',
-              timestamp: '2026-04-10T09:59:00.000Z',
+        data: {
+          type: 1,
+          fid: 123,
+          timestamp: 166530104,
+          network: 1,
+          castAddBody: {
+            embedsDeprecated: [],
+            mentions: [9000],
+            parentCastId: {
+              fid: 999,
+              hash: Uint8Array.from(Buffer.from('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'hex')),
             },
+            parentUrl: undefined,
+            text: '@kikoapp what do you think about BTC?',
+            mentionsPositions: [0],
+            embeds: [],
+            type: 0,
           },
-        ],
+        },
+        hash: Uint8Array.from(Buffer.from('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'hex')),
+        hashScheme: 1,
+        signature: Uint8Array.from(Buffer.alloc(64, 1)),
+        signatureScheme: 1,
+        signer: Uint8Array.from(Buffer.alloc(32, 2)),
+        dataBytes: Uint8Array.from(Buffer.alloc(0)),
       },
-    ],
-  });
+    ] as any,
+  } as any);
 
   assert.deepEqual(events, [
     {
-      eventId: 'farcaster:mentions:0xabc',
+      eventId: 'farcaster:mention:0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
       notificationType: 'mentions',
-      castHash: '0xabc',
+      castHash: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
       text: '@kikoapp what do you think about BTC?',
       authorFid: 123,
-      authorUsername: 'alice',
-      parentHash: '0xparent',
+      authorUsername: null,
+      parentHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       parentAuthorFid: 999,
-      rootCastHash: '0xroot',
-      occurredAt: '2026-04-10T09:59:00.000Z',
+      rootCastHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      occurredAt: '2026-04-12T10:21:44.000Z',
     },
   ]);
 });
 
-test('parseNotificationEvents extracts reply notifications and falls back to cast fields', () => {
-  const events = parseNotificationEvents({
-    notifications: [
+test('parseHubMentionEvents skips non-cast messages', () => {
+  const events = parseHubMentionEvents({
+    messages: [
       {
-        type: 'replies',
-        most_recent_timestamp: '2026-04-10T11:00:00.000Z',
-        replies: [
-          {
-            cast: {
-              hash: '0xdef',
-              text: 'following up here',
-              parent_hash: '0xabc',
-              author: { fid: 321, username: 'bob' },
-            },
+        data: {
+          type: 11,
+          fid: 123,
+          timestamp: 166530104,
+          network: 1,
+          userDataBody: {
+            type: 6,
+            value: 'alice',
           },
-        ],
+        },
+        hash: Uint8Array.from(Buffer.from('cccccccccccccccccccccccccccccccccccccccc', 'hex')),
+        hashScheme: 1,
+        signature: Uint8Array.from(Buffer.alloc(64, 3)),
+        signatureScheme: 1,
+        signer: Uint8Array.from(Buffer.alloc(32, 4)),
+        dataBytes: Uint8Array.from(Buffer.alloc(0)),
       },
-    ],
-  });
+    ] as any,
+  } as any);
 
-  assert.deepEqual(events, [
-    {
-      eventId: 'farcaster:replies:0xdef',
-      notificationType: 'replies',
-      castHash: '0xdef',
-      text: 'following up here',
-      authorFid: 321,
-      authorUsername: 'bob',
-      parentHash: '0xabc',
-      parentAuthorFid: null,
-      rootCastHash: '0xabc',
-      occurredAt: '2026-04-10T11:00:00.000Z',
-    },
-  ]);
+  assert.deepEqual(events, []);
 });

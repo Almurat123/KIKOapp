@@ -2,7 +2,6 @@ import React from 'react';
 import clsx from 'clsx';
 import styles from './Chat.module.css';
 import { MessageBubble } from './MessageBubble';
-import { ThinkingTimer } from './ThinkingTimer';
 import type { Message } from '../../hooks/useConversations';
 import { formatChatDateSeparator } from './chatConstants';
 
@@ -16,9 +15,6 @@ interface ChatMessageListProps {
     thinkingText: string;
     thinkingStartTime: number | null;
     isBusy: boolean;
-    firstSendPending: boolean;
-    hasAnyAssistantMessage: boolean;
-    hasVisibleAssistantResponse: boolean;
     walletAddress: string;
     chainId: number;
     conversationId: string | null;
@@ -37,9 +33,6 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({
     thinkingText,
     thinkingStartTime,
     isBusy,
-    firstSendPending,
-    hasAnyAssistantMessage,
-    hasVisibleAssistantResponse,
     walletAddress,
     chainId,
     conversationId,
@@ -96,19 +89,6 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({
                     </React.Fragment>
                 );
             })}
-
-            {firstSendPending && !hasAnyAssistantMessage && !hasVisibleAssistantResponse && (
-                <div className={styles.thinkingContainer}>
-                    <div className={styles.thinkingContent}>
-                        <div className={styles.thinkingSpinner} />
-                        <ThinkingTimer
-                            startTime={thinkingStartTime ?? Date.now()}
-                            status="thinking"
-                            text={thinkingText}
-                        />
-                    </div>
-                </div>
-            )}
 
             <div ref={messagesEndRef} />
         </div>

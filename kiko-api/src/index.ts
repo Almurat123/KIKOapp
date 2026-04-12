@@ -4,12 +4,14 @@
  */
 
 // CONTEXT MEMORY
-// Updated: 2026-04-11
+// Updated: 2026-04-12
 // Author: Almurat
 // Reason: the server bootstrap now owns X OAuth preload and route registration
 //         so the bot can authorize once and serve credentials at runtime.
 //         Farcaster polling ingress now also starts here because it shares the
-//         chat worker and needs explicit startup/shutdown ordering. X public
+//         chat worker and needs explicit startup/shutdown ordering. The current
+//         free Snapchain Hub path still starts here so polling remains tied to
+//         server lifecycle instead of a separate daemon. X public
 //         reply shares now also mount here because they must bypass browser-only
 //         origin/app-key checks and remain crawler-accessible.
 // Goal: keep X auth routes mounted before startup, preload stored credentials,
@@ -24,11 +26,11 @@
 // - Bring Farcaster polling up only after chat execution is available.
 // - Public X share routes must bypass origin/app-key enforcement so X crawlers can fetch cards.
 // Document Provenance:
-// - Source: Neynar Notifications API docs
-// - Kind: official API doc
-// - Retrieved: 2026-04-10
-// - Applied To: booting a polling worker instead of webhook ingress for Farcaster mentions
-// - Verification: inferred
+// - Source: @farcaster/hub-nodejs README and public Hub runtime observation
+// - Kind: local SDK source / runtime observation
+// - Retrieved: 2026-04-12
+// - Applied To: booting a polling worker against the free Snapchain Hub RPC path
+// - Verification: verified in runtime
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-11-x-reply-share-pages.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-11
@@ -108,7 +110,7 @@ import { markEndUserActivity } from './services/runtimeActivityService.js';
 import { xIngressWorker } from './services/x/index.js';
 import { ensureXBotCredentialsLoaded } from './services/x/xCredentialsService.js';
 import { xAuthRoutes } from './routes/xAuth.js';
-import { farcasterIngressWorker } from './services/farcaster-agent/index.js';
+import { closeHubClient, farcasterIngressWorker } from './services/farcaster-agent/index.js';
 
 const fastify = Fastify({
     logger: {
@@ -626,6 +628,7 @@ process.on('SIGTERM', async () => {
     stopPolymarketWatcher();
     xIngressWorker.stop();
     farcasterIngressWorker.stop();
+    closeHubClient();
     await stopAutoTradeService();
     if (prisma) await (prisma as any).$disconnect();
     await fastify.close();
@@ -640,6 +643,7 @@ process.on('SIGINT', async () => {
     stopPolymarketWatcher();
     xIngressWorker.stop();
     farcasterIngressWorker.stop();
+    closeHubClient();
     await stopAutoTradeService();
     if (prisma) await (prisma as any).$disconnect();
     await fastify.close();

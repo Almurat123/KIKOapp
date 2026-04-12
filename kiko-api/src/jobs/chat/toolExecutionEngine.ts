@@ -1,3 +1,26 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-12
+// Author: Rowan
+// Reason: this layer arbitrates local tool execution and must distinguish
+//         actual failures from confirmation checkpoints.
+// Goal: preserve hard policy enforcement while surfacing confirmation-required
+//       order mutations as soft checkpoints instead of user-facing failures.
+// Owns: local tool policy gating, execution handoff, and gate-result shaping.
+// Does Not Own: model planning, conversation confirmation state, or UI rendering.
+// Design Language:
+// - confirmation-required is not an execution failure
+// - gate responses must preserve confirmation payloads for the next turn
+// - avoid branding pending user-confirmation checkpoints as runtime errors
+// Document Provenance:
+// - Source: runtime observation of copytrade confirmation payloads rendering as plan errors
+// - Kind: runtime observation
+// - Retrieved: 2026-04-12
+// - Applied To: softening confirmation-required gate results into success-shaped tool results
+// - Verification: verified in unit tests and code review
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-eth-symbol-chain-ambiguity.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-copytrade-confirmation-soft-gate.md
 import { toolRegistry } from '../../tooling/registry.js';
 import { ensureToolRegistryInitialized } from '../../tooling/bootstrap.js';
 import type { OrchestratorToolCall, OrchestratorToolResult } from './contracts.js';
@@ -39,6 +62,19 @@ export class ToolExecutionEngine {
             snapshot: toolContext?.__snapshot || null,
         });
         if (!mutationGate.allow) {
+            if (mutationGate.responsePayload?.requires_confirmation === true) {
+                return {
+                    id: call.id,
+                    name: call.name,
+                    arguments: call.arguments || {},
+                    ok: true,
+                    result: mutationGate.responsePayload,
+                    metadata: {
+                        source: 'execution_gate',
+                        confirmationRequired: true,
+                    },
+                };
+            }
             const blockedError = mutationGate.error || createPolicyError(
                 'CONFIRMATION_REQUIRED',
                 `Execution gate denied ${call.name}`,

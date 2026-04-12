@@ -1,6 +1,6 @@
 # Farcaster Mini App Support Owner Map
 
-Updated: 2026-04-10
+Updated: 2026-04-12
 
 ## Owned Layers
 
@@ -10,10 +10,10 @@ Updated: 2026-04-10
 - `kiko-web/index.html`
 - `kiko-web/public/.well-known/farcaster.json`
 - `kiko-web/public/_headers`
-- `kiko-web/public/farcaster-miniapp-card.png`
-- `kiko-web/public/farcaster-og-card.png`
-- `kiko-web/public/farcaster-icon.png`
-- `kiko-web/public/farcaster-splash.png`
+- `kiko-web/public/farcaster-preview.png`
+- `kiko-web/public/farcaster-promo.png`
+- `kiko-web/public/farcaster-social.png`
+- `kiko-web/public/icon.png`
 
 ## Ownership Boundaries
 
@@ -36,6 +36,14 @@ Does not own: the Farcaster client host handshake or manifest publication.
 Owns: `fc:miniapp`, `fc:frame`, OG metadata, and the static manifest file.
 
 Does not own: upload-time domain ownership verification or Warpcast signing.
+
+### Published asset layer
+
+Owns: the public Farcaster poster assets and the canonical loading icon used by
+the shell and manifest.
+
+Does not own: generated working renders under `output/` or transient preview
+experiments.
 
 ## Notes
 

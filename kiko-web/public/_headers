@@ -10,31 +10,16 @@
 /.well-known/farcaster.json
   Cache-Control: public, max-age=0, must-revalidate
 
-/farcaster-miniapp-card.png
-  Cache-Control: public, max-age=31536000, immutable
-
-/farcaster-og-card.png
-  Cache-Control: public, max-age=31536000, immutable
-
 /farcaster-preview.png
   Cache-Control: public, max-age=31536000, immutable
 
 /farcaster-promo.png
   Cache-Control: public, max-age=31536000, immutable
 
-/farcaster-loading.png
-  Cache-Control: public, max-age=31536000, immutable
-
 /farcaster-social.png
   Cache-Control: public, max-age=31536000, immutable
 
 /icon.png
-  Cache-Control: public, max-age=31536000, immutable
-
-/farcaster-icon.png
-  Cache-Control: public, max-age=31536000, immutable
-
-/farcaster-splash.png
   Cache-Control: public, max-age=31536000, immutable
 
 /assets/*

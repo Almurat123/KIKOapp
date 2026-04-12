@@ -1,3 +1,25 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-12
+// Author: Rowan
+// Reason: this layer resolves chain intent hints for swap validation and task planning.
+// Goal: preserve explicit chain requests without letting bare token symbols hijack chain selection.
+// Owns: chain alias normalization, runtime chain fallback, and requested-chain hint resolution.
+// Does Not Own: token amount parsing, swap execution, confirmation policy, or UI routing.
+// Design Language:
+// - Treat only explicit chain names and chain-specific symbols as chain hints.
+// - Do not let shared native asset symbols like ETH override the connected chain by default.
+// - Prefer wallet context when the user only named an input asset or token symbol.
+// - Avoid local special cases that reintroduce token-vs-chain ambiguity.
+// Document Provenance:
+// - Source: runtime observation from Buy 0.01 ETH -> chain 56 REQUESTED_CHAIN_MISMATCH
+// - Kind: runtime observation
+// - Retrieved: 2026-04-12
+// - Applied To: removing bare ETH from Ethereum alias matching in chain resolution
+// - Verification: verified in code and by regression test
+// See also:
+// - system-journal/INDEX.md
+// - system-journal/owner-map/backend-swap-validation.md
+// - system-journal/fix-log/2026-04-12-eth-symbol-chain-ambiguity.md
 import type { CanonicalIntent } from './canonicalIntent.js';
 
 export interface CanonicalChainRef {
@@ -15,7 +37,7 @@ interface ChainDefinition {
 }
 
 const CHAIN_DEFINITIONS: ChainDefinition[] = [
-    { chainId: 1, chainName: 'Ethereum', aliases: ['ethereum', 'eth'], nativeSymbols: ['ETH', 'WETH'], chainSymbols: [] },
+    { chainId: 1, chainName: 'Ethereum', aliases: ['ethereum'], nativeSymbols: ['ETH', 'WETH'], chainSymbols: [] },
     { chainId: 8453, chainName: 'Base', aliases: ['base'], nativeSymbols: ['ETH', 'WETH'], chainSymbols: ['BASE'] },
     { chainId: 56, chainName: 'BNB Chain', aliases: ['bnb', 'bsc', 'bnb chain', 'binance smart chain', 'bep20', 'bep-20'], nativeSymbols: ['BNB', 'WBNB'], chainSymbols: ['BSC', 'BNBCHAIN'] },
     { chainId: 137, chainName: 'Polygon', aliases: ['polygon', 'matic', 'pol'], nativeSymbols: ['POL', 'MATIC', 'WMATIC'], chainSymbols: [] },

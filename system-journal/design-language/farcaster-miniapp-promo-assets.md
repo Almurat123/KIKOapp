@@ -25,6 +25,8 @@ visual anchor, sparse supporting copy, and a controlled brand mark.
 6. When the surface is about prompting or conversation, the preview should
    read as a chat-first poster with a glass composer and a few readable AI
    messages or a clean task-report card.
+7. Loading surfaces should use the logo mark itself, not a poster image or a
+   screenshot-derived composition.
 
 ## Forbidden Local Patch Patterns
 
@@ -37,11 +39,14 @@ visual anchor, sparse supporting copy, and a controlled brand mark.
 
 - `/Users/almurat/KiKo/kiko-web/public/farcaster-preview.png`
 - `/Users/almurat/KiKo/kiko-web/public/farcaster-promo.png`
-- `/Users/almurat/KiKo/kiko-web/public/farcaster-loading.png`
 - `/Users/almurat/KiKo/kiko-web/public/farcaster-social.png`
+- `/Users/almurat/KiKo/kiko-web/public/icon.png`
 
 The working render folders under `output/` were intentionally pruned from the
-repository after export so the branch keeps only the published assets.
+repository after export so the branch keeps only the published assets. The
+loading surface is now canonicalized to the logo at `/icon.png`, and the
+public app naming now uses the longer `KiKo your best way to trade !` brand
+string in the shell and manifest.
 
 ## Document Provenance
 
@@ -56,6 +61,18 @@ repository after export so the branch keeps only the published assets.
   - Retrieved: 2026-04-12
   - Applied To: canonical published asset paths after pruning the generated working renders
   - Verification: verified in file layout
+
+- Source: logo-only loading correction from user feedback
+  - Kind: runtime observation
+  - Retrieved: 2026-04-12
+  - Applied To: canonical loading splash choice and removal of the poster-style loading asset from publication
+  - Verification: verified in local asset references
+
+- Source: user-provided app name and subtitle correction
+  - Kind: runtime observation
+  - Retrieved: 2026-04-12
+  - Applied To: Farcaster manifest naming, subtitle, and share metadata
+  - Verification: verified in shell and manifest updates
 
 - Source: Farcaster Mini Apps sharing guide
 - Kind: official API doc

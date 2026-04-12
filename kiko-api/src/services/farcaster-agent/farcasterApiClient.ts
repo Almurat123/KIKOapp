@@ -1,143 +1,256 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-12
 // Author: Linh Tran
-// Reason: low-cost Farcaster agent ingress now relies on Neynar polling instead
-//         of webhooks, and outbound replies must publish through the same app-
-//         paired signer. The API layer needs one canonical place for parsing
-//         notification payloads and posting cast replies.
-// Goal: keep Neynar API URL construction, auth headers, notification parsing,
-//       and cast publication centralized for Farcaster mention automation.
-// Owns: authenticated Neynar REST access for notifications, cast lookup, and
-//       outbound cast replies.
-// Does Not Own: quota policy, chat orchestration, or DB persistence.
+// Reason: Farcaster agent ingress moved off Neynar and onto a free Snapchain
+//         Hub RPC path, so this module now owns Hub client creation, mention
+//         polling parsing, cast lookup, and reply submission through the local
+//         signer boundary.
+// Goal: keep Snapchain access, cast parsing, and reply publication centralized
+//       so the worker can stay policy-focused and the env boundary stays small.
+// Owns: Hub RPC connectivity, mention page parsing, cast hydration, and reply
+//       cast publication for the Farcaster agent.
+// Does Not Own: polling cadence, linked-user policy, conversation mapping, or
+//               AI execution.
 // Design Language:
-// - Keep Neynar auth and URL construction centralized here.
-// - Parse notifications into stable internal events before the worker sees them.
-// - Use the signer paired with the same API key for writes.
+// - Hub RPC access must stay centralized, with left-to-right fallback across
+//   configured endpoints, and remain signable from one signer key.
+// - Mention events should be normalized before the worker sees them.
+// - Reply publication must keep parent-cast semantics explicit.
+// - Avoid leaking provider-specific payload shapes into the worker.
 // Document Provenance:
-// - Source: Neynar Notifications API docs
-// - Kind: official API doc
-// - Retrieved: 2026-04-10
-// - Applied To: polling `mentions,replies` notifications by bot FID with cursor pagination
-// - Verification: inferred
-// - Source: Neynar Post a cast API docs
-// - Kind: official API doc
-// - Retrieved: 2026-04-10
-// - Applied To: publishing reply casts with `parent`, `parent_author_fid`, and `idem`
-// - Verification: inferred
+// - Source: @farcaster/hub-nodejs README and dist typings
+// - Kind: local SDK source
+// - Retrieved: 2026-04-12
+// - Applied To: getCastsByMention, getCast, makeCastAdd, and submitMessage usage
+// - Verification: verified in runtime
+// - Source: public Hub runtime observation against hub.merv.fun:3381
+// - Kind: runtime observation
+// - Retrieved: 2026-04-12
+// - Applied To: default free Hub RPC endpoint, fallback ordering, and readiness expectations
+// - Verification: verified in runtime
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
+import {
+  CastId,
+  CastType,
+  FarcasterNetwork,
+  FidRequest,
+  MessageType,
+  NobleEd25519Signer,
+  bytesToHexString,
+  getInsecureHubRpcClient,
+  getSSLHubRpcClient,
+  hexStringToBytes,
+  makeCastAdd,
+  type HubRpcClient,
+  type Message,
+} from '@farcaster/hub-nodejs';
 import { env } from '../../config/env.js';
-import { fetchJson } from '../../config/unifiedApiService.js';
+import { logger } from '../../utils/logger.js';
+import { LogCode } from '../../config/logRegistry.js';
 import type { FarcasterCastContext, FarcasterMentionEvent, FarcasterSendResult } from './types.js';
 
-interface NeynarNotificationPage {
-  notifications?: any[];
-  next?: {
-    cursor?: string | null;
-  };
+const DEFAULT_HUB_RPC_URL = 'hub.merv.fun:3381';
+const FARCASTER_EPOCH_MS = 1609459200000;
+const MAX_PAGE_SIZE = 50;
+const HUB_READY_TIMEOUT_MS = 5000;
+const HUB_RECEIVE_LIMIT_BYTES = 50 * 1024 * 1024;
+
+interface HubEndpoint {
+  address: string;
+  useSsl: boolean;
 }
 
-function baseUrl(path: string): string {
-  const base = String(env.farcasterAgent.apiBaseUrl || 'https://api.neynar.com/v2').replace(/\/+$/, '');
-  const suffix = path.startsWith('/') ? path : `/${path}`;
-  return `${base}${suffix}`;
+interface HubMentionPage {
+  messages: Message[];
+  nextPageToken?: Uint8Array | undefined;
 }
 
-function authHeaders() {
-  const apiKey = env.apiKeys.neynar || process.env.NEYNAR_API_KEY || '';
-  if (!apiKey) {
-    throw new Error('NEYNAR_API_KEY is not configured');
+let hubClientPromise: Promise<HubRpcClient> | null = null;
+let hubClientInstance: HubRpcClient | null = null;
+let signerCache: NobleEd25519Signer | null = null;
+
+function clampPageSize(value: number): number {
+  if (!Number.isFinite(value)) return 15;
+  return Math.min(Math.max(Math.trunc(value), 1), MAX_PAGE_SIZE);
+}
+
+function normalizeHubEndpoint(raw: string): HubEndpoint {
+  const value = String(raw || '').trim() || DEFAULT_HUB_RPC_URL;
+  if (/^https?:\/\//i.test(value) || /^grpcs?:\/\//i.test(value)) {
+    const url = new URL(value.replace(/^grpc:/i, 'http:').replace(/^grpcs:/i, 'https:'));
+    return {
+      address: `${url.hostname}${url.port ? `:${url.port}` : ''}`,
+      useSsl: url.protocol === 'https:',
+    };
   }
+
   return {
-    'Content-Type': 'application/json',
-    'x-api-key': apiKey,
+    address: value.replace(/^grpc:\/\//i, '').replace(/^grpcs:\/\//i, ''),
+    useSsl: false,
   };
 }
 
-function toIsoTimestamp(value: unknown): string | null {
-  const normalized = String(value || '').trim();
-  if (!normalized) return null;
-  const date = new Date(normalized);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
-}
+function resolveHubEndpoints(rawUrls: string[]): HubEndpoint[] {
+  const seen = new Set<string>();
+  const endpoints: HubEndpoint[] = [];
 
-function toInt(value: unknown): number | null {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function normalizeNotificationType(value: unknown): 'mentions' | 'replies' | null {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === 'mentions' || normalized === 'replies') {
-    return normalized;
+  for (const raw of rawUrls) {
+    const value = String(raw || '').trim();
+    if (!value) continue;
+    const endpoint = normalizeHubEndpoint(value);
+    const key = `${endpoint.useSsl ? 'ssl' : 'insecure'}:${endpoint.address}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    endpoints.push(endpoint);
   }
-  return null;
-}
 
-function extractEntries(notification: any): any[] {
-  const type = normalizeNotificationType(notification?.type);
-  if (!type) return [];
-  const direct = notification?.[type];
-  if (Array.isArray(direct) && direct.length > 0) {
-    return direct;
+  if (endpoints.length === 0) {
+    endpoints.push(normalizeHubEndpoint(DEFAULT_HUB_RPC_URL));
   }
-  if (notification?.cast) {
-    return [notification];
-  }
-  return [];
+
+  return endpoints;
 }
 
-function extractCast(entry: any, notification: any): any | null {
-  return entry?.cast || entry?.reply?.cast || entry?.reply || notification?.cast || null;
+function waitForHubReady(client: HubRpcClient): Promise<void> {
+  return new Promise((resolve, reject) => {
+    client.$.waitForReady(Date.now() + HUB_READY_TIMEOUT_MS, (error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
 }
 
-function extractAuthor(entry: any, cast: any): { fid: number | null; username: string | null } {
-  const user = entry?.user || cast?.author || null;
-  return {
-    fid: toInt(user?.fid),
-    username: String(user?.username || cast?.author?.username || '').trim() || null,
-  };
-}
+async function getHubClient(): Promise<HubRpcClient> {
+  if (!hubClientPromise) {
+    hubClientPromise = (async () => {
+      const endpoints = resolveHubEndpoints(env.farcasterAgent.hubRpcUrls);
 
-export function parseNotificationEvents(payload: NeynarNotificationPage): FarcasterMentionEvent[] {
-  const events: FarcasterMentionEvent[] = [];
+      for (const endpoint of endpoints) {
+        const client = endpoint.useSsl
+          ? getSSLHubRpcClient(endpoint.address, { 'grpc.max_receive_message_length': HUB_RECEIVE_LIMIT_BYTES })
+          : getInsecureHubRpcClient(endpoint.address, { 'grpc.max_receive_message_length': HUB_RECEIVE_LIMIT_BYTES });
 
-  for (const notification of payload.notifications || []) {
-    const notificationType = normalizeNotificationType(notification?.type);
-    if (!notificationType) continue;
-    const entries = extractEntries(notification);
-
-    for (const entry of entries) {
-      const cast = extractCast(entry, notification);
-      const castHash = String(cast?.hash || '').trim();
-      const text = String(cast?.text || '').trim();
-      const author = extractAuthor(entry, cast);
-
-      if (!castHash || !text || !author.fid) {
-        continue;
+        try {
+          await waitForHubReady(client);
+          hubClientInstance = client;
+          logger.info(LogCode.SYS_INFO, '[Farcaster] Snapchain Hub RPC ready', {
+            hubRpcUrl: endpoint.address,
+            useSsl: endpoint.useSsl,
+          });
+          return client;
+        } catch (error) {
+          client.close();
+          logger.warn(LogCode.API_FETCH_FAILED, '[Farcaster] Hub RPC endpoint unavailable, trying next fallback', {
+            hubRpcUrl: endpoint.address,
+            useSsl: endpoint.useSsl,
+            error: String((error as any)?.message || error || 'unknown_error'),
+          });
+        }
       }
 
-      const occurredAt =
-        toIsoTimestamp(cast?.timestamp)
-        || toIsoTimestamp(entry?.timestamp)
-        || toIsoTimestamp(notification?.most_recent_timestamp);
+      throw new Error('No configured Farcaster Hub RPC endpoints are available');
+    })().catch((error) => {
+      hubClientPromise = null;
+      throw error;
+    });
+  }
 
-      events.push({
-        eventId: `farcaster:${notificationType}:${castHash}`,
-        notificationType,
-        castHash,
-        text,
-        authorFid: author.fid,
-        authorUsername: author.username,
-        parentHash: String(cast?.parent_hash || '').trim() || null,
-        parentAuthorFid: toInt(cast?.parent_author?.fid || cast?.parent_author_fid),
-        rootCastHash: String(cast?.thread_hash || cast?.root_parent_hash || cast?.parent_hash || castHash).trim() || castHash,
-        occurredAt,
-      });
+  return hubClientPromise;
+}
+
+export function closeHubClient(): void {
+  if (hubClientInstance) {
+    hubClientInstance.close();
+  }
+  hubClientInstance = null;
+  hubClientPromise = null;
+  signerCache = null;
+}
+
+function getSigner(): NobleEd25519Signer {
+  if (!signerCache) {
+    const privateKeyResult = hexStringToBytes(String(env.farcasterAgent.signerPrivateKey || '').trim());
+    if (privateKeyResult.isErr()) {
+      throw new Error('Invalid FARCASTER_SIGNER_PRIVATE_KEY value');
     }
+    signerCache = new NobleEd25519Signer(privateKeyResult.value);
+  }
+  return signerCache;
+}
+
+function asHexString(bytes?: Uint8Array | null): string | null {
+  if (!bytes || bytes.length === 0) return null;
+  const result = bytesToHexString(bytes);
+  return result.isOk() ? result.value : null;
+}
+
+function asBytes(hex: string): Uint8Array | null {
+  const normalized = String(hex || '').trim();
+  if (!normalized) return null;
+  const result = hexStringToBytes(normalized.startsWith('0x') ? normalized : `0x${normalized}`);
+  return result.isOk() ? result.value : null;
+}
+
+function currentFarcasterTimestamp(): number {
+  return Math.max(1, Math.floor((Date.now() - FARCASTER_EPOCH_MS) / 1000));
+}
+
+function timestampToIso(timestamp?: number | null): string | null {
+  if (!Number.isFinite(Number(timestamp))) return null;
+  return new Date(FARCASTER_EPOCH_MS + Number(timestamp) * 1000).toISOString();
+}
+
+function messageToCastContext(message: Message): FarcasterCastContext | null {
+  const data = message.data;
+  const castAddBody = data?.castAddBody;
+  const castHash = asHexString(message.hash);
+  const text = String(castAddBody?.text || '').trim();
+  const authorFid = Number(data?.fid || 0);
+
+  if (!data || data.type !== MessageType.CAST_ADD || !castAddBody || !castHash || !text || !Number.isFinite(authorFid) || authorFid <= 0) {
+    return null;
+  }
+
+  const parentCastId = castAddBody.parentCastId || undefined;
+  const parentHash = parentCastId ? asHexString(parentCastId.hash) : null;
+
+  return {
+    hash: castHash,
+    text,
+    authorFid,
+    authorUsername: null,
+    parentHash,
+    parentAuthorFid: parentCastId?.fid || null,
+    timestamp: timestampToIso(data.timestamp),
+  };
+}
+
+export function parseHubMentionEvents(payload: HubMentionPage): FarcasterMentionEvent[] {
+  const events: FarcasterMentionEvent[] = [];
+
+  for (const message of payload.messages || []) {
+    const context = messageToCastContext(message);
+    if (!context) continue;
+    const authorFid = Number(context.authorFid || 0);
+    if (!Number.isFinite(authorFid) || authorFid <= 0) continue;
+    events.push({
+      eventId: `farcaster:mention:${context.hash}`,
+      notificationType: 'mentions',
+      castHash: context.hash,
+      text: context.text,
+      authorFid,
+      authorUsername: context.authorUsername || null,
+      parentHash: context.parentHash || null,
+      parentAuthorFid: context.parentAuthorFid || null,
+      rootCastHash: context.parentHash || context.hash,
+      occurredAt: context.timestamp || null,
+    });
   }
 
   return events;
@@ -147,58 +260,47 @@ export class FarcasterApiClient {
   isConfigured(): boolean {
     return Boolean(
       env.farcasterAgent.enabled
-      && (env.apiKeys.neynar || process.env.NEYNAR_API_KEY)
-      && env.farcasterAgent.signerUuid
-      && Number(env.farcasterAgent.botFid) > 0,
+      && Number(env.farcasterAgent.botFid) > 0
+      && String(env.farcasterAgent.signerPrivateKey || '').trim()
+      && env.farcasterAgent.hubRpcUrls.length > 0,
     );
   }
 
-  async fetchNotificationPage(params?: { cursor?: string | null }): Promise<NeynarNotificationPage> {
-    const url = new URL(baseUrl('/farcaster/notifications/'));
-    url.searchParams.set('fid', String(env.farcasterAgent.botFid));
-    url.searchParams.set('type', 'mentions,replies');
-    url.searchParams.set('limit', String(Math.min(Math.max(env.farcasterAgent.pollPageSize || 15, 1), 25)));
-    if (params?.cursor) {
-      url.searchParams.set('cursor', params.cursor);
+  async fetchMentionPage(params?: { pageToken?: Uint8Array | null; pageSize?: number }): Promise<HubMentionPage> {
+    const client = await getHubClient();
+    const response = await client.getCastsByMention(
+      FidRequest.create({
+        fid: env.farcasterAgent.botFid,
+        pageSize: clampPageSize(params?.pageSize ?? env.farcasterAgent.pollPageSize),
+        pageToken: params?.pageToken || undefined,
+        reverse: true,
+      }),
+    );
+
+    if (response.isErr()) {
+      throw response.error;
     }
 
-    return fetchJson<NeynarNotificationPage>({
-      url: url.toString(),
-      method: 'GET',
-      headers: authHeaders(),
-      requestTimeout: 10000,
-      endpointName: 'api.neynar.com',
-    });
+    return response.value;
   }
 
-  async fetchCastByHash(hash: string): Promise<FarcasterCastContext | null> {
-    const normalizedHash = String(hash || '').trim();
-    if (!normalizedHash) return null;
-    const url = new URL(baseUrl('/farcaster/cast'));
-    url.searchParams.set('identifier', normalizedHash);
-    url.searchParams.set('type', 'hash');
+  async fetchCastByHash(params: { fid: number; hash: string }): Promise<FarcasterCastContext | null> {
+    const client = await getHubClient();
+    const castHash = asBytes(params.hash);
+    if (!castHash || !Number.isFinite(params.fid) || params.fid <= 0) return null;
 
-    const payload = await fetchJson<any>({
-      url: url.toString(),
-      method: 'GET',
-      headers: authHeaders(),
-      requestTimeout: 10000,
-      endpointName: 'api.neynar.com',
-      suppressError: true,
-    }).catch(() => null);
+    const response = await client.getCast(
+      CastId.create({
+        fid: params.fid,
+        hash: castHash,
+      }),
+    );
 
-    const cast = payload?.cast;
-    if (!cast?.hash || !cast?.text) return null;
+    if (response.isErr()) {
+      return null;
+    }
 
-    return {
-      hash: String(cast.hash),
-      text: String(cast.text || '').trim(),
-      authorFid: toInt(cast?.author?.fid),
-      authorUsername: String(cast?.author?.username || '').trim() || null,
-      parentHash: String(cast?.parent_hash || '').trim() || null,
-      parentAuthorFid: toInt(cast?.parent_author?.fid || cast?.parent_author_fid),
-      timestamp: toIsoTimestamp(cast?.timestamp),
-    };
+    return messageToCastContext(response.value);
   }
 
   async publishCastReply(params: {
@@ -207,24 +309,47 @@ export class FarcasterApiClient {
     parentAuthorFid: number;
     idem: string;
   }): Promise<FarcasterSendResult> {
-    const payload = await fetchJson<any>({
-      url: baseUrl('/farcaster/cast/'),
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({
-        signer_uuid: env.farcasterAgent.signerUuid,
+    const parentHash = asBytes(params.parentHash);
+    if (!parentHash) {
+      throw new Error('Invalid parent hash for Farcaster reply');
+    }
+
+    const client = await getHubClient();
+    const signer = getSigner();
+    const reply = await makeCastAdd(
+      {
         text: params.text,
-        parent: params.parentHash,
-        parent_author_fid: params.parentAuthorFid,
-        idem: params.idem,
-      }),
-      requestTimeout: 15000,
-      endpointName: 'api.neynar.com',
-    });
+        embedsDeprecated: [],
+        mentions: [],
+        parentCastId: {
+          fid: params.parentAuthorFid,
+          hash: parentHash,
+        },
+        parentUrl: undefined,
+        mentionsPositions: [],
+        embeds: [],
+        type: CastType.CAST,
+      },
+      {
+        fid: env.farcasterAgent.botFid,
+        network: FarcasterNetwork.MAINNET,
+        timestamp: currentFarcasterTimestamp(),
+      },
+      signer,
+    );
+
+    if (reply.isErr()) {
+      throw reply.error;
+    }
+
+    const submitted = await client.submitMessage(reply.value);
+    if (submitted.isErr()) {
+      throw submitted.error;
+    }
 
     return {
-      hash: payload?.cast?.hash ? String(payload.cast.hash) : null,
-      raw: payload,
+      hash: asHexString(submitted.value.hash),
+      raw: submitted.value,
     };
   }
 }

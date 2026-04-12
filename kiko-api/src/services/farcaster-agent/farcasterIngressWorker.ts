@@ -1,11 +1,9 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-12
 // Author: Linh Tran
-// Reason: Neynar webhooks are not part of the low-cost plan we are adopting, so
-//         Farcaster mention automation now depends on polling notifications and
-//         publishing public replies from a managed signer. This worker owns the
-//         product policy for who can trigger agent work and how backlog/recovery
-//         is handled.
+// Reason: Farcaster mention automation now uses a free Snapchain Hub RPC path,
+//         so this worker owns the poll cadence, dedupe, session routing, and
+//         recovery policy while the API client handles Hub connectivity.
 // Goal: preserve deterministic Farcaster mention handling while keeping polling
 //       cheap, idempotent, and aligned with linked-user chat sessions.
 // Owns: inbound Farcaster mention polling, dedupe, session routing, and reply dispatch.
@@ -13,19 +11,21 @@
 // Design Language:
 // - Never process the same inbound event twice.
 // - Bootstrap the polling watermark without replaying old backlog on first start.
+// - Keep polling cadence env-driven with a 10-second default so ops can later
+//   raise it to 15 minutes or 1 hour without code changes.
 // - Only linked Farcaster users can trigger full agent execution.
 // - Keep public replies short enough for cast publication limits.
 // Document Provenance:
-// - Source: Neynar Notifications API docs
-// - Kind: official API doc
-// - Retrieved: 2026-04-10
-// - Applied To: polling `mentions,replies` notifications with cursor pagination
-// - Verification: inferred
-// - Source: Neynar Post a cast API docs
-// - Kind: official API doc
-// - Retrieved: 2026-04-10
-// - Applied To: posting cast replies via signer UUID and idempotency key
-// - Verification: inferred
+// - Source: @farcaster/hub-nodejs README and dist typings
+// - Kind: local SDK source
+// - Retrieved: 2026-04-12
+// - Applied To: `getCastsByMention` and `getCast` usage for free Hub mention polling and thread context hydration
+// - Verification: verified in runtime
+// - Source: public Hub runtime observation against hub.merv.fun:3381
+// - Kind: runtime observation
+// - Retrieved: 2026-04-12
+// - Applied To: free Hub RPC default endpoint and readiness expectations
+// - Verification: verified in runtime
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
@@ -36,7 +36,7 @@ import { env } from '../../config/env.js';
 import { normalizeSupportedChatModel } from '../../config/chatModels.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
-import { farcasterApiClient, parseNotificationEvents } from './farcasterApiClient.js';
+import { farcasterApiClient, parseHubMentionEvents } from './farcasterApiClient.js';
 import type { FarcasterCastContext, FarcasterMentionEvent } from './types.js';
 import { getUserByFarcasterFid, buildFarcasterLinkUrl } from './farcasterIdentityService.js';
 import { recordFarcasterQuotaMetric } from './farcasterQuotaService.js';
@@ -64,7 +64,47 @@ function compareIsoTimestamps(a?: string | null, b?: string | null): number {
 }
 
 function sortByOccurredAt(events: FarcasterMentionEvent[]): FarcasterMentionEvent[] {
-  return [...events].sort((a, b) => compareIsoTimestamps(a.occurredAt, b.occurredAt));
+  return [...events].sort((a, b) => {
+    const byTime = compareIsoTimestamps(a.occurredAt, b.occurredAt);
+    if (byTime !== 0) return byTime;
+    return String(a.castHash || '').localeCompare(String(b.castHash || ''));
+  });
+}
+
+interface MentionWatermark {
+  occurredAt: string;
+  castHash: string;
+}
+
+function compareMentionWatermarks(a: MentionWatermark, b: MentionWatermark): number {
+  const byTime = compareIsoTimestamps(a.occurredAt, b.occurredAt);
+  if (byTime !== 0) return byTime;
+  return String(a.castHash || '').localeCompare(String(b.castHash || ''));
+}
+
+function serializeMentionWatermark(value: MentionWatermark): string {
+  return JSON.stringify(value);
+}
+
+function parseMentionWatermark(raw?: string | null): MentionWatermark | null {
+  const normalized = String(raw || '').trim();
+  if (!normalized) return null;
+  try {
+    const parsed = JSON.parse(normalized);
+    const occurredAt = String(parsed?.occurredAt || '').trim();
+    const castHash = String(parsed?.castHash || '').trim();
+    if (!occurredAt || !castHash) return null;
+    return { occurredAt, castHash };
+  } catch {
+    return null;
+  }
+}
+
+function eventToMentionWatermark(event: FarcasterMentionEvent): MentionWatermark | null {
+  const occurredAt = String(event.occurredAt || '').trim();
+  const castHash = String(event.castHash || '').trim();
+  if (!occurredAt || !castHash) return null;
+  return { occurredAt, castHash };
 }
 
 function publicBindText(username?: string | null): string {
@@ -110,14 +150,24 @@ function normalizeMentionPayload(payload: unknown): FarcasterMentionEvent | null
 async function buildThreadContext(mention: FarcasterMentionEvent, maxDepth: number = 3): Promise<FarcasterCastContext[]> {
   const chain: FarcasterCastContext[] = [];
   const visited = new Set<string>();
-  let nextHash = String(mention.parentHash || '').trim() || null;
+  let nextCastId = mention.parentHash && mention.parentAuthorFid
+    ? {
+      fid: mention.parentAuthorFid,
+      hash: String(mention.parentHash || '').trim(),
+    }
+    : null;
 
-  while (nextHash && chain.length < maxDepth && !visited.has(nextHash)) {
-    visited.add(nextHash);
-    const cast = await farcasterApiClient.fetchCastByHash(nextHash);
+  while (nextCastId && chain.length < maxDepth && !visited.has(`${nextCastId.fid}:${nextCastId.hash}`)) {
+    visited.add(`${nextCastId.fid}:${nextCastId.hash}`);
+    const cast = await farcasterApiClient.fetchCastByHash(nextCastId);
     if (!cast) break;
     chain.push(cast);
-    nextHash = String(cast.parentHash || '').trim() || null;
+    nextCastId = cast.parentHash && cast.parentAuthorFid
+      ? {
+        fid: cast.parentAuthorFid,
+        hash: String(cast.parentHash || '').trim(),
+      }
+      : null;
   }
 
   return chain.reverse();
@@ -235,22 +285,23 @@ export class FarcasterIngressWorker {
     this.runningMentions = true;
 
     try {
-      const lastSeenAt = await cacheClient.get(NOTIFICATION_WATERMARK_KEY).catch(() => null);
+      const lastSeenAt = parseMentionWatermark(await cacheClient.get(NOTIFICATION_WATERMARK_KEY).catch(() => null));
       const freshEvents = await this.fetchFreshEventsSince(lastSeenAt);
-      const latestSeenAt = freshEvents.reduce<string | null>((latest, event) => {
-        if (!event.occurredAt) return latest;
-        if (!latest || compareIsoTimestamps(event.occurredAt, latest) > 0) {
-          return event.occurredAt;
+      const latestSeenAt = sortByOccurredAt(freshEvents).reduce<MentionWatermark | null>((latest, event) => {
+        const watermark = eventToMentionWatermark(event);
+        if (!watermark) return latest;
+        if (!latest || compareMentionWatermarks(watermark, latest) > 0) {
+          return watermark;
         }
         return latest;
       }, lastSeenAt);
 
       if (!lastSeenAt) {
         if (latestSeenAt) {
-          await cacheClient.set(NOTIFICATION_WATERMARK_KEY, latestSeenAt, 7 * 24 * 60 * 60).catch(() => {});
+          await cacheClient.set(NOTIFICATION_WATERMARK_KEY, serializeMentionWatermark(latestSeenAt), 7 * 24 * 60 * 60).catch(() => {});
         }
         logger.info(LogCode.SYS_INFO, '[Farcaster] polling watermark bootstrapped', {
-          lastSeenAt: latestSeenAt,
+          lastSeenAt: latestSeenAt?.occurredAt || null,
           bootstrappedEvents: freshEvents.length,
         });
         return;
@@ -260,8 +311,8 @@ export class FarcasterIngressWorker {
         await this.enqueueMention(mention);
       }
 
-      if (latestSeenAt && latestSeenAt !== lastSeenAt) {
-        await cacheClient.set(NOTIFICATION_WATERMARK_KEY, latestSeenAt, 7 * 24 * 60 * 60).catch(() => {});
+      if (latestSeenAt && compareMentionWatermarks(latestSeenAt, lastSeenAt) > 0) {
+        await cacheClient.set(NOTIFICATION_WATERMARK_KEY, serializeMentionWatermark(latestSeenAt), 7 * 24 * 60 * 60).catch(() => {});
       }
     } finally {
       this.runningMentions = false;
@@ -294,32 +345,34 @@ export class FarcasterIngressWorker {
     }
   }
 
-  private async fetchFreshEventsSince(lastSeenAt?: string | null): Promise<FarcasterMentionEvent[]> {
-    let cursor: string | null = null;
+  private async fetchFreshEventsSince(lastSeenAt?: MentionWatermark | string | null): Promise<FarcasterMentionEvent[]> {
+    let pageToken: Uint8Array | null = null;
     let pageCount = 0;
-    let reachedKnownWatermark = false;
     const events: FarcasterMentionEvent[] = [];
+    const watermark = typeof lastSeenAt === 'string' ? parseMentionWatermark(lastSeenAt) : lastSeenAt || null;
 
-    while (pageCount < env.farcasterAgent.pollMaxPages && !reachedKnownWatermark) {
-      const page = await farcasterApiClient.fetchNotificationPage({ cursor });
-      const parsed = parseNotificationEvents(page)
+    while (pageCount < env.farcasterAgent.pollMaxPages) {
+      const page = await farcasterApiClient.fetchMentionPage({ pageToken, pageSize: env.farcasterAgent.pollPageSize });
+      const parsed = parseHubMentionEvents(page)
         .filter((event) => event.authorFid !== env.farcasterAgent.botFid)
-        .filter((event) => event.castHash && event.text);
+        .filter((event) => event.castHash && event.text && event.occurredAt);
 
-      for (const event of parsed) {
-        if (!lastSeenAt || !event.occurredAt || compareIsoTimestamps(event.occurredAt, lastSeenAt) > 0) {
-          events.push(event);
-          continue;
-        }
-        reachedKnownWatermark = true;
-      }
+      events.push(...parsed);
 
-      cursor = String(page?.next?.cursor || '').trim() || null;
+      pageToken = page?.nextPageToken || null;
       pageCount += 1;
-      if (!cursor) break;
+      if (!pageToken) break;
     }
 
-    return events;
+    const sorted = sortByOccurredAt(events);
+    if (!watermark) {
+      return sorted;
+    }
+
+    return sorted.filter((event) => {
+      const current = eventToMentionWatermark(event);
+      return Boolean(current && compareMentionWatermarks(current, watermark) > 0);
+    });
   }
 
   private scheduleMentions(delayMs: number): void {

@@ -1,9 +1,9 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-12
 // Author: Linh Tran
-// Reason: polling-based Farcaster mention replies need the same delivery
-//         idempotency and retry accounting as other social surfaces, but with
-//         cast hashes and parent reply semantics instead of tweet IDs.
+// Reason: Snapchain-based Farcaster mention replies still need the same
+//         delivery idempotency and retry accounting as other social surfaces,
+//         but with cast hashes and parent reply semantics instead of tweet IDs.
 // Goal: keep outbound Farcaster reply publication deterministic and persisted.
 // Owns: Farcaster outbound delivery rows and cast-reply publication.
 // Does Not Own: mention polling, AI generation, or user linking.
@@ -12,11 +12,11 @@
 // - Persist outbound attempts before making the external API call.
 // - Update conversation mapping after a successful provider write.
 // Document Provenance:
-// - Source: Neynar Post a cast API docs
-// - Kind: official API doc
-// - Retrieved: 2026-04-10
-// - Applied To: reply publication using `parent`, `parent_author_fid`, and `idem`
-// - Verification: inferred
+// - Source: @farcaster/hub-nodejs README and dist typings
+// - Kind: local SDK source
+// - Retrieved: 2026-04-12
+// - Applied To: reply publication through `makeCastAdd` and `submitMessage`
+// - Verification: verified in runtime
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md

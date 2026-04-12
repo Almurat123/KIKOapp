@@ -29,6 +29,21 @@ test('resolveRequestedChainHint recognizes Base from uppercase chain symbol hint
     });
 });
 
+test('resolveRequestedChainHint keeps bare ETH as wallet context when the connected chain is BNB Chain', () => {
+    const result = resolveRequestedChainHint({
+        text: 'Buy 0.01 ETH to 0x9aef1e321ea673d0b2ba929de0760ac8a1238ba3',
+        requestedTokenSymbols: ['ETH'],
+        runtimeChainId: 56,
+        runtimeChainName: 'BNB Chain',
+    });
+
+    assert.deepEqual(result, {
+        chainId: 56,
+        chainName: 'BNB Chain',
+        source: 'wallet_context',
+    });
+});
+
 test('resolveCanonicalChainRef prefers canonical intent over wallet context', () => {
     const result = resolveCanonicalChainRef({
         canonicalIntent: {

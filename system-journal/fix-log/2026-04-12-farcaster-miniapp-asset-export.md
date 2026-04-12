@@ -7,10 +7,13 @@
 - Published the following canonical public filenames:
   - `/farcaster-preview.png`
   - `/farcaster-promo.png`
-  - `/farcaster-loading.png`
   - `/farcaster-social.png`
 - Unified the public logo filename to `/icon.png` and updated the web shell to
-  point at that canonical icon path.
+  point at that canonical icon path, including the Farcaster loading splash.
+- Updated the PWA `manifest.json` icons to also use `/icon.png` so the public
+  web entry points share one canonical logo asset.
+- Updated the public app naming to `KiKo your best way to trade !` and
+  tightened the subtitle to a short trade-analysis / copy-trade summary.
 - Added cache headers for the new published assets so they can be served as
   long-lived static files.
 - Removed the generated working render snapshots from the repository so the
@@ -20,7 +23,8 @@
 
 The asset pipeline is now simplified to one published layer in
 `kiko-web/public/`. The ephemeral working renders were useful during design
-iteration, but they are no longer kept in the repository.
+iteration, but they are no longer kept in the repository. The loading surface
+is logo-first and points at `/icon.png`, not a poster-style splash image.
 
 ## Guardrail
 
@@ -42,11 +46,29 @@ and the `farcaster-*.png` files as the published poster set.
   - Applied To: removal of generated working render folders from version control
   - Verification: verified in file tree
 
+- Source: logo-only loading correction from user feedback
+  - Kind: runtime observation
+  - Retrieved: 2026-04-12
+  - Applied To: use of `/icon.png` as the Farcaster loading splash and removal of the poster-style loading asset from the published set
+  - Verification: verified in shell metadata and manifest JSON
+
 - Source: `/Users/almurat/KiKo/kiko-web/index.html`
-- Kind: repo doc
-- Retrieved: 2026-04-12
-- Applied To: canonical `icon.png` reference in the web shell
-- Verification: verified in code
+  - Kind: repo doc
+  - Retrieved: 2026-04-12
+  - Applied To: canonical `icon.png` reference in the web shell
+  - Verification: verified in code
+
+- Source: `/Users/almurat/KiKo/kiko-web/public/manifest.json`
+  - Kind: repo doc
+  - Retrieved: 2026-04-12
+  - Applied To: canonical `icon.png` reference in the PWA manifest
+  - Verification: verified in code
+
+- Source: user-provided app name and subtitle correction
+  - Kind: runtime observation
+  - Retrieved: 2026-04-12
+  - Applied To: Farcaster manifest and shell metadata naming
+  - Verification: verified in code
 
 See also:
 - `system-journal/INDEX.md`

@@ -3,45 +3,45 @@ import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import KIKOdark from './assets/images/KIKOdark.png';
 import { RootLayout } from './layouts/RootLayout';
 import { ErrorPage } from './pages/ErrorPage';
-import { HomePage } from './pages/HomePage';
+import { ChatInterface } from './components/Chat/ChatInterface';
 import { lazyRoute } from './utils/lazyRoute';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-12
 // Author: Rowan
-// Reason: The first fix made the home chat route eager, but that pulled the
-//         full chat runtime into the main bundle and still delayed first paint
-//         on slower mobile devices.
-// Goal: keep the default "/" route visually immediate by routing users into a
-//       lightweight welcome shell first, then boot the full chat runtime only
-//       after they actually start a conversation.
-// Owns: top-level route loading policy and the boundary between the home shell
-//       and full chat conversation surfaces.
-// Does Not Own: welcome shell UI internals, chat session runtime behavior, or
-//       backend data timing.
+// Reason: Splitting "/" into a lightweight HomePage introduced a second chat
+//         boot path (`HomePage -> LazyChatInterface -> navigate('/chat/:id')`),
+//         which caused visible "Preparing chat", chat-page loading, and
+//         streaming/plan UI remount churn after the first send.
+// Goal: keep the primary chat entry on one stable owner path so the first send,
+//       conversation creation, and route transition do not remount chat runtime
+//       through two different surfaces.
+// Owns: top-level route loading policy for the chat entry and whether "/" and
+//       `/chat/:conversationId` share one chat owner.
+// Does Not Own: internal code splitting inside chat, welcome UI, or backend data timing.
 // Design Language:
-// - The default route must render a lightweight shell synchronously.
-// - Full chat runtime should load only after user intent or direct conversation navigation.
-// - forbidden local patch patterns: importing the entire chat runtime into the default route bundle
+// - The default chat entry must not boot through two different route owners.
+// - First-send flow stability is more important than a theoretical lighter shell.
+// - forbidden local patch patterns: welcome-shell wrappers that remount chat runtime during first send
 // Document Provenance:
-// - Source: Mobile runtime observation of the production homepage and route timeout screenshot
+// - Source: Runtime observation of "Preparing chat", chat-page loading, and
+//   repeated plan/reply refresh after first send
 // - Kind: runtime observation
-// - Retrieved: 2026-04-10
-// - Applied To: split "/" into a welcome shell and defer the full chat runtime
+// - Retrieved: 2026-04-12
+// - Applied To: restore one shared `ChatInterface` owner for `/` and `/chat/:conversationId`
 // - Verification: verified in runtime
 // - Source: Vite production build output
 // - Kind: build evidence
-// - Retrieved: 2026-04-10
-// - Applied To: confirm the eager home-chat route inflated the main bundle
+// - Retrieved: 2026-04-12
+// - Applied To: accepted bundle tradeoff in exchange for removing chat-runtime remount regressions
 // - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
 // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-homepage-welcome-shell-split.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-chat-home-shell-regression-revert.md
 
 // Pages
-const ChatInterfaceRoute = lazyRoute('chat-interface', () => import('./components/Chat/ChatInterface').then((m) => ({ default: m.ChatInterface })));
 const SocialPage = lazyRoute('social-page', () => import('./pages/SocialPage').then((m) => ({ default: m.SocialPage })));
 const OverviewPage = lazyRoute('overview-page', () => import('./pages/OverviewPage').then((m) => ({ default: m.OverviewPage })));
 const TokensPage = lazyRoute('tokens-page', () => import('./pages/TokensPage').then((m) => ({ default: m.TokensPage })));
@@ -196,11 +196,11 @@ const router = createBrowserRouter([
     children: [
       {
         index: true,
-        element: <HomePage />,
+        element: <ChatInterface />,
       },
       {
         path: 'chat/:conversationId',
-        element: withSuspense(<ChatInterfaceRoute />),
+        element: <ChatInterface />,
       },
       {
         path: 'news',

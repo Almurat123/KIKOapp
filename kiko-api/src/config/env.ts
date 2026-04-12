@@ -10,9 +10,9 @@
 //         and an OAuth1 helper flow for Account Activity subscription setup.
 //         X mention replies also need an explicit public share base URL so the
 //         API can emit crawler-safe share pages instead of public AI text.
-//         Farcaster agent ingress now also needs explicit polling and signer
-//         env boundaries so low-cost Neynar polling can be enabled without
-//         changing X runtime assumptions.
+//         Farcaster agent ingress now uses Snapchain hub polling, so the env
+//         boundary must pin the hub RPC endpoints, signer key, and 10-second
+//         default poll cadence without mutating X runtime assumptions.
 // Goal: keep startup validation as the single owner for deployment-time security
 //       and connectivity requirements around X auth and Farcaster agent ingress.
 // Owns: env parsing and hard-fail validation for X auth configuration and
@@ -24,19 +24,22 @@
 // - Operator authorization must be explicit, never inferred from generic login.
 // - Sensitive token storage must require a valid encryption key.
 // - Webhook CRC must use the X app API/consumer secret, never OAuth2 client secret fallback.
-// - Farcaster agent ingress must stay disabled unless its signer and bot identity are configured.
+// - Farcaster agent ingress must stay disabled unless its hub RPC endpoint list, signer key, and bot identity are configured.
+// - `FARCASTER_AGENT_HUB_RPC_URL` may contain a comma-separated fallback list.
+// - Polling cadence defaults to 10 seconds and must remain env-driven so ops
+//   can raise it to 15 minutes or 1 hour without code changes.
 // - Public X share links must have an explicit base URL and must not be inferred from private session paths.
 // Document Provenance:
-// - Source: Neynar Notifications API docs
-// - Kind: official API doc
-// - Retrieved: 2026-04-10
-// - Applied To: polling env shape for `fid`, notification types, and page size
-// - Verification: inferred
-// - Source: Neynar Post a cast API docs
-// - Kind: official API doc
-// - Retrieved: 2026-04-10
-// - Applied To: signer UUID and reply publishing env requirements
-// - Verification: inferred
+// - Source: @farcaster/hub-nodejs README and typed Hub RPC client exports
+// - Kind: local SDK source / official API docs
+// - Retrieved: 2026-04-12
+// - Applied To: Snapchain Hub RPC endpoint, cast mention polling, and reply submission env requirements
+// - Verification: verified in runtime
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-12
+// - Applied To: 10-second default poll cadence and future env-driven cadence changes
+// - Verification: verified in code
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-11-x-reply-share-pages.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-11
@@ -200,10 +203,10 @@ export interface EnvConfig {
     };
     farcasterAgent: {
         enabled: boolean;
-        apiBaseUrl: string;
+        hubRpcUrls: string[];
         botFid: number;
         botUsername: string;
-        signerUuid: string;
+        signerPrivateKey: string;
         pollMentionsMs: number;
         pollPageSize: number;
         pollMaxPages: number;
@@ -298,7 +301,11 @@ function validateEnv(): EnvConfig {
         (process.env.FARCASTER_AGENT_ENABLED || '').toLowerCase() === 'true' ||
         (process.env.FARCASTER_AGENT_ENABLED || '') === '1';
     const farcasterBotFid = parseInt(process.env.FARCASTER_AGENT_BOT_FID || process.env.KIKO_FARCASTER_FID || '0', 10);
-    const farcasterSignerUuid = process.env.FARCASTER_AGENT_SIGNER_UUID || '';
+    const farcasterSignerPrivateKey = process.env.FARCASTER_SIGNER_PRIVATE_KEY || '';
+    const farcasterHubRpcUrls = String(process.env.FARCASTER_AGENT_HUB_RPC_URL || process.env.SNAPCHAIN_HUB_RPC_URL || 'hub.merv.fun:3381')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
 
     if (isProduction && !internalWebhookSecret) {
         throw new Error('Missing required webhook security env var in production: INTERNAL_WEBHOOK_SECRET');
@@ -317,14 +324,11 @@ function validateEnv(): EnvConfig {
     }
 
     if (isProduction && farcasterAgentEnabled) {
-        if (!process.env.NEYNAR_API_KEY) {
-            throw new Error('Missing required Farcaster agent env var in production: NEYNAR_API_KEY');
-        }
         if (!Number.isFinite(farcasterBotFid) || farcasterBotFid <= 0) {
             throw new Error('Missing required Farcaster agent env var in production: FARCASTER_AGENT_BOT_FID');
         }
-        if (!farcasterSignerUuid) {
-            throw new Error('Missing required Farcaster agent env var in production: FARCASTER_AGENT_SIGNER_UUID');
+        if (!farcasterSignerPrivateKey) {
+            throw new Error('Missing required Farcaster agent env var in production: FARCASTER_SIGNER_PRIVATE_KEY');
         }
     }
 
@@ -538,11 +542,11 @@ function validateEnv(): EnvConfig {
         },
         farcasterAgent: {
             enabled: farcasterAgentEnabled,
-            apiBaseUrl: process.env.NEYNAR_API_BASE_URL || 'https://api.neynar.com/v2',
+            hubRpcUrls: farcasterHubRpcUrls,
             botFid: Number.isFinite(farcasterBotFid) ? farcasterBotFid : 0,
             botUsername: process.env.FARCASTER_AGENT_BOT_USERNAME || process.env.KIKO_FARCASTER_USERNAME || 'kikoapp',
-            signerUuid: farcasterSignerUuid,
-            pollMentionsMs: parseInt(process.env.FARCASTER_AGENT_POLL_MENTIONS_MS || '60000', 10),
+            signerPrivateKey: farcasterSignerPrivateKey,
+            pollMentionsMs: parseInt(process.env.FARCASTER_AGENT_POLL_MENTIONS_MS || '10000', 10),
             pollPageSize: parseInt(process.env.FARCASTER_AGENT_POLL_PAGE_SIZE || '15', 10),
             pollMaxPages: parseInt(process.env.FARCASTER_AGENT_POLL_MAX_PAGES || '3', 10),
             linkBaseUrl: process.env.FARCASTER_LINK_BASE_URL || 'https://kikoapp.app/settings',

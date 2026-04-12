@@ -5,7 +5,10 @@
 //         full AI-generated text directly on X. The share target must be safe
 //         for X card crawlers, yet must not expose private chat session access.
 //         The share payload was later expanded to persist the user's original
-//         prompt so the OG image can render a conversation-style preview.
+//         prompt so the OG image can render a conversation-style preview. The
+//         assistant preview now preserves paragraph boundaries instead of
+//         collapsing everything into one line, because the OG image should feel
+//         like a real reply excerpt, not a rewritten marketing summary.
 // Goal: generate opaque public share records that expose only preview-safe
 //       summary text while still linking the user back into their real KIKO chat.
 // Owns: X reply share token creation, preview-safe text shaping, and canonical
@@ -37,6 +40,11 @@
 // - Retrieved: 2026-04-12
 // - Applied To: persisting prompt snippets for the chat-screenshot card layout
 // - Verification: verified in code
+// - Source: user-provided design correction in active task thread
+// - Kind: product/design reference
+// - Retrieved: 2026-04-12
+// - Applied To: preserving real prompt/reply preview formatting for X share cards
+// - Verification: verified in design direction
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-11-x-reply-share-pages.md
@@ -48,7 +56,7 @@ import { env } from '../../config/env.js';
 
 const DEFAULT_SHARE_BASE_URL = 'https://api.kikoapp.app/x/share';
 const DEFAULT_SHARE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const DEFAULT_PREVIEW_TITLE = 'KIKO replied';
+const DEFAULT_PREVIEW_TITLE = 'KIKO trade ready';
 const MAX_PROMPT_LENGTH = 96;
 const MAX_SUMMARY_LENGTH = 220;
 
@@ -68,10 +76,25 @@ function stripMarkdown(input: string): string {
     .trim();
 }
 
+function normalizePreviewText(input: string): string {
+  return String(input || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
+    .replace(/^>\s+/gm, '')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^[-*+]\s+/gm, '- ')
+    .split(/\n+/)
+    .map((line) => line.replace(/[ \t]+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+}
+
 export function summarizeXReplyText(input: string): string {
-  const normalized = stripMarkdown(input);
+  const normalized = normalizePreviewText(input);
   if (!normalized) {
-    return 'Open in KIKO to view the full reply.';
+    return 'Open in KIKO to view the trade reply.';
   }
   if (normalized.length <= MAX_SUMMARY_LENGTH) {
     return normalized;

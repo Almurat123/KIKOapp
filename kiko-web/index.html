@@ -6,28 +6,28 @@
   <link rel="icon" type="image/png" href="/icon.png" />
   <meta name="viewport"
     content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>KIKO AI Terminal</title>
-  <meta name="description" content="KIKO AI Terminal is an AI-powered Web3 trading terminal for chat, swaps, market analysis, and social discovery." />
+  <title>KiKo your best way to trade !</title>
+  <meta name="description" content="KiKo helps you analyze trades, copy trade smarter, swap faster, and discover opportunities through social signals." />
   <meta name="keywords" content="kikoapp, Web3, AI, Crypto, Trading, Terminal, AI Agent" />
   
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://kikoapp.app/" />
-  <meta property="og:title" content="KIKO AI Terminal" />
-  <meta property="og:description" content="AI-powered Web3 trading terminal for chat, swaps, market analysis, and social discovery." />
-  <meta property="og:image" content="https://kikoapp.app/farcaster-og-card.png" />
+  <meta property="og:title" content="KiKo your best way to trade !" />
+  <meta property="og:description" content="KiKo helps you analyze trades, copy trade smarter, swap faster, and discover opportunities through social signals." />
+  <meta property="og:image" content="https://kikoapp.app/farcaster-social.png" />
 
   <!-- Twitter -->
   <meta property="twitter:card" content="summary_large_image" />
   <meta property="twitter:url" content="https://kikoapp.app/" />
-  <meta property="twitter:title" content="KIKO AI Terminal" />
-  <meta property="twitter:description" content="AI-powered Web3 trading terminal for chat, swaps, market analysis, and social discovery." />
-  <meta property="twitter:image" content="https://kikoapp.app/farcaster-og-card.png" />
+  <meta property="twitter:title" content="KiKo your best way to trade !" />
+  <meta property="twitter:description" content="KiKo helps you analyze trades, copy trade smarter, swap faster, and discover opportunities through social signals." />
+  <meta property="twitter:image" content="https://kikoapp.app/farcaster-social.png" />
   
   <!-- Farcaster Mini App embed metadata -->
-  <meta name="fc:miniapp" content='{"version":"1","imageUrl":"https://kikoapp.app/farcaster-miniapp-card.png","button":{"title":"Open KIKO","action":{"type":"launch_miniapp","url":"https://kikoapp.app/","name":"KIKO AI Terminal","splashImageUrl":"https://kikoapp.app/farcaster-splash.png","splashBackgroundColor":"#09090b"}}}' />
+  <meta name="fc:miniapp" content='{"version":"1","imageUrl":"https://kikoapp.app/farcaster-preview.png","button":{"title":"Open KIKO","action":{"type":"launch_miniapp","url":"https://kikoapp.app/","name":"KiKo your best way to trade !","splashImageUrl":"https://kikoapp.app/icon.png","splashBackgroundColor":"#09090b"}}}' />
   <!-- Backward compatibility for older Farcaster clients -->
-  <meta name="fc:frame" content='{"version":"1","imageUrl":"https://kikoapp.app/farcaster-miniapp-card.png","button":{"title":"Open KIKO","action":{"type":"launch_frame","url":"https://kikoapp.app/","name":"KIKO AI Terminal","splashImageUrl":"https://kikoapp.app/farcaster-splash.png","splashBackgroundColor":"#09090b"}}}' />
+  <meta name="fc:frame" content='{"version":"1","imageUrl":"https://kikoapp.app/farcaster-preview.png","button":{"title":"Open KIKO","action":{"type":"launch_frame","url":"https://kikoapp.app/","name":"KiKo your best way to trade !","splashImageUrl":"https://kikoapp.app/icon.png","splashBackgroundColor":"#09090b"}}}' />
   <!-- Content Security Policy and Permissions Policy are set via HTTP headers in vite.config.ts -->
   <!-- This ensures proper support for frame-ancestors and other directives that require HTTP headers -->
 
@@ -35,7 +35,7 @@
   <link rel="manifest" href="/manifest.json">
 
   <!-- CONTEXT MEMORY
-  Updated: 2026-04-10
+  Updated: 2026-04-12
   Author: Codex
   Reason: The shell metadata now serves both standard PWA install fields and
           Farcaster Mini App embed metadata from the same document.
@@ -50,6 +50,9 @@
     explicitly needs its own embed card.
   - Keep install metadata minimal and explicit.
   - Use /icon.png as the single public favicon / touch icon source.
+  - Use /icon.png as the canonical loading splash mark instead of a poster.
+  - Keep the public app name synchronized across shell, manifest, and Farcaster
+    metadata.
   See also:
   - /Users/almurat/KiKo/system-journal/INDEX.md
   - /Users/almurat/KiKo/system-journal/fix-log/2026-04-08-rate-limit-loading-stall.md

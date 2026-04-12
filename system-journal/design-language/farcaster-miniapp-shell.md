@@ -17,8 +17,8 @@ Mini App client.
    only personalization, but backend sync still requires an actual access token.
 4. Use one 3:2 image for the `fc:miniapp` embed card and one 1200x630 image
    for Open Graph / promotional surfaces.
-5. The manifest icon must be a non-alpha 1024x1024 PNG, and the splash image
-   must be a 200x200 PNG.
+5. The manifest icon must be a non-alpha PNG, and the splash image should be
+   logo-only rather than poster-style artwork.
 
 ## Forbidden Local Patch Patterns
 

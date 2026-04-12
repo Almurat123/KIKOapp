@@ -25,42 +25,52 @@ import { moderationService } from '../../services/moderation';
 import { logger } from '../../utils/logger';
 import { getStoredSlippageBps } from '@/config/slippageConfig';
 import { getUserSettings, saveUserSettings } from '../../services/userSettingsApi';
+import { ChatMessageList } from './ChatMessageList';
 import { ChatComposer } from './ChatComposer';
 import { ACTION_CARD_TYPE_MAP, COMMON_TOKENS, MODEL_OPTIONS, findChatModelOption, getDefaultChatModelOption } from './chatConstants';
 import { requiresContractAddressInFastMode, resolveNativeToken, resolveTokenForChat, resolveTokenForFastSwap } from './chatTokenResolution';
 import { mergeTransactionCardData } from '../../utils/transactionCardState';
 import type { ChatStrategyRuntimeState } from './ChatStrategyRuntime';
 
-const LazyChatMessageList = React.lazy(() => import('./ChatMessageList').then((m) => ({ default: m.ChatMessageList })));
 const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsModal').then((m) => ({ default: m.CustomAISettingsModal })));
 const LazyChatStrategyRuntime = React.lazy(() => import('./ChatStrategyRuntime').then((m) => ({ default: m.ChatStrategyRuntime })));
 
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-12
 // Author: Rowan
-// Reason: The homepage now boots the chat runtime only after the first prompt
-//         is committed, so this owner must accept a handoff prompt and, when
-//         asked, submit it without forcing the welcome shell to stay mounted.
-// Goal: preserve the existing chat-session behavior while allowing the home
-//       welcome shell to hand off the first prompt into the runtime safely.
-// Owns: chat runtime bootstrapping, prompt handoff handling, and chat-session UI
-//       behavior after the runtime is mounted.
-// Does Not Own: route-level home-shell loading policy or welcome-screen layout.
+// Reason: First-send interaction regressed when the primary message list was
+//         deferred and the pending-send spinner became visible before the
+//         conversation id existed.
+// Goal: keep `ChatInterface` as the single stable owner for welcome -> send ->
+//       conversation creation, rendering the chat surface and user message
+//       immediately while backend session creation continues.
+// Owns: chat runtime bootstrapping and stable first-send/session behavior.
+// Does Not Own: route-level shell experiments or external page wrappers.
 // Design Language:
-// - handoff prompts must not be lost during the shell-to-runtime transition
-// - auto-submit is an explicit caller opt-in, not the default behavior
-// - forbidden local patch patterns: assuming every pending prompt should auto-send
+// - first-send flow should stay inside one chat owner
+// - the primary message list is part of the core chat surface, not a deferred
+//   post-send chunk
+// - pending session creation may lock duplicate sends, but must not render a
+//   standalone loading spinner before assistant/task state exists
+// - prompt prefills may populate input, but should not introduce a second boot path
+// - forbidden local patch patterns: route-wrapper handoff logic that auto-submits through remount
 // Document Provenance:
-// - Source: Runtime observation of the welcome-shell-to-chat transition requirement
+// - Source: Runtime observation of repeated loading and streaming UI churn after first send
 // - Kind: runtime observation
-// - Retrieved: 2026-04-10
-// - Applied To: add an explicit auto-submit handoff path for the home shell
-// - Verification: partially verified
+// - Retrieved: 2026-04-12
+// - Applied To: remove home-shell handoff auto-submit behavior and restore single-owner flow
+// - Verification: verified in runtime
+// - Source: Git comparison against ca8163b from 2026-03-12
+// - Kind: repo history
+// - Retrieved: 2026-04-12
+// - Applied To: restore eager primary message-list rendering and remove visible first-send loading
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
 // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-homepage-welcome-shell-split.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-chat-home-shell-regression-revert.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-first-send-no-loading-chat-entry.md
 
 interface TaskState {
     id: string;
@@ -92,7 +102,6 @@ interface ChatInterfaceProps {
     onNewChat?: () => void;
     pendingAIPrompt?: string | null;
     onAIPromptSet?: () => void;
-    autoSubmitPendingPrompt?: boolean;
     activeTask?: TaskState | null;
     onTaskUpdate?: (task: TaskState | null) => void;
 }
@@ -153,7 +162,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     initialMessages = [],
     pendingAIPrompt: propPendingPrompt,
     onAIPromptSet,
-    autoSubmitPendingPrompt = false,
     activeTask: propActiveTask,
     onTaskUpdate,
 }) => {
@@ -187,7 +195,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const currentConv = conversations.find(c => c.id === conversationId);
     const messages = currentConv?.messages || initialMessages;
     const messagesRef = useRef<Message[]>(messages);
-    const autoSubmittedPendingPromptRef = useRef<string | null>(null);
     useEffect(() => {
         messagesRef.current = messages;
     }, [messages]);
@@ -253,17 +260,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const lastCompositionEndRef = useRef<number>(0);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const [welcomePendingMessages, setWelcomePendingMessages] = useState<Message[]>([]);
-    const hasVisibleAssistantResponse = useMemo(
-        () =>
-            messages.some((message) => {
-                if (message.role !== 'assistant') return false;
-                if (message.type && message.type !== 'text') return true;
-                if ((message.content || '').trim().length > 0) return true;
-                if ((message.reasoning_content || '').trim().length > 0) return true;
-                return false;
-            }),
-        [messages]
-    );
     const hasAnyAssistantMessage = useMemo(
         () => messages.some((message) => message.role === 'assistant'),
         [messages]
@@ -2136,37 +2132,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     // Use propPendingPrompt or local state logic
     useEffect(() => {
-        if (!propPendingPrompt) {
-            autoSubmittedPendingPromptRef.current = null;
-            return;
-        }
-
-        setInput(propPendingPrompt);
-
-        if (!autoSubmitPendingPrompt) {
+        if (propPendingPrompt) {
+            setInput(propPendingPrompt);
             if (onAIPromptSet) onAIPromptSet();
-            return;
         }
-
-        if (autoSubmittedPendingPromptRef.current === propPendingPrompt) {
-            return;
-        }
-
-        autoSubmittedPendingPromptRef.current = propPendingPrompt;
-        if (onAIPromptSet) onAIPromptSet();
-
-        requestAnimationFrame(() => {
-            window.setTimeout(() => {
-                if (conversationId || currentConversationIdRef.current || messagesRef.current.length > 0) {
-                    return;
-                }
-                if (isSubmittingRef.current || isSendingRef.current) {
-                    return;
-                }
-                handleSendRef.current?.(propPendingPrompt);
-            }, 0);
-        });
-    }, [autoSubmitPendingPrompt, conversationId, onAIPromptSet, propPendingPrompt]);
+    }, [onAIPromptSet, propPendingPrompt]);
 
     // Handle pending AI prompt from other pages (legacy prop cleanup)
     useEffect(() => {
@@ -2202,11 +2172,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             return msg;
         });
     }, [displayMessages, strategyRuntime.strategies]);
-
-    const shouldLoadChatMessageList =
-        (sidebar?.chatStarted ?? false) ||
-        displayMessages.length > 0 ||
-        firstSendPending;
 
     const shouldLoadStrategyRuntime =
         (sidebar?.chatStarted ?? false) ||
@@ -2263,72 +2228,65 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 </React.Suspense>
             )}
 
-            {shouldLoadChatMessageList && (
-                <React.Suspense fallback={null}>
-                    <LazyChatMessageList
-                        chatStarted={sidebar?.chatStarted ?? false}
-                        disableChatTransitions={disableChatTransitions}
-                        scrollContainerRef={scrollContainerRef}
-                        messagesEndRef={messagesEndRef}
-                        enrichedMessages={enrichedMessages}
-                        handleScroll={handleScroll}
-                        thinkingText={thinkingText}
-                        thinkingStartTime={thinkingStartTime}
-                        isBusy={isBusy}
-                        firstSendPending={firstSendPending}
-                        hasAnyAssistantMessage={hasAnyAssistantMessage}
-                        hasVisibleAssistantResponse={hasVisibleAssistantResponse}
-                        walletAddress={walletAddress}
-                        chainId={chainId}
-                        conversationId={conversationId}
-                        selectedModelId={selectedModel?.id}
-                        onFeedback={handleMessageFeedback}
-                        onCardAction={(action, data, msg) => {
-                            if (action === 'swap-cancel') {
-                                const updated = messages.map(m =>
-                                    m.id === msg.id ? { ...m, transactionStatus: 'cancelled' as const } : m
-                                );
-                                if (conversationId) updateConversation(conversationId, updated);
-                            } else if (action === 'swap-success') {
-                                const txHash = (data as { txHash: string }).txHash;
-                                const updated = messages.map(m =>
-                                    m.id === msg.id ? {
-                                        ...m,
-                                        transactionStatus: 'success' as const,
-                                        transactionHash: txHash
-                                    } : m
-                                );
-                                if (conversationId) updateConversation(conversationId, updated);
-                            } else if (action === 'swap-error') {
-                                const updated = messages.map(m =>
-                                    m.id === msg.id ? { ...m, transactionStatus: 'failed' as const } : m
-                                );
-                                if (conversationId) updateConversation(conversationId, updated);
-                            } else if (action === 'strategy-delete') {
-                                const strategyId = data as string;
-                                strategyRuntime.deleteStrategy?.(strategyId);
-                                const updated = messages.map(m =>
-                                    m.type === 'strategy-card' && m.data?.id === strategyId
-                                        ? { ...m, type: 'text' as const, data: undefined }
-                                        : m
-                                );
-                                if (conversationId) updateConversation(conversationId, updated);
-                            } else if (action === 'strategy-toggle') {
-                                const strategyId = data as string;
-                                strategyRuntime.toggleStrategyStatus?.(strategyId);
-                                const updated = messages.map(m => {
-                                    if (m.type === 'strategy-card' && m.data?.id === strategyId) {
-                                        const newStatus = m.data.status === 'active' ? 'paused' : 'active';
-                                        return { ...m, data: { ...m.data, status: newStatus } };
-                                    }
-                                    return m;
-                                });
-                                if (conversationId) updateConversation(conversationId, updated);
+            <ChatMessageList
+                chatStarted={sidebar?.chatStarted ?? false}
+                disableChatTransitions={disableChatTransitions}
+                scrollContainerRef={scrollContainerRef}
+                messagesEndRef={messagesEndRef}
+                enrichedMessages={enrichedMessages}
+                handleScroll={handleScroll}
+                thinkingText={thinkingText}
+                thinkingStartTime={thinkingStartTime}
+                isBusy={isBusy}
+                walletAddress={walletAddress}
+                chainId={chainId}
+                conversationId={conversationId}
+                selectedModelId={selectedModel?.id}
+                onFeedback={handleMessageFeedback}
+                onCardAction={(action, data, msg) => {
+                    if (action === 'swap-cancel') {
+                        const updated = messages.map(m =>
+                            m.id === msg.id ? { ...m, transactionStatus: 'cancelled' as const } : m
+                        );
+                        if (conversationId) updateConversation(conversationId, updated);
+                    } else if (action === 'swap-success') {
+                        const txHash = (data as { txHash: string }).txHash;
+                        const updated = messages.map(m =>
+                            m.id === msg.id ? {
+                                ...m,
+                                transactionStatus: 'success' as const,
+                                transactionHash: txHash
+                            } : m
+                        );
+                        if (conversationId) updateConversation(conversationId, updated);
+                    } else if (action === 'swap-error') {
+                        const updated = messages.map(m =>
+                            m.id === msg.id ? { ...m, transactionStatus: 'failed' as const } : m
+                        );
+                        if (conversationId) updateConversation(conversationId, updated);
+                    } else if (action === 'strategy-delete') {
+                        const strategyId = data as string;
+                        strategyRuntime.deleteStrategy?.(strategyId);
+                        const updated = messages.map(m =>
+                            m.type === 'strategy-card' && m.data?.id === strategyId
+                                ? { ...m, type: 'text' as const, data: undefined }
+                                : m
+                        );
+                        if (conversationId) updateConversation(conversationId, updated);
+                    } else if (action === 'strategy-toggle') {
+                        const strategyId = data as string;
+                        strategyRuntime.toggleStrategyStatus?.(strategyId);
+                        const updated = messages.map(m => {
+                            if (m.type === 'strategy-card' && m.data?.id === strategyId) {
+                                const newStatus = m.data.status === 'active' ? 'paused' : 'active';
+                                return { ...m, data: { ...m.data, status: newStatus } };
                             }
-                        }}
-                    />
-                </React.Suspense>
-            )}
+                            return m;
+                        });
+                        if (conversationId) updateConversation(conversationId, updated);
+                    }
+                }}
+            />
 
             <ChatComposer
                 chatStarted={sidebar?.chatStarted ?? false}

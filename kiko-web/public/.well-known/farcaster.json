@@ -6,26 +6,26 @@
   },
   "miniapp": {
     "version": "1",
-    "name": "KIKO AI Terminal",
+    "name": "KiKo your best way to trade !",
     "homeUrl": "https://kikoapp.app/",
-    "iconUrl": "https://kikoapp.app/farcaster-icon.png",
-    "splashImageUrl": "https://kikoapp.app/farcaster-splash.png",
+    "iconUrl": "https://kikoapp.app/icon.png",
+    "splashImageUrl": "https://kikoapp.app/icon.png",
     "splashBackgroundColor": "#09090b",
-    "subtitle": "AI trading terminal",
-    "description": "AI-powered Web3 trading terminal for chat, swaps, market analysis, and social discovery.",
+    "subtitle": "Trade analysis. Copy trade.",
+    "description": "KiKo helps you analyze trades, copy trade smarter, swap faster, and discover opportunities through social signals.",
     "primaryCategory": "finance",
     "tags": [
       "trading",
       "ai",
-      "defi",
-      "wallet",
+      "web3",
+      "finance",
       "social"
     ],
-    "heroImageUrl": "https://kikoapp.app/farcaster-og-card.png",
-    "tagline": "Trade faster with AI",
-    "ogTitle": "KIKO AI Terminal",
-    "ogDescription": "AI-powered Web3 trading terminal for chat, swaps, market analysis, and social discovery.",
-    "ogImageUrl": "https://kikoapp.app/farcaster-og-card.png",
+    "heroImageUrl": "https://kikoapp.app/farcaster-promo.png",
+    "tagline": "Trade analysis. Copy trade.",
+    "ogTitle": "KiKo your best way to trade !",
+    "ogDescription": "KiKo helps you analyze trades, copy trade smarter, swap faster, and discover opportunities through social signals.",
+    "ogImageUrl": "https://kikoapp.app/farcaster-social.png",
     "canonicalDomain": "kikoapp.app"
   }
 }
