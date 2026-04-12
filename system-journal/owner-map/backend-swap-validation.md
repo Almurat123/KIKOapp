@@ -1,6 +1,6 @@
 # Backend Swap Validation Owner Map
 
-Updated: 2026-04-08
+Updated: 2026-04-13
 
 ## Owned Layers
 
@@ -22,6 +22,17 @@ rules, or broadcast semantics.
 Owns: route selection, quote construction, allowance handling, and execution.
 
 Does not own: bespoke smoke-test orchestration or one-off validation sample sizes.
+
+### EVM native gas-reserve balance source
+
+Owns: using fresh copytrade guard native-balance evidence, or a single direct
+native-balance RPC read, before adjusting native input for gas reserve.
+
+Does not own: wallet portfolio hydration, stablecoin balance discovery, or
+multi-chain wallet display context.
+
+Design rule: the swap hot path must not call broad wallet portfolio balance
+hydration to answer a single native gas-reserve question.
 
 ### DirectSwap strategy boundary
 

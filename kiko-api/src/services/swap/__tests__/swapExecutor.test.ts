@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { __swapExecutorTest } from '../SwapExecutor.js';
+import { getUsableNativeBalanceEvidence, nativeBalanceEvidenceToBigInt } from '../nativeBalanceEvidence.js';
 
 function makeQuote(overrides: Record<string, unknown> = {}) {
   return {
@@ -75,22 +76,35 @@ test('finalizeApprovedSellQuote accepts compatible pinned refresh', () => {
   assert.equal(decision.quoteToExecute.data, '0xfeedbeef');
 });
 
-test('turbo copytrade 0x fallback uses RPC-only native balance checks', () => {
-  assert.equal(__swapExecutorTest.shouldUseRpcNativeBalanceForTurboFallback({
-    feeContext: 'copyTrade',
-    executionMode: 'turbo',
-    copytradeFallbackPricingGuard: { stage: '0x_fallback' },
-  }), true);
+test('native balance evidence is reusable only for matching fresh wallet scope', () => {
+  const evidence = {
+    chainId: 8453,
+    walletAddress: '0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B',
+    balanceWei: '1000000000000000000',
+    observedAtMs: 1_000,
+    source: 'copytrade_buy_gas_guard' as const,
+  };
 
-  assert.equal(__swapExecutorTest.shouldUseRpcNativeBalanceForTurboFallback({
-    feeContext: 'copyTrade',
-    executionMode: 'turbo',
-    copytradeFallbackPricingGuard: undefined,
-  }), false);
+  const usable = getUsableNativeBalanceEvidence({
+    evidence,
+    chainId: 8453,
+    walletAddress: '0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b',
+    nowMs: 2_000,
+  });
 
-  assert.equal(__swapExecutorTest.shouldUseRpcNativeBalanceForTurboFallback({
-    feeContext: 'swap',
-    executionMode: 'turbo',
-    copytradeFallbackPricingGuard: { stage: '0x_fallback' },
-  } as any), false);
+  assert.ok(usable);
+  assert.equal(nativeBalanceEvidenceToBigInt(usable), 1000000000000000000n);
+  assert.equal(getUsableNativeBalanceEvidence({
+    evidence,
+    chainId: 1,
+    walletAddress: evidence.walletAddress,
+    nowMs: 2_000,
+  }), null);
+  assert.equal(getUsableNativeBalanceEvidence({
+    evidence,
+    chainId: 8453,
+    walletAddress: evidence.walletAddress,
+    nowMs: 20_000,
+    maxAgeMs: 5_000,
+  }), null);
 });

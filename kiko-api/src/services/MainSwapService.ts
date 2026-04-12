@@ -30,6 +30,11 @@ import { buildSolanaDirectRequest, executeSolanaDirectLaunchpad } from './solana
 import { getTokenInfo } from './tokenService.js';
 import { getPlatformFee, isValidEvmAddress, type FeeContext } from './platformFeeService.js';
 import {
+  getUsableNativeBalanceEvidence,
+  nativeBalanceEvidenceToBigInt,
+  type NativeBalanceEvidence
+} from './swap/nativeBalanceEvidence.js';
+import {
   buildDirectSwapFeeSettlement,
   collectDirectSwapFeeFromSettlement,
   type DirectSwapFeeSettlement
@@ -143,6 +148,8 @@ export interface CopytradeFallbackPricingGuardContext {
   allowUnreliablePriceBypass?: boolean;
 }
 
+export type { NativeBalanceEvidence };
+
 /**
  * Unified swap request accepted by MainSwapService
  */
@@ -189,6 +196,28 @@ export interface MainSwapRequest {
   allowedDexes?: QuoteDex[];
   zeroExQuoteTimeoutMs?: number;
   preferredDexes?: QuoteDex[];
+  // CONTEXT MEMORY
+  // Updated: 2026-04-13
+  // Author: Mira Chen
+  // Reason: Copytrade buy guard already owns the strict native gas-buffer read; MainSwap must not silently discard that evidence and trigger duplicate slow balance reads.
+  // Goal: Carry validated native balance evidence into swap execution while preserving MainSwap as the request-normalization boundary.
+  // Owns: Passing execution-context evidence to precheck and SwapExecutor.
+  // Does Not Own: Fetching wallet portfolio balances or deciding gas-buffer thresholds.
+  // Design Language:
+  // - Reuse upstream guard evidence when it is fresh and wallet/chain scoped.
+  // - Treat portfolio hydration as UI/wallet context, not as the hot-path native gas-reserve owner.
+  // - Forbidden local patch patterns: adding timeout-only wrappers around duplicate reads instead of passing evidence.
+  // Document Provenance:
+  // - Source: /Users/almurat/Downloads/logs.1775999977570.json
+  // - Kind: runtime observation
+  // - Retrieved: 2026-04-13
+  // - Applied To: copytrade MainSwap request evidence propagation
+  // - Verification: verified in runtime logs and local reproduction
+  // See also:
+  // - system-journal/INDEX.md
+  // - system-journal/design-language/copytrade-race-recovery.md
+  // - system-journal/owner-map/backend-swap-validation.md
+  // - system-journal/fix-log/2026-04-13-copytrade-native-balance-evidence.md
   executionContext?: {
     sourceTxHash?: string;
     sourceRouter?: string;
@@ -205,6 +234,7 @@ export interface MainSwapRequest {
     contextHitSource?: 'redis' | 'db' | 'inline' | 'miss';
     strictReplica?: boolean;
     copytradeFallbackPricingGuard?: CopytradeFallbackPricingGuardContext;
+    nativeBalanceEvidence?: NativeBalanceEvidence;
     copytradePendingPositionId?: string;
     copytradeUserId?: string;
   };
@@ -353,14 +383,21 @@ export async function verifyNativeBalancePrecheck(params: {
   amountIn: string;
   gasReserve: string;
   getNativeBalanceFn?: typeof getNativeBalance;
+  nativeBalanceEvidence?: NativeBalanceEvidence;
   onBypass?: (error: unknown) => void;
 }): Promise<void> {
   const readNativeBalance = params.getNativeBalanceFn || getNativeBalance;
   try {
     const amountInWei = ethers.parseUnits(params.amountIn, 18);
     const reserveWei = ethers.parseUnits(params.gasReserve || '0', 18);
-    const balanceHex = await readNativeBalance(params.walletAddress, params.chainId, 'latest', { lane: 'cheap' });
-    const balanceWei = BigInt(balanceHex);
+    const evidence = getUsableNativeBalanceEvidence({
+      evidence: params.nativeBalanceEvidence,
+      chainId: params.chainId,
+      walletAddress: params.walletAddress,
+    });
+    const balanceWei = evidence
+      ? nativeBalanceEvidenceToBigInt(evidence)
+      : BigInt(await readNativeBalance(params.walletAddress, params.chainId, 'latest', { lane: 'cheap' }));
     const requiredWei = amountInWei + reserveWei;
     if (balanceWei < requiredWei) {
       throw new Error(
@@ -1513,6 +1550,7 @@ export class MainSwapService {
             walletAddress: request.walletAddress,
             amountIn: request.amountIn,
             gasReserve: getChainConfig(request.chainId).gasReserve || '0.003',
+            nativeBalanceEvidence: request.executionContext?.nativeBalanceEvidence,
             onBypass: (error) => {
               logger.warn(LogCode.API_FETCH_FAILED, trace('Native balance precheck unavailable; continuing without precheck'), {
                 chainId: request.chainId,
@@ -2442,6 +2480,7 @@ export class MainSwapService {
         sourceAmountIn,
         sourceAmountOut
       },
+      nativeBalanceEvidence: request.executionContext?.nativeBalanceEvidence,
       runtimeContext: request.runtimeContext
     };
 

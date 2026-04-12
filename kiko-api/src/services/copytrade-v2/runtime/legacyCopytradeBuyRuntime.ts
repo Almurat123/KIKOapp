@@ -8,6 +8,7 @@ import {
     listActiveCanonicalOrders as listActiveCanonicalOrdersFallback,
 } from '../orders/canonicalOrderState.js';
 import { TRADE_METADATA_PROFILE } from '../../rpc/profile.js';
+import type { NativeBalanceEvidence } from '../../MainSwapService.js';
 
 type SingleUserBuyResult = {
     outcome: 'executed' | 'pending' | 'skipped' | 'failed';
@@ -165,6 +166,29 @@ export async function processSingleUserBuy(params: {
         let txLifecycleStatus: string | undefined;
         let orderRuntimeContext: any = undefined;
         let swapMetadata: any = undefined;
+        // CONTEXT MEMORY
+        // Updated: 2026-04-13
+        // Author: Mira Chen
+        // Reason: This guard is the first strict owner that reads native balance for copytrade buy gas-buffer admission.
+        // Goal: Preserve the successful guard read as evidence for MainSwap/SwapExecutor instead of forcing duplicate hot-path reads.
+        // Owns: Creating native balance evidence when gasBuffer guard obtains a usable native balance.
+        // Does Not Own: Swap execution gas-reserve adjustment or wallet portfolio hydration.
+        // Design Language:
+        // - Guard evidence should move forward with the buy submission.
+        // - A gas-balance RPC failure may still pass by policy, but must not fabricate evidence.
+        // - Forbidden local patch patterns: hiding guard reads in transient logs only.
+        // Document Provenance:
+        // - Source: /Users/almurat/Downloads/logs.1775999977570.json
+        // - Kind: runtime observation
+        // - Retrieved: 2026-04-13
+        // - Applied To: copytrade buy gasBuffer evidence creation
+        // - Verification: verified in runtime logs and local reproduction
+        // See also:
+        // - system-journal/INDEX.md
+        // - system-journal/design-language/copytrade-race-recovery.md
+        // - system-journal/owner-map/backend-swap-validation.md
+        // - system-journal/fix-log/2026-04-13-copytrade-native-balance-evidence.md
+        let nativeBalanceEvidence: NativeBalanceEvidence | undefined;
         const claimCanonicalOrder = claimOrCreateCanonicalOrder || claimOrCreateCanonicalOrderFallback;
         const advanceCanonicalOrder = advanceCanonicalOrderState || advanceCanonicalOrderStateFallback;
         const canonicalOrder = leaderTxHash
@@ -738,6 +762,18 @@ export async function processSingleUserBuy(params: {
                         skipReasonCode: 'buy_skipped_insufficient_gas_buffer',
                     });
                     return { outcome: 'skipped' };
+                } else {
+                    nativeBalanceEvidence = {
+                        chainId,
+                        walletAddress: effectiveConfig.user.walletAddress,
+                        balanceWei: nativeBalance.toString(),
+                        observedAtMs: Date.now(),
+                        source: 'copytrade_buy_gas_guard',
+                        blockTag: 'latest',
+                        requiredWei: (tradeCostWei + gasBufferWei).toString(),
+                        tradeCostWei: tradeCostWei.toString(),
+                        gasReserveWei: gasBufferWei.toString(),
+                    };
                 }
             }
 
@@ -1109,6 +1145,7 @@ export async function processSingleUserBuy(params: {
                         maxEntryDeviationModeFloorBps: effectiveConfig.maxEntryDeviationModeFloorBps,
                         allowFallbackEntryDeviationBypass: isEntryDeviationPriceUnreliable(chainId, tokenInfo),
                         pendingPositionId,
+                        nativeBalanceEvidence,
                         refreshTokenInfoForRetry: async () => tokenInfoCache
                             ? await getTokenInfoOnce(tokenInfoCache, tokenToBuy, chainId, {
                                 verbose: false,

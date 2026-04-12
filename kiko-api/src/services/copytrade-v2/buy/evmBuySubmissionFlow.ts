@@ -1,6 +1,6 @@
 import { LogCode } from '../../../config/logRegistry.js';
 import { logger } from '../../../utils/logger.js';
-import type { DirectSwapHint, MainSwapRequest, MainSwapResult } from '../../MainSwapService.js';
+import type { DirectSwapHint, MainSwapRequest, MainSwapResult, NativeBalanceEvidence } from '../../MainSwapService.js';
 import { executeSwapViaPort } from '../../swap/swapExecutionPort.js';
 import type { DecodedSwap } from '../../txDecoder.js';
 import type { OrderRuntimeContext } from '../../order-runtime/types.js';
@@ -82,6 +82,7 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
   maxEntryDeviationModeFloorBps?: number | null;
   allowFallbackEntryDeviationBypass?: boolean;
   pendingPositionId?: string | null;
+  nativeBalanceEvidence?: NativeBalanceEvidence;
 }, deps?: {
   buildCopytradeBuyPlannedArtifact?: typeof buildCopytradeBuyPlannedArtifact;
   executeSwapViaPort?: typeof executeSwapViaPort;
@@ -141,6 +142,7 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
           inputValueUsd: params.usdAmount,
           allowUnreliablePriceBypass: params.allowFallbackEntryDeviationBypass,
         } : undefined,
+        nativeBalanceEvidence: params.nativeBalanceEvidence,
         copytradePendingPositionId: params.pendingPositionId || undefined,
         copytradeUserId: params.userId,
       },

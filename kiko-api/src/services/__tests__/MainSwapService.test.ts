@@ -45,6 +45,30 @@ test('verifyNativeBalancePrecheck still rejects true insufficient native balance
   );
 });
 
+test('verifyNativeBalancePrecheck reuses fresh native balance evidence', async () => {
+  let rpcCalls = 0;
+
+  await verifyNativeBalancePrecheck({
+    chainId: 8453,
+    walletAddress: '0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B',
+    amountIn: '0.001',
+    gasReserve: '0.003',
+    nativeBalanceEvidence: {
+      chainId: 8453,
+      walletAddress: '0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b',
+      balanceWei: '1000000000000000000',
+      observedAtMs: Date.now(),
+      source: 'copytrade_buy_gas_guard',
+    },
+    getNativeBalanceFn: async () => {
+      rpcCalls += 1;
+      return '0x0';
+    },
+  });
+
+  assert.equal(rpcCalls, 0);
+});
+
 test('swap error mapping classifies rpc pool failures explicitly', () => {
   const message = 'All RPC endpoints failed for BNB Smart Chain. Last error: HTTP 401: Unauthorized';
   assert.equal(inferSwapReasonCode(message), 'rpc_unavailable');

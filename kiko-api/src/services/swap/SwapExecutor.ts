@@ -55,18 +55,17 @@ import { clearApprovalPreheatState, getApprovalPreheatState, upsertApprovalPrehe
 import { getSellQuotePreheatState, getUsableWarmSellQuote } from './sellQuotePreheatState.js';
 import { getExecutionFeeSnapshot } from './executionFeeSnapshot.js';
 import { shouldRetryPermit2AsAllowanceHolder, shouldUseSignedPermitForSell } from './permitFallbackPolicy.js';
+import {
+    getUsableNativeBalanceEvidence,
+    nativeBalanceEvidenceToBigInt,
+    type NativeBalanceEvidence,
+} from './nativeBalanceEvidence.js';
 
 // 0x AllowanceHolder address (Base). If a token already has sufficient allowance here,
 // we can skip Permit2 first-try and reduce sell failure risk for problematic tokens.
 const ZEROX_ALLOWANCE_HOLDER_BY_CHAIN: Record<number, string> = {
     8453: '0x0000000000001ff3684f28c67538d4d072c22734'
 };
-
-function shouldUseRpcNativeBalanceForTurboFallback(params: Pick<SwapParams, 'feeContext' | 'executionMode' | 'copytradeFallbackPricingGuard'>): boolean {
-    return params.feeContext === 'copyTrade'
-        && params.executionMode === 'turbo'
-        && params.copytradeFallbackPricingGuard?.stage === '0x_fallback';
-}
 
 export interface SwapParams {
     userId: string;
@@ -107,6 +106,29 @@ export interface SwapParams {
         sourceAmountOut?: string | null;
     };
     copytradeFallbackPricingGuard?: CopytradeFallbackPricingGuardContext;
+    // CONTEXT MEMORY
+    // Updated: 2026-04-13
+    // Author: Mira Chen
+    // Reason: EVM native gas reserve used to hydrate a full wallet portfolio, which delayed copytrade quote/send when Alchemy portfolio fell back to multi-chain stablecoin RPC.
+    // Goal: SwapExecutor may consume fresh upstream native balance evidence or perform one direct native-balance RPC; it must not use wallet portfolio for EVM native gas reserve.
+    // Owns: Hot-path gas reserve adjustment before EVM quote execution.
+    // Does Not Own: Copytrade guard admission policy, wallet portfolio display hydration, or external quote provider scoring.
+    // Design Language:
+    // - Native gas reserve is a single-balance read, not a portfolio read.
+    // - Guard evidence is authoritative only when fresh and wallet/chain scoped.
+    // - Forbidden local patch patterns: broad walletService balance hydration inside native buy execution.
+    // Document Provenance:
+    // - Source: /Users/almurat/Downloads/logs.1775999977570.json
+    // - Kind: runtime observation
+    // - Retrieved: 2026-04-13
+    // - Applied To: EVM native gas-reserve balance source
+    // - Verification: verified in runtime logs and local reproduction
+    // See also:
+    // - system-journal/INDEX.md
+    // - system-journal/design-language/copytrade-race-recovery.md
+    // - system-journal/owner-map/backend-swap-validation.md
+    // - system-journal/fix-log/2026-04-13-copytrade-native-balance-evidence.md
+    nativeBalanceEvidence?: NativeBalanceEvidence;
     runtimeContext?: OrderRuntimeContext;
     failoverSendContext?: FailoverSendContext;
 }
@@ -445,10 +467,14 @@ export class SwapExecutor {
         let amountInBase = toWei(amountInHuman, decimalsIn);
         if (isNativeIn) {
             try {
-                const chainName = getChainConfig(chainId).name.toLowerCase();
-                const balanceBigInt = shouldUseRpcNativeBalanceForTurboFallback(params)
-                    ? BigInt(await getNativeBalance(walletAddress, chainId, 'latest', { lane: 'critical' }))
-                    : BigInt((await walletService.getWalletBalance(walletAddress, chainName)).ethBalance);
+                const usableNativeBalanceEvidence = getUsableNativeBalanceEvidence({
+                    evidence: params.nativeBalanceEvidence,
+                    chainId,
+                    walletAddress,
+                });
+                const balanceBigInt = usableNativeBalanceEvidence
+                    ? nativeBalanceEvidenceToBigInt(usableNativeBalanceEvidence)
+                    : BigInt(await getNativeBalance(walletAddress, chainId, 'latest', { lane: 'critical' }));
                 const amountInBigInt = BigInt(amountInBase);
 
                 const config = getChainConfig(chainId);
@@ -457,10 +483,10 @@ export class SwapExecutor {
 
                 if (amountInBigInt >= balanceBigInt - (reserve / BigInt(2))) {
                     const newAmountIn = balanceBigInt - reserve;
-                    if (newAmountIn <= BigInt(0)) throw new Error(`Insufficient ${chainName.toUpperCase()} for gas reserve (${reserveStr})`);
+                    if (newAmountIn <= BigInt(0)) throw new Error(`Insufficient ${config.name.toUpperCase()} for gas reserve (${reserveStr})`);
                     amountInBase = newAmountIn.toString();
                     amountInHuman = ethers.formatEther(newAmountIn);
-                    logger.info(LogCode.SYS_INFO, 'Gas Reserve Applied', { chain: chainName, reserve: reserveStr, newAmount: ethers.formatEther(newAmountIn) });
+                    logger.info(LogCode.SYS_INFO, 'Gas Reserve Applied', { chain: config.name.toLowerCase(), reserve: reserveStr, newAmount: ethers.formatEther(newAmountIn) });
                 }
             } catch (err: any) {
                 logger.warn(LogCode.SYS_ERROR, 'Gas reserve check failed', { error: err.message });
@@ -1885,5 +1911,4 @@ export class SwapExecutor {
 
 export const __swapExecutorTest = {
     finalizeApprovedSellQuote,
-    shouldUseRpcNativeBalanceForTurboFallback,
 };
