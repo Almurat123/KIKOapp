@@ -42,10 +42,17 @@ CREATE TABLE IF NOT EXISTS "CopyTradeWalletAudit" (
     CONSTRAINT "CopyTradeWalletAudit_pkey" PRIMARY KEY ("id")
 );
 
-ALTER TABLE "CopyTradeWalletAudit"
-ADD CONSTRAINT "CopyTradeWalletAudit_configId_fkey"
-FOREIGN KEY ("configId") REFERENCES "CopyTradeConfig"("id")
-ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'CopyTradeWalletAudit_configId_fkey'
+  ) THEN
+    ALTER TABLE "CopyTradeWalletAudit"
+    ADD CONSTRAINT "CopyTradeWalletAudit_configId_fkey"
+    FOREIGN KEY ("configId") REFERENCES "CopyTradeConfig"("id")
+    ON DELETE SET NULL ON UPDATE CASCADE;
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS "CopyTradeWalletAudit_userId_chainId_createdAt_idx"
 ON "CopyTradeWalletAudit"("userId", "chainId", "createdAt");
