@@ -66,6 +66,8 @@ owner boundaries, and major fixes.
 - [Fix Log: 2026-04-13 Open Position Zero-Balance Reconciler](./fix-log/2026-04-13-open-position-zero-balance-reconciler.md)
 - [Fix Log: 2026-04-13 X Mention Feed Confirmation](./fix-log/2026-04-13-x-mention-feed-confirmation.md)
 - [Fix Log: 2026-04-13 X Blue Verified Type Gate](./fix-log/2026-04-13-x-blue-verified-type-gate.md)
+- [Fix Log: 2026-04-13 X Share OG Font Embed](./fix-log/2026-04-13-x-share-og-font-embed.md)
+- [Fix Log: 2026-04-13 X Share Public Rate Limit Bypass](./fix-log/2026-04-13-x-share-public-rate-limit-bypass.md)
 - [Fix Log: 2026-04-13 X Webhook Snowflake Precision Repair](./fix-log/2026-04-13-x-webhook-snowflake-precision-repair.md)
 - [Fix Log: 2026-04-10 X Webhook Replay Script](./fix-log/2026-04-10-x-webhook-replay-script.md)
 - [Fix Log: 2026-04-12 Chat Home Shell Regression Revert](./fix-log/2026-04-12-chat-home-shell-regression-revert.md)

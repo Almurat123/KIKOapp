@@ -4,11 +4,15 @@
  */
 
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-13
 // Author: Almurat
 // Reason: global API throttling now coexists with privileged OAuth bootstrap
 //         flows, so the limiter must explicitly protect interactive traffic
-//         without breaking one-time operator authorization paths.
+//         without breaking one-time operator authorization paths. Production X
+//         reply shares later introduced a public crawler-facing HTML route
+//         `/x/share/:token`; that route must be treated like a public card page,
+//         not like interactive API traffic, or X crawler fetches and user
+//         clicks will trip the default limiter bucket and break share opens.
 // Goal: preserve broad abuse protection while allowing security-sensitive but
 //       low-frequency bootstrap routes to complete deterministically.
 // Owns: request throttling categories, bypass rules, and fail-open behavior for
@@ -17,12 +21,22 @@
 // Design Language:
 // - Keep global limits on by default.
 // - Explicitly exempt privileged bootstrap routes instead of relying on retries.
+// - Treat public crawler-facing card/share endpoints as static delivery surfaces,
+//   not interactive API traffic.
 // - Treat limiter backend faults as non-fatal to request handling.
+// Document Provenance:
+// - Source: production log `logs.1776060669760.json`
+// - Kind: runtime observation
+// - Retrieved: 2026-04-13
+// - Applied To: exempting `/x/share/:token` from the default limiter after share
+//   clicks and crawler fetches returned `RATE_LIMIT_EXCEEDED`
+// - Verification: verified in runtime
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-x-oauth1-helper-flow.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-x-auth-rate-limit-bypass.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-x-share-public-rate-limit-bypass.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
@@ -70,6 +84,7 @@ export async function rateLimiterMiddleware(
         request.url.startsWith('/api/webhook/') ||
         request.url.startsWith('/webhook/') ||
         request.url.startsWith('/assets/') ||
+        request.url.startsWith('/x/share/') ||
         request.url.startsWith('/api/images/') ||
         request.url === '/api/chat/moderation/log'
     ) {

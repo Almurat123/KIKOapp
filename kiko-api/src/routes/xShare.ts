@@ -1,4 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
@@ -35,6 +38,11 @@ import {
 //         the same wrapping rules. Assistant preview text now wraps by estimated
 //         pixel width and preserves paragraph boundaries from the real model
 //         reply excerpt instead of forcing sentence-like fixed character cuts.
+//         Production runtime later showed the OG image can render prompt/reply
+//         text as tofu boxes on Linux when the SVG relies only on system fonts.
+//         The route now embeds a shipped English-first font into the SVG so
+//         share cards render deterministic Latin text in production instead of
+//         depending on host font packages.
 // Goal: expose a crawler-safe X share page and OG image endpoint that reveal
 //       only preview-safe summary text while preserving a path back to the
 //       private KIKO chat session.
@@ -105,11 +113,25 @@ import {
 // - Applied To: wrapping assistant preview text by visual width while preserving
 //   real reply paragraph boundaries
 // - Verification: verified in design direction
+// - Source: production screenshot + latest `x_reply_shares` row with visible
+//   prompt/summary text but tofu-box OG rendering
+// - Kind: runtime observation
+// - Retrieved: 2026-04-13
+// - Applied To: embedding a shipped English-first font in the share SVG instead
+//   of relying on production system fonts
+// - Verification: verified in runtime
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-11-x-reply-share-pages.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-x-share-og-chat-preview.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-x-share-og-font-embed.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const X_SHARE_FONT_PATH = path.resolve(__dirname, '../assets/fonts/Inter-Regular.woff2');
+const X_SHARE_FONT_FAMILY = 'KikoShareInter';
+let cachedShareFontBase64: string | null = null;
 
 function escapeHtml(input: string): string {
   return String(input || '')
@@ -122,6 +144,25 @@ function escapeHtml(input: string): string {
 
 function escapeXml(input: string): string {
   return escapeHtml(input);
+}
+
+function sanitizeOgText(input: string): string {
+  return String(input || '')
+    .replace(/[\u{1F300}-\u{1FAFF}]/gu, '')
+    .replace(/[\u{2600}-\u{27BF}]/gu, '')
+    .replace(/[\uFE0E\uFE0F]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getEmbeddedShareFontBase64(): string | null {
+  if (cachedShareFontBase64 !== null) return cachedShareFontBase64;
+  try {
+    cachedShareFontBase64 = fs.readFileSync(X_SHARE_FONT_PATH).toString('base64');
+  } catch {
+    cachedShareFontBase64 = null;
+  }
+  return cachedShareFontBase64;
 }
 
 function truncateVisualText(input: string, maxLength: number): string {
@@ -438,10 +479,12 @@ function renderShareHtml(params: {
 }
 
 function renderShareSvg(params: { title: string; prompt: string; summary: string; openAppUrl: string }) {
-  const title = escapeXml(params.title);
-  const promptBubble = buildPromptBubbleLayout(params.prompt);
-  const summaryLines = wrapSvgTextByWidth(params.summary, 880, 36, 4).map((line) => escapeXml(line));
+  const title = escapeXml(sanitizeOgText(params.title));
+  const promptBubble = buildPromptBubbleLayout(sanitizeOgText(params.prompt));
+  const summaryLines = wrapSvgTextByWidth(sanitizeOgText(params.summary), 880, 36, 4).map((line) => escapeXml(line));
   const summaryLineOpacity = ['0.96', '0.74', '0.44', '0.18'];
+  const embeddedFontBase64 = getEmbeddedShareFontBase64();
+  const svgFontFamily = `'${X_SHARE_FONT_FAMILY}', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif`;
   const summaryLineSpans = summaryLines
     .map((line, index) => (
       `<tspan x="112" dy="${index === 0 ? 0 : 48}" fill="rgba(245,245,247,${summaryLineOpacity[index] || '0.18'})">${line}</tspan>`
@@ -451,6 +494,15 @@ function renderShareSvg(params: { title: string; prompt: string; summary: string
   return `
 <svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
+    ${embeddedFontBase64 ? `
+    <style>
+      @font-face {
+        font-family: '${X_SHARE_FONT_FAMILY}';
+        src: url("data:font/woff2;base64,${embeddedFontBase64}") format('woff2');
+        font-style: normal;
+        font-weight: 400;
+      }
+    </style>` : ''}
     <linearGradient id="promptBubble" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
       <stop offset="0" stop-color="#1E1E21"/>
       <stop offset="1" stop-color="#26262A"/>
@@ -458,14 +510,14 @@ function renderShareSvg(params: { title: string; prompt: string; summary: string
   </defs>
   <rect width="1200" height="630" fill="#000000"/>
   <rect x="${promptBubble.x}" y="${promptBubble.y}" width="${promptBubble.width}" height="${promptBubble.height}" rx="${Math.floor(promptBubble.height / 2)}" fill="url(#promptBubble)" stroke="rgba(255,255,255,0.06)"/>
-  <text x="${promptBubble.textX}" y="${promptBubble.textY}" fill="#F5F5F7" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif" font-size="23" font-weight="500">
+  <text x="${promptBubble.textX}" y="${promptBubble.textY}" fill="#F5F5F7" font-family="${svgFontFamily}" font-size="23" font-weight="500">
     ${promptBubble.lines.map((line, index) => `<tspan x="${promptBubble.textX}" dy="${index === 0 ? 0 : 28}">${line}</tspan>`).join('')}
   </text>
-  <text x="112" y="336" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif" font-size="36" font-weight="500">
+  <text x="112" y="336" font-family="${svgFontFamily}" font-size="36" font-weight="500">
     ${summaryLineSpans}
   </text>
-  <text x="112" y="548" font-size="23" fill="#F5F5F7" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif" font-weight="700">Trade in KIKO</text>
-  <text x="1048" y="548" font-size="15" text-anchor="end" fill="rgba(245,245,247,0.36)" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif">${title}</text>
+  <text x="112" y="548" font-size="23" fill="#F5F5F7" font-family="${svgFontFamily}" font-weight="700">Trade in KIKO</text>
+  <text x="1048" y="548" font-size="15" text-anchor="end" fill="rgba(245,245,247,0.36)" font-family="${svgFontFamily}">${title}</text>
 </svg>`;
 }
 
