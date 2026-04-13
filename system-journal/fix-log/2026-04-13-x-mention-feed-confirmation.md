@@ -6,8 +6,10 @@
 - Webhook-delivered mention candidates are now checked against the bot's official
   `/2/users/{botUserId}/mentions` feed before quota, agent execution, share
   generation, and outbound `replyToMention`.
-- If the tweet is not present in the mentions feed, the event is skipped and
-  logged as non-replyable platform evidence instead of failing later at the
+- Early mentions-feed misses are now treated as retryable indexing lag during a
+  bounded grace window instead of immediate final skips.
+- If the tweet still never appears after the grace window, the event is skipped
+  and logged as non-replyable platform evidence instead of failing later at the
   outbound reply step.
 
 ## Why
@@ -24,15 +26,28 @@ while refusing API reply permission for that tweet.
 The bot's mentions feed is a stronger signal because it reflects the platform's
 own mention eligibility surface that the product is supposed to respond to.
 
+Later runtime inspection showed another nuance: webhook delivery can arrive a
+few seconds before `/users/{botUserId}/mentions` indexes the same tweet. A
+production check against tweet `2043564901130703343` showed:
+
+- webhook ingress logged the event immediately at `2026-04-13T05:40:25Z`
+- direct API inspection later showed the same tweet was present in the bot's
+  official mentions feed
+
+That means "not present right now" is not always equivalent to "never replyable".
+
 ## Product Rule
 
 - The product only auto-replies to tweets that are visible in the bot's official
   mentions feed.
 - Webhook payloads remain the fast ingress trigger, but they no longer decide
   reply eligibility on their own.
-- If a webhook event cannot be confirmed in `/users/{botUserId}/mentions`, the
-  product skips the reply instead of burning quota and failing at the final
-  reply request.
+- If a webhook event cannot be confirmed in `/users/{botUserId}/mentions`
+  immediately, the worker retries during a short grace window to absorb X
+  indexing lag.
+- If the tweet still cannot be confirmed after the grace window, the product
+  skips the reply instead of burning quota and failing at the final reply
+  request.
 
 ## Document Provenance
 
@@ -49,3 +64,10 @@ own mention eligibility surface that the product is supposed to respond to.
   X still rejects the outbound reply
 - Verification: verified in runtime
 
+- Source: production log `logs.1776058844460.json` + direct `/2/users/{botUserId}/mentions`
+  inspection for tweet `2043564901130703343`
+- Kind: runtime observation
+- Retrieved: 2026-04-13
+- Applied To: reclassifying early mentions-feed misses as retryable indexing lag
+  instead of immediate permanent skips
+- Verification: verified in runtime

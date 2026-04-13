@@ -13,7 +13,11 @@
 //         every share record. Runtime logs on 2026-04-13 then showed webhook
 //         mention events can still be non-replyable at the API layer, so mention
 //         business must now confirm the tweet against the bot's official mentions
-//         feed before spending quota and attempting a public reply.
+//         feed before spending quota and attempting a public reply. A later
+//         runtime correction showed valid mentions can appear in webhook delivery
+//         before they appear in `/users/{botUserId}/mentions`, so the worker now
+//         treats early feed misses as a retryable indexing lag instead of a
+//         final skip.
 // Goal: preserve deterministic mention handling while keeping X as a link-only
 //       public surface and aligning X reply model selection with persisted user preference.
 // Owns: inbound X mention processing, session routing, dedupe, and reply dispatch.
@@ -28,6 +32,8 @@
 // - X mention sessions must use the same persisted default model the user chose on web.
 // - Webhook ingress is a fast capture path, not the final authority on reply
 //   eligibility; public replies require confirmation from the bot mentions feed.
+// - A mention missing from `/mentions` immediately after webhook delivery may be
+//   indexing lag; retry inside a bounded grace window before final skip.
 // Document Provenance:
 // - Source: X Activity API docs + X Direct Messages lookup docs
 // - Kind: official API doc
@@ -67,6 +73,13 @@
 // - Applied To: confirming webhook mention candidates against `/users/:id/mentions`
 //   after X rejected outbound reply permission with a 403
 // - Verification: verified in runtime
+// - Source: production log `logs.1776058844460.json` + direct `/users/{botUserId}/mentions`
+//   inspection for tweet `2043564901130703343`
+// - Kind: runtime observation
+// - Retrieved: 2026-04-13
+// - Applied To: retrying mention confirmation instead of final skip when webhook
+//   delivery beats mentions-feed indexing by a few seconds
+// - Verification: verified in runtime
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
@@ -95,6 +108,14 @@ import type { XMentionEvent } from './types.js';
 
 const MENTION_CURSOR_KEY = 'x:ingress:mentions:since_id';
 const RECOVERY_BATCH_SIZE = Math.max(1, Number(process.env.X_WEBHOOK_RECOVERY_BATCH_SIZE || '20'));
+const MENTION_FEED_CONFIRMATION_GRACE_MS = 10 * 60 * 1000;
+
+class MentionFeedPendingError extends Error {
+  constructor(message = 'x_mention_feed_pending') {
+    super(message);
+    this.name = 'MentionFeedPendingError';
+  }
+}
 
 function sortByNumericId<T extends { id: string }>(items: T[]): T[] {
   return [...items].sort((a, b) => {
@@ -181,6 +202,28 @@ export async function markInboundProcessed(eventId: string, status: 'processed' 
       errorMessage: error ? String((error as any)?.message || error || 'unknown_error').slice(0, 500) : null,
     },
   }).catch(() => {});
+}
+
+async function requeueInboundEvent(eventId: string): Promise<void> {
+  await prisma.xEventLog.updateMany({
+    where: {
+      eventId,
+      direction: 'inbound',
+      status: 'processing',
+    },
+    data: {
+      status: 'received',
+      errorMessage: null,
+    },
+  }).catch(() => {});
+}
+
+function isMentionFeedGraceWindowOpen(mention: XMentionEvent): boolean {
+  const raw = String(mention.createdAt || '').trim();
+  if (!raw) return true;
+  const timestamp = Date.parse(raw);
+  if (!Number.isFinite(timestamp)) return true;
+  return (Date.now() - timestamp) < MENTION_FEED_CONFIRMATION_GRACE_MS;
 }
 
 export class XIngressWorker {
@@ -309,6 +352,10 @@ export class XIngressWorker {
       await this.handleMentionBusiness(mention);
       await markInboundProcessed(mention.id, 'processed');
     } catch (error) {
+      if (error instanceof MentionFeedPendingError) {
+        await requeueInboundEvent(mention.id);
+        return;
+      }
       await markInboundProcessed(mention.id, 'failed', error);
       throw error;
     }
@@ -317,6 +364,15 @@ export class XIngressWorker {
   private async handleMentionBusiness(mention: XMentionEvent): Promise<void> {
     const confirmedMention = await xApiClient.fetchMentionByTweetId(mention.id);
     if (!confirmedMention) {
+      if (isMentionFeedGraceWindowOpen(mention)) {
+        logger.info(LogCode.API_NOTIFY_FAILED, '[X] Mention deferred: waiting for mentions feed indexing', {
+          eventId: mention.id,
+          xUserId: mention.authorId,
+          username: mention.authorUsername || null,
+          createdAt: mention.createdAt || null,
+        });
+        throw new MentionFeedPendingError();
+      }
       logger.info(LogCode.API_NOTIFY_FAILED, '[X] Mention skipped: not present in mentions feed', {
         eventId: mention.id,
         xUserId: mention.authorId,
