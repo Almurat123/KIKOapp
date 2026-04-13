@@ -73,7 +73,11 @@ import {
 //         deployment model. A later production check proved the origin image
 //         route was fixed while X still showed the old broken card, so this
 //         layer now disables share-page caching and emits versioned OG image
-//         URLs for new shares.
+//         URLs for new shares. Product behavior later clarified that a human
+//         clicking the X card must land in KIKO, not stay on the API-owned
+//         share page. The route therefore keeps crawler-readable HTML/meta for
+//         card generation, but adds an immediate script + noscript redirect to
+//         the real KIKO chat URL for browser users.
 // Goal: expose a crawler-safe X share page and OG image endpoint that reveal
 //       only preview-safe summary text while preserving a path back to the
 //       private KIKO chat session.
@@ -190,12 +194,19 @@ import {
 // - Applied To: disabling share-page caching and emitting versioned OG image
 //   URLs so X card fetches do not keep stale broken previews
 // - Verification: verified in runtime
+// - Source: user-provided click-through screenshot in active task thread
+// - Kind: runtime/product observation
+// - Retrieved: 2026-04-13
+// - Applied To: redirecting human visitors from the crawler-safe API share page
+//   to the real KIKO chat target while preserving crawler-visible meta tags
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-11-x-reply-share-pages.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-x-share-og-chat-preview.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-x-share-og-font-embed.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-x-share-card-cache-busting.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-x-share-click-through-redirect.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 const __filename = fileURLToPath(import.meta.url);
@@ -448,6 +459,11 @@ function renderShareHtml(params: {
     <meta name="twitter:description" content="${summary}" />
     <meta name="twitter:image" content="${imageUrl}" />
     <meta name="robots" content="noindex, noarchive, max-image-preview:large" />
+    <link rel="canonical" href="${openAppUrl}" />
+    <noscript><meta http-equiv="refresh" content="0;url=${openAppUrl}" /></noscript>
+    <script>
+      window.location.replace(${JSON.stringify(params.openAppUrl)});
+    </script>
     <style>
       :root { color-scheme: dark; }
       * { box-sizing: border-box; }

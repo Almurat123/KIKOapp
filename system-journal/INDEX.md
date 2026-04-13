@@ -70,6 +70,7 @@ owner boundaries, and major fixes.
 - [Fix Log: 2026-04-13 X Blue Verified Type Gate](./fix-log/2026-04-13-x-blue-verified-type-gate.md)
 - [Fix Log: 2026-04-13 X Share OG Font Embed](./fix-log/2026-04-13-x-share-og-font-embed.md)
 - [Fix Log: 2026-04-13 X Share Card Cache Busting](./fix-log/2026-04-13-x-share-card-cache-busting.md)
+- [Fix Log: 2026-04-13 X Share Click-Through Redirect](./fix-log/2026-04-13-x-share-click-through-redirect.md)
 - [Fix Log: 2026-04-13 X Share Public Rate Limit Bypass](./fix-log/2026-04-13-x-share-public-rate-limit-bypass.md)
 - [Fix Log: 2026-04-13 X Webhook Snowflake Precision Repair](./fix-log/2026-04-13-x-webhook-snowflake-precision-repair.md)
 - [Fix Log: 2026-04-10 X Webhook Replay Script](./fix-log/2026-04-10-x-webhook-replay-script.md)
