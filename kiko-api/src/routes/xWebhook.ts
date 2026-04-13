@@ -11,6 +11,9 @@
 //         payloads can carry X snowflake ids as bare JSON numbers; normal
 //         `JSON.parse` loses precision for those ids, which made valid mentions
 //         miss the bot mentions feed confirmation step by changing tweet/user ids.
+//         A later correction moved the fix earlier in the pipeline so raw legacy
+//         snowflakes are stringified before parse, instead of trying to repair
+//         already-damaged numbers after the fact.
 // Goal: verify inbound X events, filter bot-authored noise, and hand off only
 //       supported mention events to the internal conversation pipeline.
 // Owns: X webhook CRC/signature handling, mention extraction, and inbound audit.
@@ -29,8 +32,8 @@
 //   non-verified accounts without extra lookup.
 // - Treat only explicit `@bot` mentions as replyable inbound work; do not infer
 //   reply eligibility from thread structure alone.
-// - Do not trust raw webhook numeric snowflakes after plain `JSON.parse`; repair
-//   legacy tweet event ids from the original raw body before mention extraction.
+// - Do not trust raw webhook numeric snowflakes after plain `JSON.parse`; rewrite
+//   legacy tweet snowflake fields to strings before parsing the JSON body.
 // Document Provenance:
 // - Source: X Activity API docs + production lookup probes
 // - Kind: official API doc | runtime observation
@@ -51,8 +54,8 @@
 // - Source: production log `logs.1776056502806.json` + direct tweet/mentions API inspection
 // - Kind: runtime observation
 // - Retrieved: 2026-04-13
-// - Applied To: repairing legacy webhook snowflake precision so valid mention ids
-//   survive webhook parsing and match `/users/{botUserId}/mentions`
+// - Applied To: stringifying legacy webhook snowflakes before parse so valid
+//   mention ids survive webhook parsing and match `/users/{botUserId}/mentions`
 // - Verification: verified in runtime
 // See also:
 // - system-journal/INDEX.md
@@ -238,141 +241,37 @@ function extractModernActivityItems(payload: XActivityPayload): any[] {
   return [];
 }
 
-function findJsonArraySource(rawBody: string, propertyName: string): string | null {
-  const propertyToken = `"${propertyName}"`;
-  const propertyIndex = rawBody.indexOf(propertyToken);
-  if (propertyIndex < 0) return null;
-  const arrayStart = rawBody.indexOf('[', propertyIndex);
-  if (arrayStart < 0) return null;
+function normalizeLegacyTweetSnowflakes(rawBody: string): string {
+  const tweetSnowflakeFields = [
+    'id',
+    'author_id',
+    'conversation_id',
+    'in_reply_to_status_id',
+    'in_reply_to_user_id',
+  ];
+  const userSnowflakeFields = [
+    'id',
+  ];
 
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let index = arrayStart; index < rawBody.length; index += 1) {
-    const char = rawBody[index];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === '\\') {
-        escaped = true;
-      } else if (char === '"') {
-        inString = false;
-      }
-      continue;
-    }
-    if (char === '"') {
-      inString = true;
-      continue;
-    }
-    if (char === '[') {
-      depth += 1;
-      continue;
-    }
-    if (char === ']') {
-      depth -= 1;
-      if (depth === 0) {
-        return rawBody.slice(arrayStart, index + 1);
-      }
+  let normalized = rawBody;
+  const rewriteObjectField = (fieldName: string) => {
+    const pattern = new RegExp(`("${fieldName}"\\s*:\\s*)([0-9]{15,22})(?=\\s*[,}])`, 'g');
+    normalized = normalized.replace(pattern, '$1"$2"');
+  };
+
+  if (normalized.includes('"tweet_create_events"')) {
+    for (const fieldName of tweetSnowflakeFields) {
+      rewriteObjectField(fieldName);
     }
   }
-  return null;
-}
 
-function splitTopLevelObjectSources(arraySource: string): string[] {
-  const objects: string[] = [];
-  let objectStart = -1;
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-
-  for (let index = 0; index < arraySource.length; index += 1) {
-    const char = arraySource[index];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === '\\') {
-        escaped = true;
-      } else if (char === '"') {
-        inString = false;
-      }
-      continue;
-    }
-    if (char === '"') {
-      inString = true;
-      continue;
-    }
-    if (char === '{') {
-      if (depth === 0) {
-        objectStart = index;
-      }
-      depth += 1;
-      continue;
-    }
-    if (char === '}') {
-      depth -= 1;
-      if (depth === 0 && objectStart >= 0) {
-        objects.push(arraySource.slice(objectStart, index + 1));
-        objectStart = -1;
-      }
+  if (normalized.includes('"users"')) {
+    for (const fieldName of userSnowflakeFields) {
+      rewriteObjectField(fieldName);
     }
   }
-  return objects;
-}
 
-function extractRawSnowflake(objectSource: string, fieldNames: string[]): string | null {
-  for (const fieldName of fieldNames) {
-    const patterns = [
-      new RegExp(`"${fieldName}"\\s*:\\s*"([0-9]{10,})"`),
-      new RegExp(`"${fieldName}"\\s*:\\s*([0-9]{10,})`),
-    ];
-    for (const pattern of patterns) {
-      const match = objectSource.match(pattern);
-      if (match?.[1]) {
-        return match[1];
-      }
-    }
-  }
-  return null;
-}
-
-function repairLegacyTweetSnowflakes(payload: XActivityPayload, rawBody: string): void {
-  const items = Array.isArray(payload?.tweet_create_events) ? payload.tweet_create_events : [];
-  if (items.length === 0) return;
-
-  const arraySource = findJsonArraySource(rawBody, 'tweet_create_events');
-  if (!arraySource) return;
-  const objectSources = splitTopLevelObjectSources(arraySource);
-  if (objectSources.length !== items.length) return;
-
-  for (let index = 0; index < items.length; index += 1) {
-    const item = items[index];
-    const source = objectSources[index];
-    const rawId = extractRawSnowflake(source, ['id_str', 'id']);
-    const rawAuthorId = extractRawSnowflake(source, ['author_id']);
-    const rawConversationId = extractRawSnowflake(source, ['conversation_id_str', 'conversation_id']);
-    const rawInReplyToStatusId = extractRawSnowflake(source, ['in_reply_to_status_id_str', 'in_reply_to_status_id']);
-    const rawUserId = extractRawSnowflake(source, ['user_id_str', 'user_id']);
-
-    if (rawId) {
-      item.id = rawId;
-      item.id_str = rawId;
-    }
-    if (rawAuthorId) {
-      item.author_id = rawAuthorId;
-    }
-    if (rawConversationId) {
-      item.conversation_id = rawConversationId;
-      item.conversation_id_str = rawConversationId;
-    }
-    if (rawInReplyToStatusId) {
-      item.in_reply_to_status_id = rawInReplyToStatusId;
-      item.in_reply_to_status_id_str = rawInReplyToStatusId;
-    }
-    if (item?.user && rawUserId) {
-      item.user.id = rawUserId;
-      item.user.id_str = rawUserId;
-    }
-  }
+  return normalized;
 }
 
 function parseModernActivityDirectMessage(item: any): XDirectMessageEvent | null {
@@ -486,14 +385,14 @@ export async function xWebhookRoutes(fastify: FastifyInstance) {
       return reply.status(401).send({ error: 'Invalid signature' });
     }
 
+    const normalizedRawBody = normalizeLegacyTweetSnowflakes(rawBody);
+
     let payload: XActivityPayload;
     try {
-      payload = JSON.parse(rawBody);
+      payload = JSON.parse(normalizedRawBody);
     } catch {
       return reply.status(400).send({ error: 'Invalid JSON body' });
     }
-
-    repairLegacyTweetSnowflakes(payload, rawBody);
 
     const mentions = extractMentionEvents(payload);
     const ignoredDirectMessages = [
