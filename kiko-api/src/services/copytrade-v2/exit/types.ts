@@ -4,7 +4,7 @@ import type { AttributedPositionLike, PositionAttributionReasonCode } from '../p
 import type { PendingAttributedPositionLotLike } from '../positions/pendingAttributedPositionLedger.js';
 
 export type PositionExitReason = 'mirror_sell' | 'take_profit' | 'stop_loss' | 'manual' | 'dynamic_take_profit';
-export type SellRoutePolicy = 'external_primary' | 'direct_primary';
+export type SellRoutePolicy = 'external_primary' | 'direct_primary' | 'direct_only';
 
 export interface ExitTokenInfo {
   price?: number;

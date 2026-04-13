@@ -54,3 +54,11 @@ test('direct-primary exit retries still include direct fallback steps', () => {
   assert.equal(attempts.some((attempt) => attempt.executionStep === 'sell_direct_fallback'), true);
   assert.equal(attempts.some((attempt) => attempt.sellRoutePolicy === 'direct_primary'), true);
 });
+
+test('direct-only exit retries never include external retry steps', () => {
+  const attempts = buildExitAttempts(makePlan('direct_only'));
+
+  assert.equal(attempts.some((attempt) => attempt.sellRoutePolicy === 'external_primary'), false);
+  assert.equal(attempts.some((attempt) => attempt.executionStep === 'sell_external_retry_aggressive'), false);
+  assert.equal(attempts.every((attempt) => attempt.sellRoutePolicy === 'direct_only'), true);
+});

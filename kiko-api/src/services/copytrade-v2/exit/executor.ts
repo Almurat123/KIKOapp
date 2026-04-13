@@ -1,3 +1,31 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-14
+// Author: Rowan
+// Reason: mirror-sell retry expansion treated `direct_primary` as "prefer
+//         direct first, but allow external retries later". That was too loose
+//         for BSC four.meme pre-graduation exits, which must remain on the
+//         launchpad route instead of leaking into 0x-based retries.
+// Goal: preserve route-policy semantics across retries so `direct_only`
+//       remains direct on every immediate attempt.
+// Owns: immediate copytrade exit attempt construction and route/slippage
+//       escalation order.
+// Does Not Own: launchpad detection, swap execution internals, or persisted
+//               position attribution.
+// Design Language:
+// - exit retries keep amount constant and only vary route/slippage
+// - `direct_only` means no external retry steps in the immediate attempt set
+// - route-policy names must map to strict execution behavior, not soft hints
+// Document Provenance:
+// - Source: production log `logs.1776101245961.json`
+// - Kind: runtime observation
+// - Retrieved: 2026-04-14
+// - Applied To: introducing `direct_only` exit attempts for four.meme sell flows
+// - Verification: verified in code review and targeted tests
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-bsc-fourmeme-direct-only-exit.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
+
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { logOrderRuntimeSnapshot } from '../../order-runtime/sinks/logger.js';
@@ -51,7 +79,13 @@ export function buildExitAttempts(plan: EvmExitSwapPlan) {
 
   let currentSlippageBps = plan.retrySlippageBps;
   const aggressiveSteps: Array<{ executionStep: string; sellRoutePolicy: SellRoutePolicy }> =
-    plan.sellRoutePolicy === 'direct_primary'
+    plan.sellRoutePolicy === 'direct_only'
+      ? [
+          { executionStep: 'sell_direct_fallback', sellRoutePolicy: 'direct_only' },
+          { executionStep: 'sell_direct_retry_aggressive', sellRoutePolicy: 'direct_only' },
+          { executionStep: 'sell_direct_retry_final', sellRoutePolicy: 'direct_only' },
+        ]
+      : plan.sellRoutePolicy === 'direct_primary'
       ? [
           { executionStep: 'sell_direct_fallback', sellRoutePolicy: 'direct_primary' },
           { executionStep: 'sell_external_retry_aggressive', sellRoutePolicy: plan.sellRoutePolicy },
@@ -89,7 +123,7 @@ async function runExitSwapAttempt(
   sellRoutePolicy: SellRoutePolicy,
   runtimeContext = plan.runtimeContext
 ) {
-  const useDirectPrimary = sellRoutePolicy === 'direct_primary';
+  const useDirectPrimary = sellRoutePolicy === 'direct_primary' || sellRoutePolicy === 'direct_only';
   const result = await submitCopytradeExit({
     userId: plan.userId,
     walletAddress: plan.walletAddress,

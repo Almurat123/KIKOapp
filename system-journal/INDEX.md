@@ -65,6 +65,7 @@ owner boundaries, and major fixes.
 - [Fix Log: 2026-04-14 Copytrade Direct Followup Card Rescue](./fix-log/2026-04-14-copytrade-direct-followup-card-rescue.md)
 - [Fix Log: 2026-04-14 Copytrade Strategy List Read/Write Decoupling](./fix-log/2026-04-14-copytrade-strategy-list-read-write-decoupling.md)
 - [Fix Log: 2026-04-14 Copytrade Reactivation And Webhook Address Guard](./fix-log/2026-04-14-copytrade-reactivation-and-webhook-address-guard.md)
+- [Fix Log: 2026-04-14 Copytrade BSC Four.meme Direct-Only Exit](./fix-log/2026-04-14-copytrade-bsc-fourmeme-direct-only-exit.md)
 - [Fix Log: 2026-04-13 Copytrade Turbo TokenInfo Bypass](./fix-log/2026-04-13-copytrade-turbo-tokeninfo-bypass.md)
 - [Fix Log: 2026-04-13 Copytrade Sell Relayer Webhook Repair](./fix-log/2026-04-13-copytrade-sell-relayer-webhook-repair.md)
 - [Fix Log: 2026-04-13 Webhook Weak-Evidence Dispatch Hardening](./fix-log/2026-04-13-webhook-weak-evidence-dispatch-hardening.md)

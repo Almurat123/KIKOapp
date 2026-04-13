@@ -1,3 +1,31 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-14
+// Author: Rowan
+// Reason: exit planning previously encoded four.meme sells as `direct_primary`,
+//         which still allowed later executor stages to introduce external
+//         retries. That diluted the launchpad boundary for pre-graduation BSC
+//         exits.
+// Goal: encode four.meme launchpad exits as a route policy that remains direct
+//       across the full immediate retry window.
+// Owns: exit swap-plan construction, exit-route policy selection, and runtime
+//       metadata for immediate EVM exits.
+// Does Not Own: actual swap submission, receipt handling, or launchpad token
+//               detection heuristics outside this plan.
+// Design Language:
+// - route policy is part of the plan contract, not a UI hint
+// - four.meme exit plans on BSC stay direct until graduation is proven elsewhere
+// - planner must encode the strictest safe route semantics up front
+// Document Provenance:
+// - Source: production log `logs.1776101245961.json`
+// - Kind: runtime observation
+// - Retrieved: 2026-04-14
+// - Applied To: selecting `direct_only` for four.meme exit plans
+// - Verification: verified in runtime and targeted tests
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-bsc-fourmeme-direct-only-exit.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
+
 import { ethers } from 'ethers';
 import type { CopyTradeExecutionMode } from '../../copyTradeExecutionMode.js';
 import type { EvmExitPlan, ExitTokenInfo, PositionExitReason } from './types.js';
@@ -410,7 +438,7 @@ export function buildEvmExitPlanFromSnapshot(input: {
     targetWallet: input.targetWallet
   });
   const sellRoutePolicy = input.launchpadProvider === 'fourmeme'
-    ? 'direct_primary'
+    ? 'direct_only'
     : 'external_primary';
   setOrderMetadata(runtimeContext, {
     pendingBridgeApplied: Boolean((adjustedMetrics as { pendingBridgeApplied?: unknown }).pendingBridgeApplied),

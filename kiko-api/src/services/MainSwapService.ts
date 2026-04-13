@@ -16,6 +16,36 @@
  * 5. Return unified result format
  */
 
+// CONTEXT MEMORY
+// Updated: 2026-04-14
+// Author: Rowan
+// Reason: BSC four.meme pre-launch mirror sells were allowed to share the same
+//         fallback vocabulary as buy-side launchpad routing. That made the sell
+//         owner boundary ambiguous: a direct bonding-curve sell failure could
+//         still drift toward standard aggregator routing even when the token had
+//         not graduated to DEX liquidity.
+// Goal: preserve launchpad-aware routing so four.meme sell flows stay on the
+//       launchpad path until graduation is explicitly proven.
+// Owns: unified swap route selection, launchpad specialization, and launchpad
+//       fallback eligibility for EVM and Solana swaps.
+// Does Not Own: copytrade exit attempt sequencing, token launchpad detection
+//               storage, or aggregator quote policy outside the chosen route.
+// Design Language:
+// - four.meme buy-side graduation may fall back to standard EVM routing
+// - four.meme sell-side pre-graduation failures must not fall through to 0x
+// - launchpad fallback rules must distinguish buy and sell semantics
+// Document Provenance:
+// - Source: production log `logs.1776101245961.json`
+// - Kind: runtime observation
+// - Retrieved: 2026-04-14
+// - Applied To: forbidding four.meme sell fallback to standard EVM swap after launchpad revert
+// - Verification: verified in runtime and targeted tests
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-bsc-fourmeme-direct-only-exit.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
+
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { SOLANA_CONFIG } from '../config/solanaConfig.js';
@@ -227,7 +257,7 @@ export interface MainSwapRequest {
     sourceTxInput?: string;
     sourceTxValue?: string;
     executionStep?: string;
-    sellRoutePolicy?: 'external_primary' | 'direct_primary';
+    sellRoutePolicy?: 'external_primary' | 'direct_primary' | 'direct_only';
     sourceTokenIn?: string;
     sourceTokenOut?: string;
     sourceAmountIn?: string;
@@ -1254,6 +1284,10 @@ export class MainSwapService {
             break;
           } catch (fourMemeErr: any) {
             const message = String(fourMemeErr?.message || fourMemeErr || '');
+            const isSell = !isNativeToken(request.tokenIn, request.chainId);
+            if (isSell) {
+              throw fourMemeErr;
+            }
             const shouldFallbackToDex =
               message.includes('Liquidity already added to DEX')
               || message.includes('Use aggregator instead.')

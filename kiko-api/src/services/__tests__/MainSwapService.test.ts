@@ -212,3 +212,40 @@ test('MainSwapService routes fourmeme launchpad buy through specialized executor
     fourMemeSwapService.fastSwap = originalFastSwap;
   }
 });
+
+test('MainSwapService does not fall back to standard EVM swap for fourmeme sells', async () => {
+  const originalFastSwap = fourMemeSwapService.fastSwap;
+  const mainSwapAny = MainSwapService as any;
+  const originalExecuteEvmSwap = mainSwapAny.executeEvmSwap;
+  let evmFallbackCalled = false;
+
+  fourMemeSwapService.fastSwap = async () => {
+    throw new Error('Execution reverted with reason: GW: GW');
+  };
+  mainSwapAny.executeEvmSwap = async () => {
+    evmFallbackCalled = true;
+    throw new Error('should not reach evm fallback');
+  };
+
+  try {
+    const result = await MainSwapService.executeSwap({
+      userId: 'did:privy:user-fourmeme-sell',
+      walletAddress: '0x1234567890123456789012345678901234567890',
+      accessToken: '',
+      tokenIn: '0xd6eb45a72735cf1a896702d71f2df115c07affff',
+      tokenOut: 'ETH',
+      amountIn: '1000',
+      chainId: 56,
+      slippageBps: 300,
+      mode: 'copytrade',
+      launchpadProvider: 'fourmeme',
+    });
+
+    assert.equal(result.success, false);
+    assert.match(String(result.error || ''), /GW: GW/);
+    assert.equal(evmFallbackCalled, false);
+  } finally {
+    fourMemeSwapService.fastSwap = originalFastSwap;
+    mainSwapAny.executeEvmSwap = originalExecuteEvmSwap;
+  }
+});
