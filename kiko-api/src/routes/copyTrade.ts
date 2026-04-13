@@ -1,14 +1,14 @@
 // CONTEXT MEMORY
 // Updated: 2026-04-14
 // Author: Rowan
-// Reason: signed copy-trade config creation allowed duplicate active configs for
-//         the same user, chain, and target wallet, which multiplied tracked
-//         wallet counts and made webhook ownership ambiguous. Database-level
-//         active uniqueness now also needs signed create races to resolve
-//         idempotently instead of leaking raw unique errors.
-// Goal: preserve one active config per user+chain+target tuple while keeping
-//       signed updates explicit and auditable.
-// Owns: HTTP signed copy-trade config create/update validation and persistence.
+// Reason: copy-trade strategy listing was exposing malformed legacy configs and
+//         relying on per-card follow-up reads, which left stale duplicate cards
+//         visible and caused user deletes to be blocked after read bursts.
+// Goal: preserve one visible, actionable config surface per valid persisted
+//       config while quarantining malformed legacy rows from the user-facing
+//       strategy list.
+// Owns: HTTP signed copy-trade config create/update validation, persistence,
+//       and list-time config sanitization for user-visible rows.
 // Does Not Own: chat entity extraction, tool confirmation state, or copy-trade
 //               execution runtime.
 // Design Language:
@@ -17,19 +17,24 @@
 // - signed updates cannot move one config onto another active config's target tuple
 // - database unique conflicts are safe races and must not increment tracked-wallet counts
 // - signed create outcomes emit wallet provenance audit evidence
+// - list responses must not expose malformed legacy configs as actionable cards
+// - list hydration should rely on config-owned summary fields, not card-level N+1 reads
 // Document Provenance:
-// - Source: production database inspection showing duplicate active BSC configs for one user and target wallet
+// - Source: production log `logs.1776097448703.json`
 // - Kind: runtime observation
-// - Retrieved: 2026-04-13
-// - Applied To: HTTP create/update duplicate guards
-// - Verification: verified in code review and targeted tests
+// - Retrieved: 2026-04-14
+// - Applied To: list-time quarantine of malformed copy-trade configs and
+//   removal of user-visible duplicate stale cards
+// - Verification: verified in runtime and code review
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
+// - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
 // - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-duplicate-config-hardening.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-wallet-deterministic-extraction.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-wallet-audit-provenance.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-strategy-list-read-write-decoupling.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import { FastifyInstance } from 'fastify';
 import prisma from '../db/prisma.js';
@@ -109,6 +114,75 @@ function serializeCopyTradeConfig(config: any) {
     };
 }
 
+function extractPayloadTargetWallet(configPayload: unknown): string | null {
+    if (!configPayload || typeof configPayload !== 'object' || Array.isArray(configPayload)) return null;
+    const candidate = (configPayload as Record<string, unknown>).targetWallet;
+    if (typeof candidate !== 'string') return null;
+    const trimmed = candidate.trim();
+    return trimmed.length > 0 ? trimmed : null;
+}
+
+function getConfigListQuarantineReason(config: any): string | null {
+    if (!validateAddress(String(config?.targetWallet || ''))) {
+        return 'invalid_target_wallet';
+    }
+
+    if (String(config?.signatureScheme || '') !== COPYTRADE_SIGNATURE_SCHEME) {
+        return null;
+    }
+
+    const payloadTarget = extractPayloadTargetWallet(config?.configPayload);
+    if (!payloadTarget) {
+        return 'missing_signed_payload_target_wallet';
+    }
+
+    return String(config.targetWallet) === String(payloadTarget)
+        ? null
+        : 'signed_target_wallet_mismatch';
+}
+
+async function quarantineInvalidConfigsForList(rawConfigs: any[]) {
+    const quarantined: Array<{ id: string; reason: string; hideFromList: boolean }> = [];
+    const visible: any[] = [];
+
+    for (const config of rawConfigs) {
+        const reason = getConfigListQuarantineReason(config);
+        if (!reason) {
+            visible.push(config);
+            continue;
+        }
+
+        const hideFromList = reason === 'invalid_target_wallet';
+        quarantined.push({ id: config.id, reason, hideFromList });
+        if (!hideFromList) {
+            visible.push({
+                ...config,
+                status: 'paused',
+                requiresResign: true,
+            });
+        }
+    }
+
+    if (quarantined.length > 0) {
+        await prisma.copyTradeConfig.updateMany({
+            where: {
+                id: { in: quarantined.map((item) => item.id) },
+            },
+            data: {
+                status: 'paused',
+                requiresResign: true,
+            },
+        });
+
+        console.warn('[CopyTrade] Quarantined malformed configs from list response', {
+            configIds: quarantined.map((item) => item.id),
+            reasons: quarantined,
+        });
+    }
+
+    return visible;
+}
+
 export default async function copyTradeRoutes(fastify: FastifyInstance) {
     const v2QueryService = new CopytradeV2QueryService();
 
@@ -163,16 +237,21 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
 
         try {
             // Find or create user
-            let user = await prisma.user.findUnique({
+            const user = await prisma.user.findUnique({
                 where: { privyDid: userId },
-                include: { configs: true },
             });
 
             if (!user) {
                 return reply.send({ configs: [] });
             }
 
-            return reply.send({ configs: user.configs.map(serializeCopyTradeConfig) });
+            const rawConfigs = await prisma.copyTradeConfig.findMany({
+                where: { userId: user.privyDid },
+                orderBy: { createdAt: 'desc' },
+            });
+            const visibleConfigs = await quarantineInvalidConfigsForList(rawConfigs);
+
+            return reply.send({ configs: visibleConfigs.map(serializeCopyTradeConfig) });
         } catch (error) {
             console.error('[CopyTrade] Error fetching configs:', error);
             return reply.status(500).send({ error: 'Failed to fetch configs' });

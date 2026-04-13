@@ -6,9 +6,35 @@ import styles from './StrategyCard.module.css';
 import clsx from 'clsx';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { truncateAddress } from '../../utils/format';
-import { getTargetStatus } from '../../services/copyTradeApi';
 import { agentAttrs } from '../../agent/attrs';
 import { resolveChainPresentation } from '../../utils/chainPresentation';
+
+// CONTEXT MEMORY
+// Updated: 2026-04-14
+// Author: Rowan
+// Reason: copy-trade cards were issuing one `target-status` request per card
+//         on every page entry even though the backend already stores the target
+//         summary metrics on each config row. That N+1 path was degrading card
+//         rendering and indirectly blocking delete actions behind the limiter.
+// Goal: render copy-trade cards from the config list snapshot alone during
+//       normal page load.
+// Owns: trade strategy card rendering for copy-trade summary rows and actions.
+// Does Not Own: backend metric recomputation or config list hydration policy.
+// Design Language:
+// - strategy cards must not perform per-card copy-trade metric fetches on mount
+// - render from persisted config summary fields when available
+// - keep user actions available even when live refresh endpoints are degraded
+// Document Provenance:
+// - Source: production log `logs.1776097448703.json`
+// - Kind: runtime observation
+// - Retrieved: 2026-04-14
+// - Applied To: removing card-level `target-status` fetches
+// - Verification: verified in runtime and code review
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
+// - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-strategy-list-read-write-decoupling.md
 
 interface StrategyCardProps {
   strategy: TradingStrategy;
@@ -29,9 +55,6 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
 }) => {
   const { resolvedTheme } = useThemeContext();
   const [isWalletCopied, setIsWalletCopied] = React.useState(false);
-  const [targetTradeCount, setTargetTradeCount] = React.useState<number>(0);
-  const [targetProfitUsd, setTargetProfitUsd] = React.useState<number>(0);
-  const [targetLossUsd, setTargetLossUsd] = React.useState<number>(0);
   const isMobile = useIsMobile();
 
   const isCopyTrade = strategy.type === 'copy_trade';
@@ -46,6 +69,9 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
   const status = (strategy.status || 'paused').toUpperCase();
   const isDeleted = status === 'DELETED';
   const executionCount = (strategy.executionHistory || []).length;
+  const targetTradeCount = Number(copyConfig?.targetTrackedTxCount ?? copyConfig?.targetWalletTxCount ?? 0);
+  const targetProfitUsd = Number(copyConfig?.targetProfitUsd ?? 0);
+  const targetLossUsd = Number(copyConfig?.targetLossUsd ?? 0);
   const displayedTradeCount = isCopyTrade
     ? targetTradeCount
     : (polyConfig?.executionStats?.executedTrades ?? executionCount);
@@ -56,40 +82,6 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
     const abs = Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
     return `${n >= 0 ? '+' : '-'}$${abs}`;
   };
-
-  React.useEffect(() => {
-    let cancelled = false;
-    const configId = copyConfig?.id;
-    if (!isCopyTrade || !configId) return;
-
-    const fetchWithRetry = async () => {
-      let lastError: unknown;
-      for (let attempt = 1; attempt <= 3; attempt += 1) {
-        try {
-          const res = await getTargetStatus(configId);
-          if (cancelled) return;
-          const agg = res?.aggregate;
-          const tracked = Number(agg?.trackedTxCount || 0);
-          const walletTotal = Number((agg as any)?.walletTxCount || 0);
-          setTargetTradeCount(tracked > 0 ? tracked : walletTotal);
-          setTargetProfitUsd(Number(agg?.targetProfitUsd ?? agg?.targetRealizedProfitUsd ?? 0));
-          setTargetLossUsd(Number(agg?.targetLossUsd ?? agg?.targetRealizedLossUsd ?? 0));
-          return;
-        } catch (err) {
-          lastError = err;
-          if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 350 * attempt));
-        }
-      }
-      console.error('[StrategyCard] target-status fetch failed after retries', { configId, error: (lastError as any)?.message || String(lastError) });
-      // Keep previous UI values on transient failure instead of forcing zeros.
-    };
-
-    void fetchWithRetry();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isCopyTrade, copyConfig?.id]);
 
   if (!isCopyTrade && !isPolymarketCopy) return null;
   if (!targetWallet) return null;

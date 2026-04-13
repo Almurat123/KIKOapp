@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { executeDirectTradeFollowup } from './tradeFollowupExecutor.js';
+import { chatWS } from '../../services/chatWebSocket.js';
 
 test('swap confirmation accepts prepare_swap_transaction as the confirmation anchor', async () => {
     const completed: Array<{ content?: string }> = [];
@@ -247,4 +248,83 @@ test('non-confirm analysis turns do not execute from stale swap confirmation', a
 
     assert.equal(result.handled, false);
     assert.equal(executed.length, 0);
+});
+
+test('copy trade confirmation rebroadcasts strategy card in direct follow-up execution', async () => {
+    const completed: Array<{ content?: string }> = [];
+    const broadcasts: any[] = [];
+    const originalBroadcast = chatWS.broadcastToUser;
+    chatWS.broadcastToUser = ((userId: string, payload: any) => {
+        broadcasts.push({ userId, payload });
+    }) as any;
+
+    try {
+        const result = await executeDirectTradeFollowup({
+            snapshot: {
+                sessionId: 'session-1',
+                taskId: 'task-1',
+                lastUserMessage: 'confirm',
+                normalizedIntent: {
+                    intent: 'copy_trade',
+                    taskMode: 'confirm',
+                },
+                confirmationState: {
+                    kind: 'copy_trade_confirmation',
+                    copyTrade: {
+                        targetWallet: '0x2cd32fb42748774fafde72d8607f16ccc5f5c0ed',
+                        buyAmountUsd: 0.5,
+                        chainId: 8453,
+                        mirrorSell: true,
+                        takeProfitPct: 50,
+                        stopLossPct: 20,
+                    },
+                },
+                policySnapshot: {
+                    policyDecisionId: 'policy-1',
+                },
+            } as any,
+            task: {
+                sessionId: 'session-1',
+                assistantMessageId: 'assistant-1',
+                toolContext: {},
+            },
+            userId: 'user-1',
+            broker: {
+                complete: async (payload: { content?: string }) => {
+                    completed.push(payload);
+                },
+                recordToolResult: async () => undefined,
+            } as any,
+            toolExecutionEngine: {
+                execute: async (call: any) => ({
+                    id: call.id,
+                    name: call.name,
+                    arguments: call.arguments,
+                    ok: true,
+                    result: {
+                        id: 'cfg-1',
+                        summary: 'Copy trade created.',
+                        targetWallet: '0x2cd32fb42748774fafde72d8607f16ccc5f5c0ed',
+                        buyAmountUsd: 0.5,
+                        chainId: 8453,
+                        status: 'active',
+                    },
+                    metadata: { source: 'test' },
+                }),
+            } as any,
+        });
+
+        assert.equal(result.handled, true);
+        assert.equal(completed.length, 1);
+        assert.ok(
+            broadcasts.some((entry) =>
+                entry.userId === 'user-1'
+                && entry.payload?.type === 'client_action'
+                && entry.payload?.data?.action?.type === 'show_strategy_card'
+                && entry.payload?.data?.targetMessageId === 'assistant-1'
+            ),
+        );
+    } finally {
+        chatWS.broadcastToUser = originalBroadcast;
+    }
 });

@@ -3,9 +3,12 @@
 // Author: Rowan
 // Reason: copy-trade creation executes on a later confirmation turn where the
 //         latest user message is often just "confirm", so wallet provenance from
-//         the original request must be carried explicitly.
+//         the original request must be carried explicitly and the confirmed
+//         strategy card must still appear even if the generic broker-side effect
+//         path does not emit a live client action.
 // Goal: execute confirmed copy-trade tools with the same wallet-binding audit
-//       evidence captured during preflight.
+//       evidence captured during preflight and preserve immediate in-chat card
+//       rendering for direct follow-up confirmations.
 // Owns: direct follow-up execution for confirmed trade/order actions.
 // Does Not Own: extracting wallets, validating copy-trade config payloads, or
 //               writing wallet audit records.
@@ -13,15 +16,24 @@
 // - confirmation tokens bind public tool args
 // - audit provenance rides in tool context, not public args
 // - confirmation follow-up must not re-derive target wallets from "confirm"
+// - direct follow-up must rescue critical live cards when generic broker side
+//   effects lag or silently miss websocket emission
 // Document Provenance:
 // - Source: production incident analysis of malformed BSC copy-trade target wallets
 // - Kind: runtime observation
 // - Retrieved: 2026-04-14
 // - Applied To: passing copy-trade walletBinding through execute follow-up context
 // - Verification: verified in TypeScript and targeted tests
+// - Source: /Users/almurat/Downloads/logs.1776097267399.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-14
+// - Applied To: confirming confirmed copy-trade execution without any emitted
+//   `show_strategy_card` / `client_action` trace in the live follow-up path
+// - Verification: partially verified
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-wallet-audit-provenance.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-direct-followup-card-rescue.md
 import * as chatRepo from '../../repositories/chatRepository.js';
 import { chatWS } from '../../services/chatWebSocket.js';
 import type { ChatContextSnapshot, OrchestratorToolResult } from './contracts.js';
@@ -197,6 +209,7 @@ async function invokeTool(params: {
         task: params.task,
         userId: params.userId,
         assistantMessageId: params.task.assistantMessageId,
+        toolName: params.toolName,
         result: toolResult.result,
     });
 
@@ -237,9 +250,37 @@ async function broadcastClientAction(params: {
     task: any;
     userId: string | null;
     assistantMessageId: string;
+    toolName: string;
     result: any;
 }) {
     if (!params.userId) return;
+    if (params.toolName === 'create_copy_trade_config' && params.result) {
+        const strategyData = params.result;
+        try {
+            const existingMessage = await chatRepo.getMessage(params.assistantMessageId);
+            await chatRepo.updateMessage(params.assistantMessageId, {
+                type: 'strategy-card',
+                data: {
+                    ...(existingMessage?.data || {}),
+                    ...(strategyData || {}),
+                },
+            });
+        } catch {
+            // Best-effort persistence rescue for the live assistant card.
+        }
+        chatWS.broadcastToUser(params.userId, {
+            type: 'client_action',
+            sessionId: params.task.sessionId,
+            data: {
+                message_id: params.assistantMessageId,
+                targetMessageId: params.assistantMessageId,
+                action: {
+                    type: 'show_strategy_card',
+                    data: strategyData,
+                },
+            },
+        });
+    }
     if (params.result?.__client_action) {
         chatWS.broadcastToUser(params.userId, {
             type: 'client_action',

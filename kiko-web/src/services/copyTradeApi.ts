@@ -2,22 +2,33 @@ import { getAuthToken } from '../utils/authToken';
 import { fetchApi } from './api';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-08
+// Updated: 2026-04-14
 // Author: Codex
-// Reason: Copy-trade read endpoints were repeatedly failing under burst traffic
-//         and taking the strategy surface down with them.
-// Goal: Keep copy-trade state visible even when the backend rate limits a refresh.
+// Reason: The strategy surface was still hydrating card metrics through
+//         per-card follow-up reads even though the backend already persists
+//         summary fields on each copy-trade config. That N+1 path was flooding
+//         the limiter bucket and blocking user actions.
+// Goal: Keep copy-trade state visible from the config list payload alone and
+//       avoid card-level metric fetches during normal page entry.
 // Owns: Copy-trade GET/POST/PATCH/DELETE request shapes and auth envelope handling.
 // Does Not Own: Global retry policy, page-level state merging, or cache invalidation.
 // Design Language:
 // - Prefer shared request plumbing for reads instead of per-hook ad hoc fetches.
 // - Reads may fall back to stale data; mutations must still surface failures plainly.
 // - Do not hide signature/auth errors behind rate-limit recovery.
+// - Strategy cards should render from config-owned summary fields whenever available.
+// Document Provenance:
+// - Source: production log `logs.1776097448703.json`
+// - Kind: runtime observation
+// - Retrieved: 2026-04-14
+// - Applied To: exposing persisted target summary fields to the strategy page
+// - Verification: verified in runtime and code review
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
 // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-08-rate-limit-loading-stall.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-strategy-list-read-write-decoupling.md
 
 // Types matching the Prisma model and API response
 export type CopyTradeExecutionMode = 'safe' | 'normal' | 'turbo';
@@ -48,6 +59,11 @@ export interface CopyTradeConfig {
     signatureScheme?: string | null;
     signatureVerifiedAt?: string | null;
     requiresResign?: boolean;
+    targetTrackedTxCount?: number | null;
+    targetWalletTxCount?: number | null;
+    targetProfitUsd?: number | null;
+    targetLossUsd?: number | null;
+    targetMetricsUpdatedAt?: string | null;
     createdAt: string;
     updatedAt: string;
 }

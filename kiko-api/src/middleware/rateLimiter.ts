@@ -4,17 +4,14 @@
  */
 
 // CONTEXT MEMORY
-// Updated: 2026-04-13
+// Updated: 2026-04-14
 // Author: Almurat
-// Reason: global API throttling now coexists with privileged OAuth bootstrap
-//         flows, so the limiter must explicitly protect interactive traffic
-//         without breaking one-time operator authorization paths. Production X
-//         reply shares later introduced a public crawler-facing HTML route
-//         `/x/share/:token`; that route must be treated like a public card page,
-//         not like interactive API traffic, or X crawler fetches and user
-//         clicks will trip the default limiter bucket and break share opens.
-// Goal: preserve broad abuse protection while allowing security-sensitive but
-//       low-frequency bootstrap routes to complete deterministically.
+// Reason: copy-trade strategy pages were mixing bursty read hydration and
+//         user-initiated mutations in the same default limiter bucket. Once
+//         card-level `target-status` reads surged, delete requests for stale
+//         configs were blocked behind unrelated reads.
+// Goal: preserve broad abuse protection while keeping copy-trade reads and
+//       copy-trade mutations independently available under burst load.
 // Owns: request throttling categories, bypass rules, and fail-open behavior for
 //       limiter backend faults.
 // Does Not Own: endpoint-level authorization, webhook validation, or OAuth token exchange.
@@ -23,16 +20,20 @@
 // - Explicitly exempt privileged bootstrap routes instead of relying on retries.
 // - Treat public crawler-facing card/share endpoints as static delivery surfaces,
 //   not interactive API traffic.
+// - Split copy-trade reads from copy-trade writes so list hydration cannot block deletes.
 // - Treat limiter backend faults as non-fatal to request handling.
 // Document Provenance:
-// - Source: production log `logs.1776060669760.json`
+// - Source: production log `logs.1776097448703.json`
 // - Kind: runtime observation
-// - Retrieved: 2026-04-13
-// - Applied To: exempting `/x/share/:token` from the default limiter after share
-//   clicks and crawler fetches returned `RATE_LIMIT_EXCEEDED`
+// - Retrieved: 2026-04-14
+// - Applied To: dedicated copy-trade read/write limiter buckets after
+//   `/api/copy-trade/config/:id/target-status` bursts blocked
+//   `DELETE /api/copy-trade/config/:id`
 // - Verification: verified in runtime
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-strategy-list-read-write-decoupling.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-x-oauth1-helper-flow.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-x-auth-rate-limit-bypass.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
@@ -115,6 +116,19 @@ export async function rateLimiterMiddleware(
     } else if (url.includes('/api/ai/') || url.includes('/api/chat/')) {
         maxRequests = 60; // Other AI endpoints: 60/min
         category = 'ai_general';
+    } else if (
+        request.method === 'GET' &&
+        (
+            url === '/api/copy-trade/configs'
+            || url === '/api/copy-trade/positions'
+            || url.startsWith('/api/copy-trade/config/')
+        )
+    ) {
+        maxRequests = Math.max(MAX_REQUESTS_PER_WINDOW, 1200);
+        category = 'copytrade_read';
+    } else if (url.startsWith('/api/copy-trade/')) {
+        maxRequests = Math.max(MAX_REQUESTS_PER_WINDOW, 240);
+        category = 'copytrade_write';
     } else if (url.includes('/api/swap/') || url.includes('/api/tokens/')) {
         maxRequests = 120; // Trading endpoints: 120/min
         category = 'trading';
