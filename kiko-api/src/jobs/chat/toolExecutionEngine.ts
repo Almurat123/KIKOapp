@@ -1,46 +1,60 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-12
+// Updated: 2026-04-13
 // Author: Rowan
 // Reason: this layer arbitrates local tool execution and must distinguish
-//         actual failures from confirmation checkpoints.
+//         actual failures from confirmation checkpoints. Copy-trade wallet
+//         execution also needs a last-mile guard so malformed or stale model
+//         wallet args cannot outrank the user's literal wallet string.
 // Goal: preserve hard policy enforcement while surfacing confirmation-required
-//       order mutations as soft checkpoints instead of user-facing failures.
+//       order mutations as soft checkpoints instead of user-facing failures,
+//       while preventing malformed copy-trade target wallets from reaching tools.
 // Owns: local tool policy gating, execution handoff, and gate-result shaping.
 // Does Not Own: model planning, conversation confirmation state, or UI rendering.
 // Design Language:
 // - confirmation-required is not an execution failure
 // - gate responses must preserve confirmation payloads for the next turn
 // - avoid branding pending user-confirmation checkpoints as runtime errors
+// - exact user wallet literals outrank malformed model-produced copy-trade args
 // Document Provenance:
 // - Source: runtime observation of copytrade confirmation payloads rendering as plan errors
 // - Kind: runtime observation
 // - Retrieved: 2026-04-12
 // - Applied To: softening confirmation-required gate results into success-shaped tool results
 // - Verification: verified in unit tests and code review
+// - Source: chat transcript + runtime logs + production database inspection for BSC copy-trade target wallets
+// - Kind: runtime observation
+// - Retrieved: 2026-04-13
+// - Applied To: repairing malformed copy-trade target_wallet args from exact user-provided addresses before tool execution
+// - Verification: verified in unit tests and code review
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-eth-symbol-chain-ambiguity.md
+// - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
+// - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-copytrade-confirmation-soft-gate.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-wallet-entity-hardening.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
 import { toolRegistry } from '../../tooling/registry.js';
 import { ensureToolRegistryInitialized } from '../../tooling/bootstrap.js';
 import type { OrchestratorToolCall, OrchestratorToolResult } from './contracts.js';
 import { checkToolAgainstPolicy, createPolicyError, type ControlPolicySnapshot } from './controlPolicy.js';
 import { checkMutationExecutionGate } from './executionGate.js';
+import { isStrictEvmAddress, isStrictSolanaAddress, isStrictWalletAddress } from '../../utils/validation.js';
 
 export class ToolExecutionEngine {
     async execute(call: OrchestratorToolCall, toolContext: Record<string, any>): Promise<OrchestratorToolResult> {
         ensureToolRegistryInitialized();
+        const sanitizedCall = this.sanitizeToolCall(call, toolContext || {});
         const controlPolicy = (toolContext?.__controlPolicy || null) as ControlPolicySnapshot | null;
         const policyCheck = checkToolAgainstPolicy({
-            call,
+            call: sanitizedCall,
             policy: controlPolicy,
             knownToolNames: new Set(toolRegistry.getAllDefinitions().map((item) => item.name)),
         });
         if (policyCheck) {
             return {
-                id: call.id,
-                name: call.name,
-                arguments: call.arguments || {},
+                id: sanitizedCall.id,
+                name: sanitizedCall.name,
+                arguments: sanitizedCall.arguments || {},
                 ok: false,
                 error: policyCheck.message,
                 reasonCode: policyCheck.code,
@@ -55,8 +69,8 @@ export class ToolExecutionEngine {
         }
 
         const mutationGate = checkMutationExecutionGate({
-            toolName: call.name,
-            args: call.arguments || {},
+            toolName: sanitizedCall.name,
+            args: sanitizedCall.arguments || {},
             policy: controlPolicy,
             gate: toolContext?.__executionGate || null,
             snapshot: toolContext?.__snapshot || null,
@@ -64,9 +78,9 @@ export class ToolExecutionEngine {
         if (!mutationGate.allow) {
             if (mutationGate.responsePayload?.requires_confirmation === true) {
                 return {
-                    id: call.id,
-                    name: call.name,
-                    arguments: call.arguments || {},
+                    id: sanitizedCall.id,
+                    name: sanitizedCall.name,
+                    arguments: sanitizedCall.arguments || {},
                     ok: true,
                     result: mutationGate.responsePayload,
                     metadata: {
@@ -77,13 +91,13 @@ export class ToolExecutionEngine {
             }
             const blockedError = mutationGate.error || createPolicyError(
                 'CONFIRMATION_REQUIRED',
-                `Execution gate denied ${call.name}`,
+                `Execution gate denied ${sanitizedCall.name}`,
                 controlPolicy,
             );
             return {
-                id: call.id,
-                name: call.name,
-                arguments: call.arguments || {},
+                id: sanitizedCall.id,
+                name: sanitizedCall.name,
+                arguments: sanitizedCall.arguments || {},
                 ok: false,
                 error: blockedError.message,
                 reasonCode: blockedError.code,
@@ -97,25 +111,25 @@ export class ToolExecutionEngine {
             };
         }
 
-        const shortCircuitResult = this.tryResolveFromContext(call, toolContext || {});
+        const shortCircuitResult = this.tryResolveFromContext(sanitizedCall, toolContext || {});
         if (shortCircuitResult !== undefined) {
             return {
-                id: call.id,
-                name: call.name,
-                arguments: call.arguments || {},
+                id: sanitizedCall.id,
+                name: sanitizedCall.name,
+                arguments: sanitizedCall.arguments || {},
                 ok: true,
                 result: shortCircuitResult,
                 metadata: { source: 'node_context' },
             };
         }
         try {
-            const result = await toolRegistry.execute(call.name, call.arguments || {}, toolContext || {});
+            const result = await toolRegistry.execute(sanitizedCall.name, sanitizedCall.arguments || {}, toolContext || {});
             const normalizedFailure = this.extractFailure(result);
             if (normalizedFailure) {
                 return {
-                    id: call.id,
-                    name: call.name,
-                    arguments: call.arguments || {},
+                    id: sanitizedCall.id,
+                    name: sanitizedCall.name,
+                    arguments: sanitizedCall.arguments || {},
                     ok: false,
                     error: normalizedFailure,
                     result,
@@ -123,22 +137,68 @@ export class ToolExecutionEngine {
                 };
             }
             return {
-                id: call.id,
-                name: call.name,
-                arguments: call.arguments || {},
+                id: sanitizedCall.id,
+                name: sanitizedCall.name,
+                arguments: sanitizedCall.arguments || {},
                 ok: true,
                 result,
                 metadata: { source: 'tool_runtime' },
             };
         } catch (error: any) {
             return {
-                id: call.id,
-                name: call.name,
-                arguments: call.arguments || {},
+                id: sanitizedCall.id,
+                name: sanitizedCall.name,
+                arguments: sanitizedCall.arguments || {},
                 ok: false,
                 error: error?.message || String(error),
             };
         }
+    }
+
+    private sanitizeToolCall(call: OrchestratorToolCall, toolContext: Record<string, any>): OrchestratorToolCall {
+        const args = { ...(call.arguments || {}) };
+        if (call.name !== 'create_copy_trade_config') {
+            return { ...call, arguments: args };
+        }
+
+        const explicitWallet = this.extractSingleLiteralWallet(toolContext?.__snapshot?.lastUserMessage);
+        const currentWallet = String(args.target_wallet || args.targetWallet || '').trim();
+        if (explicitWallet) {
+            args.target_wallet = explicitWallet;
+            return { ...call, arguments: args };
+        }
+
+        if (!isStrictWalletAddress(currentWallet)) {
+            const snapshotWallet = this.extractSingleSnapshotWallet(toolContext?.__snapshot);
+            if (snapshotWallet) {
+                args.target_wallet = snapshotWallet;
+            }
+        }
+
+        return { ...call, arguments: args };
+    }
+
+    private extractSingleLiteralWallet(text: string | null | undefined): string | null {
+        const source = String(text || '');
+        const evmMatches = source.match(/\b0x[a-fA-F0-9]{40}\b/g) || [];
+        const solanaMatches = source.match(/\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/g) || [];
+        const wallets = [
+            ...evmMatches.filter((value) => isStrictEvmAddress(value)).map((value) => value.toLowerCase()),
+            ...solanaMatches.filter((value) => isStrictSolanaAddress(value)),
+        ];
+        return wallets.length === 1 ? wallets[0] : null;
+    }
+
+    private extractSingleSnapshotWallet(snapshot: any): string | null {
+        const wallets: string[] = Array.from(
+            new Set(
+                (snapshot?.requestedTokenAddresses || [])
+                    .map((value: any) => String(value || '').trim())
+                    .filter((value: string) => isStrictWalletAddress(value))
+                    .map((value: string) => value.startsWith('0x') ? value.toLowerCase() : value),
+            ),
+        );
+        return wallets.length === 1 ? wallets[0] : null;
     }
 
     private extractFailure(result: any): string | null {

@@ -36,15 +36,17 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 const LazyChatStrategyRuntime = React.lazy(() => import('./ChatStrategyRuntime').then((m) => ({ default: m.ChatStrategyRuntime })));
 
 // CONTEXT MEMORY
-// Updated: 2026-04-12
+// Updated: 2026-04-13
 // Author: Rowan
-// Reason: First-send interaction regressed when the primary message list was
-//         deferred and the pending-send spinner became visible before the
-//         conversation id existed.
-// Goal: keep `ChatInterface` as the single stable owner for welcome -> send ->
-//       conversation creation, rendering the chat surface and user message
-//       immediately while backend session creation continues.
-// Owns: chat runtime bootstrapping and stable first-send/session behavior.
+// Reason: First-send interaction and live assistant-card rendering both depend
+//         on this owner preserving a single in-place chat surface while websocket
+//         events arrive out of order.
+// Goal: keep `ChatInterface` as the stable owner for welcome -> send ->
+//       conversation creation and live card presentation, rendering the chat
+//       surface immediately and attaching assistant cards even if their client
+//       actions arrive before the text placeholder.
+// Owns: chat runtime bootstrapping, first-send/session behavior, and live
+//       assistant card attachment in the active conversation view.
 // Does Not Own: route-level shell experiments or external page wrappers.
 // Design Language:
 // - first-send flow should stay inside one chat owner
@@ -53,6 +55,8 @@ const LazyChatStrategyRuntime = React.lazy(() => import('./ChatStrategyRuntime')
 // - pending session creation may lock duplicate sends, but must not render a
 //   standalone loading spinner before assistant/task state exists
 // - prompt prefills may populate input, but should not introduce a second boot path
+// - rich assistant client actions must survive websocket event reordering inside
+//   the active conversation view
 // - forbidden local patch patterns: route-wrapper handoff logic that auto-submits through remount
 // Document Provenance:
 // - Source: Runtime observation of repeated loading and streaming UI churn after first send
@@ -65,12 +69,18 @@ const LazyChatStrategyRuntime = React.lazy(() => import('./ChatStrategyRuntime')
 // - Retrieved: 2026-04-12
 // - Applied To: restore eager primary message-list rendering and remove visible first-send loading
 // - Verification: verified in code
+// - Source: Runtime observation of copytrade cards only appearing after re-entering the conversation
+// - Kind: runtime observation
+// - Retrieved: 2026-04-13
+// - Applied To: ensure `show_strategy_card` can create the live assistant card message when the placeholder has not been inserted yet
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
 // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-chat-home-shell-regression-revert.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-first-send-no-loading-chat-entry.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-copytrade-card-live-hydration.md
 
 interface TaskState {
     id: string;
@@ -696,6 +706,17 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                     type: 'strategy-card',
                                     data: event.data.action.data
                                 } : m);
+                            } else if (targetMessageId) {
+                                updated.push({
+                                    id: targetMessageId,
+                                    role: 'assistant',
+                                    content: '',
+                                    reasoning_content: '',
+                                    status: 'complete',
+                                    timestamp: new Date().toISOString(),
+                                    type: 'strategy-card',
+                                    data: event.data.action.data
+                                } as Message);
                             } else {
                                 // Fallback to last assistant message if ID not found
                                 const lastAssistantIdx = [...updated].reverse().findIndex(m => m.role === 'assistant');

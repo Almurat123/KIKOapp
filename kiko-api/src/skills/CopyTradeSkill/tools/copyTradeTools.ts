@@ -1,3 +1,31 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-13
+// Author: Rowan
+// Reason: copy-trade tool creation accepted duplicated active configs for the
+//         same user, chain, and target wallet after malformed chat wallet args
+//         created multiple BSC rows.
+// Goal: make copy-trade config creation idempotent for active user+chain+target
+//       tuples and reject malformed wallet args before persistence.
+// Owns: local copy-trade tool persistence and tracked-wallet count maintenance.
+// Does Not Own: signed Trade page config updates, chat wallet entity extraction,
+//               or historical production row cleanup.
+// Design Language:
+// - same user + same chain + same target wallet must not create multiple active configs
+// - malformed target_wallet values fail closed before persistence
+// - idempotent create returns the existing active config instead of incrementing tracked-wallet counts
+// Document Provenance:
+// - Source: chat transcript + runtime logs + production database inspection for BSC copy-trade target wallets
+// - Kind: runtime observation
+// - Retrieved: 2026-04-13
+// - Applied To: idempotent create semantics and strict wallet persistence guard
+// - Verification: verified in code review and unit tests
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
+// - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-wallet-entity-hardening.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-duplicate-config-hardening.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
 import { Tool } from '../../../tooling/registry.js';
 import prisma from '../../../db/prisma.js';
 import { normalizeAddress } from '../../../utils/address.js';
@@ -78,6 +106,29 @@ export const CreateCopyTradeConfigTool: Tool = {
         }
         if (!Number.isFinite(buyAmountUsd) || buyAmountUsd <= 0) {
             throw new Error('buy_amount_usd must be a positive number');
+        }
+
+        const existingConfig = await prisma.copyTradeConfig.findFirst({
+            where: {
+                userId,
+                chainId,
+                targetWallet: { equals: normalizedTarget, mode: 'insensitive' },
+                status: 'active',
+            },
+            orderBy: { createdAt: 'desc' },
+        });
+        if (existingConfig) {
+            return {
+                id: existingConfig.id,
+                summary: `Copy trade already active for ${existingConfig.targetWallet} on chain ${existingConfig.chainId}.`,
+                targetWallet: existingConfig.targetWallet,
+                chainId: existingConfig.chainId,
+                buyAmountUsd: existingConfig.buyAmountUsd,
+                maxEntryDeviationBps: resolveMaxEntryDeviationBps(existingConfig).maxEntryDeviationBps,
+                status: existingConfig.status,
+                createdAt: existingConfig.createdAt,
+                alreadyExists: true,
+            };
         }
 
         try {

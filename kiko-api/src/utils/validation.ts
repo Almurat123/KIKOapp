@@ -1,4 +1,49 @@
 
+// CONTEXT MEMORY
+// Updated: 2026-04-13
+// Author: Rowan
+// Reason: copy-trade chat execution accepted malformed 40/41-character EVM
+//         addresses after LLM entity extraction drifted from the user's literal
+//         wallet string.
+// Goal: preserve strict wallet identity validation so malformed addresses never
+//       pass utility guards or reach persistence.
+// Owns: low-level address shape validation for EVM and Solana wallet strings.
+// Does Not Own: recovering the user's intended wallet from chat history or
+//               deciding which wallet a copy-trade request should target.
+// Design Language:
+// - EVM wallet validation must be regex-strict, not prefix-plus-length-loose
+// - malformed wallet strings must fail closed before persistence
+// - do not silently coerce partial wallet strings into valid identities
+// Document Provenance:
+// - Source: chat transcript + runtime logs + production database inspection for BSC copy-trade target wallets
+// - Kind: runtime observation
+// - Retrieved: 2026-04-13
+// - Applied To: strict rejection of malformed 0x addresses that previously reached copy-trade config storage
+// - Verification: verified in logs, database rows, and unit tests
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
+// - /Users/almurat/KiKo/system-journal/owner-map/backend-swap-validation.md
+// - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-wallet-entity-hardening.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
+
+export const STRICT_EVM_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
+export const STRICT_SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+export function isStrictEvmAddress(address: string): boolean {
+    return STRICT_EVM_ADDRESS_RE.test(String(address || '').trim());
+}
+
+export function isStrictSolanaAddress(address: string): boolean {
+    return STRICT_SOLANA_ADDRESS_RE.test(String(address || '').trim());
+}
+
+export function isStrictWalletAddress(address: string): boolean {
+    const value = String(address || '').trim();
+    return isStrictEvmAddress(value) || isStrictSolanaAddress(value);
+}
+
 export function validateLimit(limit: any, defaultLimit: number = 20, maxLimit: number = 100): number {
     const val = parseInt(limit);
     if (isNaN(val) || val <= 0) return defaultLimit;
@@ -7,8 +52,7 @@ export function validateLimit(limit: any, defaultLimit: number = 20, maxLimit: n
 
 export function validateAddress(address: string, label?: string): boolean {
     if (!address) return false;
-    // Basic check for EVM or Solana address length
-    return (address.startsWith('0x') && address.length === 42) || (address.length >= 32 && address.length <= 44);
+    return isStrictWalletAddress(address);
 }
 
 const SUPPORTED_CHAIN_IDS = new Set([1, 8453, 42161, 137, 10, 56, 900]);

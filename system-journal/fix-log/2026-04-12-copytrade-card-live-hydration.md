@@ -17,6 +17,10 @@ row until persistence caught up.
 - Result: the current conversation lost the live card after a background reload,
   while a later re-entry showed the card because the database had finally caught
   up.
+- Follow-up finding on 2026-04-13: `kiko-web/src/components/Chat/ChatInterface.tsx`
+  handled `show_strategy_card` less defensively than transaction cards. If the
+  client action arrived before the assistant placeholder message existed, the
+  handler updated nothing and the live card never appeared.
 
 ## Correction
 
@@ -25,6 +29,9 @@ row until persistence caught up.
 - Preserved same-type rich assistant data merges instead of collapsing back to
   text.
 - Kept transaction-card specific merge behavior intact.
+- Added a live fallback in `show_strategy_card` to insert the assistant card
+  message immediately when the target message id is known but the placeholder
+  has not been attached yet.
 
 ## Document Provenance
 
@@ -44,9 +51,10 @@ row until persistence caught up.
 
 - Source: `kiko-web/src/components/Chat/ChatInterface.tsx`
 - Kind: repo doc
-- Retrieved: 2026-04-12
-- Applied To: confirming that `show_strategy_card` already updates the live
-  message state when the websocket event arrives.
+- Retrieved: 2026-04-13
+- Applied To: confirming that `show_strategy_card` updated existing messages but
+  did not insert a new target message when websocket event ordering was
+  unfavorable.
 - Verification: verified in code
 
 ## Verification

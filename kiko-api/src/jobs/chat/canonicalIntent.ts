@@ -1,5 +1,33 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-13
+// Author: Rowan
+// Reason: LLM canonical-intent wallet entities can drift from the user's
+//         literal wallet string and must not be treated as authoritative when
+//         malformed.
+// Goal: keep canonical intent normalization usable while filtering malformed
+//       wallet entities out of downstream execution paths.
+// Owns: canonical intent schema validation and entity normalization for chat.
+// Does Not Own: exact wallet extraction from the user's literal message or
+//               final copy-trade tool argument repair.
+// Design Language:
+// - malformed wallet entities from LLM normalization are discarded
+// - canonical intent may enrich context, but must not invent wallet identity
+// - do not let invalid wallet entities outrank exact addresses extracted elsewhere
+// Document Provenance:
+// - Source: chat transcript + runtime logs + production database inspection for BSC copy-trade target wallets
+// - Kind: runtime observation
+// - Retrieved: 2026-04-13
+// - Applied To: filtering invalid wallet entities before copy-trade target resolution
+// - Verification: verified in code review and unit tests
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
+// - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-wallet-entity-hardening.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
 import type { ChatContextSnapshot } from './contracts.js';
 import { resolveBinaryLocale } from './runtimeLocale.js';
+import { isStrictWalletAddress } from '../../utils/validation.js';
 
 export type CanonicalDomain =
     | 'assistant_meta'
@@ -208,7 +236,10 @@ function normalizeEntities(
             ...asStringArray(record.token_symbols ?? record.tokenSymbols),
             ...inheritedTokenSymbols,
         ])),
-        walletAddresses: Array.from(new Set(asStringArray(record.wallet_addresses ?? record.walletAddresses))),
+        walletAddresses: Array.from(new Set(
+            asStringArray(record.wallet_addresses ?? record.walletAddresses)
+                .filter((item) => isStrictWalletAddress(item)),
+        )),
         marketIdentifiers: Array.from(new Set(asStringArray(record.market_identifiers ?? record.marketIdentifiers))),
     };
 }

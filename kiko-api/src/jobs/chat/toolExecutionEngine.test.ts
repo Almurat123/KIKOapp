@@ -41,3 +41,45 @@ test('tool execution engine preserves copytrade confirmation payload without mar
     assert.equal(result.result?.confirmation_payload?.tool_name, 'create_copy_trade_config');
     assert.equal(result.result?.confirmation_payload?.args?.chain_id, 56);
 });
+
+test('tool execution engine repairs malformed copy-trade target_wallet from the latest literal user address before confirmation gating', async () => {
+    const engine = new ToolExecutionEngine();
+    const result = await engine.execute(
+        {
+            id: 'call-2',
+            name: 'create_copy_trade_config',
+            arguments: {
+                target_wallet: '0xbd708164137146ac234aceb75d3981cd359e21a',
+                buy_amount_usd: 8,
+                chain_id: 56,
+            },
+        },
+        {
+            __snapshot: {
+                lastUserMessage: 'Copy Trade 0xbd708164137146ac234aceb75d3981cd3599e21a with $8 per trade at BSC',
+                requestedTokenAddresses: ['0xbd708164137146ac234aceb75d3981cd3599e21a'],
+            },
+            __controlPolicy: {
+                policyVersion: 'test',
+                policyDecisionId: 'policy-2',
+                actionClass: 'ORDER_MUTATION',
+                controlPlane: 'node',
+                mutationAllowed: true,
+                enforcementLevel: 'hard',
+                allowedTools: ['create_copy_trade_config'],
+                mutationToolAllowlist: ['create_copy_trade_config'],
+                providerNativeTools: [],
+                toolBudgets: { default: 4 },
+            },
+            __executionGate: {
+                phase: 'preflight',
+            },
+        },
+    );
+
+    assert.equal(result.ok, true);
+    assert.equal(
+        result.result?.confirmation_payload?.args?.target_wallet,
+        '0xbd708164137146ac234aceb75d3981cd3599e21a',
+    );
+});

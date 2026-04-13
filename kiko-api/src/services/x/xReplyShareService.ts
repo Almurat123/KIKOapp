@@ -12,6 +12,11 @@
 //         review showed the preview was too aggressively truncated, leaving only
 //         one or two visible lines in the card. The share summary budget was
 //         expanded so the image can show a deeper excerpt and fade it out.
+//         A later production check showed X can keep serving a stale card image
+//         for an old share URL even after the renderer is fixed at origin. The
+//         canonical OG image URL now carries a renderer version suffix so new
+//         shares force a fresh card-image fetch instead of inheriting a cached
+//         broken preview.
 // Goal: generate opaque public share records that expose only preview-safe
 //       summary text while still linking the user back into their real KIKO chat.
 // Owns: X reply share token creation, preview-safe text shaping, and canonical
@@ -55,10 +60,17 @@
 // - Applied To: increasing public preview length so the OG image can render
 //   several reply lines before fading out
 // - Verification: verified in design direction
+// - Source: runtime verification against https://api.kikoapp.app/api/images/x-share/<token>.png
+// - Kind: runtime observation
+// - Retrieved: 2026-04-13
+// - Applied To: adding a renderer version suffix to canonical OG image URLs so
+//   new share links cannot reuse stale X card-image cache entries
+// - Verification: verified in runtime
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-11-x-reply-share-pages.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-x-share-og-chat-preview.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-x-share-card-cache-busting.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import crypto from 'node:crypto';
 import prisma from '../../db/prisma.js';
@@ -69,6 +81,7 @@ const DEFAULT_SHARE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_PREVIEW_TITLE = 'KIKO trade ready';
 const MAX_PROMPT_LENGTH = 96;
 const MAX_SUMMARY_LENGTH = 560;
+const X_SHARE_RENDER_VERSION = '2026-04-13b';
 
 function normalizeUrlBase(input: string): string {
   return String(input || '').trim().replace(/\/+$/, '');
@@ -131,13 +144,21 @@ export function buildXReplyShareUrl(token: string): string {
   return `${getXReplyShareBaseUrl()}/${encodeURIComponent(token)}`;
 }
 
-export function buildXReplyShareImageUrl(token: string): string {
+export function buildXReplyShareImageUrl(token: string, versionSuffix?: string): string {
+  const encodedToken = encodeURIComponent(token);
+  const query = versionSuffix ? `?v=${encodeURIComponent(versionSuffix)}` : '';
   try {
     const shareBase = new URL(getXReplyShareBaseUrl());
-    return `${shareBase.protocol}//${shareBase.host}/api/images/x-share/${encodeURIComponent(token)}.png`;
+    return `${shareBase.protocol}//${shareBase.host}/api/images/x-share/${encodedToken}.png${query}`;
   } catch {
-    return `https://api.kikoapp.app/api/images/x-share/${encodeURIComponent(token)}.png`;
+    return `https://api.kikoapp.app/api/images/x-share/${encodedToken}.png${query}`;
   }
+}
+
+export function buildXReplyShareImageVersion(createdAt: Date | string | number): string {
+  const created = new Date(createdAt);
+  const timestamp = Number.isFinite(created.getTime()) ? String(created.getTime()) : '0';
+  return `${X_SHARE_RENDER_VERSION}-${timestamp}`;
 }
 
 export function buildKikoWebBaseUrl(): string {
@@ -184,14 +205,14 @@ export async function createXReplyShare(params: {
         return {
           record: repaired,
           shareUrl: buildXReplyShareUrl(repaired.token),
-          imageUrl: buildXReplyShareImageUrl(repaired.token),
+          imageUrl: buildXReplyShareImageUrl(repaired.token, buildXReplyShareImageVersion(repaired.createdAt)),
           openAppUrl: buildXReplyOpenAppUrl(repaired.chatSessionId),
         };
       }
       return {
         record: existing,
         shareUrl: buildXReplyShareUrl(existing.token),
-        imageUrl: buildXReplyShareImageUrl(existing.token),
+        imageUrl: buildXReplyShareImageUrl(existing.token, buildXReplyShareImageVersion(existing.createdAt)),
         openAppUrl: buildXReplyOpenAppUrl(existing.chatSessionId),
       };
     }
@@ -216,7 +237,7 @@ export async function createXReplyShare(params: {
   return {
     record,
     shareUrl: buildXReplyShareUrl(record.token),
-    imageUrl: buildXReplyShareImageUrl(record.token),
+    imageUrl: buildXReplyShareImageUrl(record.token, buildXReplyShareImageVersion(record.createdAt)),
     openAppUrl: buildXReplyOpenAppUrl(record.chatSessionId),
   };
 }

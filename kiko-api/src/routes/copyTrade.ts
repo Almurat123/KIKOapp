@@ -1,3 +1,30 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-13
+// Author: Rowan
+// Reason: signed copy-trade config creation allowed duplicate active configs for
+//         the same user, chain, and target wallet, which multiplied tracked
+//         wallet counts and made webhook ownership ambiguous.
+// Goal: preserve one active config per user+chain+target tuple while keeping
+//       signed updates explicit and auditable.
+// Owns: HTTP signed copy-trade config create/update validation and persistence.
+// Does Not Own: chat entity extraction, tool confirmation state, or copy-trade
+//               execution runtime.
+// Design Language:
+// - active copy-trade configs are unique by user + chain + target wallet
+// - duplicate creates return the existing config instead of creating a second active row
+// - signed updates cannot move one config onto another active config's target tuple
+// Document Provenance:
+// - Source: production database inspection showing duplicate active BSC configs for one user and target wallet
+// - Kind: runtime observation
+// - Retrieved: 2026-04-13
+// - Applied To: HTTP create/update duplicate guards
+// - Verification: verified in code review and targeted tests
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
+// - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-duplicate-config-hardening.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
 import { FastifyInstance } from 'fastify';
 import prisma from '../db/prisma.js';
 import { requireAuth, requireEndUserAuth } from '../middleware/auth.js';
@@ -243,6 +270,23 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
             }
 
             await assertCopyTradeAutoTradingAuthorized(userId, chainId);
+
+            const existingActive = await prisma.copyTradeConfig.findFirst({
+                where: {
+                    userId: user.privyDid,
+                    chainId,
+                    targetWallet: { equals: normalizedTarget, mode: 'insensitive' },
+                    status: 'active',
+                },
+                orderBy: { createdAt: 'desc' },
+            });
+            if (existingActive) {
+                return reply.send({
+                    success: true,
+                    config: serializeCopyTradeConfig(existingActive),
+                    alreadyExists: true,
+                });
+            }
 
             // Create config
             const config = await prisma.copyTradeConfig.create({
@@ -596,6 +640,24 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
             });
             if (!resolvedMode.valid) {
                 return reply.status(400).send({ error: 'executionMode must be one of: safe, normal, turbo' });
+            }
+
+            const duplicateActive = await prisma.copyTradeConfig.findFirst({
+                where: {
+                    userId: user.privyDid,
+                    chainId,
+                    targetWallet: { equals: normalizedNextTarget, mode: 'insensitive' },
+                    status: 'active',
+                    NOT: { id },
+                },
+                orderBy: { createdAt: 'desc' },
+            });
+            if (duplicateActive) {
+                return reply.status(409).send({
+                    error: 'An active copy-trade config already exists for this target wallet on this chain',
+                    code: 'DUPLICATE_COPY_TRADE_CONFIG',
+                    existingConfigId: duplicateActive.id,
+                });
             }
 
             const dataToUpdate: Record<string, unknown> = {

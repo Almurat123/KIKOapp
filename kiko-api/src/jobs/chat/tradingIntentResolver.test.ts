@@ -268,3 +268,35 @@ test('parseTradingIntent does not turn an analysis request into trade confirmati
 
     assert.equal(intent, null);
 });
+
+test('parseTradingIntent prefers the literal copy-trade wallet from the latest user message over malformed normalized wallet entities', () => {
+    const literalWallet = '0xbd708164137146ac234aceb75d3981cd3599e21a';
+    const malformedWallet = '0xbd708164137146ac234aceb75d3981cd359e21a';
+    const canonicalIntent = makeCanonicalIntent({
+        intent: 'copy_trade',
+        entities: {
+            tokenAddresses: [],
+            tokenSymbols: [],
+            walletAddresses: [malformedWallet],
+            marketIdentifiers: [],
+        },
+        requestedChain: {
+            chainId: 56,
+            chainName: 'BNB Chain',
+            source: 'llm',
+        },
+    });
+
+    const intent = parseTradingIntent(
+        `Copy Trade ${literalWallet} with $8 per trade at BSC, Auto Sell: YES, TP: 500%, SL: 75%`,
+        makeSnapshot(`Copy Trade ${literalWallet} with $8 per trade at BSC, Auto Sell: YES, TP: 500%, SL: 75%`, {
+            requestedTokenAddresses: [literalWallet],
+            normalizedIntent: canonicalIntent,
+        }),
+        canonicalIntent,
+    );
+
+    assert.equal(intent?.type, 'copy_trade');
+    assert.equal(intent?.slots.target_wallet, literalWallet);
+    assert.equal(intent?.slots.chain_id, 56);
+});

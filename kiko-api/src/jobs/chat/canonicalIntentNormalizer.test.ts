@@ -253,6 +253,51 @@ test('normalizeCanonicalIntent accepts multilingual requests as long as the cano
     }
 });
 
+test('normalizeCanonicalIntent drops malformed wallet entities instead of preserving truncated copy-trade wallets', async () => {
+    const result = await normalizeCanonicalIntent({
+        snapshot: makeSnapshot('Copy trade 0xbd708164137146ac234aceb75d3981cd3599e21a on BSC'),
+        generationClient: {
+            async generate() {
+                return {
+                    text: JSON.stringify({
+                        domain: 'token',
+                        intent: 'copy_trade',
+                        task_mode: 'execute',
+                        output_mode: 'execution_ready',
+                        search_mode: 'forbidden',
+                        search_target: 'none',
+                        confidence: 0.92,
+                        explanation: 'Copy trade request.',
+                        entities: {
+                            token_addresses: [],
+                            token_symbols: [],
+                            wallet_addresses: ['0xbd708164137146ac234aceb75d3981cd359e21a'],
+                            market_identifiers: [],
+                        },
+                        requested_chain: {
+                            chain_id: 56,
+                            chain_name: 'BNB Chain',
+                        },
+                        requested_time_window: null,
+                        evidence_requirements: [],
+                        requires_realtime: false,
+                        requires_onchain_evidence: false,
+                        execution_candidate: true,
+                        locale: 'en',
+                        needs_clarification: false,
+                        clarification_question: null,
+                    }),
+                    reasoning: '',
+                    toolCalls: [],
+                };
+            },
+        } as any,
+    });
+
+    assert.equal(result.state.status, 'ok');
+    assert.deepEqual(result.snapshot.normalizedIntent?.entities.walletAddresses, []);
+});
+
 test('resolveNormalizationModel follows the selected model unless an override is configured', () => {
     assert.equal(resolveNormalizationModel('grok-4-1-fast-reasoning'), 'grok-4-1-fast-reasoning');
     assert.equal(resolveNormalizationModel('grok-4-1-fast-non-reasoning'), 'grok-4-1-fast-non-reasoning');

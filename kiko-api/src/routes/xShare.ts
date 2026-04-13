@@ -7,6 +7,7 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import {
   buildXReplyOpenAppUrl,
+  buildXReplyShareImageVersion,
   buildXReplyShareImageUrl,
   buildXReplyShareUrl,
   getActiveXReplyShare,
@@ -69,7 +70,10 @@ import {
 //         copying font assets into `dist/assets`, so the renderer drew the
 //         bubble/background but no text. The route now resolves fonts from both
 //         `dist/assets` and `src/assets` to stay correct under the current
-//         deployment model.
+//         deployment model. A later production check proved the origin image
+//         route was fixed while X still showed the old broken card, so this
+//         layer now disables share-page caching and emits versioned OG image
+//         URLs for new shares.
 // Goal: expose a crawler-safe X share page and OG image endpoint that reveal
 //       only preview-safe summary text while preserving a path back to the
 //       private KIKO chat session.
@@ -180,11 +184,18 @@ import {
 // - Applied To: pushing the first reply line closer to a full-width run before
 //   wrapping while preserving the no-overflow guarantee
 // - Verification: verified in local runtime
+// - Source: runtime verification against https://api.kikoapp.app/api/images/x-share/<token>.png
+// - Kind: runtime observation
+// - Retrieved: 2026-04-13
+// - Applied To: disabling share-page caching and emitting versioned OG image
+//   URLs so X card fetches do not keep stale broken previews
+// - Verification: verified in runtime
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-11-x-reply-share-pages.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-x-share-og-chat-preview.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-x-share-og-font-embed.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-x-share-card-cache-busting.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 const __filename = fileURLToPath(import.meta.url);
@@ -680,9 +691,10 @@ export async function xShareRoutes(fastify: FastifyInstance) {
       void markXReplyShareOpened(share.token);
 
       const shareUrl = buildXReplyShareUrl(share.token);
-      const imageUrl = buildXReplyShareImageUrl(share.token);
+      const imageUrl = buildXReplyShareImageUrl(share.token, buildXReplyShareImageVersion(share.createdAt));
       const openAppUrl = buildXReplyOpenAppUrl(share.chatSessionId);
       return reply
+        .header('Cache-Control', 'no-store, max-age=0')
         .type('text/html; charset=utf-8')
         .send(renderShareHtml({
           token: share.token,
