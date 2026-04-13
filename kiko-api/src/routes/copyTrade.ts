@@ -1,12 +1,12 @@
 // CONTEXT MEMORY
 // Updated: 2026-04-14
 // Author: Rowan
-// Reason: copy-trade strategy listing was exposing malformed legacy configs and
-//         relying on per-card follow-up reads, which left stale duplicate cards
-//         visible and caused user deletes to be blocked after read bursts.
+// Reason: copy-trade status transitions were still able to reactivate configs
+//         that had already been marked `requiresResign`, which let broken
+//         signed payloads re-enter the active runtime and webhook ownership set.
 // Goal: preserve one visible, actionable config surface per valid persisted
-//       config while quarantining malformed legacy rows from the user-facing
-//       strategy list.
+//       config while blocking unsafe reactivation of malformed or stale-signed
+//       configs.
 // Owns: HTTP signed copy-trade config create/update validation, persistence,
 //       and list-time config sanitization for user-visible rows.
 // Does Not Own: chat entity extraction, tool confirmation state, or copy-trade
@@ -19,22 +19,25 @@
 // - signed create outcomes emit wallet provenance audit evidence
 // - list responses must not expose malformed legacy configs as actionable cards
 // - list hydration should rely on config-owned summary fields, not card-level N+1 reads
+// - configs marked `requiresResign` cannot re-enter `active` through status toggles
 // Document Provenance:
-// - Source: production log `logs.1776097448703.json`
+// - Source: production logs `logs.1776097448703.json`, `logs.1776098593325.json`
 // - Kind: runtime observation
 // - Retrieved: 2026-04-14
-// - Applied To: list-time quarantine of malformed copy-trade configs and
-//   removal of user-visible duplicate stale cards
+// - Applied To: list-time quarantine of malformed copy-trade configs, removal
+//   of user-visible duplicate stale cards, and blocking unsafe status reactivation
 // - Verification: verified in runtime and code review
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
 // - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
+// - /Users/almurat/KiKo/system-journal/owner-map/copytrade-webhook-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-duplicate-config-hardening.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-wallet-deterministic-extraction.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-wallet-audit-provenance.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-strategy-list-read-write-decoupling.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-reactivation-and-webhook-address-guard.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import { FastifyInstance } from 'fastify';
 import prisma from '../db/prisma.js';
@@ -912,24 +915,62 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                     return reply.status(404).send({ error: 'User not found' });
                 }
 
-                const config = await prisma.copyTradeConfig.updateMany({
+                const existing = await prisma.copyTradeConfig.findFirst({
                     where: { id, userId: user.privyDid },
-                    data: { status },
+                    select: {
+                        id: true,
+                        chainId: true,
+                        targetWallet: true,
+                        status: true,
+                        requiresResign: true,
+                    },
                 });
 
-                if (config.count === 0) {
+                if (!existing) {
                     return reply.status(404).send({ error: 'Config not found' });
                 }
 
-                const configRow = await prisma.copyTradeConfig.findFirst({
-                    where: { id, userId: user.privyDid },
-                    select: { chainId: true },
-                });
-                if (configRow) {
-                    const statusSync = await syncCopyTradeWebhookChain(configRow.chainId, 'config_status_change');
-                    if (!statusSync.ok) {
-                        console.warn('[CopyTrade] webhook reconcile incomplete after status change', statusSync);
+                if (status === 'active') {
+                    if (existing.requiresResign) {
+                        return reply.status(409).send({
+                            error: 'Config requires resign before it can be reactivated',
+                            code: 'CONFIG_REQUIRES_RESIGN',
+                        });
                     }
+                    if (!validateAddress(existing.targetWallet)) {
+                        return reply.status(400).send({
+                            error: 'Config targetWallet is invalid and cannot be reactivated',
+                            code: 'INVALID_TARGET_WALLET',
+                        });
+                    }
+
+                    const duplicateActive = await prisma.copyTradeConfig.findFirst({
+                        where: {
+                            userId: user.privyDid,
+                            chainId: existing.chainId,
+                            targetWallet: { equals: existing.targetWallet, mode: 'insensitive' },
+                            status: 'active',
+                            NOT: { id: existing.id },
+                        },
+                        select: { id: true },
+                    });
+                    if (duplicateActive) {
+                        return reply.status(409).send({
+                            error: 'An active copy-trade config already exists for this target wallet on this chain',
+                            code: 'DUPLICATE_COPY_TRADE_CONFIG',
+                            existingConfigId: duplicateActive.id,
+                        });
+                    }
+                }
+
+                await prisma.copyTradeConfig.update({
+                    where: { id: existing.id },
+                    data: { status },
+                });
+
+                const statusSync = await syncCopyTradeWebhookChain(existing.chainId, 'config_status_change');
+                if (!statusSync.ok) {
+                    console.warn('[CopyTrade] webhook reconcile incomplete after status change', statusSync);
                 }
 
                 return reply.send({ success: true, status });

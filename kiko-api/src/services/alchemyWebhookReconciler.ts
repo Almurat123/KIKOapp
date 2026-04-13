@@ -1,6 +1,35 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-14
+// Author: Rowan
+// Reason: webhook reconcile was treating every active copy-trade target wallet
+//         as sendable without re-validating the persisted address. One malformed
+//         legacy target wallet then caused the whole Alchemy address update to
+//         fail, blocking unrelated valid targets on the same chain.
+// Goal: keep copy-trade webhook address sets chain-valid and fail-soft when
+//       legacy storage still contains malformed targets.
+// Owns: desired webhook address derivation, webhook drift diffing, and Alchemy
+//       address update orchestration for copy-trade tracked wallets.
+// Does Not Own: user-visible config status transitions, signature recovery, or
+//               tracked wallet creation policy.
+// Design Language:
+// - webhook reconcile must only emit chain-valid wallet addresses
+// - one malformed stored target must not poison the whole chain reconcile batch
+// - legacy invalid configs may remain in storage, but they are not eligible for webhook sync
+// Document Provenance:
+// - Source: production log `logs.1776098593325.json`
+// - Kind: runtime observation
+// - Retrieved: 2026-04-14
+// - Applied To: filtering malformed addresses from desired Alchemy webhook sets
+// - Verification: verified in runtime and code review
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/owner-map/copytrade-webhook-ingress.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-reactivation-and-webhook-address-guard.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
 import prisma from '../db/prisma.js';
 import { fetchJson } from '../config/unifiedApiService.js';
 import { normalizeAddress, isSolanaAddress } from '../utils/address.js';
+import { validateAddress } from '../utils/validation.js';
 import { SOLANA_CONFIG } from '../config/solanaConfig.js';
 import { getAlchemyWebhookChainLabel, getAlchemyWebhookId } from './alchemyWebhookConfig.js';
 
@@ -40,6 +69,14 @@ export type WebhookDriftReport = {
     desiredCount: number;
     currentCount: number;
 };
+
+function isValidWebhookAddress(chainId: number, address: string): boolean {
+    const normalized = normalizeAddress(address);
+    if (!normalized) return false;
+    return chainId === SOLANA_CONFIG.CHAIN_ID
+        ? isSolanaAddress(normalized)
+        : validateAddress(normalized);
+}
 
 async function listWebhookAddresses(chainId: number): Promise<string[]> {
     const webhookId = getAlchemyWebhookId(chainId);
@@ -85,7 +122,20 @@ export async function getDesiredCopyTradeWebhookAddresses(chainId: number): Prom
         where: { chainId, status: 'active' },
         select: { targetWallet: true },
     });
-    return [...new Set(configs.map((cfg) => normalizeAddress(cfg.targetWallet)).filter(Boolean))];
+    const normalized = configs
+        .map((cfg) => normalizeAddress(cfg.targetWallet))
+        .filter(Boolean);
+    const valid = normalized.filter((address) => isValidWebhookAddress(chainId, address));
+    const filteredOut = normalized.filter((address) => !isValidWebhookAddress(chainId, address));
+
+    if (filteredOut.length > 0) {
+        console.warn('[AlchemyWebhookReconciler] filtered invalid desired webhook addresses', {
+            chainId,
+            filteredOut,
+        });
+    }
+
+    return [...new Set(valid)];
 }
 
 export function diffWebhookAddresses(chainId: number, desired: string[], current: string[]) {
