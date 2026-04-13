@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "concurrently -k -n api,python \"tsx watch src/index.ts\" \"cd ../kiko-python && python3 -u main.py\"",
     "dev:api": "tsx watch src/index.ts",
-    "build": "prisma generate && tsc",
+    "build": "prisma generate && tsc && mkdir -p dist/assets/fonts && cp src/assets/fonts/Inter-Variable.ttf dist/assets/fonts/Inter-Variable.ttf",
     "postinstall": "test -f prisma/schema.prisma && prisma generate || echo 'Skipping prisma generate (schema not found)'",
     "start": "node dist/index.js",
     "test": "tsx --test",

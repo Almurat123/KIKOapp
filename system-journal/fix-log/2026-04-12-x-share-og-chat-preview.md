@@ -180,6 +180,44 @@ the reply look like artificial line chunks instead of a real assistant response 
 The bottom copy was reworded from reply language into trade language so the share card
 reads like an invitation to continue in KIKO, not as a generic chat artifact.
 
+On 2026-04-13 the preview was corrected again because the combined summary budget and
+image line budget only exposed about one to two visible lines in production. The share
+summary budget was expanded and the OG image switched from simple line-opacity stepping
+to a true bottom mask fade, so the card can show a deeper excerpt and then disappear
+naturally near the bottom.
+
+The next preview review found a separate issue: the assistant text width estimate was too
+optimistic, so long Latin lines could still cross the right edge in the generated image.
+The SVG layout now uses a stricter glyph-width heuristic and a smaller reply content width
+so resvg output wraps before the right boundary.
+
+On 2026-04-13, another preview review found the previous fix was still not strict enough.
+The reply wrapper still relied on word-level wrapping, which let some long Latin fragments
+visually leak across the right edge under resvg. The OG renderer now uses:
+
+1. a tighter usable reply width
+2. a smaller reply font size
+3. a more conservative glyph-width estimate
+4. hard fragment splitting when a single fragment still exceeds the usable width
+
+This keeps the assistant preview inside the canvas instead of allowing the first or second
+line to drift into the right margin.
+
+That overflow fix then over-corrected the layout. The assistant preview was squeezed into
+the left half of the image, leaving the right side visually wasted and making the excerpt
+look like a half-width column. The body layout was widened again so the reply uses most of
+the horizontal canvas, while keeping the stricter width estimate and hard fragment splitting
+that prevent true right-edge overflow.
+
+That widening pass still wrapped the first line too early for the intended screenshot feel.
+The body layout was then relaxed one step further so the first reply line can run farther
+across the canvas before breaking. This keeps the card dense and conversational while still
+avoiding the earlier right-edge leak.
+
+That pass still looked cautious. The first line was extended one more step so it reaches
+closer to a true full-width conversation run before wrapping. The layout keeps the stricter
+overflow protections, but now spends more of the available horizontal space.
+
 ### Additional provenance
 
 - Source: user-provided design correction in active task thread
@@ -207,3 +245,41 @@ reads like an invitation to continue in KIKO, not as a generic chat artifact.
 - Retrieved: 2026-04-12
 - Applied to: changing bottom CTA copy from reply wording to trade wording
 - Verification: verified in design direction
+
+- Source: user-provided product correction in active task thread
+- Kind: product/design reference
+- Retrieved: 2026-04-13
+- Applied to: increasing visible AI excerpt depth and restoring a true bottom fade
+- Verification: verified in design direction
+
+- Source: user-provided overflow screenshot in active task thread
+- Kind: runtime/design reference
+- Retrieved: 2026-04-13
+- Applied to: tightening assistant reply width estimation and reply block safety margin
+- Verification: verified in local runtime
+
+- Source: user-provided overflow screenshot in active task thread
+- Kind: runtime/design reference
+- Retrieved: 2026-04-13
+- Applied to: adding hard fragment splitting and tighter reply text bounds after the
+  previous width-only correction still allowed right-edge overflow
+- Verification: verified in local runtime
+
+- Source: user-provided layout correction in active task thread
+- Kind: product/design reference
+- Retrieved: 2026-04-13
+- Applied to: widening the assistant preview block after the previous overflow fix
+  left too much unused right-side canvas
+- Verification: verified in local runtime
+
+- Source: user-provided spacing correction in active task thread
+- Kind: product/design reference
+- Retrieved: 2026-04-13
+- Applied to: relaxing the assistant wrap so the first line travels farther before breaking
+- Verification: verified in local runtime
+
+- Source: user-provided spacing correction in active task thread
+- Kind: product/design reference
+- Retrieved: 2026-04-13
+- Applied to: extending the first assistant line closer to a full-width run
+- Verification: verified in local runtime

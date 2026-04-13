@@ -33,6 +33,9 @@ A second production check then showed the PNG had switched from tofu-box text
 to no text at all while still drawing the bubble/background. That narrowed the
 remaining issue to font file discovery at runtime: the service was running
 compiled `dist/` code, but the font asset still lived under `src/assets/fonts`.
+The final deployment correction is therefore not only runtime fallback logic,
+but also copying the shipped font into `dist/assets/fonts` during `npm run build`
+so Docker/Railway images that only ship `dist/` still contain the required font.
 
 ## Product Rule
 
@@ -70,6 +73,13 @@ compiled `dist/` code, but the font asset still lived under `src/assets/fonts`.
 - Applied To: identifying runtime font-file resolution in `dist/` as the
   remaining production failure
 - Verification: partially verified
+
+- Source: /Users/almurat/KiKo/kiko-api/Dockerfile
+- Kind: repo doc
+- Retrieved: 2026-04-13
+- Applied To: confirming the production image copies `dist/` but not
+  `src/assets/fonts`, which requires the build to place fonts inside `dist`
+- Verification: verified in code
 
 - Source: [Google Fonts Inter](https://github.com/google/fonts/tree/main/ofl/inter)
 - Kind: external font asset

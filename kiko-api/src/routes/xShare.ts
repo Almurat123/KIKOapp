@@ -38,6 +38,28 @@ import {
 //         the same wrapping rules. Assistant preview text now wraps by estimated
 //         pixel width and preserves paragraph boundaries from the real model
 //         reply excerpt instead of forcing sentence-like fixed character cuts.
+//         Later review showed the preview still read as too short because the
+//         summary budget and line budget together exposed only about two lines.
+//         The image now renders a deeper excerpt and uses a true bottom fade
+//         mask instead of only fading line colors. A follow-up preview review
+//         showed the assistant lines could still overflow on the right because
+//         the local width heuristic was too optimistic for the actual rendered
+//         Inter glyph widths under resvg. The width heuristic and safety margin
+//         were tightened so lines wrap before the right edge. A final pass
+//         added hard fragment splitting for overlong reply segments because
+//         a purely word-based wrap still allowed some Latin lines to leak
+//         across the usable canvas under resvg. A later design correction
+//         showed the safety margin had become too conservative and forced the
+//         assistant preview into the left half of the image. The body layout
+//         now reclaims the right-side canvas and only keeps a small fixed
+//         safety margin, so the card reads like a full-width conversation
+//         excerpt instead of a narrow text column. A follow-up spacing
+//         correction then relaxed the wrap again so the first reply line can
+//         travel farther horizontally before breaking, matching the intended
+//         conversation-screenshot density without reintroducing overflow. The
+//         next correction then pushed the first line even farther so the body
+//         reads like a true near-full-width excerpt instead of a still-cautious
+//         paragraph block.
 //         Production runtime later showed the OG image can render prompt/reply
 //         text as tofu boxes on Linux when the render path depends on host
 //         Fontconfig/Pango state. The final correction moved OG PNG generation
@@ -57,6 +79,7 @@ import {
 // - Return complete meta tags in server HTML; never rely on client-side React hydration for cards.
 // - Expose only preview-safe summary text and branded affordances on public pages.
 // - Keep the open-app target separate from the public share page itself.
+// - Render enough assistant text to feel like a real answer excerpt before the fade begins.
 // Document Provenance:
 // - Source: X Cards markup + Getting started docs
 // - Kind: official API doc
@@ -126,6 +149,37 @@ import {
 //   and a shipped TTF font buffer, then resolving that font from `dist` or
 //   `src` depending on deployment layout
 // - Verification: verified in runtime
+// - Source: user-provided product correction in active task thread
+// - Kind: product/design reference
+// - Retrieved: 2026-04-13
+// - Applied To: increasing the visible reply excerpt and restoring a true
+//   bottom fade in the OG image
+// - Verification: verified in design direction
+// - Source: user-provided overflow screenshot in active task thread
+// - Kind: runtime/design reference
+// - Retrieved: 2026-04-13
+// - Applied To: tightening assistant line-wrap width estimation and reply
+//   layout safety margins so text does not cross the right edge, plus hard
+//   fragment splitting for overlong reply segments
+// - Verification: verified in local runtime
+// - Source: user-provided layout correction in active task thread
+// - Kind: product/design reference
+// - Retrieved: 2026-04-13
+// - Applied To: widening the assistant reply block so the preview uses the
+//   right-side canvas instead of collapsing into a left-only column
+// - Verification: verified in local runtime
+// - Source: user-provided spacing correction in active task thread
+// - Kind: product/design reference
+// - Retrieved: 2026-04-13
+// - Applied To: allowing the first reply line to run farther before wrapping
+//   so the body reads like a denser conversation excerpt
+// - Verification: verified in local runtime
+// - Source: user-provided spacing correction in active task thread
+// - Kind: product/design reference
+// - Retrieved: 2026-04-13
+// - Applied To: pushing the first reply line closer to a full-width run before
+//   wrapping while preserving the no-overflow guarantee
+// - Verification: verified in local runtime
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-11-x-reply-share-pages.md
@@ -228,16 +282,42 @@ function measureSvgTextWidth(input: string, fontSize: number): number {
   let width = 0;
   for (const char of String(input || '')) {
     if (/[A-Z0-9]/.test(char)) {
-      width += fontSize * 0.62;
+      width += fontSize * 0.69;
     } else if (/[a-z]/.test(char)) {
-      width += fontSize * 0.52;
+      width += fontSize * 0.59;
     } else if (/\s/.test(char)) {
-      width += fontSize * 0.32;
+      width += fontSize * 0.34;
+    } else if (/[.,!?;:'"()\-]/.test(char)) {
+      width += fontSize * 0.43;
     } else {
-      width += fontSize * 0.9;
+      width += fontSize * 1.02;
     }
   }
   return Math.ceil(width);
+}
+
+function splitSvgFragmentByWidth(input: string, maxWidth: number, fontSize: number): string[] {
+  const normalized = String(input || '').trim();
+  if (!normalized) return [];
+
+  const chunks: string[] = [];
+  let current = '';
+
+  for (const char of normalized) {
+    const candidate = current + char;
+    if (current && measureSvgTextWidth(candidate, fontSize) > maxWidth) {
+      chunks.push(current);
+      current = char;
+      continue;
+    }
+    current = candidate;
+  }
+
+  if (current) {
+    chunks.push(current);
+  }
+
+  return chunks;
 }
 
 function wrapSvgTextByWidth(input: string, maxWidth: number, fontSize: number, maxLines: number): string[] {
@@ -260,7 +340,16 @@ function wrapSvgTextByWidth(input: string, maxWidth: number, fontSize: number, m
       }
 
       if (current) lines.push(current);
-      current = word;
+      if (measureSvgTextWidth(word, fontSize) > maxWidth) {
+        const fragments = splitSvgFragmentByWidth(word, maxWidth, fontSize);
+        for (const fragment of fragments) {
+          lines.push(fragment);
+          if (lines.length >= maxLines) break;
+        }
+        current = '';
+      } else {
+        current = word;
+      }
       if (lines.length >= maxLines) break;
     }
 
@@ -507,8 +596,7 @@ function renderMultilineTextLines(params: {
 
 function renderShareSvg(params: { title: string; prompt: string; summary: string }) {
   const promptBubble = buildPromptBubbleLayout(sanitizeOgText(params.prompt));
-  const summaryLines = wrapSvgTextByWidth(sanitizeOgText(params.summary), 880, 36, 4);
-  const summaryLineColors = ['#F5F5F7', '#BCBCC2', '#707076', '#2E2E33'];
+  const summaryLines = wrapSvgTextByWidth(sanitizeOgText(params.summary), 1010, 31, 7);
   const promptLines = promptBubble.lines.map((line) => String(line || '').replace(/&amp;/g, '&').replace(/&#39;/g, "'"));
 
   return `
@@ -538,6 +626,15 @@ function renderShareSvg(params: { title: string; prompt: string; summary: string
       <stop offset="0" stop-color="#1E1E21"/>
       <stop offset="1" stop-color="#26262A"/>
     </linearGradient>
+    <linearGradient id="replyFadeGradient" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="white" stop-opacity="1"/>
+      <stop offset="62%" stop-color="white" stop-opacity="1"/>
+      <stop offset="82%" stop-color="white" stop-opacity="0.46"/>
+      <stop offset="100%" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+    <mask id="replyFadeMask">
+      <rect x="112" y="286" width="1030" height="236" fill="url(#replyFadeGradient)"/>
+    </mask>
   </defs>
   <rect width="1200" height="630" fill="#000000"/>
   <rect x="${promptBubble.x}" y="${promptBubble.y}" width="${promptBubble.width}" height="${promptBubble.height}" rx="${Math.floor(promptBubble.height / 2)}" fill="url(#promptBubble)" stroke="rgba(255,255,255,0.06)"/>
@@ -548,11 +645,13 @@ function renderShareSvg(params: { title: string; prompt: string; summary: string
     lineHeight: 28,
     className: 'promptText',
   })}
-  ${summaryLines
-    .map((line, index) => `<text x="112" y="${332 + index * 48}" font-family="Inter" font-size="36" font-weight="500" fill="${summaryLineColors[index] || '#2E2E33'}">${escapeXml(line)}</text>`)
-    .join('\n')}
-  <text x="112" y="548" class="ctaText">Trade in KIKO</text>
-  <text x="1088" y="548" class="titleText" text-anchor="end">${escapeXml(sanitizeOgText(params.title))}</text>
+  <g mask="url(#replyFadeMask)">
+    ${summaryLines
+      .map((line, index) => `<text x="112" y="${320 + index * 39}" font-family="Inter" font-size="31" font-weight="500" fill="#F5F5F7">${escapeXml(line)}</text>`)
+      .join('\n')}
+  </g>
+  <text x="112" y="566" class="ctaText">Trade in KIKO</text>
+  <text x="1088" y="566" class="titleText" text-anchor="end">${escapeXml(sanitizeOgText(params.title))}</text>
 </svg>`;
 }
 

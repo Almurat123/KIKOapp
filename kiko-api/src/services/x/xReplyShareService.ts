@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-12
+// Updated: 2026-04-13
 // Author: Rowan
 // Reason: X mention replies now use a public KIKO share link instead of posting
 //         full AI-generated text directly on X. The share target must be safe
@@ -8,7 +8,10 @@
 //         prompt so the OG image can render a conversation-style preview. The
 //         assistant preview now preserves paragraph boundaries instead of
 //         collapsing everything into one line, because the OG image should feel
-//         like a real reply excerpt, not a rewritten marketing summary.
+//         like a real reply excerpt, not a rewritten marketing summary. Later
+//         review showed the preview was too aggressively truncated, leaving only
+//         one or two visible lines in the card. The share summary budget was
+//         expanded so the image can show a deeper excerpt and fade it out.
 // Goal: generate opaque public share records that expose only preview-safe
 //       summary text while still linking the user back into their real KIKO chat.
 // Owns: X reply share token creation, preview-safe text shaping, and canonical
@@ -19,6 +22,7 @@
 // - Public shares may contain only preview-safe summary text, not full private history.
 // - Share links must be deterministic from persisted rows, not runtime-only memory.
 // - Open-app links should target the website chat route, not the public share page itself.
+// - Keep enough reply text for the OG image to feel like a real excerpt, not a slogan.
 // Document Provenance:
 // - Source: X Cards markup + Getting started docs
 // - Kind: official API doc
@@ -45,6 +49,12 @@
 // - Retrieved: 2026-04-12
 // - Applied To: preserving real prompt/reply preview formatting for X share cards
 // - Verification: verified in design direction
+// - Source: user-provided product correction in active task thread
+// - Kind: product/design reference
+// - Retrieved: 2026-04-13
+// - Applied To: increasing public preview length so the OG image can render
+//   several reply lines before fading out
+// - Verification: verified in design direction
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-11-x-reply-share-pages.md
@@ -58,7 +68,7 @@ const DEFAULT_SHARE_BASE_URL = 'https://api.kikoapp.app/x/share';
 const DEFAULT_SHARE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_PREVIEW_TITLE = 'KIKO trade ready';
 const MAX_PROMPT_LENGTH = 96;
-const MAX_SUMMARY_LENGTH = 220;
+const MAX_SUMMARY_LENGTH = 560;
 
 function normalizeUrlBase(input: string): string {
   return String(input || '').trim().replace(/\/+$/, '');
