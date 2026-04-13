@@ -48,6 +48,7 @@ import { reconcileStaleOpenClosedPosition } from './staleOpenPositionReconciler.
 import { reconcileTerminalExitGhostPosition } from './terminalExitGhostPositionReconciler.js';
 import { reconcileHistoricalTargetSellGhostPosition } from './historicalTargetSellGhostPositionReconciler.js';
 import { reconcileLedgerClosedGhostPosition } from './ledgerClosedGhostPositionReconciler.js';
+import { reconcileZeroBalanceOpenPosition } from './zeroBalanceOpenPositionReconciler.js';
 import {
   ExitHotPathDeferredError,
   hasIntentContext,
@@ -62,16 +63,19 @@ import { listActiveExitIntentPositionIds } from '../exit/positionExitIntentStore
 //         stale open positions that were already terminally resolved elsewhere or
 //         that missed their historical target-sell replay entirely. Production also
 //         showed that cache-only pricing left TP/SL and exit valuation blind even
-//         when guard-price fallbacks could still resolve a token price.
+//         when guard-price fallbacks could still resolve a token price. Another
+//         production shape left manually self-sold follower positions open forever
+//         because no generic balance check ran before TP/SL.
 // Goal: Keep only truly actionable open positions in the TP/SL loop and evict ghosts
 //       created by stale close markers, missed historical target-sell replay, ledger-
-//       closed exposure, or terminal exit-intent failures, while still resolving
-//       live price from guarded fallbacks before skipping a cycle.
+//       closed exposure, zero follower balance, or terminal exit-intent failures,
+//       while still resolving live price from guarded fallbacks before skipping a cycle.
 // Owns: Open-position monitoring, pre-TP/SL reconciliation, and last-mile ghost cleanup.
 // Does Not Own: Creating target-sell events, buy-confirm replay, or executing exits.
 // Design Language:
 // - Reconcile stale state before consulting price snapshots.
 // - Cache snapshot miss is not enough to skip TP/SL or exit valuation when guarded price fallback exists.
+// - Mature open positions must prove the follower still owns the token before re-entering TP/SL.
 // - Open positions with active exit work should not re-enter TP/SL evaluation.
 // - Terminal failures should leave the monitor pool immediately.
 // - Do not let missing price data mask already-terminal positions.
@@ -86,6 +90,11 @@ import { listActiveExitIntentPositionIds } from '../exit/positionExitIntentStore
 // - Retrieved: 2026-04-13
 // - Applied To: confirming mirror-sell success still left an old open position in TP/SL monitoring and that exit valuation suppressed available price fallback
 // - Verification: verified in runtime
+// - Source: /Users/almurat/Downloads/logs.1776058177552.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-13
+// - Applied To: confirming a manually cleared follower balance still triggered periodic monitor price fetches
+// - Verification: verified in runtime
 // - Source: system-journal/fix-log/2026-04-10-open-position-historical-target-sell-reconciler.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-10
@@ -99,6 +108,7 @@ import { listActiveExitIntentPositionIds } from '../exit/positionExitIntentStore
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-open-position-historical-target-sell-reconciler.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-terminal-exit-ghost-reconciler.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-position-monitor-price-fallback-and-ledger-ghost-repair.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-open-position-zero-balance-reconciler.md
 
 const NO_OPEN_POSITIONS_LOG_WINDOW_MS = Number(process.env.NO_OPEN_POSITIONS_LOG_WINDOW_MS || '180000');
 const COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP = (process.env.COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP || 'true') === 'true';
@@ -1310,6 +1320,26 @@ export async function checkPositionsForExits(): Promise<void> {
 
                 if (activeExitIntentPositionIds.has(position.id)) {
                     clearTpslHit(position.id);
+                    return;
+                }
+
+                const zeroBalanceReconciliation = await reconcileZeroBalanceOpenPosition({
+                    position: {
+                        id: position.id,
+                        status: position.status,
+                        tokenAddress: position.tokenAddress,
+                        tokenSymbol: position.tokenSymbol,
+                        chainId: position.chainId,
+                        userId: position.userId,
+                        configId: position.configId,
+                        createdAt: position.createdAt,
+                    },
+                    walletAddress: position.user?.walletAddress,
+                    currentPrice: Number(tokenInfo?.price || 0),
+                });
+                if (zeroBalanceReconciliation.closed) {
+                    clearTpslHit(position.id);
+                    markPositionLocallyClosed(position.id);
                     return;
                 }
 

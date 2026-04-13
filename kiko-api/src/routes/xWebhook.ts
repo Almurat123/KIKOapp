@@ -30,6 +30,8 @@
 // - Ignore inbound DM/chat events at the product layer; X DMs are outbound-only.
 // - Preserve mention author verification metadata so worker policy can reject
 //   non-verified accounts without extra lookup.
+// - Preserve mention `verified_type` when available, but treat webhook metadata
+//   as weaker evidence than the later mentions-feed confirmation.
 // - Treat only explicit `@bot` mentions as replyable inbound work; do not infer
 //   reply eligibility from thread structure alone.
 // - Do not trust raw webhook numeric snowflakes after plain `JSON.parse`; rewrite
@@ -46,6 +48,13 @@
 // - Applied To: carrying `verified` into mention events so only verified accounts
 //   can receive automated mention replies
 // - Verification: partially verified
+// - Source: direct `/users/{authorId}` and `/users/{botUserId}/mentions`
+//   comparison for blue-check user `1920347546704097280`
+// - Kind: runtime observation
+// - Retrieved: 2026-04-13
+// - Applied To: carrying `verified_type` from webhook users when present and
+//   documenting that legacy `verified` alone is insufficient for blue checks
+// - Verification: verified in runtime
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-x-explicit-mention-only.md
 // - Kind: runtime observation
 // - Retrieved: 2026-04-10
@@ -61,6 +70,7 @@
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-10-x-explicit-mention-only.md
 // - system-journal/fix-log/2026-04-13-x-webhook-snowflake-precision-repair.md
+// - system-journal/fix-log/2026-04-13-x-blue-verified-type-gate.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-10-x-webhook-ingress-audit.md
 // - system-journal/fix-log/2026-04-10-x-webhook-empty-payload-audit.md
@@ -96,6 +106,17 @@ function toId(value: unknown): string {
 function toUsername(value: unknown): string | null {
   const normalized = String(value || '').trim().replace(/^@/, '');
   return normalized || null;
+}
+
+function toVerifiedType(value: unknown): string | null {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized || null;
+}
+
+function isVerifiedMentionUser(user: any): boolean {
+  const verifiedType = toVerifiedType(user?.verified_type);
+  if (user?.verified === true) return true;
+  return verifiedType === 'blue' || verifiedType === 'business' || verifiedType === 'government';
 }
 
 function sampleIds<T>(items: T[], select: (item: T) => string | null | undefined): string[] {
@@ -188,7 +209,8 @@ export function extractMentionEvents(payload: XActivityPayload): XMentionEvent[]
         text,
         authorId,
         authorUsername: toUsername(user?.username || user?.screen_name),
-        authorVerified: Boolean(user?.verified),
+        authorVerified: isVerifiedMentionUser(user),
+        authorVerifiedType: toVerifiedType(user?.verified_type),
         conversationId: toId(item?.conversation_id || item?.conversation_id_str || item?.in_reply_to_status_id || item?.in_reply_to_status_id_str) || null,
         createdAt: String(item?.created_at || item?.created_timestamp || '').trim() || null,
       };

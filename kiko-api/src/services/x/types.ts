@@ -16,6 +16,7 @@ export interface XMentionEvent {
   authorId: string;
   authorUsername?: string | null;
   authorVerified?: boolean;
+  authorVerifiedType?: string | null;
   conversationId?: string | null;
   createdAt?: string | null;
 }

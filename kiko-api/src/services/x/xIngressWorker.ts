@@ -29,6 +29,7 @@
 // - X DM/chat is not part of the mention reply path.
 // - Ignore inbound DM payloads even if the webhook receives them unexpectedly.
 // - Mentions from non-verified X accounts must not trigger automated replies.
+// - Blue/business/government `verified_type` counts as verified for mention gating.
 // - X mention sessions must use the same persisted default model the user chose on web.
 // - Webhook ingress is a fast capture path, not the final authority on reply
 //   eligibility; public replies require confirmation from the bot mentions feed.
@@ -51,6 +52,13 @@
 // - Retrieved: 2026-04-10
 // - Applied To: requiring `verified=true` before mention replies to control cost and spam
 // - Verification: partially verified
+// - Source: direct `/users/{authorId}` and `/users/{botUserId}/mentions`
+//   inspection for blue-check user `1920347546704097280`
+// - Kind: runtime observation
+// - Retrieved: 2026-04-13
+// - Applied To: accepting blue/business/government `verified_type` as verified
+//   mention authors instead of relying on legacy `verified` only
+// - Verification: verified in runtime
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-10
@@ -86,6 +94,7 @@
 // - system-journal/fix-log/2026-04-11-x-reply-share-pages.md
 // - system-journal/fix-log/2026-04-12-x-share-og-chat-preview.md
 // - system-journal/fix-log/2026-04-13-x-mention-feed-confirmation.md
+// - system-journal/fix-log/2026-04-13-x-blue-verified-type-gate.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-10-x-dm-outbound-only.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
@@ -109,6 +118,12 @@ import type { XMentionEvent } from './types.js';
 const MENTION_CURSOR_KEY = 'x:ingress:mentions:since_id';
 const RECOVERY_BATCH_SIZE = Math.max(1, Number(process.env.X_WEBHOOK_RECOVERY_BATCH_SIZE || '20'));
 const MENTION_FEED_CONFIRMATION_GRACE_MS = 10 * 60 * 1000;
+
+function isVerifiedMentionAuthor(mention: XMentionEvent): boolean {
+  if (mention.authorVerified) return true;
+  const verifiedType = String(mention.authorVerifiedType || '').trim().toLowerCase();
+  return verifiedType === 'blue' || verifiedType === 'business' || verifiedType === 'government';
+}
 
 class MentionFeedPendingError extends Error {
   constructor(message = 'x_mention_feed_pending') {
@@ -146,6 +161,8 @@ function normalizeMentionPayload(payload: unknown): XMentionEvent | null {
     text,
     authorId,
     authorUsername: item?.authorUsername || item?.author_username || null,
+    authorVerified: item?.authorVerified === true,
+    authorVerifiedType: item?.authorVerifiedType || item?.author_verified_type || null,
     conversationId: item?.conversationId || item?.conversation_id || null,
     createdAt: item?.createdAt || item?.created_at || null,
   };
@@ -389,11 +406,12 @@ export class XIngressWorker {
       createdAt: confirmedMention.createdAt || mention.createdAt || null,
     };
 
-    if (!mention.authorVerified) {
+    if (!isVerifiedMentionAuthor(mention)) {
       logger.info(LogCode.API_NOTIFY_FAILED, '[X] Mention skipped: author not verified', {
         eventId: mention.id,
         xUserId: mention.authorId,
         username: mention.authorUsername || null,
+        verifiedType: mention.authorVerifiedType || null,
       });
       return;
     }

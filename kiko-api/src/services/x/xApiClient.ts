@@ -13,7 +13,10 @@
 //         evidence later showed webhook-delivered tweet events can still fail at
 //         outbound reply time unless the same tweet is visible in the bot's
 //         official mentions feed, so this client now owns the "is this really in
-//         `/users/:id/mentions`?" confirmation helper.
+//         `/users/:id/mentions`?" confirmation helper. Later runtime checks also
+//         showed blue-check users can be misreported as `verified=false` unless
+//         `verified_type` is explicitly requested, so mention author verification
+//         must be derived from both `verified` and `verified_type`.
 // Goal: keep all X API calls using the same credential source and filtering
 //       rules that the webhook and auth layers rely on.
 // Owns: authenticated X REST access for bot replies, mention confirmation, and
@@ -31,6 +34,8 @@
 //   the worker layer.
 // - Do not treat webhook ingress alone as proof that a tweet is replyable;
 //   confirm replyable mention candidates against the bot's mentions feed.
+// - Treat blue/business/government `verified_type` as verified mention authors;
+//   do not rely on legacy `verified` alone.
 // Document Provenance:
 // - Source: X Direct Messages API docs (Send DM / lookup docs)
 // - Kind: official API doc
@@ -49,6 +54,13 @@
 // - Applied To: requiring a `/users/{botUserId}/mentions` confirmation before
 //   treating a webhook mention as reply-eligible
 // - Verification: partially verified
+// - Source: direct `/users/{botUserId}/mentions` and `/users/{authorId}` API
+//   comparison for user `1920347546704097280`
+// - Kind: runtime observation
+// - Retrieved: 2026-04-13
+// - Applied To: requesting `verified_type` and using it as the canonical blue
+//   verification signal for mention filtering
+// - Verification: verified in runtime
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
@@ -56,6 +68,7 @@
 // - system-journal/fix-log/2026-04-10-x-expired-bot-token-hard-fail.md
 // - system-journal/fix-log/2026-04-10-x-dm-outbound-only.md
 // - system-journal/fix-log/2026-04-13-x-mention-feed-confirmation.md
+// - system-journal/fix-log/2026-04-13-x-blue-verified-type-gate.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
 // - system-journal/conflicts.md
 import { env } from '../../config/env.js';
@@ -63,6 +76,17 @@ import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { getXBotAccessToken, getXBotUserId, refreshXBotAccessToken } from './xCredentialsService.js';
 import type { XMentionEvent, XSendResult } from './types.js';
+
+function normalizeVerifiedType(value: unknown): string | null {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized || null;
+}
+
+function isVerifiedAuthor(user: any): boolean {
+  const verifiedType = normalizeVerifiedType(user?.verified_type);
+  if (user?.verified === true) return true;
+  return verifiedType === 'blue' || verifiedType === 'business' || verifiedType === 'government';
+}
 
 function baseUrl(path: string): string {
   const base = String(env.x.apiBaseUrl || 'https://api.x.com/2').replace(/\/+$/, '');
@@ -100,7 +124,8 @@ function parseMention(item: any, usersById: Map<string, any>): XMentionEvent | n
     text,
     authorId,
     authorUsername: user?.username || null,
-    authorVerified: Boolean(user?.verified),
+    authorVerified: isVerifiedAuthor(user),
+    authorVerifiedType: normalizeVerifiedType(user?.verified_type),
     conversationId: item?.conversation_id ? String(item.conversation_id) : null,
     createdAt: item?.created_at ? String(item.created_at) : null,
   };
@@ -157,7 +182,7 @@ export class XApiClient {
         ['max_results', String(env.x.pollBatchSize || 20)],
         ['tweet.fields', 'author_id,conversation_id,created_at'],
         ['expansions', 'author_id'],
-        ['user.fields', 'username,verified'],
+        ['user.fields', 'username,verified,verified_type'],
       ])}`,
     );
     const payload = await requestJson<any>(url, (accessToken) => ({
