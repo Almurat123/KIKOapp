@@ -4,11 +4,12 @@
  */
 
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-13
 // Author: Almurat
 // Reason: authenticated requests now need a server-owned fallback that can
 //         persist verified Privy X linkage even when the frontend-side sync
-//         effect does not run or silently fails.
+//         effect does not run or silently fails. Farcaster now follows the
+//         same server-verified repair path.
 // Goal: keep token verification authoritative while allowing the backend to
 //       opportunistically repair authenticated user linkage state.
 // Owns: Bearer token verification, end-user/service auth gates, and best-effort
@@ -21,6 +22,7 @@
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-x-user-auto-sync.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-farcaster-verified-identity-sync.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
@@ -28,6 +30,7 @@ import { FastifyReply, FastifyRequest } from 'fastify';
 import { createRemoteJWKSet, jwtVerify, decodeJwt } from 'jose';
 import { AppError } from './errorHandler.js';
 import { resolvePrivyServerConfig } from '../config/privy.js';
+import { maybeAutoSyncVerifiedPrivyFarcasterUser } from '../services/farcaster-agent/farcasterIdentityService.js';
 import { maybeAutoSyncVerifiedPrivyXUser } from '../services/x/xIdentityService.js';
 
 const PRIVY_JWKS_URL = process.env.PRIVY_JWKS_URL || '';
@@ -169,6 +172,7 @@ export async function requireAuth(request: FastifyRequest, _reply: FastifyReply)
   const endUserId = String((request as any).user?.sub || '').trim();
   if (endUserId && (request as any).user?.role !== 'service') {
     await maybeAutoSyncVerifiedPrivyXUser(endUserId).catch(() => undefined);
+    await maybeAutoSyncVerifiedPrivyFarcasterUser(endUserId).catch(() => undefined);
   }
 
   // Log successful authentication (only in dev or for debugging)

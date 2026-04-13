@@ -8,16 +8,18 @@ import { useMiniAppContext } from '../contexts/MiniAppContext';
 export type OnboardingStep = 'idle' | 'funding' | 'farcaster' | 'complete';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-12
+// Updated: 2026-04-13
 // Author: Codex
 // Reason: Farcaster Mini App auth uses Farcaster/social login plus Privy
 //         embedded wallets; the automatic funding prompt can open Privy
 //         external funding surfaces that are outside the Mini App product
 //         scope and may trigger WalletConnect CSP failures.
 // Goal: Preserve normal browser onboarding while preventing Mini App launches
-//       from showing external funding/wallet connection UI.
-// Owns: Post-login onboarding step ordering and Mini App-specific suppression
-//       of optional funding prompts.
+//       from showing external funding/wallet connection UI, and avoid showing
+//       the Farcaster follow prompt before Farcaster identity resolution has
+//       actually completed.
+// Owns: Post-login onboarding step ordering, Mini App-specific suppression of
+//       optional funding prompts, and the gating rules for the Farcaster follow modal.
 // Does Not Own: Privy provider configuration, Farcaster manifest metadata,
 //               swap execution, or wallet transaction signing.
 // Design Language:
@@ -26,6 +28,8 @@ export type OnboardingStep = 'idle' | 'funding' | 'farcaster' | 'complete';
 // - Do not auto-open funding or external wallet surfaces inside Mini App hosts.
 // - Preserve browser funding onboarding outside Mini App unless product policy
 //   changes.
+// - Never treat a transient null Farcaster context during startup as a final
+//   "user has no Farcaster account" decision.
 // Document Provenance:
 // - Source: Farcaster Mini Apps loading guide
 // - Kind: official API doc
@@ -38,10 +42,11 @@ export type OnboardingStep = 'idle' | 'funding' | 'farcaster' | 'complete';
 // - /Users/almurat/KiKo/system-journal/owner-map/farcaster-miniapp-support.md
 // - /Users/almurat/KiKo/system-journal/design-language/farcaster-miniapp-shell.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-farcaster-miniapp-onboarding-external-wallet-suppression.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-farcaster-follow-gate-and-unique-fid.md
 export function useOnboardingFlow() {
     const { ready, authenticated, user } = usePrivy();
     const { isMiniApp } = useMiniAppContext();
-    const { fid, followsKiko, followStatus, loading: farcasterLoading } = useFarcasterContext();
+    const { fid, followsKiko, followStatus, loading: farcasterLoading, resolved: farcasterResolved } = useFarcasterContext();
     const [step, setStep] = useState<OnboardingStep>('idle');
     const isEvaluatingRef = useRef(false);
 
@@ -110,7 +115,7 @@ export function useOnboardingFlow() {
         // It might take 1-2 seconds after login for `user.linkedAccounts` to contain the wallet.
         evaluateNextStep();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [ready, authenticated, user, fid, followsKiko, followStatus, farcasterLoading, isMiniApp]);
+    }, [ready, authenticated, user, fid, followsKiko, followStatus, farcasterLoading, farcasterResolved, isMiniApp]);
 
     const evaluateNextStep = async () => {
         if (isEvaluatingRef.current) return;
@@ -163,6 +168,11 @@ export function useOnboardingFlow() {
             const permanentDismissedFarcaster = localStorage.getItem(farcasterPermanentKey) === 'true';
 
             if (!permanentDismissedFarcaster && !hasTriggeredFarcaster) {
+                if (!farcasterResolved) {
+                    isEvaluatingRef.current = false;
+                    return;
+                }
+
                 if (fid) {
                     if (farcasterLoading && followStatus === 'unknown' && followsKiko === null) {
                         isEvaluatingRef.current = false;

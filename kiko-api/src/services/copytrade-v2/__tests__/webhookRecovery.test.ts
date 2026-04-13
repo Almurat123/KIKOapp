@@ -57,3 +57,46 @@ test('process-tx receipt timeout schedules recovery instead of surfacing a hard 
     reason: 'receipt_recovery_scheduled',
   });
 });
+
+test('webhook extracts relayer-attributed tracked wallets from full tx calldata', () => {
+  const candidates = __webhookTest.collectEvmCalldataCandidates(
+    '0xfd3ad6d4'
+    + '0000000000000000000000002cd32fb42748774fafde72d8607f16ccc5f5c0ed'
+    + '000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+    + '000000000000000000000000b82efeab033c15a48e93771b584470948cb55b07'
+  );
+
+  assert.deepEqual(candidates, [
+    '0x2cd32fb42748774fafde72d8607f16ccc5f5c0ed',
+    '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+    '0xb82efeab033c15a48e93771b584470948cb55b07',
+  ]);
+
+  const fullTxCandidates = __webhookTest.collectEvmFullTxCandidates({
+    from: '0x8151aac95fcec7c3ca82557c43da5ac2276f3cb9',
+    to: '0x6b6e87d2cc438c287a5550a8732c302454e4382b',
+    input: '0xfd3ad6d4'
+      + '0000000000000000000000002cd32fb42748774fafde72d8607f16ccc5f5c0ed'
+      + '000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+      + '000000000000000000000000b82efeab033c15a48e93771b584470948cb55b07'
+  });
+
+  assert.equal(fullTxCandidates.includes('0x2cd32fb42748774fafde72d8607f16ccc5f5c0ed'), true);
+  assert.equal(fullTxCandidates.includes('0x8151aac95fcec7c3ca82557c43da5ac2276f3cb9'), true);
+});
+
+test('source tx.from skip is bypassed for relayer-attributed wallets only', () => {
+  assert.equal(__webhookTest.shouldSkipWalletForSourceBinding({
+    isSolanaItems: false,
+    sourceTxFrom: '0x8151aac95fcec7c3ca82557c43da5ac2276f3cb9',
+    trackedWallet: '0x2cd32fb42748774fafde72d8607f16ccc5f5c0ed',
+    relayerAttributedWallets: new Set(['0x2cd32fb42748774fafde72d8607f16ccc5f5c0ed']),
+  }), false);
+
+  assert.equal(__webhookTest.shouldSkipWalletForSourceBinding({
+    isSolanaItems: false,
+    sourceTxFrom: '0x8151aac95fcec7c3ca82557c43da5ac2276f3cb9',
+    trackedWallet: '0x2cd32fb42748774fafde72d8607f16ccc5f5c0ed',
+    relayerAttributedWallets: new Set(),
+  }), true);
+});

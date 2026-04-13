@@ -67,6 +67,34 @@ import {
     recordCopytradeIngressTrace,
 } from '../services/copytrade-v2/ingress/ingressTraceStore.js';
 
+// CONTEXT MEMORY
+// Updated: 2026-04-13
+// Author: Mira Chen
+// Reason: EVM webhook ingress must preserve tx_from_only ownership without dropping relayer-executed target sells whose tracked wallet is only encoded in calldata.
+// Goal: Keep ordinary tx.from binding fast and strict while recovering permit2/relayer sell flows through explicit calldata wallet attribution.
+// Owns: EVM webhook candidate extraction, tx_from binding short-circuit rules, and receipt-recovery scheduling for no-swap decode cases.
+// Does Not Own: Swap decode semantics, quote provider policy, or downstream trade execution.
+// Design Language:
+// - tx.from stays the canonical first-pass owner signal for EVM webhook ingress.
+// - Calldata-attributed tracked wallets may bypass tx.from-only short-circuit only when full transaction input explicitly carries the wallet address.
+// - Forbidden local patch patterns: broad multi-wallet fallback before tx.from resolution; trusting relayer mismatches without explicit calldata attribution.
+// Document Provenance:
+// - Source: /Users/almurat/Downloads/logs.1776050120896.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-13
+// - Applied To: Base sell regression where approval tx 0xcd971... was tracked but relayer swap tx 0x054ea... was ignored
+// - Verification: verified in runtime
+// - Source: Base tx replay for 0xcd971b188835a737db9c1fac1dbbc6cbf85ea7cbada4d1a99ab33a61349a479f and 0x054ea6afaa4dff582cc72e827e907539944a7ebfbb6af74b90f8dbf686b530d8 via SECURITY_RPC_BASE
+// - Kind: runtime observation
+// - Retrieved: 2026-04-13
+// - Applied To: distinguishing permit2 approval from relayer-executed sell and validating wallet address presence in calldata
+// - Verification: verified in runtime
+// See also:
+// - system-journal/INDEX.md
+// - system-journal/design-language/copytrade-race-recovery.md
+// - system-journal/owner-map/copytrade-buy-confirmation.md
+// - system-journal/fix-log/2026-04-13-copytrade-sell-relayer-webhook-repair.md
+
 interface ProcessTxBody {
     wallet: string;
     txHash: string;
@@ -159,6 +187,50 @@ function collectEvmActivityCandidates(activities: any[]): string[] {
     return Array.from(addresses);
 }
 
+function collectEvmCalldataCandidates(inputRaw: string): string[] {
+    const input = String(inputRaw || '').trim().toLowerCase();
+    if (!input.startsWith('0x') || input.length <= 10) return [];
+
+    const hex = input.slice(2);
+    const addresses = new Set<string>();
+    for (let offset = 8; offset + 64 <= hex.length; offset += 64) {
+        const word = hex.slice(offset, offset + 64);
+        if (!/^0{24}[0-9a-f]{40}$/.test(word)) continue;
+        const normalized = normalizeAddress(`0x${word.slice(24)}`);
+        if (normalized) addresses.add(normalized);
+    }
+    return Array.from(addresses);
+}
+
+function collectEvmFullTxCandidates(tx: { from?: string; to?: string; input?: string } | null | undefined): string[] {
+    const addresses = new Set<string>();
+    const add = (value: unknown) => {
+        const normalized = normalizeAddress(String(value || ''));
+        if (normalized) addresses.add(normalized);
+    };
+
+    add(tx?.from);
+    add(tx?.to);
+    for (const candidate of collectEvmCalldataCandidates(String(tx?.input || ''))) {
+        add(candidate);
+    }
+    return Array.from(addresses);
+}
+
+function shouldSkipWalletForSourceBinding(params: {
+    isSolanaItems: boolean;
+    sourceTxFrom?: string | null;
+    trackedWallet: string;
+    relayerAttributedWallets?: Set<string>;
+}): boolean {
+    if (params.isSolanaItems) return false;
+    const sourceTxFrom = normalizeAddress(String(params.sourceTxFrom || ''));
+    if (!sourceTxFrom) return false;
+    const trackedWallet = normalizeAddress(params.trackedWallet);
+    if (!trackedWallet || trackedWallet === sourceTxFrom) return false;
+    return !params.relayerAttributedWallets?.has(trackedWallet);
+}
+
 async function resolveEvmSourceTxFrom(chainId: number, txHash: string): Promise<string> {
     if (resolveEvmSourceTxFromForTest) {
         const resolved = await resolveEvmSourceTxFromForTest(chainId, txHash);
@@ -180,6 +252,20 @@ export const __webhookTest = {
     },
     setScheduleReceiptRecoveryForTest(fn: ((chainId: number, txHash: string, trackedWallets: string[], detectedAt?: number) => void) | null): void {
         scheduleReceiptRecoveryForTest = fn;
+    },
+    collectEvmCalldataCandidates(input: string): string[] {
+        return collectEvmCalldataCandidates(input);
+    },
+    collectEvmFullTxCandidates(tx: { from?: string; to?: string; input?: string } | null | undefined): string[] {
+        return collectEvmFullTxCandidates(tx);
+    },
+    shouldSkipWalletForSourceBinding(params: {
+        isSolanaItems: boolean;
+        sourceTxFrom?: string | null;
+        trackedWallet: string;
+        relayerAttributedWallets?: Set<string>;
+    }): boolean {
+        return shouldSkipWalletForSourceBinding(params);
     },
     isRecoverableProcessTxFetchTimeout(error: unknown): boolean {
         return isRecoverableProcessTxFetchTimeout(error);
@@ -489,6 +575,8 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
         let deferredBindingOutcome: 'resolved' | 'missing' | null = null;
         let swapsDetected = 0;
         let usedPredecoded = 0;
+        const relayerAttributedWallets = new Set<string>();
+        let ingressActivityCandidates: string[] = [];
 
         if (isSolanaItems) {
             const normalized = normalizeSolanaWebhookItem(item);
@@ -507,6 +595,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                 ? item.activities
                 : (item ? [item] : []);
             candidates = collectEvmActivityCandidates(evmActivities);
+            ingressActivityCandidates = candidates.slice();
         }
 
         txHash = normalizeTxHash(chainId, txHash);
@@ -532,7 +621,12 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
         if (!isSolanaItems) {
             sourceTxFrom = await resolveEvmSourceTxFrom(chainId, txHash);
             if (sourceTxFrom) {
-                candidates = [sourceTxFrom];
+                const sourceTrackedWallets = resolveTrackedWalletsFromSnapshot(chainId, [sourceTxFrom]);
+                if (sourceTrackedWallets.length > 0) {
+                    candidates = [sourceTxFrom];
+                } else {
+                    candidates = Array.from(new Set([sourceTxFrom, ...ingressActivityCandidates]));
+                }
             } else {
                 console.warn(`[Webhook] Delaying tx_from_only binding for tx ${txHash}: source tx.from unavailable at ingress`, {
                     chainId,
@@ -562,7 +656,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
 
         try {
             const trackedWalletsFromSnapshot = resolveTrackedWalletsFromSnapshot(chainId, candidates);
-            const [pendingHint, trackedWalletRows] = await Promise.all([
+            let [pendingHint, trackedWalletRows] = await Promise.all([
                 getPendingTxHint(chainId, txHash).catch(() => null),
                 trackedWalletsFromSnapshot.length > 0
                     ? Promise.resolve(trackedWalletsFromSnapshot.map((address) => ({ address })))
@@ -575,6 +669,35 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                         select: { address: true }
                     })
             ]);
+            if (!isSolanaItems && trackedWalletRows.length === 0) {
+                const fullTxForCandidates = await fetchTransaction(txHash, chainId).catch(() => null);
+                const fullTxCandidates = collectEvmFullTxCandidates(fullTxForCandidates);
+                const fullTxTrackedWallets = resolveTrackedWalletsFromSnapshot(chainId, fullTxCandidates);
+                if (fullTxTrackedWallets.length > 0) {
+                    trackedWalletRows = fullTxTrackedWallets.map((address) => ({ address }));
+                    candidates = Array.from(new Set([...candidates, ...fullTxCandidates]));
+                    for (const wallet of fullTxTrackedWallets) {
+                        const normalized = normalizeAddress(wallet);
+                        if (normalized) relayerAttributedWallets.add(normalized);
+                    }
+                    await recordCopytradeIngressTrace({
+                        chainId,
+                        txHash,
+                        eventType: 'tracked_wallets_resolved',
+                        source: 'alchemy_webhook_calldata_relayer_fallback',
+                        payload: {
+                            trackedWalletCount: fullTxTrackedWallets.length,
+                            trackedWalletSample: fullTxTrackedWallets.slice(0, 5),
+                            sourceTxFrom: sourceTxFrom || null,
+                            candidateSample: fullTxCandidates.slice(0, 8),
+                            reasonCode: 'full_tx_calldata_relayer_wallet'
+                        },
+                    }).catch(() => undefined);
+                    console.log(
+                        `[Webhook] Recovered tracked wallet(s) from full tx calldata for ${txHash}: ${fullTxTrackedWallets.join(', ')}`
+                    );
+                }
+            }
             if (!isSolanaItems) {
                 const pendingTargetWallet = normalizeAddress(String(pendingHint?.targetWallet || ''));
                 if (pendingTargetWallet && sourceTxFrom && pendingTargetWallet !== sourceTxFrom) {
@@ -907,7 +1030,12 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
             await Promise.allSettled(trackedWallets.map(async (walletRecord) => {
                 const trackedTarget = walletRecord.address;
                 const normalizedTrackedTarget = normalizeAddress(trackedTarget) || trackedTarget.toLowerCase();
-                if (!isSolanaItems && sourceTxFrom && normalizedTrackedTarget !== sourceTxFrom) {
+                if (shouldSkipWalletForSourceBinding({
+                    isSolanaItems,
+                    sourceTxFrom,
+                    trackedWallet: normalizedTrackedTarget,
+                    relayerAttributedWallets
+                })) {
                     return;
                 }
                 const cached = predecodedByWallet.get(trackedTarget.toLowerCase());

@@ -1,3 +1,32 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-13
+// Author: Linh Tran
+// Reason: Farcaster follow gating drives onboarding and prompt policy, so the
+//         follow-state reader must avoid unstable Hub endpoints that can report
+//         false negatives for existing follows.
+// Goal: keep KIKO follow detection deterministic enough for onboarding and
+//       settings UI without forcing every caller to understand Hub quirks.
+// Owns: official KIKO follow-state lookup, caching, and hub endpoint fallback.
+// Does Not Own: Farcaster identity binding, onboarding modal rules, or UI state.
+// Design Language:
+// - Prefer Hub reads that return stable follow messages over broken point lookups.
+// - Cache resolved booleans aggressively enough to avoid repeat hub scans.
+// - Unknown is better than a wrong false when all hubs fail.
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/llmdoc/farllm.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-13
+// - Applied To: `linksByFid` and `linksByTargetFid` HTTP API semantics for follow links
+// - Verification: verified in docs
+// - Source: runtime observation against https://hub.merv.fun
+// - Kind: runtime observation
+// - Retrieved: 2026-04-13
+// - Applied To: replacing unstable `linkById` follow reads with `linksByFid` scans
+// - Verification: verified in runtime
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-farcaster-follow-gate-and-unique-fid.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
 import cacheClient from '../cache/cacheClient.js';
 import { fetchJson } from '../config/unifiedApiService.js';
 
@@ -23,6 +52,8 @@ const FOLLOW_CACHE_TTL_SECONDS = Math.max(60, parseInt(process.env.FARCASTER_FOL
 const FOLLOW_LOCK_TTL_SECONDS = Math.max(5, parseInt(process.env.FARCASTER_FOLLOW_LOCK_TTL_SEC || '15', 10) || 15);
 const PROFILE_CACHE_TTL_SECONDS = Math.max(300, parseInt(process.env.FARCASTER_PROFILE_CACHE_TTL_SEC || '86400', 10) || 86400);
 const HUB_REQUEST_TIMEOUT_MS = Math.max(3000, parseInt(process.env.FARCASTER_HUB_TIMEOUT_MS || '5000', 10) || 5000);
+const FOLLOW_SCAN_PAGE_SIZE = 1000;
+const FOLLOW_SCAN_MAX_PAGES = 5;
 const HUB_BASES = [
     (process.env.SNAPCHAIN_HUB_URL || 'https://hub.pinata.cloud').replace(/\/+$/, ''),
     'https://hub.merv.fun',
@@ -65,6 +96,51 @@ function normalizeOfficialProfile(profile: any | null): OfficialKikoProfile | nu
     };
 }
 
+function normalizePageToken(value: unknown): string | null {
+    const token = String(value || '').trim();
+    return token || null;
+}
+
+async function scanFollowLinksByFid(hubBase: string, fid: number, targetFid: number): Promise<boolean | null> {
+    let pageToken: string | null = null;
+    let pageCount = 0;
+
+    while (pageCount < FOLLOW_SCAN_MAX_PAGES) {
+        const url = new URL(`${hubBase}/v1/linksByFid`);
+        url.searchParams.set('fid', String(fid));
+        url.searchParams.set('link_type', 'follow');
+        url.searchParams.set('pageSize', String(FOLLOW_SCAN_PAGE_SIZE));
+        if (pageToken) {
+            url.searchParams.set('pageToken', pageToken);
+        }
+
+        const payload = await fetchJson<any>({
+            url: url.toString(),
+            requestTimeout: HUB_REQUEST_TIMEOUT_MS,
+            endpointName: 'snapchain-hub',
+            suppressError: true,
+        });
+
+        const messages = Array.isArray(payload?.messages) ? payload.messages : [];
+        for (const message of messages) {
+            const messageFid = Number(message?.data?.fid);
+            const linkTargetFid = Number(message?.data?.linkBody?.targetFid);
+            const linkType = String(message?.data?.linkBody?.type || '').toLowerCase();
+            if (messageFid === fid && linkTargetFid === targetFid && linkType === 'follow') {
+                return true;
+            }
+        }
+
+        pageCount += 1;
+        pageToken = normalizePageToken(payload?.nextPageToken);
+        if (!pageToken) {
+            return false;
+        }
+    }
+
+    return false;
+}
+
 async function checkIsFollowingViaHub(fid: number, targetFid: number): Promise<boolean | null> {
     if (!Number.isFinite(fid) || fid <= 0 || !Number.isFinite(targetFid) || targetFid <= 0) {
         return null;
@@ -80,32 +156,7 @@ async function checkIsFollowingViaHub(fid: number, targetFid: number): Promise<b
 
     for (const hubBase of hubs) {
         try {
-            const url = new URL(`${hubBase}/v1/linkById`);
-            url.searchParams.set('fid', String(fid));
-            url.searchParams.set('target_fid', String(targetFid));
-            url.searchParams.set('link_type', 'follow');
-
-            const payload = await fetchJson<any>({
-                url: url.toString(),
-                requestTimeout: HUB_REQUEST_TIMEOUT_MS,
-                endpointName: 'snapchain-hub',
-                suppressError: true,
-            });
-
-            const message = payload?.data;
-            if (!message?.linkBody) {
-                continue;
-            }
-
-            const messageFid = Number(message?.fid);
-            const linkTargetFid = Number(message?.linkBody?.targetFid);
-            const linkType = String(message?.linkBody?.type || '').toLowerCase();
-
-            if (messageFid === fid && linkTargetFid === targetFid && linkType === 'follow') {
-                return true;
-            }
-
-            continue;
+            return await scanFollowLinksByFid(hubBase, fid, targetFid);
         } catch {
             continue;
         }

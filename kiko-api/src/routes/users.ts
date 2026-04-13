@@ -4,11 +4,13 @@
  */
 
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-13
 // Author: Almurat
 // Reason: user identity sync now spans Privy, Farcaster, X, wallet flows, and
 //         persisted per-user model policy. X mention replies must follow the
-//         same saved default model a user selected on the website.
+//         same saved default model a user selected on the website. Farcaster
+//         linkage now also has to come from verified Privy identity instead of
+//         accepting client-supplied FIDs.
 // Goal: preserve one stable owner for user-profile persistence, including the
 //       canonical in-app username field, verified social-account linkage state,
 //       and the user's saved default chat model for cross-channel replies.
@@ -21,6 +23,8 @@
 // - Do not let social-link sync silently drift from the User schema.
 // - Existing authenticated users must not need a second wallet gate just to
 //   persist a verified X linkage that Privy already knows.
+// - Verified Farcaster linkage must be server-derived from Privy, not trusted
+//   from frontend request bodies.
 // - Persist the user's default reply model in one backend setting row, not
 //   only in frontend localStorage.
 // Document Provenance:
@@ -36,12 +40,14 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-user-username-foundation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-x-user-auto-sync.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-farcaster-verified-identity-sync.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import prisma from '../db/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { trackLogin } from '../services/userActivityService.js';
+import { syncVerifiedPrivyFarcasterUser } from '../services/farcaster-agent/farcasterIdentityService.js';
 import { getCachedKikoFollowState, resolveKikoFollowState } from '../services/farcasterRelationshipService.js';
 import { buildXLinkUrl, getXContextForUser, serializeXContext, syncVerifiedPrivyXUser } from '../services/x/xIdentityService.js';
 import { normalizeSupportedChatModel } from '../config/chatModels.js';
@@ -219,7 +225,7 @@ export async function registerUserRoutes(app: FastifyInstance) {
     // =============================================
 
     interface FarcasterSyncBody {
-        fid: number;
+        fid?: number;
         username?: string;
     }
 
@@ -231,8 +237,9 @@ interface XSyncBody {
 
     /**
      * POST /api/users/farcaster
-     * Sync Farcaster profile from Privy login
-     * Called by frontend after Farcaster login to save FID for direct messaging
+     * Sync Farcaster profile from verified Privy linkage.
+     * Request body is ignored for identity; the server derives the linked
+     * Farcaster account from Privy for the authenticated user.
      */
     app.post<{ Body: FarcasterSyncBody }>(
         '/api/users/farcaster',
@@ -244,25 +251,19 @@ interface XSyncBody {
                     return reply.status(401).send({ success: false, error: 'Unauthorized' });
                 }
 
-                const { fid, username } = request.body;
-                if (!fid) {
-                    return reply.status(400).send({ success: false, error: 'fid is required' });
+                const result = await syncVerifiedPrivyFarcasterUser({ userId });
+
+                if (result.status === 'no_farcaster_account') {
+                    return reply.status(400).send({ success: false, error: 'No verified Farcaster account is linked to this Privy user' });
                 }
 
-                console.log(`[Farcaster] Syncing FID ${fid} for user ${userId}`);
-                const normalizedUsername = normalizeCanonicalUsername(username);
+                if (result.status === 'missing_wallet' || !result.user) {
+                    return reply.status(400).send({ success: false, error: 'Embedded wallet not available for this account' });
+                }
 
-                // Update user with Farcaster info
-                const user = await prisma.user.update({
-                    where: { privyDid: userId },
-                    data: {
-                        farcasterFid: fid,
-                        farcasterUsername: username || null,
-                        username: normalizedUsername,
-                    }
-                });
+                const user = result.user;
 
-                console.log(`[Farcaster] ✅ Synced FID ${fid} (${username}) for user ${user.id}`);
+                console.log(`[Farcaster] ✅ Synced verified FID ${user.farcasterFid} (${user.farcasterUsername || 'unknown'}) for user ${user.id}`);
 
                 return {
                     success: true,
@@ -273,6 +274,9 @@ interface XSyncBody {
                 };
             } catch (error: any) {
                 console.error('[Farcaster] Error syncing profile:', error);
+                if (String(error?.message || '').includes('already linked to another user')) {
+                    return reply.status(409).send({ success: false, error: 'Farcaster account already linked to another user' });
+                }
                 return reply.status(500).send({ success: false, error: error.message });
             }
         }

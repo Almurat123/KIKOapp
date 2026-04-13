@@ -4,19 +4,24 @@ import { resolveCoreApiBase } from '../utils/coreApiBase';
 import { useMiniAppContext } from './MiniAppContext';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-13
 // Author: Rowan
 // Reason: Farcaster identity now needs to work in two launch modes: Privy
 //         logged-in users and Mini App sessions that only expose client context.
 // Goal: preserve one social identity surface that can fall back to the Mini App
-//       user context when Privy has not established a session yet.
-// Owns: Farcaster identity lookup, profile sync, and follow-status hydration.
+//       user context when Privy has not established a session yet, while also
+//       exposing when identity resolution is complete so onboarding does not
+//       act on a transient null FID.
+// Owns: Farcaster identity lookup, profile sync, follow-status hydration, and
+//       the client-side readiness boundary for Farcaster-dependent onboarding.
 // Does Not Own: Privy session issuance, Mini App host detection, or wallet
 //               transaction authorization.
 // Design Language:
 // - Prefer Privy-backed identity when it exists.
 // - Fall back to Mini App context for read-only identity in Farcaster clients.
 // - Keep backend sync gated behind an actual access token.
+// - Expose a resolved identity state so consumers do not treat "not loaded yet"
+//   as "no Farcaster account".
 // Document Provenance:
 // - Source: Farcaster Mini Apps context guide
 // - Kind: official API doc
@@ -33,6 +38,7 @@ import { useMiniAppContext } from './MiniAppContext';
 // - /Users/almurat/KiKo/system-journal/design-language/farcaster-miniapp-shell.md
 // - /Users/almurat/KiKo/system-journal/owner-map/farcaster-miniapp-support.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-miniapp-support.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-farcaster-follow-gate-and-unique-fid.md
 
 type FollowStatus = 'following' | 'not_following' | 'unknown';
 
@@ -44,6 +50,7 @@ interface FarcasterContextValue {
     followStatus: FollowStatus;
     checkedAt: string | null;
     loading: boolean;
+    resolved: boolean;
     refresh: (options?: { force?: boolean }) => Promise<void>;
 }
 
@@ -92,6 +99,7 @@ export const FarcasterProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         followStatus: 'unknown',
         checkedAt: null,
         loading: false,
+        resolved: false,
     });
     const syncKeyRef = useRef<string | null>(null);
     const resetState = useCallback(() => {
@@ -104,12 +112,24 @@ export const FarcasterProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             followStatus: 'unknown',
             checkedAt: null,
             loading: false,
+            resolved: false,
         });
     }, []);
 
     const resolveReadOnlyMiniAppState = useCallback((): { fid: number | null; username: string | null } => {
         const miniAppAccount = getMiniAppFarcasterAccount(miniAppContext.context);
         if (!miniAppAccount.fid) {
+            setState((prev) => ({
+                ...prev,
+                fid: null,
+                username: null,
+                profileUrl: null,
+                followsKiko: null,
+                followStatus: 'unknown',
+                checkedAt: null,
+                loading: false,
+                resolved: true,
+            }));
             return { fid: null, username: null };
         }
 
@@ -122,6 +142,7 @@ export const FarcasterProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             followStatus: 'unknown',
             checkedAt: null,
             loading: false,
+            resolved: true,
         }));
 
         return miniAppAccount;
@@ -147,6 +168,7 @@ export const FarcasterProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             fid,
             username,
             profileUrl: username ? `https://warpcast.com/${String(username).replace(/^@/, '')}` : null,
+            resolved: true,
         }));
 
         const syncKey = `${user.id}:${fid}:${username || ''}`;
@@ -209,6 +231,7 @@ export const FarcasterProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 followStatus: next?.followStatus ?? 'unknown',
                 checkedAt: next?.checkedAt ?? null,
                 loading: false,
+                resolved: true,
             });
         } catch {
             setState({
@@ -219,6 +242,7 @@ export const FarcasterProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 followStatus: 'unknown',
                 checkedAt: null,
                 loading: false,
+                resolved: true,
             });
         }
     }, [authenticated, getAccessToken, ready, resolveReadOnlyMiniAppState, resetState, syncProfile, user]);
