@@ -6,22 +6,33 @@ import { normalizeToken, normalizeWallet } from '../runtime/chainIdentityNormali
 import type { TargetSellEventPayload } from './intentTypes.js';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-13
 // Author: Avery Lin
-// Reason: Buy confirmation can arrive after a durable target-sell webhook, so the
-//         store must support bounded historical replay instead of only exact-key lookups.
-// Goal: Preserve a durable mirror-sell memory that later owner layers can replay
-//       without silently leaving open positions stranded in monitoring loops.
+// Reason: Copytrade needs one durable sell-fact owner while webhook/pending/recovery remain temporary signal layers.
+// Goal: Preserve a durable mirror-sell memory that later owner layers can replay without silently leaving open positions stranded in monitoring loops.
 // Owns: Target-sell event persistence, normalization, and bounded replay queries.
-// Does Not Own: Buy-confirmation state transitions, exit-intent scheduling, or
-//               deciding whether a replayed sell should execute immediately.
+// Does Not Own: Webhook ingress attribution, buy-confirmation state transitions, exit-intent scheduling, or deciding whether a replayed sell should execute immediately.
 // Design Language:
 // - Durable sell events must be queryable by token wallet scope, not only by hash.
 // - Historical replay must be bounded by caller-provided anchors to avoid stale reuse.
+// - Webhook memory is not durable sell truth; targetSellEventStore is.
 // - Do not hide race recovery inside cache-only behavior.
+// - Forbidden local patch patterns: treating ingress-state timestamps as substitute durable sell evidence.
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-13
+// - Applied To: durable sell owner boundary and replay rules
+// - Verification: verified in code
+// - Source: /Users/almurat/KiKo/system-journal/owner-map/copytrade-webhook-ingress.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-13
+// - Applied To: webhook-to-durable-sell handoff boundary
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
+// - /Users/almurat/KiKo/system-journal/owner-map/copytrade-webhook-ingress.md
 // - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-buy-confirm-target-sell-replay-gap.md
 

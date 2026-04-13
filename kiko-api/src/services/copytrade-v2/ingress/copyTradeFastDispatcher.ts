@@ -10,6 +10,29 @@ import {
     hydrateSharedAdjudicatedSnapshot,
 } from '../../order-runtime/adjudicator/service.js';
 
+// CONTEXT MEMORY
+// Updated: 2026-04-13
+// Author: Mira Chen
+// Reason: Fast dispatch sits close to webhook ingress and can be mistaken for a final semantic owner.
+// Goal: Keep dispatch as a narrow enqueue gate that only acts on already-decoded target swaps and never replaces durable sell or buy-confirm owners.
+// Owns: Duplicate-suppressed enqueue decisions for ready target-swap work.
+// Does Not Own: Swap decoding, durable target-sell persistence, buy-confirm reconciliation, or exit scheduling.
+// Design Language:
+// - Dispatcher consumes ready evidence; it does not create business truth.
+// - Self-order suppression may block enqueue, but it must not rewrite durable order or sell state.
+// - Forbidden local patch patterns: adding semantic attribution here; using dispatch acceptance as proof of durable target-sell ownership.
+// Document Provenance:
+// - Source: system-journal/owner-map/copytrade-webhook-ingress.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-13
+// - Applied To: narrowing fast dispatcher to enqueue ownership only
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/owner-map/copytrade-webhook-ingress.md
+// - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
+// - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
+
 type DispatchParams = {
     chainId: number;
     txHash: string;

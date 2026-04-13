@@ -14,6 +14,7 @@ test('evm ingress policy allows provisional dispatch for single-wallet routable 
     trackedWalletCount: 1,
     trackedWallet: '0xf199e2a67a3862a4d1178c697abb8e76ef7c681b',
     swapOrigin: 'cached_predecoded',
+    predecodedTrusted: true,
     swap: BUY_SWAP,
     sourceTxFrom: null,
     pendingHintTargetWallet: '0xf199e2a67a3862a4d1178c697abb8e76ef7c681b',
@@ -25,7 +26,7 @@ test('evm ingress policy allows provisional dispatch for single-wallet routable 
 
   assert.deepEqual(decision, {
     action: 'dispatch_provisional',
-    reasonCode: 'single_wallet_predecoded_routable',
+    reasonCode: 'single_wallet_trusted_predecoded_routable',
     swapSource: 'webhook_provisional_predecoded',
     allowMissingSourceTxFrom: true,
   });
@@ -49,7 +50,8 @@ test('evm ingress policy rejects provisional dispatch on wallet conflict', () =>
     chainId: 8453,
     trackedWalletCount: 1,
     trackedWallet: '0xf199e2a67a3862a4d1178c697abb8e76ef7c681b',
-    swapOrigin: 'activity_decode',
+    swapOrigin: 'cached_predecoded',
+    predecodedTrusted: true,
     swap: BUY_SWAP,
     sourceTxFrom: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   });
@@ -58,7 +60,7 @@ test('evm ingress policy rejects provisional dispatch on wallet conflict', () =>
   assert.equal(decision.reasonCode, 'source_wallet_conflict');
 });
 
-test('evm ingress policy rejects provisional dispatch for token-to-token ambiguity', () => {
+test('evm ingress policy rejects activity-only decode as provisional evidence', () => {
   const decision = decideEvmProvisionalIngress({
     chainId: 8453,
     trackedWalletCount: 1,
@@ -74,5 +76,20 @@ test('evm ingress policy rejects provisional dispatch for token-to-token ambigui
   });
 
   assert.equal(decision.action, 'require_receipt');
-  assert.equal(decision.reasonCode, 'direction_not_routable');
+  assert.equal(decision.reasonCode, 'activity_decode_requires_receipt');
+});
+
+test('evm ingress policy rejects untrusted predecoded swap as provisional evidence', () => {
+  const decision = decideEvmProvisionalIngress({
+    chainId: 8453,
+    trackedWalletCount: 1,
+    trackedWallet: '0xf199e2a67a3862a4d1178c697abb8e76ef7c681b',
+    swapOrigin: 'cached_predecoded',
+    predecodedTrusted: false,
+    swap: BUY_SWAP,
+    pendingHintTargetWallet: '0xf199e2a67a3862a4d1178c697abb8e76ef7c681b',
+  });
+
+  assert.equal(decision.action, 'require_receipt');
+  assert.equal(decision.reasonCode, 'untrusted_predecode_requires_receipt');
 });

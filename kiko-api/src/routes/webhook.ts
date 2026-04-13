@@ -70,14 +70,16 @@ import {
 // CONTEXT MEMORY
 // Updated: 2026-04-13
 // Author: Mira Chen
-// Reason: EVM webhook ingress must preserve tx_from_only ownership without dropping relayer-executed target sells whose tracked wallet is only encoded in calldata.
-// Goal: Keep ordinary tx.from binding fast and strict while recovering permit2/relayer sell flows through explicit calldata wallet attribution.
-// Owns: EVM webhook candidate extraction, tx_from binding short-circuit rules, and receipt-recovery scheduling for no-swap decode cases.
-// Does Not Own: Swap decode semantics, quote provider policy, or downstream trade execution.
+// Reason: EVM webhook ingress must stay an evidence-entry layer instead of becoming a second semantic truth owner for copytrade.
+// Goal: Keep ordinary tx.from binding fast and strict, recover explicit relayer sell flows, and send uncertain cases into recovery instead of broad live attribution.
+// Owns: EVM webhook candidate extraction, tx_from binding short-circuit rules, ingress timing markers, and receipt-recovery scheduling for no-swap decode cases.
+// Does Not Own: Durable target-sell truth, swap decode semantics, quote provider policy, or downstream trade execution policy.
 // Design Language:
 // - tx.from stays the canonical first-pass owner signal for EVM webhook ingress.
+// - Webhook is an evidence gate: trusted predecode or receipt/full-tx decode may unlock runtime processing; weak activity-only or untrusted-predecode evidence must go to recovery.
+// - Durable target-sell ownership lives downstream in the mirror-sell runtime and targetSellEventStore, not in webhook memory.
 // - Calldata-attributed tracked wallets may bypass tx.from-only short-circuit only when full transaction input explicitly carries the wallet address.
-// - Forbidden local patch patterns: broad multi-wallet fallback before tx.from resolution; trusting relayer mismatches without explicit calldata attribution.
+// - Forbidden local patch patterns: broad multi-wallet fallback before tx.from resolution; trusting relayer mismatches without explicit calldata attribution; treating ingress state as durable sell truth.
 // Document Provenance:
 // - Source: /Users/almurat/Downloads/logs.1776050120896.json
 // - Kind: runtime observation
@@ -92,6 +94,7 @@ import {
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/design-language/copytrade-race-recovery.md
+// - system-journal/owner-map/copytrade-webhook-ingress.md
 // - system-journal/owner-map/copytrade-buy-confirmation.md
 // - system-journal/fix-log/2026-04-13-copytrade-sell-relayer-webhook-repair.md
 
@@ -867,7 +870,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
             );
             const provisionalDispatchByWallet = new Map<string, {
                 swap: any;
-                swapSource: 'webhook_provisional_predecoded' | 'webhook_provisional_activity';
+                swapSource: 'webhook_provisional_predecoded';
                 cashHint: ActivityCashHint | null;
                 reasonCode: string;
                 allowMissingSourceTxFrom: boolean;
@@ -881,13 +884,14 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                 const trackedTarget = trackedWallets[0]?.address;
                 const cached = trackedTarget ? predecodedByWallet.get(trackedTarget.toLowerCase()) : null;
                 let cashHint: ActivityCashHint | null = null;
-                const evaluateProvisionalDecision = async (swap: any, swapOrigin: 'cached_predecoded' | 'activity_decode') => {
+                const evaluateProvisionalDecision = async (swap: any) => {
                     cashHint = cashHint || await buildActivityCashHint(evmActivities, trackedTarget, chainId).catch(() => null);
                     return decideEvmProvisionalIngress({
                         chainId,
                         trackedWalletCount: trackedWallets.length,
                         trackedWallet: trackedTarget,
-                        swapOrigin,
+                        swapOrigin: 'cached_predecoded',
+                        predecodedTrusted: isPendingPredecodeTrusted(cached),
                         swap,
                         sourceTxFrom,
                         pendingHintTargetWallet: pendingHint?.targetWallet,
@@ -899,17 +903,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                 let provisionalSwap = null as any;
                 if (cached?.swap && !isPendingPredecodeTrusted(cached)) {
                     provisionalSwap = cached.swap;
-                    provisionalDecision = await evaluateProvisionalDecision(cached.swap, 'cached_predecoded');
-                }
-
-                if (!provisionalDecision || provisionalDecision.action !== 'dispatch_provisional') {
-                    const activitySwap = await decodeSwapFromActivities(evmActivities, trackedTarget, chainId).catch(() => null);
-                    if (activitySwap) {
-                        activitySwap.txHash = txHash;
-                        activitySwap.router = txSkeleton.to || '';
-                        provisionalSwap = activitySwap;
-                        provisionalDecision = await evaluateProvisionalDecision(activitySwap, 'activity_decode');
-                    }
+                    provisionalDecision = await evaluateProvisionalDecision(cached.swap);
                 }
 
                 if (provisionalDecision?.action === 'dispatch_provisional' && provisionalSwap) {
@@ -1045,7 +1039,7 @@ async function processAlchemyWebhookPayload(payload: any): Promise<void> {
                 let swap = useCachedSwap
                     ? (cached?.swap || null)
                     : (provisionalDispatch?.swap || null);
-                let swapSource: 'webhook_cached_predecoded' | 'webhook_decode' | 'webhook_provisional_predecoded' | 'webhook_provisional_activity' = useCachedSwap
+                let swapSource: 'webhook_cached_predecoded' | 'webhook_decode' | 'webhook_provisional_predecoded' = useCachedSwap
                     ? 'webhook_cached_predecoded'
                     : (provisionalDispatch?.swapSource || 'webhook_decode');
                 let resolvedTxForContext = txSkeleton;

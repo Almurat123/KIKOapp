@@ -1,6 +1,29 @@
 import { get as cacheGet, set as cacheSet } from '../../../cache/cacheClient.js';
 import { normalizeTxIdentity } from '../../../utils/txIdentity.js';
 
+// CONTEXT MEMORY
+// Updated: 2026-04-13
+// Author: Mira Chen
+// Reason: Ingress timing state was easy to misread as business truth while webhook, pending hints, and recovery raced each other.
+// Goal: Preserve a strictly temporary ingress marker layer that accelerates dispatch coordination without becoming durable trade semantics.
+// Owns: First-seen, confirmed-seen, swap-ready, and enqueue markers for a tx identity.
+// Does Not Own: Final target-wallet attribution, durable target-sell facts, or canonical order truth.
+// Design Language:
+// - Ingress state is TTL coordination memory only.
+// - Lower layers may merge timestamps, but they must not infer durable trade ownership from this state alone.
+// - Forbidden local patch patterns: storing final sell truth here; using ingress markers as the only justification for mirror-sell execution.
+// Document Provenance:
+// - Source: system-journal/design-language/copytrade-race-recovery.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-13
+// - Applied To: keeping webhook/pending/recovery timing state separate from durable sell and buy-confirm owners
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
+// - /Users/almurat/KiKo/system-journal/owner-map/copytrade-webhook-ingress.md
+// - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
+
 export type CopyTradeIngressState = {
     chainId: number;
     txHash: string;

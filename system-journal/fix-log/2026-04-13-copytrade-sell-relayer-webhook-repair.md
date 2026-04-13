@@ -13,6 +13,8 @@ Webhook ingress was dropping a real Base target sell because the tracked wallet 
   - Added a narrow bypass so relayer-attributed tracked wallets are not skipped by the early `tx_from_only` short-circuit.
 - `kiko-api/src/services/copytrade-v2/__tests__/webhookRecovery.test.ts`
   - Added regression tests for calldata candidate extraction and relayer-binding bypass.
+- `system-journal/owner-map/copytrade-webhook-ingress.md`
+  - Recorded the long-lived boundary that webhook is an evidence-entry layer and durable target sells belong downstream.
 
 ## Why
 
@@ -38,6 +40,8 @@ Before this fix, webhook resolved `sourceTxFrom = relayer` and replaced all cand
 - Calldata fallback is only used when `tx.from` is not itself a tracked wallet.
 - Relayer mismatch is tolerated only for wallets explicitly recovered from calldata.
 - This is not a rollback to broad multi-wallet matching.
+- Webhook ingress may unlock runtime processing, but durable target-sell truth is
+  still created downstream by target-sell handling and `targetSellEventStore`.
 
 ## Document Provenance
 

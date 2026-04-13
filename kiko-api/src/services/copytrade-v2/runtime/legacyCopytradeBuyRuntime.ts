@@ -1684,6 +1684,34 @@ async function resolveMirrorSellExposure(params: {
     };
 }
 
+// CONTEXT MEMORY
+// Updated: 2026-04-13
+// Author: Mira Chen
+// Reason: Target-sell handling is the runtime handoff that converts an observed target sell into durable mirror-sell facts and scheduled exit work.
+// Goal: Ensure observed target sells become durable events first, then scheduled exit intents, instead of relying on webhook-local memory or immediate execution guesses.
+// Owns: Mirror-sell config resolution, durable target-sell persistence, and handoff into exit-intent scheduling/replay.
+// Does Not Own: Webhook ingress attribution, tx decode semantics, or final follower-exit execution success.
+// Design Language:
+// - Observed target sells must persist durable target-sell state before downstream exit work depends on them.
+// - Runtime target-sell handling may filter configs and resolve exposure, but it must not treat webhook ingress memory as final durable truth.
+// - Forbidden local patch patterns: direct webhook-only sell execution; bypassing targetSellEventStore for replayable sell facts.
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/owner-map/copytrade-webhook-ingress.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-13
+// - Applied To: runtime handoff from observed sell to durable sell event + scheduled exit intent
+// - Verification: verified in code
+// - Source: /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-13
+// - Applied To: sell durability before replay and recovery
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/owner-map/copytrade-webhook-ingress.md
+// - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-sell-relayer-webhook-repair.md
+
 export async function handleTargetSell(params: {
     targetWallet: string;
     swap: any;
