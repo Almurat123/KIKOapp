@@ -1,7 +1,7 @@
 /**
  * Direct Swap Service - 直接与 Uniswap V3/V4 池子交互
  * 
- * [Logic]: 绕过 0x/Kyber 聚合器，直接与链上池子交互
+ * [Logic]: 绕过外部聚合器，直接与链上池子交互
  * [Ref]: 仅在 fastSwapMode 时使用
  * 
  * 功能：
@@ -1599,7 +1599,7 @@ export async function executeDirectSwap(params: {
             });
         }
         if (referenceQuote <= 0n && pools.length === 0 && !canUseSourceHintFallback && !turboMode && !referenceCappedToZero && !skipReferenceQuote) {
-            return finish({ success: false, error: 'No valid reference price (0x/Kyber/Gecko)', provider: 'failed' });
+            return finish({ success: false, error: 'No valid reference price (0x/Gecko)', provider: 'failed' });
         }
         if (referenceQuote <= 0n && canUseSourceHintFallback) {
             logger.warn(LogCode.SYS_INFO, '[DirectSwap] Reference quote unavailable, continuing with source hint fallback', {

@@ -4,7 +4,7 @@
  */
 
 export interface SwapQuote {
-    /** Provider name (e.g., '0x', 'kyber', 'jupiter') */
+    /** Provider name (e.g., '0x', 'jupiter') */
     provider: string;
 
     /** Input amount in base units (wei/lamports) */

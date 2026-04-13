@@ -41,3 +41,11 @@ official v4 read-only address maps used by DirectSwap quoting logic.
 
 Does not own: Universal Router send enablement, hook provenance, or unknown-hook
 runtime safety decisions.
+
+### EVM aggregator boundary
+
+Owns: 0x-only quote discovery, 0x-only pricing fallback, and hard rejection of
+removed aggregator inputs such as `kyber`.
+
+Does not own: Kyber compatibility shims, alternate aggregator provider routing,
+or hidden provider aliasing.

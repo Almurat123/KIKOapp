@@ -5,7 +5,6 @@
 
 import { SwapRequest, SwapResult, SwapQuote, SwapProvider } from './types.js';
 import { ZeroExProvider } from './providers/ZeroExProvider.js';
-import { KyberProvider } from './providers/KyberProvider.js';
 import { JupiterProvider } from './providers/JupiterProvider.js';
 import { EvmExecutor } from './executor/EvmExecutor.js';
 import { SolanaExecutor } from './executor/SolanaExecutor.js';
@@ -22,7 +21,6 @@ export class SwapRouter {
         // Initialize all providers
         this.providers = [
             new ZeroExProvider(),
-            new KyberProvider(),
             new JupiterProvider()
         ];
 

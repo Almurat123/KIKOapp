@@ -16,7 +16,6 @@ export interface ChainConfig {
     contracts: {
         zeroExProxy: string; // 0x Exchange Proxy
         permit2?: string;    // Uniswap Permit2 (optional)
-        kyberRouter?: string;// KyberSwap MetaAggregationRouterV2 (optional)
     };
     apiUrl?: string;         // Alchemy, Infura, etc. specific endpoint
     gasReserve: string;      // Amount of native token to reserve for gas
@@ -52,7 +51,6 @@ export const CHAINS: Record<number, ChainConfig> = {
         contracts: {
             zeroExProxy: '0xdef1c0ded9bec7f1a1670819833240faca6db2a2',
             permit2: '0x000000000022d473030f116ddee9dad608d18000',
-            kyberRouter: '0x6131B5fae19EA4f9D964eAc0408E4408b66337b5'
         },
         gasReserve: '0.01',
         slugs: { dexScreener: 'ethereum', geckoTerminal: 'eth' }
@@ -72,7 +70,6 @@ export const CHAINS: Record<number, ChainConfig> = {
         contracts: {
             zeroExProxy: '0xdef1c0ded9bec7f1a1670819833240faca6db2a2',
             permit2: '0x000000000022d473030f116ddee9dad608d18000',
-            kyberRouter: '0x6131B5fae19EA4f9D964eAc0408E4408b66337b5'
         },
         apiUrl: process.env.ALCHEMY_BASE_URL,
         gasReserve: '0.0003',
@@ -97,7 +94,6 @@ export const CHAINS: Record<number, ChainConfig> = {
         contracts: {
             zeroExProxy: '0xdef1c0ded9bec7f1a1670819833240faca6db2a2',
             permit2: '0x000000000022d473030f116ddee9dad608d18000',
-            kyberRouter: '0x6131B5fae19EA4f9D964eAc0408E4408b66337b5'
         },
         apiUrl: 'https://bnb-mainnet.g.alchemy.com/v2',
         gasReserve: '0.0001',
@@ -118,7 +114,6 @@ export const CHAINS: Record<number, ChainConfig> = {
         contracts: {
             zeroExProxy: '',
             permit2: '',
-            kyberRouter: ''
         },
         gasReserve: '0.005',
         slugs: { dexScreener: 'solana', geckoTerminal: 'solana' }
@@ -139,7 +134,6 @@ export const CHAINS: Record<number, ChainConfig> = {
         contracts: {
             zeroExProxy: '0xdef1c0ded9bec7f1a1670819833240faca6db2a2',
             permit2: '0x000000000022d473030f116ddee9dad608d18000',
-            kyberRouter: '0x6131B5fae19EA4f9D964eAc0408E4408b66337b5'
         },
         gasReserve: '0.01',
         slugs: { dexScreener: 'polygon', geckoTerminal: 'polygon_pos' }
@@ -160,7 +154,6 @@ export const CHAINS: Record<number, ChainConfig> = {
         contracts: {
             zeroExProxy: '0xdef1c0ded9bec7f1a1670819833240faca6db2a2',
             permit2: '0x000000000022d473030f116ddee9dad608d18000',
-            kyberRouter: '0x6131B5fae19EA4f9D964eAc0408E4408b66337b5'
         },
         gasReserve: '0.002',
         slugs: { dexScreener: 'arbitrum', geckoTerminal: 'arbitrum' }
@@ -181,7 +174,6 @@ export const CHAINS: Record<number, ChainConfig> = {
         contracts: {
             zeroExProxy: '0xdef1c0ded9bec7f1a1670819833240faca6db2a2',
             permit2: '0x000000000022d473030f116ddee9dad608d18000',
-            kyberRouter: '0x6131B5fae19EA4f9D964eAc0408E4408b66337b5'
         },
         gasReserve: '0.002',
         slugs: { dexScreener: 'optimism', geckoTerminal: 'optimism' }

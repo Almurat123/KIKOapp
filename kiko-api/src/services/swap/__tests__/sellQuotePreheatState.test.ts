@@ -67,3 +67,34 @@ test('sellQuotePreheatState returns warm quote only for exact-match fresh amount
   assert.equal(usable?.dexName, '0x Aggregator');
   assert.equal(mismatched, null);
 });
+
+test('sellQuotePreheatState strips legacy removed-provider hints on read', () => {
+  const normalized = __sellQuotePreheatStateTest.normalizeStateRecord({
+    chainId: 8453,
+    walletAddress: '0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E',
+    tokenAddress: '0x7BBAAD1CD9DEB7DE5567F0CAC6D7A7C7A3535BA3',
+    amountInBase: '100',
+    preferredDexes: ['kyber' as any, '0x'],
+    warmQuote: {
+      dex: 'kyber',
+      dexName: 'KyberSwap',
+      amountOut: '1',
+      amountOutBase: '1',
+      gasEstimate: 123,
+      priceImpact: 0,
+      path: ['a', 'b'] as string[],
+      router: '0xrouter',
+      data: '0x1234',
+      to: '0xto',
+      value: '0',
+      allowanceTarget: '0xallowance',
+      deadline: Date.now(),
+      tokenInDecimals: 18,
+      tokenOutDecimals: 18,
+    } as any,
+    warmedAt: new Date().toISOString(),
+  });
+
+  assert.deepEqual(normalized?.preferredDexes, ['0x']);
+  assert.equal(normalized?.warmQuote, null);
+});

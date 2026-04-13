@@ -53,7 +53,7 @@ export interface SwapQuoteRequest {
     chainId: number;
     slippageBps?: number;
     userAddress?: string;
-    aggregator?: 'jupiter' | 'raydium' | 'orca' | 'auto' | '0x' | 'zeroex' | 'kyber'; // aggregator selector
+    aggregator?: 'jupiter' | 'raydium' | 'orca' | 'auto' | '0x' | 'zeroex'; // aggregator selector
 }
 
 export interface SwapQuoteResponse {
@@ -196,6 +196,10 @@ export async function swapRoutes(fastify: FastifyInstance) {
     fastify.post<{ Body: SwapQuoteRequest }>('/quote', async (request, reply) => {
         try {
             const { tokenIn, tokenOut, amountIn, chainId, slippageBps = 1000, userAddress, aggregator } = request.body as any;
+
+            if (String(aggregator || '').toLowerCase() === 'kyber') {
+                throw new AppError(400, 'Kyber aggregator is no longer supported. Use 0x or auto.', 'UNSUPPORTED_AGGREGATOR');
+            }
 
             // 验证输入
             if (!tokenIn || !tokenOut || !amountIn || !chainId) {
@@ -346,7 +350,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
                 ? (tokenInUsd / tokenOutUsd)
                 : null;
 
-            // Get Best Quote (Compare 0x and Kyber)
+            // Get Best Quote (0x only)
             const { best, quotes } = await getBestQuote({
                 tokenIn: actualTokenIn,
                 tokenOut: actualTokenOut,

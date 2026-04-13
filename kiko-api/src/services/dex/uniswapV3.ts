@@ -1,6 +1,6 @@
 /**
  * Uniswap V3 Direct Swap Service
- * Direct interaction with V3 SwapRouter - no 0x/Kyber dependency
+ * Direct interaction with V3 SwapRouter - no aggregator dependency
  * 
  * [Ref]: https://github.com/Uniswap/v3-periphery/blob/main/contracts/SwapRouter.sol
  */

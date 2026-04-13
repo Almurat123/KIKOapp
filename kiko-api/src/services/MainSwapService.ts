@@ -132,7 +132,7 @@ export interface DirectSwapHint {
   bypassReferencePrice?: boolean;
 }
 
-export type QuoteDex = '0x' | 'kyber';
+export type QuoteDex = '0x';
 
 export interface CopytradeFallbackPricingGuardContext {
   stage: '0x_fallback';
@@ -184,6 +184,7 @@ export interface MainSwapRequest {
     swapMethod?: 'allowance_trade' | 'wallet_sign';
     fastSwapMode?: boolean;
     copyTradeExecutionMode?: CopyTradeExecutionMode;
+    disableTokenInfo?: boolean;
     quickSwapMode?: boolean;
     mevProtection?: boolean;
   };
@@ -199,25 +200,27 @@ export interface MainSwapRequest {
   // CONTEXT MEMORY
   // Updated: 2026-04-13
   // Author: Mira Chen
-  // Reason: Copytrade buy guard already owns the strict native gas-buffer read; MainSwap must not silently discard that evidence and trigger duplicate slow balance reads.
-  // Goal: Carry validated native balance evidence into swap execution while preserving MainSwap as the request-normalization boundary.
-  // Owns: Passing execution-context evidence to precheck and SwapExecutor.
-  // Does Not Own: Fetching wallet portfolio balances or deciding gas-buffer thresholds.
+  // Reason: Copytrade request normalization must preserve upstream hot-path ownership signals instead of re-expanding them into duplicate slow reads or token-info hydration.
+  // Goal: Carry validated native balance evidence and disable-token-info intent into swap execution while preserving MainSwap as the request-normalization boundary.
+  // Owns: Passing execution-context evidence and user execution hints to precheck and SwapExecutor.
+  // Does Not Own: Fetching wallet portfolio balances, deciding gas-buffer thresholds, or resolving heavy token metadata on behalf of turbo copytrade buy.
   // Design Language:
   // - Reuse upstream guard evidence when it is fresh and wallet/chain scoped.
-  // - Treat portfolio hydration as UI/wallet context, not as the hot-path native gas-reserve owner.
-  // - Forbidden local patch patterns: adding timeout-only wrappers around duplicate reads instead of passing evidence.
+  // - Treat portfolio hydration and token-info hydration as optional outer-layer context, not as mandatory hot-path execution dependencies.
+  // - QuoteDex and dex allowlists are 0x-only; removed aggregators must fail fast.
+  // - Forbidden local patch patterns: adding timeout-only wrappers around duplicate reads instead of passing evidence and mode intent.
   // Document Provenance:
   // - Source: /Users/almurat/Downloads/logs.1775999977570.json
   // - Kind: runtime observation
   // - Retrieved: 2026-04-13
-  // - Applied To: copytrade MainSwap request evidence propagation
+  // - Applied To: copytrade MainSwap request evidence propagation and disable-token-info handoff
   // - Verification: verified in runtime logs and local reproduction
   // See also:
   // - system-journal/INDEX.md
   // - system-journal/design-language/copytrade-race-recovery.md
   // - system-journal/owner-map/backend-swap-validation.md
   // - system-journal/fix-log/2026-04-13-copytrade-native-balance-evidence.md
+  // - system-journal/fix-log/2026-04-13-copytrade-turbo-tokeninfo-bypass.md
   executionContext?: {
     sourceTxHash?: string;
     sourceRouter?: string;
@@ -263,7 +266,7 @@ export interface MainSwapResult {
   txLifecycle?: TxLifecycleResult;
   runtimeContext?: OrderRuntimeContext;
   metadata: {
-    provider: string; // '0x', 'kyber', 'jupiter', 'clanker', 'zora', etc.
+    provider: string; // '0x', 'jupiter', 'clanker', 'zora', etc.
     mode: SwapMode;
     priceImpact?: number;
     gasUsed?: string;
@@ -678,7 +681,7 @@ export class MainSwapService {
       const isTurboCopytrade = isCopytrade && request.userSettings?.copyTradeExecutionMode === 'turbo';
 
       // 4. LAUNCHPAD DETECTION (EVM only)
-      // DISABLED: ClankerService not ready - use standard DEX (0x/Kyber) for all tokens
+      // DISABLED: ClankerService not ready - use standard DEX (0x) for all tokens
       if (isEvm && !request.launchpadProvider && !isCopytrade && routePolicy !== 'external_only') {
         try {
           // Check both tokenOut (for BUY) and tokenIn (for SELL)
@@ -709,7 +712,7 @@ export class MainSwapService {
             launchpadDetection?.provider === 'creatorbid'
           ) {
             // These platforms are currently detected-only and route through standard DEX path.
-            logger.info(LogCode.SYS_INFO, trace(`${launchpadDetection.provider} token detected - routing to standard DEX (0x/Kyber)`));
+            logger.info(LogCode.SYS_INFO, trace(`${launchpadDetection.provider} token detected - routing to standard DEX (0x)`));
           }
         } catch (detectErr: any) {
           logger.warn(LogCode.SYS_ERROR, trace(`Launchpad detection failed: ${detectErr.message}`), {
@@ -1383,7 +1386,7 @@ export class MainSwapService {
   }
 
   /**
-   * Execute EVM swap (0x, Kyber, etc.)
+   * Execute EVM swap (0x, etc.)
    */
   private static async executeEvmSwap(
     request: MainSwapRequest,
@@ -1572,7 +1575,7 @@ export class MainSwapService {
       contextId: request.executionContext?.contextId || null
     });
 
-    // [Logic]: FastSwapMode 使用直接交易 (V3/V4)，跳过 0x/Kyber
+    // [Logic]: FastSwapMode 使用直接交易 (V3/V4)，跳过 0x
     // [Logic]: 买入方向判定基于 cash -> token（支持 ETH/WETH/USDC/USDT）
     // [Logic]: cash -> cash（例如 ETH -> USDC）不应触发买入直连
     const isCashIn = isCashLikeToken(normalizedTokenIn, request.chainId);
@@ -2333,7 +2336,7 @@ export class MainSwapService {
       if (lastDirectResult) {
         directTraceState.fallback_start_at = Date.now();
         const failureCode = extractFailureCode(lastDirectResult.error);
-        logger.warn(LogCode.SYS_INFO, trace(`${isTurboCopytrade && isBuyDirection ? 'Turbo copytrade buy recoverable direct failure; entering 0x-only fallback' : `Direct swap failed, falling back to 0x/Kyber: ${lastDirectResult.error || 'unknown'}`}`), {
+        logger.warn(LogCode.SYS_INFO, trace(`${isTurboCopytrade && isBuyDirection ? 'Turbo copytrade buy recoverable direct failure; entering 0x-only fallback' : `Direct swap failed, falling back to 0x: ${lastDirectResult.error || 'unknown'}`}`), {
           error: lastDirectResult.error,
           failureCode,
           directProvider: lastDirectResult.provider,
@@ -2351,7 +2354,7 @@ export class MainSwapService {
         });
       } else if (lastDirectError) {
         directTraceState.fallback_start_at = Date.now();
-        logger.warn(LogCode.SYS_ERROR, trace(isTurboCopytrade && isBuyDirection ? 'Turbo copytrade buy direct error; entering 0x-only fallback' : 'Direct swap error, falling back to 0x/Kyber'), {
+        logger.warn(LogCode.SYS_ERROR, trace(isTurboCopytrade && isBuyDirection ? 'Turbo copytrade buy direct error; entering 0x-only fallback' : 'Direct swap error, falling back to 0x'), {
           error: lastDirectError.message,
           chainId: request.chainId,
           mode: request.mode,
@@ -2468,6 +2471,7 @@ export class MainSwapService {
       speedUpAfterMs: request.mode === 'allowance' || request.mode === 'copytrade' ? (isTurboCopytrade ? 1200 : 6000) : undefined,
       speedUpBumpBps: request.mode === 'copytrade' ? (isTurboCopytrade ? 22000 : 15000) : request.mode === 'allowance' ? 13000 : undefined,
       executionMode: request.userSettings?.copyTradeExecutionMode,
+      disableTokenInfo: request.userSettings?.disableTokenInfo === true,
       mevProtection: shouldEnableMevProtection,
       preWarmedNonce: request.preWarmedNonce,
       allowedDexes: request.allowedDexes,
@@ -2579,7 +2583,7 @@ export class MainSwapService {
     // To save 20s+ on the sell, we approve the router immediately after buying.
     // This is "fire-and-forget" - we do not block the buy response.
     /* [DANGER_ZONE_UNVERIFIED]
-    * Logic: Auto-approve newly bought tokens for 0x/Kyber
+    * Logic: Auto-approve newly bought tokens for 0x
     * Risk: User pays gas for approval immediately (even if holding).
     * Mitigation: Only for fast-swap/swap-card modes where speed is priority.
     */

@@ -107,6 +107,28 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
   });
   const leaderBuyTxHash = String(plannedArtifact.executionContextBase?.sourceTxHash || '').trim().toLowerCase() || null;
 
+  // CONTEXT MEMORY
+  // Updated: 2026-04-13
+  // Author: Mira Chen
+  // Reason: Turbo copytrade buy inherits legacy `disableTokenInfo` intent through execution mode, but the downstream swap owner only respects signals that are explicitly carried on the request.
+  // Goal: Build MainSwapRequest objects that preserve hot-path execution intent instead of letting downstream layers re-enable heavy token-info fetches.
+  // Owns: Copytrade buy submission request shaping for MainSwap.
+  // Does Not Own: Swap execution policy, quote provider choice, or token metadata fetching.
+  // Design Language:
+  // - Turbo copytrade buy must forward disable-token-info intent explicitly.
+  // - Request shaping may compress legacy config into stable execution hints.
+  // - Forbidden local patch patterns: assuming executionMode alone will be re-interpreted correctly by deeper owners.
+  // Document Provenance:
+  // - Source: /Users/almurat/Downloads/logs.1776012928975.json
+  // - Kind: runtime observation
+  // - Retrieved: 2026-04-13
+  // - Applied To: turbo copytrade buy MainSwap request shaping
+  // - Verification: verified in runtime logs and local reproduction
+  // See also:
+  // - system-journal/INDEX.md
+  // - system-journal/design-language/copytrade-race-recovery.md
+  // - system-journal/owner-map/backend-swap-validation.md
+  // - system-journal/fix-log/2026-04-13-copytrade-turbo-tokeninfo-bypass.md
   const buildRequest = async (args: {
     amount: number;
     slippageBps: number;
@@ -150,6 +172,7 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
       userSettings: {
         fastSwapMode: params.fastSwapMode,
         copyTradeExecutionMode: params.executionMode,
+        disableTokenInfo: params.turboMode,
       },
       preWarmedNonce: args.includePreWarmedNonce ? params.preWarmedNonce : undefined,
     };

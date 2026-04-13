@@ -20,7 +20,6 @@ import {
     resolveAdaptivePriceSampleSellAmountRaw,
     toWei
 } from './zeroEx.js';
-import { getKyberQuote } from './kyberAggregator.js';
 import { getSolanaTokenPrice } from './solanaOnChainPriceService.js';
 import { callRpc } from './rpcManager.js';
 import { logger } from '../utils/logger.js';
@@ -29,6 +28,29 @@ import { getSolanaNativeQuotePrice } from './solana/direct/nativeQuote.js';
 import { buildScopedCacheKey, getScopedCacheValue, setScopedCacheValue, withScopedSingleFlight } from './rpc/cacheStore.js';
 import type { RpcExecutionLane } from './rpc/executionLane.js';
 import { cacheHub } from '../cache/DataCacheHub.js';
+
+// CONTEXT MEMORY
+// Updated: 2026-04-13
+// Author: Mira Chen
+// Reason: EVM price discovery must not keep a Kyber fallback alive after the runtime aggregator removal.
+// Goal: Preserve 0x-only EVM pricing, with only existing non-Kyber monitor fallbacks as secondary safety.
+// Owns: Price-source ordering, provider labeling, and safe failure when 0x is unavailable.
+// Does Not Own: Direct swap execution or provider routing outside pricing.
+// Design Language:
+// - 0x is the only EVM liquidity-based price source.
+// - If 0x cannot produce a quote, fail safely or use pre-existing non-Kyber monitors.
+// - Forbidden local patch patterns: alternative DEX price retry chains, hidden Kyber recovery, or provider aliasing.
+// Document Provenance:
+// - Source: repository runtime audit of Kyber removal plan
+// - Kind: repo doc
+// - Retrieved: 2026-04-13
+// - Applied To: EVM price fallback policy
+// - Verification: verified in code
+// See also:
+// - system-journal/INDEX.md
+// - system-journal/fix-log/2026-04-13-kyber-0x-only-removal.md
+// - system-journal/owner-map/backend-swap-validation.md
+// - system-journal/conflicts.md
 
 const RAYDIUM_PRICE_API = 'https://api-v3.raydium.io/mint/price';
 const PUMP_FUN_PROGRAM_ID = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
@@ -60,8 +82,6 @@ type DexPriceOptions = {
 const priceCache = new Map<string, { price: number; provider: string; timestamp: number }>();
 const CACHE_TTL_MS = 30_000;
 const PRICE_UNAVAILABLE_COOLDOWN_MS = Math.max(500, Number(process.env.DEX_PRICE_UNAVAILABLE_COOLDOWN_MS || '1500'));
-const KYBER_PRICE_DUMMY_RECIPIENT = '0x1111111111111111111111111111111111111111';
-const KYBER_PRICE_SLIPPAGE_BPS = 100;
 type PriceFailureEntry = { kind: 'failure'; provider: string };
 
 /**
@@ -228,10 +248,6 @@ async function getEvmPriceUsd(tokenAddress: string, chainId: number, lane: RpcEx
     const quote = await getZeroExPrice(tokenAddress, usdcAddress, sellAmount, chainId);
 
     if (!quote || !quote.buyAmount) {
-        const kyberPrice = await getEvmPriceUsdFromKyber(tokenAddress, chainId, usdcAddress, lane);
-        if (kyberPrice > 0) {
-            return { price: kyberPrice, provider: 'kyber-dex' };
-        }
         return { price: 0, provider: 'unavailable' };
     }
 
@@ -255,8 +271,6 @@ async function getEvmPriceUsd(tokenAddress: string, chainId: number, lane: RpcEx
         buyTokenDecimals: usdcDecimals,
     });
     if (!(Number.isFinite(price) && price > 0)) {
-        const kyberPrice = await getEvmPriceUsdFromKyber(tokenAddress, chainId, usdcAddress, lane);
-        if (kyberPrice > 0) return { price: kyberPrice, provider: 'kyber-dex' };
         return { price: 0, provider: 'unavailable' };
     }
 
@@ -354,55 +368,6 @@ async function getEvmExternalMonitorPriceUsd(tokenAddress: string, chainId: numb
     }
 
     return { price: 0, provider: 'unavailable' };
-}
-
-async function getEvmPriceUsdFromKyber(tokenAddress: string, chainId: number, usdcAddress: string, lane: RpcExecutionLane): Promise<number> {
-    try {
-        const [tokenMeta, usdcMeta] = await Promise.all([
-            getZeroExTokenMetadata(tokenAddress, chainId, { lane }).catch(() => null),
-            getZeroExTokenMetadata(usdcAddress, chainId, { lane }).catch(() => null)
-        ]);
-        const tokenDecimals = Number(tokenMeta?.decimals ?? await fetchTokenDecimalsFromRPC(tokenAddress, chainId, { lane }));
-        const usdcDecimals = Number(usdcMeta?.decimals ?? await fetchTokenDecimalsFromRPC(usdcAddress, chainId, { lane }));
-        if (!Number.isFinite(tokenDecimals) || tokenDecimals < 0 || tokenDecimals > 24) return 0;
-        if (!Number.isFinite(usdcDecimals) || usdcDecimals < 0 || usdcDecimals > 24) return 0;
-
-        const oneTokenRaw = toWei('1', tokenDecimals);
-        const quote = await getKyberQuote(
-            tokenAddress,
-            usdcAddress,
-            oneTokenRaw,
-            chainId,
-            KYBER_PRICE_SLIPPAGE_BPS,
-            KYBER_PRICE_DUMMY_RECIPIENT,
-            'swap',
-            true,
-            undefined,
-            { disablePlatformFee: true }
-        );
-        const amountOutRaw = quote?.amountOut || quote?.amountOutBase;
-        if (!amountOutRaw) return 0;
-        const usdOut = computeUsdPriceFromRawQuote({
-            sellAmountRaw: oneTokenRaw,
-            buyAmountRaw: amountOutRaw,
-            sellTokenDecimals: tokenDecimals,
-            buyTokenDecimals: usdcDecimals,
-        });
-        if (!Number.isFinite(usdOut) || usdOut <= 0) return 0;
-        logger.debug(LogCode.API_FETCH_SUCCESS, 'EVM price from Kyber', {
-            token: tokenAddress.slice(0, 10),
-            chainId,
-            price: usdOut.toFixed(8)
-        });
-        return usdOut;
-    } catch (error: any) {
-        logger.debug(LogCode.API_FETCH_FAILED, 'Kyber EVM price fallback failed', {
-            token: tokenAddress.slice(0, 10),
-            chainId,
-            error: error?.message
-        });
-        return 0;
-    }
 }
 
 /**

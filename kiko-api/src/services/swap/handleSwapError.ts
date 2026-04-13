@@ -4,7 +4,7 @@ import { LogCode } from '../../config/logRegistry.js';
 
 /**
  * Handle and map swap errors to user-friendly messages.
- * Maps technical errors from Jupiter, 0x, and Kyber to professional English phrases.
+ * Maps technical errors from Jupiter and 0x to professional English phrases.
  */
 export function handleSwapError(error: any): string {
     const msg = error.message || 'Unknown error';
@@ -32,24 +32,6 @@ export function handleSwapError(error: any): string {
 
     // Log the raw technical error for debugging purposes
     logger.error(LogCode.EXE_TX_REVERTED, 'Raw Swap Error Captured', { msg, errorData });
-
-    const kyberCode = errorData?.code;
-    const kyberMessage = String(errorData?.message || '').toLowerCase();
-    if (kyberCode === 4002 || kyberMessage.includes('unable to bind request body')) {
-        return 'Swap failed: Kyber request payload invalid. Retrying may help, but this is likely a routing/build error.';
-    }
-    if (kyberCode === 4008 || kyberMessage.includes('route not found')) {
-        return 'Swap failed: No Kyber route found for this pair. Try a smaller amount or different pair.';
-    }
-    if (kyberCode === 4009) {
-        return 'Swap failed: Amount exceeds Kyber maximum for this route. Try a smaller amount.';
-    }
-    if (kyberCode === 4010) {
-        return 'Swap failed: No eligible pool found for this route. Try a different pair or smaller amount.';
-    }
-    if (kyberCode === 4011) {
-        return 'Swap failed: tokenIn or tokenOut not supported by Kyber.';
-    }
 
     // 1. Slippage & Price Movement Errors
     if (

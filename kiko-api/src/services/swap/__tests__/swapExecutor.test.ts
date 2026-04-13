@@ -43,8 +43,8 @@ test('finalizeApprovedSellQuote keeps original quote when refreshed spender drif
   assert.equal(decision.quoteToExecute.data, original.data);
 });
 
-test('finalizeApprovedSellQuote keeps original quote when refreshed dex drifts', () => {
-  const original = makeQuote({ dex: 'kyber', dexName: 'KyberSwap' });
+test('finalizeApprovedSellQuote accepts compatible refresh when dex stays on 0x', () => {
+  const original = makeQuote({ dex: '0x', dexName: '0x Aggregator' });
   const refreshed = makeQuote({ dex: '0x', dexName: '0x Aggregator' });
 
   const decision = __swapExecutorTest.finalizeApprovedSellQuote({
@@ -52,8 +52,8 @@ test('finalizeApprovedSellQuote keeps original quote when refreshed dex drifts',
     refreshedQuote: refreshed as any,
   });
 
-  assert.equal(decision.refreshApplied, false);
-  assert.equal(decision.refreshFailureCode, 'fresh_quote_dex_changed_after_approval');
+  assert.equal(decision.refreshApplied, true);
+  assert.equal(decision.refreshFailureCode, undefined);
   assert.equal(decision.quoteToExecute.dex, original.dex);
 });
 
@@ -107,4 +107,30 @@ test('native balance evidence is reusable only for matching fresh wallet scope',
     nowMs: 20_000,
     maxAgeMs: 5_000,
   }), null);
+});
+
+test('turbo copytrade buy token-info bypass only activates for explicit copytrade buy scope', () => {
+  assert.equal(__swapExecutorTest.shouldSkipCopytradeTokenInfoHotPath({
+    feeContext: 'copyTrade',
+    disableTokenInfo: true,
+    isSell: false,
+  } as any), true);
+
+  assert.equal(__swapExecutorTest.shouldSkipCopytradeTokenInfoHotPath({
+    feeContext: 'copyTrade',
+    disableTokenInfo: false,
+    isSell: false,
+  } as any), false);
+
+  assert.equal(__swapExecutorTest.shouldSkipCopytradeTokenInfoHotPath({
+    feeContext: 'copyTrade',
+    disableTokenInfo: true,
+    isSell: true,
+  } as any), false);
+
+  assert.equal(__swapExecutorTest.shouldSkipCopytradeTokenInfoHotPath({
+    feeContext: 'swap',
+    disableTokenInfo: true,
+    isSell: false,
+  } as any), false);
 });

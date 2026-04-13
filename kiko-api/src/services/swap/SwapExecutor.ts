@@ -90,6 +90,7 @@ export interface SwapParams {
     preferPermit2?: boolean; // Internal: force non-permit2 quote path on retry
     permit2ExecutionFallbackTried?: boolean; // Internal: avoid permit2 fallback loops
     executionMode?: 'safe' | 'normal' | 'turbo';
+    disableTokenInfo?: boolean;
     mevProtection?: boolean;
     allowedDexes?: QuoteDex[];
     zeroExQuoteTimeoutMs?: number;
@@ -109,25 +110,27 @@ export interface SwapParams {
     // CONTEXT MEMORY
     // Updated: 2026-04-13
     // Author: Mira Chen
-    // Reason: EVM native gas reserve used to hydrate a full wallet portfolio, which delayed copytrade quote/send when Alchemy portfolio fell back to multi-chain stablecoin RPC.
-    // Goal: SwapExecutor may consume fresh upstream native balance evidence or perform one direct native-balance RPC; it must not use wallet portfolio for EVM native gas reserve.
-    // Owns: Hot-path gas reserve adjustment before EVM quote execution.
-    // Does Not Own: Copytrade guard admission policy, wallet portfolio display hydration, or external quote provider scoring.
+    // Reason: Copytrade hot-path execution must not silently expand into broad wallet portfolio hydration or heavy token metadata fetches after upstream mode policy already selected turbo/no-token-info behavior.
+    // Goal: SwapExecutor may consume fresh upstream native balance evidence and a scoped disable-token-info signal; it must keep turbo copytrade buy on a narrow address/decimals-only path.
+    // Owns: Hot-path gas reserve adjustment and whether EVM execution resolves full token info versus address/decimals-only metadata.
+    // Does Not Own: Copytrade guard admission policy, wallet portfolio display hydration, config-to-mode derivation, or external quote provider scoring.
     // Design Language:
     // - Native gas reserve is a single-balance read, not a portfolio read.
     // - Guard evidence is authoritative only when fresh and wallet/chain scoped.
-    // - Forbidden local patch patterns: broad walletService balance hydration inside native buy execution.
+    // - Turbo copytrade buy may skip tokenInfo only when an upstream owner explicitly passes the disable-token-info signal.
+    // - Forbidden local patch patterns: broad walletService balance hydration or hybrid tokenInfo fetch inside turbo copytrade buy execution.
     // Document Provenance:
     // - Source: /Users/almurat/Downloads/logs.1775999977570.json
     // - Kind: runtime observation
     // - Retrieved: 2026-04-13
-    // - Applied To: EVM native gas-reserve balance source
+    // - Applied To: EVM native gas-reserve balance source and turbo copytrade buy token-info bypass
     // - Verification: verified in runtime logs and local reproduction
     // See also:
     // - system-journal/INDEX.md
     // - system-journal/design-language/copytrade-race-recovery.md
     // - system-journal/owner-map/backend-swap-validation.md
     // - system-journal/fix-log/2026-04-13-copytrade-native-balance-evidence.md
+    // - system-journal/fix-log/2026-04-13-copytrade-turbo-tokeninfo-bypass.md
     nativeBalanceEvidence?: NativeBalanceEvidence;
     runtimeContext?: OrderRuntimeContext;
     failoverSendContext?: FailoverSendContext;
@@ -271,6 +274,12 @@ function finalizeApprovedSellQuote(params: {
     };
 }
 
+function shouldSkipCopytradeTokenInfoHotPath(params: Pick<SwapParams, 'feeContext' | 'disableTokenInfo' | 'isSell'>): boolean {
+    return params.feeContext === 'copyTrade'
+        && params.disableTokenInfo === true
+        && params.isSell !== true;
+}
+
 /**
  * Unified Swap Executor
  * Handles both EVM and Solana swaps with robust error handling and gas management.
@@ -320,6 +329,7 @@ export class SwapExecutor {
     private static async executeEvm(params: SwapParams): Promise<SwapResult> {
         const { userId, walletAddress, tokenIn, tokenOut, amountIn, chainId, slippageBps: requestedSlippage, feeContext } = params;
         const isCopytradeSellHotPath = feeContext === 'copyTrade' && (params.isSell === true || !tokenOut);
+        const skipCopytradeTokenInfoHotPath = shouldSkipCopytradeTokenInfoHotPath(params);
 
         // 1. Resolve Token Addresses & Metadata
         const resolveToken = async (token: string) => {
@@ -329,6 +339,9 @@ export class SwapExecutor {
                 return chainId === SOLANA_CONFIG.CHAIN_ID ? SOLANA_NATIVE_MINT : NATIVE_TOKEN_ADDRESS;
             }
             if (isCopytradeSellHotPath && ethers.isAddress(token)) {
+                return ethers.getAddress(token);
+            }
+            if (skipCopytradeTokenInfoHotPath && ethers.isAddress(token)) {
                 return ethers.getAddress(token);
             }
             const info = await getTokenInfo(token, chainId);
@@ -355,11 +368,21 @@ export class SwapExecutor {
         const slippageBps = requestedSlippage ?? (isSellTx ? 1500 : 1000);
         const isSellForFee = isSellTx;
 
+        if (skipCopytradeTokenInfoHotPath) {
+            logger.info(LogCode.SYS_INFO, 'Turbo copytrade buy token-info bypass enabled', {
+                chainId,
+                tokenIn: actualTokenInFixed,
+                tokenOut: actualTokenOutFixed,
+            });
+        }
+
         const [tokenInInfo, tokenOutInfo] = await Promise.all([
-            isCopytradeSellHotPath
+            skipCopytradeTokenInfoHotPath
+                ? Promise.resolve(isNativeIn ? { decimals: 18 } : null)
+                : isCopytradeSellHotPath
                 ? Promise.resolve(null)
                 : getTokenInfo(actualTokenInFixed, chainId, { verbose: false }),
-            isNativeOut || isCopytradeSellHotPath
+            isNativeOut || isCopytradeSellHotPath || skipCopytradeTokenInfoHotPath
                 ? Promise.resolve(isNativeOut ? { decimals: 18 } : null)
                 : getTokenInfo(actualTokenOutFixed, chainId, { verbose: false }),
         ]);
@@ -827,7 +850,7 @@ export class SwapExecutor {
                     !permitApprovalCovered
                     && isSellTx
                     && !isNativeIn
-                    && (best.dex === '0x' || best.dex === 'kyber')
+                    && best.dex === '0x'
                     && !shouldUseSignedPermitForSell({
                         dex: best.dex,
                         allowSignedPermit: sellReliability.allowSignedPermit,
@@ -838,9 +861,7 @@ export class SwapExecutor {
                     logger.info(LogCode.EXE_TX_BROADCAST, 'Sell path prefers explicit approval over signed permit', {
                         chainId,
                         dex: best.dexName,
-                        reasonCode: best.dex === 'kyber'
-                            ? 'kyber_sell_explicit_approval_required'
-                            : (sellReliability.reasonCode || 'sell_reliability_explicit_approval')
+                        reasonCode: sellReliability.reasonCode || 'sell_reliability_explicit_approval'
                     });
                 }
 
@@ -1186,15 +1207,6 @@ export class SwapExecutor {
             gasEstimate: best.gasEstimate
         });
         console.log('[SwapExecutor] =============================================');
-
-        // ULTRA DEBUG: For Kyber, log the complete transaction data
-        if (best.dexName === 'KyberSwap') {
-            console.log('[SwapExecutor] ===== KYBER ULTRA DEBUG =====');
-            console.log('[SwapExecutor] Full calldata:', best.data);
-            console.log('[SwapExecutor] Calldata length:', best.data?.length);
-            console.log('[SwapExecutor] Build response (full best):', best);
-            console.log('[SwapExecutor] ===========================');
-        }
 
         // Add Gas Buffer (50% for safety on Base/complex routes to prevent Out Of Gas)
         // Explicitly fetch current network fee data to prevent underpriced transaction submissions
@@ -1911,4 +1923,5 @@ export class SwapExecutor {
 
 export const __swapExecutorTest = {
     finalizeApprovedSellQuote,
+    shouldSkipCopytradeTokenInfoHotPath,
 };

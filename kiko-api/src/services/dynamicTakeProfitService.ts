@@ -110,7 +110,7 @@ export class DynamicTakeProfitService {
         }
 
         // 2. 更新价格历史 (分钟级 OHLC 聚合桶)
-        // [Logic]: 生产环境 0x/Kyber 仅提供瞬时价。我们将每 10s 的采样聚合进 1m 的桶中，以获得有效的 ATR 和趋势检测
+        // [Logic]: 生产环境 0x 仅提供瞬时价。我们将每 10s 的采样聚合进 1m 的桶中，以获得有效的 ATR 和趋势检测
         const now = Date.now();
         const currentMinuteTs = Math.floor(now / 60000) * 60000;
 

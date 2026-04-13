@@ -670,30 +670,6 @@ export const GECKOTERMINAL_CONFIG = {
   } as Record<string, string>,
 } as const;
 
-// ============================================================================
-// OTHER THIRD-PARTY API CONFIGURATIONS
-// ============================================================================
-
-export const KYBERSWAP_CONFIG = {
-  baseUrl: 'https://aggregator-api.kyberswap.com',
-  clientId: 'kiko-app',
-
-  timeout: 10000, // 10 seconds
-
-  // Chain naming for KyberSwap
-  chainMap: {
-    1: 'ethereum',
-    56: 'bsc',
-    137: 'polygon',
-    10: 'optimism',
-    42161: 'arbitrum',
-    8453: 'base',
-    43114: 'avalanche',
-    250: 'fantom',
-    59144: 'linea',
-  } as Record<number, string>,
-} as const;
-
 export const ZEROX_CONFIG = {
   // 0x API endpoints by chain
   baseUrls: {

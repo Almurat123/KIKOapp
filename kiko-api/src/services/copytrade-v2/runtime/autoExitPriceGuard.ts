@@ -10,7 +10,6 @@ const HARD_UNSAFE_VALIDATION_REASONS = new Set([
 
 const TRUSTED_DIRECT_PROVIDERS = new Set([
   '0x-dex',
-  'kyber-dex',
   'jupiter-dex',
   'dexscreener-monitor',
   'geckoterminal-monitor',

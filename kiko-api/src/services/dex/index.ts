@@ -1,7 +1,7 @@
 /**
  * DEX Aggregator - Direct Swap Service
  * Unified interface for direct DEX interactions
- * Replaces 0x/Kyber dependency with direct router calls
+ * Replaces external aggregator dependency with direct router calls
  */
 
 import { logger } from '../../utils/logger.js';

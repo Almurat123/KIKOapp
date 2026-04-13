@@ -32,13 +32,6 @@ test('signed sell permit is only enabled for 0x sell paths', () => {
     }), true);
 
     assert.equal(shouldUseSignedPermitForSell({
-        dex: 'kyber',
-        allowSignedPermit: true,
-        isSellTx: true,
-        isNativeIn: false,
-    }), false);
-
-    assert.equal(shouldUseSignedPermitForSell({
         dex: '0x',
         allowSignedPermit: true,
         isSellTx: true,

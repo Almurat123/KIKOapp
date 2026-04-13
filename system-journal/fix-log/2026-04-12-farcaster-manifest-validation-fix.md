@@ -8,6 +8,8 @@
   - moved `castShareUrl` onto the same domain as `homeUrl`
 - Corrected the `social` search tag spelling after the manifest passed primary
   validation, without changing the user-confirmed `name`.
+- Replaced the generic `token` search tag with `kiko` so brand-name search can
+  match the app more reliably.
 - Left the remaining fields aligned to the user's confirmed submission payload.
 
 ## Why

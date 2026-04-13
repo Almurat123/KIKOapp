@@ -11,7 +11,6 @@ import {
 import { isTransactionQueueBusy, sendTransaction } from './privyWallet.js';
 import { recordFollowerTransactionFactForLatestPosition } from './copytrade-v2/data-flow/followerTransactionFactLedger.js';
 import { getZeroExQuote } from './zeroEx.js';
-import { getKyberQuote } from './kyberAggregator.js';
 import { clearApprovalPreheatState, upsertApprovalPreheatState } from './swap/approvalPreheatState.js';
 import { TX_NONCE_PROFILE } from './rpc/profile.js';
 
@@ -163,33 +162,20 @@ async function refreshSpendersFromQuotes(params: {
 
   const task = (async (): Promise<string[]> => {
     const amountInBase = params.probeAmountBase.toString();
-    const [zeroExQuote, kyberQuote] = await Promise.all([
-      getZeroExQuote(
-        params.tokenAddress,
-        NATIVE_TOKEN_ADDRESS,
-        amountInBase,
-        params.chainId,
-        PREHEAT_SLIPPAGE_BPS,
-        params.walletAddress,
-        undefined,
-        false,
-        true
-      ).catch(() => null),
-      getKyberQuote(
-        params.tokenAddress,
-        NATIVE_TOKEN_ADDRESS,
-        amountInBase,
-        params.chainId,
-        PREHEAT_SLIPPAGE_BPS,
-        params.walletAddress,
-        'copyTrade',
-        true
-      ).catch(() => null)
-    ]);
+    const zeroExQuote = await getZeroExQuote(
+      params.tokenAddress,
+      NATIVE_TOKEN_ADDRESS,
+      amountInBase,
+      params.chainId,
+      PREHEAT_SLIPPAGE_BPS,
+      params.walletAddress,
+      undefined,
+      false,
+      true
+    ).catch(() => null);
 
     const spenders = extractSpenders([
       zeroExQuote?.allowanceTarget || zeroExQuote?.issues?.allowance?.spender,
-      kyberQuote?.allowanceTarget || kyberQuote?.routerAddress,
     ]);
     setCachedSpenders(params.chainId, params.tokenAddress, spenders);
     return spenders;

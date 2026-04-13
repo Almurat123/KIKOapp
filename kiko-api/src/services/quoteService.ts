@@ -1,10 +1,32 @@
 import { ethers } from 'ethers';
 import { getZeroExQuote } from './zeroEx.js';
-import { getKyberQuote } from './kyberAggregator.js';
 import { AppError } from '../middleware/errorHandler.js';
 import type { ZeroExAffiliateFee } from './zeroEx.js';
 import { getProviderReliability } from './copytrade-v2/learning/quoteReliability.js';
 import type { QuoteDex } from './MainSwapService.js';
+
+// CONTEXT MEMORY
+// Updated: 2026-04-13
+// Author: Mira Chen
+// Reason: Quote selection must not silently revive removed aggregators; 0x is now the only EVM quote provider owner in this layer.
+// Goal: Reject any Kyber inputs early and keep quote ranking, caching, and retry behavior 0x-only.
+// Owns: EVM quote selection policy, cache key composition, and provider pinning for swap fallbacks.
+// Does Not Own: Token metadata hydration, direct swap execution, or non-EVM quote systems.
+// Design Language:
+// - Hard-reject removed aggregators instead of aliasing them.
+// - Keep retry/fallback logic constrained to supported providers only.
+// - Forbidden local patch patterns: silent provider remapping, hidden Kyber fallback, or cross-layer alias compatibility.
+// Document Provenance:
+// - Source: repository runtime audit of Kyber removal plan
+// - Kind: repo doc
+// - Retrieved: 2026-04-13
+// - Applied To: 0x-only quote routing and unsupported-aggregator rejection
+// - Verification: verified in code
+// See also:
+// - system-journal/INDEX.md
+// - system-journal/fix-log/2026-04-13-kyber-0x-only-removal.md
+// - system-journal/owner-map/backend-swap-validation.md
+// - system-journal/conflicts.md
 
 export interface QuoteResult {
     dex: string;
@@ -73,6 +95,17 @@ const QUOTE_PREFERRED_SELL_PROVIDER_MAX_BPS_DRIFT = Math.max(
     0,
     Number(process.env.QUOTE_PREFERRED_SELL_PROVIDER_MAX_BPS_DRIFT || '125')
 );
+
+function ensureZeroOnlyDexSelection(params: {
+    allowedDexes?: Array<string | QuoteDex>;
+    preferredDexes?: Array<string | QuoteDex>;
+    excludeDex?: string;
+}): void {
+    const hasKyber = (values?: Array<string | QuoteDex>) => (values || []).some((dex) => String(dex || '').toLowerCase() === 'kyber');
+    if (hasKyber(params.allowedDexes) || hasKyber(params.preferredDexes) || String(params.excludeDex || '').toLowerCase() === 'kyber') {
+        throw new AppError(400, 'Kyber is no longer supported. Use 0x only.', 'UNSUPPORTED_DEX');
+    }
+}
 
 function buildQuoteCacheKey(params: BestQuoteParams): string {
     const amountInBase = String(params.amountInBase || '0').toLowerCase();
@@ -156,6 +189,7 @@ export async function getBestQuote(params: BestQuoteParams): Promise<{ best: Quo
 
 export const __testOnly = {
     buildQuoteCacheKey,
+    ensureZeroOnlyDexSelection,
     resolveTurboSellWaitStrategy,
     selectPreferredSellQuote,
 };
@@ -230,6 +264,7 @@ function selectPreferredSellQuote(params: {
 }
 
 async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: QuoteResult, quotes: QuoteResult[] }> {
+    ensureZeroOnlyDexSelection(params);
     const {
         tokenIn, tokenOut, actualTokenIn, actualTokenOut,
         amountInBase, amountInHuman,
@@ -349,56 +384,6 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
         }
     };
 
-    // 2. KyberSwap
-    const fetchKyber = async (): Promise<QuoteResult | null> => {
-        if (allowedDexSet && !allowedDexSet.has('kyber')) return null;
-        try {
-            // Kyber requires recipient address - skip if not provided
-            if (!userAddress) return null;
-
-            const kyberQuote = await getKyberQuote(
-                actualTokenIn,
-                actualTokenOut,
-                amountInBase,
-                chainId,
-                slippageBps,
-                userAddress,
-                params.feeContext,
-                params.isSell
-            );
-
-            if (kyberQuote) {
-                // Use ethers for accurate decimal formatting
-                const humanOut = ethers.formatUnits(kyberQuote.amountOut || '0', tokenOutDecimals);
-                const impactVsMkt = calcImpactVsMkt(parseFloat(humanOut));
-
-                return {
-                    dex: 'kyber',
-                    dexName: 'KyberSwap',
-                    amountOut: humanOut,
-                    amountOutBase: kyberQuote.amountOutBase || kyberQuote.amountOut,
-                    // Use actual gas from Kyber, fallback to 300000 (not 200000 which is too low for large swaps)
-                    gasEstimate: kyberQuote.gas ? parseInt(String(kyberQuote.gas)) : 300000,
-                    priceImpact: impactVsMkt ?? kyberQuote.priceImpact ?? 0,
-                    priceImpactVsMkt: impactVsMkt ?? null,
-                    path: [tokenIn, tokenOut],
-                    router: kyberQuote.routerAddress || kyberQuote.to,
-                    data: kyberQuote.data,
-                    to: kyberQuote.to || kyberQuote.routerAddress,
-                    value: kyberQuote.value || '0',
-                    allowanceTarget: kyberQuote.allowanceTarget || kyberQuote.routerAddress,
-                    deadline: Math.floor(Date.now() / 1000) + 600,
-                    tokenInDecimals,
-                    tokenOutDecimals,
-                };
-            }
-            return null;
-        } catch (err) {
-            console.warn('[QuoteService] Kyber failed', err);
-            return null;
-        }
-    };
-
     const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> => {
         let timer: NodeJS.Timeout | null = null;
         try {
@@ -415,22 +400,18 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
 
     if (turboMode) {
         const zeroExPromise = fetchZeroEx();
-        const kyberPromise = fetchKyber();
         const startMs = Date.now();
         const safeZeroEx = zeroExPromise.then((q) => q || null);
-        const safeKyber = kyberPromise.then((q) => q || null);
 
-        const enabledSources: Array<'0x' | 'kyber'> = [];
+        const enabledSources: Array<'0x'> = [];
         if (!allowedDexSet || allowedDexSet.has('0x')) enabledSources.push('0x');
-        if (!allowedDexSet || allowedDexSet.has('kyber')) enabledSources.push('kyber');
-        const toSourceResult = (source: '0x' | 'kyber', q: Promise<QuoteResult | null>) =>
+        const toSourceResult = (source: '0x', q: Promise<QuoteResult | null>) =>
             q.then((quote) => quote ? { source, quote } : null).catch(() => null);
 
-        const quickRace: Array<Promise<{ source: '0x' | 'kyber'; quote: QuoteResult } | null>> = [
+        const quickRace: Array<Promise<{ source: '0x'; quote: QuoteResult } | null>> = [
             new Promise<null>((resolve) => setTimeout(() => resolve(null), QUOTE_TURBO_SELL_FAST_WAIT_MS))
         ];
         if (enabledSources.includes('0x')) quickRace.push(toSourceResult('0x', safeZeroEx));
-        if (enabledSources.includes('kyber')) quickRace.push(toSourceResult('kyber', safeKyber));
         const quickResult = await Promise.race(quickRace);
         if (quickResult?.quote) {
             if (!quotes.some((q) => q.dex === quickResult.source)) {
@@ -447,49 +428,34 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
                 sellQuotePolicy: params.sellQuotePolicy,
             });
             if (waitStrategy.waitMs > 0) {
-                const [zeroExSell, kyberSell] = await Promise.all([
-                    enabledSources.includes('0x') ? withTimeout(safeZeroEx, waitStrategy.waitMs) : Promise.resolve(null),
-                    enabledSources.includes('kyber') ? withTimeout(safeKyber, waitStrategy.waitMs) : Promise.resolve(null),
-                ]);
+                const zeroExSell = enabledSources.includes('0x') ? await withTimeout(safeZeroEx, waitStrategy.waitMs) : null;
                 if (zeroExSell && !quotes.some((q) => q.dex === '0x')) quotes.push(zeroExSell);
-                if (kyberSell && !quotes.some((q) => q.dex === 'kyber')) quotes.push(kyberSell);
             }
             const gotZeroEx = quotes.some((quote) => quote.dex === '0x');
-            const gotKyber = quotes.some((quote) => quote.dex === 'kyber');
             console.log('[QuoteService] Turbo sell dual-quote resolved', {
                 elapsedMs: Date.now() - startMs,
                 chainId: params.chainId,
                 got0x: gotZeroEx,
-                gotKyber: gotKyber,
                 sellQuotePolicy: params.sellQuotePolicy || 'fast_window',
                 waitStrategy: waitStrategy.mode,
             });
         } else {
             // Turbo buy: still parallel, but no first-arrival bias.
             // Wait within a bounded window and compare all returned quotes.
-            const [zeroExBuy, kyberBuy] = await Promise.all([
-                enabledSources.includes('0x') ? withTimeout(zeroExPromise, TURBO_TOTAL_WAIT_MS) : Promise.resolve(null),
-                enabledSources.includes('kyber') ? withTimeout(kyberPromise, TURBO_TOTAL_WAIT_MS) : Promise.resolve(null)
-            ]);
+            const zeroExBuy = enabledSources.includes('0x') ? await withTimeout(zeroExPromise, TURBO_TOTAL_WAIT_MS) : null;
             if (zeroExBuy) quotes.push(zeroExBuy);
-            if (kyberBuy) quotes.push(kyberBuy);
             console.log('[QuoteService] Turbo buy dual-quote window resolved', {
                 elapsedMs: Date.now() - startMs,
                 totalWaitMs: TURBO_TOTAL_WAIT_MS,
                 chainId: params.chainId,
                 copytradeBuy: isCopytradeBuy,
-                got0x: Boolean(zeroExBuy),
-                gotKyber: Boolean(kyberBuy)
+                got0x: Boolean(zeroExBuy)
             });
         }
     } else {
         // Standard mode keeps full quote race semantics.
-        const [zeroExQuote, kyberQuote] = await Promise.all([
-            (!allowedDexSet || allowedDexSet.has('0x')) ? fetchZeroEx() : Promise.resolve(null),
-            (!allowedDexSet || allowedDexSet.has('kyber')) ? fetchKyber() : Promise.resolve(null)
-        ]);
+        const zeroExQuote = (!allowedDexSet || allowedDexSet.has('0x')) ? await fetchZeroEx() : null;
         if (zeroExQuote) quotes.push(zeroExQuote);
-        if (kyberQuote) quotes.push(kyberQuote);
     }
 
     if (!quotes.length) {
@@ -509,34 +475,7 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
         });
     }
 
-    // CRITICAL: Prefer 0x over KyberSwap for execution reliability
-    // 0x has been proven to execute reliably; KyberSwap quotes well but often reverts
-    // EXCEPTION: On Base chain, prefer Kyber due to 0x allowance-holder execution issues
-    // Only use KyberSwap if 0x is unavailable or significantly worse (>10% difference)
     const zeroExQuote = availableQuotes.find(q => q.dex === '0x');
-    const kyberQuote = availableQuotes.find(q => q.dex === 'kyber');
-
-    if (zeroExQuote && kyberQuote) {
-        const zeroExAmount = BigInt(zeroExQuote.amountOutBase || '0');
-        const kyberAmount = BigInt(kyberQuote.amountOutBase || '0');
-
-        // Calculate percentage difference
-        const percentDiff = kyberAmount > 0n && zeroExAmount > 0n
-            ? Math.abs(Number((kyberAmount - zeroExAmount) * 100n / zeroExAmount))
-            : 0;
-
-        console.log('[QuoteService] Quote comparison:', {
-            '0x_amount': zeroExQuote.amountOut,
-            'kyber_amount': kyberQuote.amountOut,
-            'kyber_advantage_pct': percentDiff.toFixed(2),
-            chainId: params.chainId
-        });
-
-        // Selection is handled later by reliability-adjusted scoring.
-        console.log('[QuoteService] Deferring winner selection to reliability scorer', {
-            percentDiff: percentDiff.toFixed(2)
-        });
-    }
 
     if (!availableQuotes.length) {
         // If an excluded DEX caused empty results, fall back to any quote we have.

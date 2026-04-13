@@ -1,6 +1,28 @@
 import { get as cacheGet, set as cacheSet, del as cacheDel } from '../../../cache/cacheClient.js';
 import type { DexStrategy, DirectSwapHint } from './types.js';
 
+// CONTEXT MEMORY
+// Updated: 2026-04-13
+// Author: Mira Chen
+// Reason: DirectSwap reference quote cache previously persisted Kyber-specific fields and now must not revive them.
+// Goal: Keep shared reference quote snapshots stable, 0x-only, and backward-safe for existing cache entries.
+// Owns: Reference quote cache schema, Redis serialization, and inflight singleflight state.
+// Does Not Own: Quote generation policy or provider selection.
+// Design Language:
+// - Cache schemas must only store supported provider fields.
+// - Old Kyber fields are ignored on read and never written again.
+// - Forbidden local patch patterns: expanding cache records to preserve removed provider state.
+// Document Provenance:
+// - Source: repository runtime audit of Kyber removal plan
+// - Kind: repo doc
+// - Retrieved: 2026-04-13
+// - Applied To: direct-swap cache schema cleanup
+// - Verification: verified in code
+// See also:
+// - system-journal/INDEX.md
+// - system-journal/fix-log/2026-04-13-kyber-0x-only-removal.md
+// - system-journal/owner-map/backend-swap-validation.md
+
 interface TimedValue<T> {
   value: T;
   timestamp: number;
@@ -37,7 +59,6 @@ export const v4QuoterCache = new Map<string, TimedValue<bigint>>();
 export const referenceQuoteCache = new Map<string, TimedValue<bigint>>();
 export type ExternalReferenceQuoteSnapshot = {
   ref0x: bigint;
-  refKyber: bigint;
   best: bigint;
 };
 export const sharedExternalReferenceQuoteCache = new Map<string, TimedValue<ExternalReferenceQuoteSnapshot>>();
@@ -246,7 +267,6 @@ export async function getSharedExternalReferenceQuote(
     if (!raw) return null;
     const parsed = JSON.parse(raw) as {
       ref0x?: string;
-      refKyber?: string;
       best?: string;
       timestamp?: number;
     };
@@ -255,7 +275,6 @@ export async function getSharedExternalReferenceQuote(
     }
     const value: ExternalReferenceQuoteSnapshot = {
       ref0x: BigInt(parsed.ref0x || '0'),
-      refKyber: BigInt(parsed.refKyber || '0'),
       best: BigInt(parsed.best || '0')
     };
     sharedExternalReferenceQuoteCache.set(cacheKey, { value, timestamp: parsed.timestamp });
@@ -277,7 +296,6 @@ export async function setSharedExternalReferenceQuote(
       sharedExternalReferenceQuoteRedisKey(cacheKey),
       JSON.stringify({
         ref0x: snapshot.ref0x.toString(),
-        refKyber: snapshot.refKyber.toString(),
         best: snapshot.best.toString(),
         timestamp
       }),

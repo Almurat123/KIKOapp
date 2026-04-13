@@ -33,7 +33,7 @@ function normalizeDexes(quotes: QuoteResult[]): QuoteDex[] {
   const ordered: QuoteDex[] = [];
   for (const quote of quotes) {
     const dex = String(quote.dex || '').toLowerCase();
-    if ((dex !== '0x' && dex !== 'kyber') || seen.has(dex)) continue;
+    if (dex !== '0x' || seen.has(dex)) continue;
     seen.add(dex);
     ordered.push(dex as QuoteDex);
   }

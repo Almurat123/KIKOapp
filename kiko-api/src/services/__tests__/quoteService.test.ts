@@ -53,6 +53,14 @@ test('quote cache key isolates dex-pinned fallback quotes', () => {
   assert.notEqual(defaultKey, zeroExOnlyKey);
 });
 
+test('kyber selections are rejected before quote selection', () => {
+  assert.throws(() => {
+    __testOnly.ensureZeroOnlyDexSelection({
+      allowedDexes: ['0x', 'kyber' as any],
+    });
+  }, /Kyber is no longer supported/);
+});
+
 test('turbo sell bounded deadline waits for the full deadline when no quick quote arrived', () => {
   const strategy = __testOnly.resolveTurboSellWaitStrategy({
     hasQuickQuote: false,
@@ -91,7 +99,7 @@ test('turbo sell first executable uses a bounded first-provider window before fa
 
 test('preferred sell provider wins when output drift stays within threshold', () => {
   const selected = __testOnly.selectPreferredSellQuote({
-    preferredDexes: ['kyber'],
+    preferredDexes: ['0x'],
     scoredQuotes: [
       {
         quote: {
@@ -118,8 +126,8 @@ test('preferred sell provider wins when output drift stays within threshold', ()
       },
       {
         quote: {
-          dex: 'kyber',
-          dexName: 'KyberSwap',
+          dex: '0x',
+          dexName: '0x Aggregator Alt',
           amountOut: '99.2',
           amountOutBase: '99200',
           gasEstimate: 1,
@@ -142,5 +150,5 @@ test('preferred sell provider wins when output drift stays within threshold', ()
     ],
   });
 
-  assert.equal(selected?.quote.dex, 'kyber');
+  assert.equal(selected?.quote.dex, '0x');
 });

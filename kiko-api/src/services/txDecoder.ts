@@ -18,6 +18,27 @@ import { TRADE_QUOTE_PROFILE } from './rpc/profile.js';
 export { decodeSwapFromLogs } from './txDecoder/evmTransferFallback.js';
 export { isSwapTransaction } from './txDecoder/evmSwapEvidence.js';
 
+// CONTEXT MEMORY
+// Updated: 2026-04-13
+// Author: Mira Chen
+// Reason: Swap-intent decoding must not depend on aggregator brand/router name lists that can disappear during provider removal.
+// Goal: Preserve a single generic decode path based on swap selectors and transfer/pool evidence, even after provider-specific labels are removed.
+// Owns: Transaction intent gating for transfer-based decode and router-name labeling for operator diagnostics.
+// Does Not Own: Quote provider policy, copytrade routing, or swap execution.
+// Design Language:
+// - Decode intent from generic swap evidence first, router labels second.
+// - Removed provider names may disappear from labels without breaking decode eligibility.
+// - Forbidden local patch patterns: coupling parse eligibility to mutable brand-name router maps.
+// Document Provenance:
+// - Source: repository runtime audit of Kyber removal plan
+// - Kind: repo doc
+// - Retrieved: 2026-04-13
+// - Applied To: swap-intent decode gating after provider removal
+// - Verification: verified in code
+// See also:
+// - system-journal/INDEX.md
+// - system-journal/fix-log/2026-04-13-kyber-0x-only-removal.md
+// - system-journal/owner-map/backend-swap-validation.md
 
 
 // ERC20 Transfer event signature
@@ -1099,7 +1120,6 @@ export function getDexName(routerAddress: string, chainId: number): string {
             '0x420dd381b31aef6683db6b902084cb0ffece40da': 'Aerodrome Slipstream PoolFactory',
             '0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24': 'BaseSwap Router',
             '0x1111111254eeb25477b68fb85ed929f73a960582': '1inch Router',
-            '0x6131b5fae19ea4f9d964eac0408e4408b66337b5': 'KyberSwap',
             '0x0000000000001ff3684f28c67538d4d072c22734': '0x Protocol',
             '0x1231deb6f5749ef6ce6943a275a1d3e7486f4eae': 'LiFi',
         };
@@ -1219,8 +1239,7 @@ export async function parseSwapTransaction(
     });
     const hasPoolSwapEvidence = hasV2Swap || hasV3Swap || hasV4Swap || hasInfinitySwap;
     const hasKnownSwapSelector = isSwapTransaction(tx.input || '');
-    const knownRouter = tx.to ? getDexName(tx.to, chainId) !== 'Unknown DEX' : false;
-    const hasDexIntentEvidence = hasKnownSwapSelector && knownRouter;
+    const hasDexIntentEvidence = hasKnownSwapSelector;
     const hasTransferEvidence = shouldAttemptTransferBasedDecode({
         hasPoolSwapEvidence,
         hasDexIntentEvidence,

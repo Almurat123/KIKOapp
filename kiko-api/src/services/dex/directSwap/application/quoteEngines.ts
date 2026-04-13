@@ -4,7 +4,6 @@ import { LogCode } from '../../../../config/logRegistry.js';
 import { findV4Pools, calculatePriceFromSqrtX96, V4PoolInfo, V4PoolKey } from '../../uniswapV4.js';
 import { isV4SwapSupported } from '../../uniswapV4Swap.js';
 import { callRpc as callRpcBase, callRpcRaw as callRpcRawBase } from '../../../rpcManager.js';
-import { getKyberQuote } from '../../../kyberAggregator.js';
 import { getTokenDetails } from '../../../geckoTerminal.js';
 import { getTokenDecimals, getTokenMetadata } from '../../../rpcService.js';
 import { reserveTradePathTemplate } from '../../../rpc/tradeTemplate.js';
@@ -53,6 +52,29 @@ import {
   get0xExpectedOutput,
   getZoraSdkExpectedOutput
 } from './extraExecutors.js';
+
+// CONTEXT MEMORY
+// Updated: 2026-04-13
+// Author: Mira Chen
+// Reason: DirectSwap reference quoting must not carry Kyber through cache or fallback logic after the aggregator removal.
+// Goal: Keep reference quote and diagnostics 0x-only, with V4 spot as the only non-aggregator fallback.
+// Owns: Reference quote synthesis, shared cache shape, and direct-swap quote diagnostics.
+// Does Not Own: Aggregator provider implementation, swap execution, or token metadata hydration policy.
+// Design Language:
+// - 0x is the only external aggregator allowed in direct-swap reference quoting.
+// - Cache snapshots must only persist supported provider fields.
+// - Forbidden local patch patterns: dual-provider race logic, Kyber-specific cache fields, or source labels that imply removed providers.
+// Document Provenance:
+// - Source: repository runtime audit of Kyber removal plan
+// - Kind: repo doc
+// - Retrieved: 2026-04-13
+// - Applied To: direct-swap reference quote path and cache schema
+// - Verification: verified in code
+// See also:
+// - system-journal/INDEX.md
+// - system-journal/fix-log/2026-04-13-kyber-0x-only-removal.md
+// - system-journal/owner-map/backend-swap-validation.md
+// - system-journal/conflicts.md
 
 const WETH_ADDRESSES: Record<number, string> = {
   8453: '0x4200000000000000000000000000000000000006',
@@ -1218,7 +1240,6 @@ export async function getReferenceExpectedOutput(
     const refStart = Date.now();
 
     let ref0x = 0n;
-    let refKyber = 0n;
     const sharedExternalCacheKey = buildSharedExternalReferenceQuoteCacheKey({
         chainId,
         tokenIn,
@@ -1232,7 +1253,6 @@ export async function getReferenceExpectedOutput(
 
     if (sharedExternalQuote) {
         ref0x = sharedExternalQuote.ref0x;
-        refKyber = sharedExternalQuote.refKyber;
         logger.info(LogCode.SYS_INFO, '[DirectSwap] Shared reference quote cache hit', {
             traceId,
             chainId,
@@ -1245,63 +1265,30 @@ export async function getReferenceExpectedOutput(
             sharedExternalReferenceQuoteInflight,
             sharedExternalCacheKey,
             async () => {
-                let localRef0x = 0n;
-                let localRefKyber = 0n;
-                const [zeroExResult, kyberResult] = await Promise.allSettled([
-                    withAbortableTimeout(
-                        (signal) => get0xExpectedOutput(tokenIn, tokenOut, amountInWei, chainId, signal),
-                        REFERENCE_QUOTE_TIMEOUT_MS
-                    ),
-                    withAbortableTimeout(
-                        async (signal) => {
-                            const res = await getKyberQuote(
-                                tokenIn,
-                                tokenOut,
-                                amountInWei.toString(),
-                                chainId,
-                                slippageBps,
-                                recipient,
-                                'copyTrade',
-                                undefined,
-                                signal
-                            );
-                            return res?.amountOut ? BigInt(res.amountOut) : 0n;
-                        },
-                        REFERENCE_QUOTE_TIMEOUT_MS
-                    )
-                ]);
-                if (zeroExResult.status === 'fulfilled') {
-                    localRef0x = zeroExResult.value;
-                } else {
+                const localRef0x = await withAbortableTimeout(
+                    (signal) => get0xExpectedOutput(tokenIn, tokenOut, amountInWei, chainId, signal),
+                    REFERENCE_QUOTE_TIMEOUT_MS
+                ).catch((error) => {
                     logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] 0x reference quote failed', {
                         traceId,
-                        error: String(zeroExResult.reason?.message || zeroExResult.reason || '').slice(0, 80)
+                        error: String(error?.message || error || '').slice(0, 80)
                     });
-                }
-                if (kyberResult.status === 'fulfilled') {
-                    localRefKyber = kyberResult.value;
-                } else {
-                    logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] Kyber reference quote failed', {
-                        traceId,
-                        error: String(kyberResult.reason?.message || kyberResult.reason || '').slice(0, 80)
-                    });
-                }
-
-                const best = localRef0x > localRefKyber ? localRef0x : localRefKyber;
+                    return 0n;
+                });
+                const best = localRef0x;
                 const ttlMs = best > 0n
                     ? REFERENCE_SHARED_EXTERNAL_TTL_MS
                     : REFERENCE_SHARED_EXTERNAL_NEGATIVE_TTL_MS;
                 await setSharedExternalReferenceQuote(
                     sharedExternalCacheKey,
-                    { ref0x: localRef0x, refKyber: localRefKyber, best },
+                    { ref0x: localRef0x, best },
                     Math.max(1, Math.ceil(ttlMs / 1000))
                 );
-                return { ref0x: localRef0x, refKyber: localRefKyber, best };
+                return { ref0x: localRef0x, best };
             }
         );
 
         ref0x = resolvedSharedQuote.ref0x;
-        refKyber = resolvedSharedQuote.refKyber;
         if (shared) {
             logger.info(LogCode.SYS_INFO, '[DirectSwap] Shared reference quote inflight join', {
                 traceId,
@@ -1313,7 +1300,7 @@ export async function getReferenceExpectedOutput(
         }
     }
 
-    const bestRef = ref0x > refKyber ? ref0x : refKyber;
+    const bestRef = ref0x;
     if (bestRef > 0n) {
         referenceQuoteCache.set(cacheKey, { value: bestRef, timestamp: Date.now() });
         await cacheSet(
@@ -1324,10 +1311,9 @@ export async function getReferenceExpectedOutput(
         logger.info(LogCode.EXE_QUOTE_FETCHED, '[DirectSwap] Reference quote ready', {
             traceId,
             ref0x: ref0x.toString().slice(0, 15),
-            refKyber: refKyber.toString().slice(0, 15),
             durationMs: Date.now() - refStart
         });
-        diagnostics && (diagnostics.source = ref0x >= refKyber ? '0x' : 'kyber');
+        diagnostics && (diagnostics.source = '0x');
         diagnostics && (diagnostics.l2Status = 'ok');
         diagnostics && (diagnostics.l3Status = 'skipped');
         return bestRef;
