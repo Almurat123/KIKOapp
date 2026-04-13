@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-13
 // Author: Almurat
 // Reason: X outbound requests must resolve the current official bot token at
 //         runtime, not assume a single static env-only credential, and must
@@ -9,10 +9,15 @@
 //         KIKO may send direct messages, but it no longer attempts to read or
 //         reconstruct inbound XChat message text from webhook events. Mention
 //         intake also needs author verification metadata so policy can ignore
-//         non-verified accounts before starting expensive agent work.
+//         non-verified accounts before starting expensive agent work. Runtime
+//         evidence later showed webhook-delivered tweet events can still fail at
+//         outbound reply time unless the same tweet is visible in the bot's
+//         official mentions feed, so this client now owns the "is this really in
+//         `/users/:id/mentions`?" confirmation helper.
 // Goal: keep all X API calls using the same credential source and filtering
 //       rules that the webhook and auth layers rely on.
-// Owns: authenticated X REST access for bot replies and outbound DM sends.
+// Owns: authenticated X REST access for bot replies, mention confirmation, and
+//       outbound DM sends.
 // Does Not Own: OAuth exchange, webhook subscription setup, or chat orchestration.
 // Design Language:
 // - Resolve bot credentials through the shared credential service first.
@@ -24,6 +29,8 @@
 //   exposes a documented readable path for XChat payloads.
 // - Always request enough mention author metadata to enforce reply policy in
 //   the worker layer.
+// - Do not treat webhook ingress alone as proof that a tweet is replyable;
+//   confirm replyable mention candidates against the bot's mentions feed.
 // Document Provenance:
 // - Source: X Direct Messages API docs (Send DM / lookup docs)
 // - Kind: official API doc
@@ -36,12 +43,19 @@
 // - Applied To: confirmed `chat.received` arrives without readable text and public
 //   lookup endpoints returned no usable DM body
 // - Verification: verified in runtime
+// - Source: X users/mentions API docs + production 403 reply logs
+// - Kind: official API doc | runtime observation
+// - Retrieved: 2026-04-13
+// - Applied To: requiring a `/users/{botUserId}/mentions` confirmation before
+//   treating a webhook mention as reply-eligible
+// - Verification: partially verified
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-10-x-oauth2-refresh-runtime.md
 // - system-journal/fix-log/2026-04-10-x-expired-bot-token-hard-fail.md
 // - system-journal/fix-log/2026-04-10-x-dm-outbound-only.md
+// - system-journal/fix-log/2026-04-13-x-mention-feed-confirmation.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
 // - system-journal/conflicts.md
 import { env } from '../../config/env.js';
@@ -90,6 +104,16 @@ function parseMention(item: any, usersById: Map<string, any>): XMentionEvent | n
     conversationId: item?.conversation_id ? String(item.conversation_id) : null,
     createdAt: item?.created_at ? String(item.created_at) : null,
   };
+}
+
+function decrementSnowflake(id: string): string | null {
+  try {
+    const numeric = BigInt(String(id || '').trim());
+    if (numeric <= 0n) return null;
+    return String(numeric - 1n);
+  } catch {
+    return null;
+  }
 }
 
 
@@ -143,6 +167,14 @@ export class XApiClient {
     return (payload?.data || [])
       .map((item: any) => parseMention(item, usersById))
       .filter(Boolean);
+  }
+
+  async fetchMentionByTweetId(tweetId: string): Promise<XMentionEvent | null> {
+    const id = String(tweetId || '').trim();
+    if (!id) return null;
+    const sinceId = decrementSnowflake(id);
+    const mentions = await this.fetchMentions({ sinceId });
+    return mentions.find((item) => item.id === id) || null;
   }
 
   async replyToMention(params: { tweetId: string; text: string }): Promise<XSendResult> {

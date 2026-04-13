@@ -62,6 +62,8 @@ owner boundaries, and major fixes.
 - [Fix Log: 2026-04-13 Copytrade Sell Relayer Webhook Repair](./fix-log/2026-04-13-copytrade-sell-relayer-webhook-repair.md)
 - [Fix Log: 2026-04-13 Webhook Weak-Evidence Dispatch Hardening](./fix-log/2026-04-13-webhook-weak-evidence-dispatch-hardening.md)
 - [Fix Log: 2026-04-13 Kyber 0x-Only Runtime Removal](./fix-log/2026-04-13-kyber-0x-only-removal.md)
+- [Fix Log: 2026-04-13 Position Monitor Price Fallback And Ledger Ghost Repair](./fix-log/2026-04-13-position-monitor-price-fallback-and-ledger-ghost-repair.md)
+- [Fix Log: 2026-04-13 X Mention Feed Confirmation](./fix-log/2026-04-13-x-mention-feed-confirmation.md)
 - [Fix Log: 2026-04-10 X Webhook Replay Script](./fix-log/2026-04-10-x-webhook-replay-script.md)
 - [Fix Log: 2026-04-12 Chat Home Shell Regression Revert](./fix-log/2026-04-12-chat-home-shell-regression-revert.md)
 - [Fix Log: 2026-04-12 First Send No Loading Chat Entry](./fix-log/2026-04-12-first-send-no-loading-chat-entry.md)

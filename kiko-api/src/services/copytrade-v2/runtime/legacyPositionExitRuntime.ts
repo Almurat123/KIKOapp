@@ -27,6 +27,37 @@ import { evaluateAutoExitPriceGuard } from './autoExitPriceGuard.js';
 import { TRADE_METADATA_PROFILE } from '../../rpc/profile.js';
 import { getGuardPriceSnapshot } from './guardPrice.js';
 
+// CONTEXT MEMORY
+// Updated: 2026-04-13
+// Author: Avery Lin
+// Reason: The legacy autoTrade runtime still owns live TP/SL and exit execution on one
+//         compatibility path, so it must not suppress guarded price fallback just because
+//         the shared token snapshot cache is cold.
+// Goal: Preserve parity with the main runtime by resolving exit and TP/SL prices through
+//       guard-price fallback before skipping monitoring or persisting zero-value exits.
+// Owns: Legacy compatibility TP/SL loop and legacy exit pricing fallback.
+// Does Not Own: Durable sell-event ownership, webhook ingress, or ghost-position repair policy.
+// Design Language:
+// - Cache snapshot miss is not authoritative when guarded price fallback exists.
+// - Exit valuation should persist a real price when guard fallback can still resolve one.
+// - Forbidden local patch patterns: treating snapshot-only monitoring as sufficient for money-moving exits.
+// Document Provenance:
+// - Source: /Users/almurat/Downloads/logs.1776053950823.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-13
+// - Applied To: proving exit valuation and TP/SL skip still happened on the compatibility runtime path when only cache snapshot was consulted
+// - Verification: verified in runtime
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-position-monitor-price-fallback-and-ledger-ghost-repair.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-13
+// - Applied To: keeping legacy price fallback aligned with the main monitor runtime
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
+// - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-position-monitor-price-fallback-and-ledger-ghost-repair.md
+
 const EXIT_INFLIGHT_RETRY_GRACE_MS = getExitInflightRetryGraceMs();
 const MIN_POSITION_AGE_FOR_TPSL_MS = Math.max(0, Number(process.env.MIN_POSITION_AGE_FOR_TPSL_MS || '90000'));
 const TPSL_CONSECUTIVE_HITS_REQUIRED = Math.max(1, Number(process.env.TPSL_CONSECUTIVE_HITS_REQUIRED || '2'));
@@ -79,7 +110,21 @@ export async function executePositionExit(
     deps: LegacyPositionExitRuntimeDeps
 ): Promise<string | null> {
     const { userId, tokenAddress, chainId, exitReason, config } = params;
-    const tokenInfo = params.tokenInfo ?? { price: 0, symbol: 'UNKNOWN' };
+    let tokenInfo = params.tokenInfo ?? { price: 0, symbol: 'UNKNOWN' };
+    if (!(Number.isFinite(tokenInfo?.price) && tokenInfo.price > 0)) {
+        const guardPrice = await getGuardPriceSnapshot(tokenAddress, chainId, {
+            priority: 'high',
+            rpcStrategy: 'fast',
+        }).catch(() => null);
+        if (guardPrice) {
+            tokenInfo = {
+                ...tokenInfo,
+                ...guardPrice,
+                symbol: tokenInfo?.symbol || guardPrice.symbol || tokenInfo?.symbol,
+                decimals: Number.isFinite(Number(tokenInfo?.decimals)) ? tokenInfo.decimals : guardPrice.decimals,
+            };
+        }
+    }
     const hasValidPrice = Number.isFinite(tokenInfo?.price) && tokenInfo.price > 0;
 
     logger.info(LogCode.EXE_TX_BROADCAST, 'Executing position exit', {
@@ -497,7 +542,7 @@ export async function executePositionExit(
                 logger.warn(LogCode.API_FETCH_FAILED, 'Exit price missing from live data; persisting exit with unresolved USD valuation', {
                     userId,
                     token: tokenAddress,
-                    fallbackSuppressed: true
+                    fallbackSuppressed: false
                 });
             }
             const { sellVolUsd } = await persistSuccessfulExit({
@@ -739,12 +784,23 @@ export async function checkPositionsForExits(
 
             try {
                 const tokenKey = `${position.tokenAddress.toLowerCase()}_${position.chainId}`;
-                const tokenInfo = tokenPriceMap.get(tokenKey);
+                let tokenInfo = tokenPriceMap.get(tokenKey);
+
+                if (!tokenInfo) {
+                    tokenInfo = await getGuardPriceSnapshot(position.tokenAddress, position.chainId, {
+                        priority: 'normal',
+                        rpcStrategy: 'cheap',
+                    }).catch(() => null);
+                    if (tokenInfo) {
+                        tokenPriceMap.set(tokenKey, tokenInfo);
+                    }
+                }
 
                 if (!tokenInfo) {
                     logger.warn(LogCode.API_FETCH_FAILED, 'TP/SL check skipped: Price not available', {
                         positionId: position.id,
                         token: position.tokenSymbol || position.tokenAddress,
+                        tokenAddress: position.tokenAddress,
                         chainId: position.chainId,
                         configId: position.configId
                     });

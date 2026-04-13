@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-12
+// Updated: 2026-04-13
 // Author: Almurat
 // Reason: X ingress now owns only mention-driven interaction. Product direction
 //         changed after runtime/document evidence showed XChat webhook events do
@@ -10,6 +10,10 @@
 //         The public card image was later corrected to a conversation-screenshot
 //         visual, which requires the original user prompt to be persisted with
 //         every share record.
+//         every share record. Runtime logs on 2026-04-13 then showed webhook
+//         mention events can still be non-replyable at the API layer, so mention
+//         business must now confirm the tweet against the bot's official mentions
+//         feed before spending quota and attempting a public reply.
 // Goal: preserve deterministic mention handling while keeping X as a link-only
 //       public surface and aligning X reply model selection with persisted user preference.
 // Owns: inbound X mention processing, session routing, dedupe, and reply dispatch.
@@ -22,6 +26,8 @@
 // - Ignore inbound DM payloads even if the webhook receives them unexpectedly.
 // - Mentions from non-verified X accounts must not trigger automated replies.
 // - X mention sessions must use the same persisted default model the user chose on web.
+// - Webhook ingress is a fast capture path, not the final authority on reply
+//   eligibility; public replies require confirmation from the bot mentions feed.
 // Document Provenance:
 // - Source: X Activity API docs + X Direct Messages lookup docs
 // - Kind: official API doc
@@ -55,11 +61,18 @@
 // - Applied To: persisting the user's prompt so the public share image can render
 //   a real chat-style preview instead of a generic summary poster
 // - Verification: verified in code
+// - Source: production log `logs.1776054230484.json`
+// - Kind: runtime observation
+// - Retrieved: 2026-04-13
+// - Applied To: confirming webhook mention candidates against `/users/:id/mentions`
+//   after X rejected outbound reply permission with a 403
+// - Verification: verified in runtime
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
 // - system-journal/fix-log/2026-04-11-x-reply-share-pages.md
 // - system-journal/fix-log/2026-04-12-x-share-og-chat-preview.md
+// - system-journal/fix-log/2026-04-13-x-mention-feed-confirmation.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-10-x-dm-outbound-only.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
@@ -302,6 +315,24 @@ export class XIngressWorker {
   }
 
   private async handleMentionBusiness(mention: XMentionEvent): Promise<void> {
+    const confirmedMention = await xApiClient.fetchMentionByTweetId(mention.id);
+    if (!confirmedMention) {
+      logger.info(LogCode.API_NOTIFY_FAILED, '[X] Mention skipped: not present in mentions feed', {
+        eventId: mention.id,
+        xUserId: mention.authorId,
+        username: mention.authorUsername || null,
+      });
+      return;
+    }
+
+    mention = {
+      ...mention,
+      ...confirmedMention,
+      authorUsername: confirmedMention.authorUsername || mention.authorUsername || null,
+      conversationId: confirmedMention.conversationId || mention.conversationId || null,
+      createdAt: confirmedMention.createdAt || mention.createdAt || null,
+    };
+
     if (!mention.authorVerified) {
       logger.info(LogCode.API_NOTIFY_FAILED, '[X] Mention skipped: author not verified', {
         eventId: mention.id,

@@ -47,6 +47,7 @@ import { reconcileMirrorSellDustPosition } from './mirrorSellDustReconciler.js';
 import { reconcileStaleOpenClosedPosition } from './staleOpenPositionReconciler.js';
 import { reconcileTerminalExitGhostPosition } from './terminalExitGhostPositionReconciler.js';
 import { reconcileHistoricalTargetSellGhostPosition } from './historicalTargetSellGhostPositionReconciler.js';
+import { reconcileLedgerClosedGhostPosition } from './ledgerClosedGhostPositionReconciler.js';
 import {
   ExitHotPathDeferredError,
   hasIntentContext,
@@ -55,18 +56,22 @@ import {
 import { listActiveExitIntentPositionIds } from '../exit/positionExitIntentStore.js';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-13
 // Author: Avery Lin
 // Reason: The monitor is the last owner before noisy TP/SL logs, so it must sweep
 //         stale open positions that were already terminally resolved elsewhere or
-//         that missed their historical target-sell replay entirely.
+//         that missed their historical target-sell replay entirely. Production also
+//         showed that cache-only pricing left TP/SL and exit valuation blind even
+//         when guard-price fallbacks could still resolve a token price.
 // Goal: Keep only truly actionable open positions in the TP/SL loop and evict ghosts
-//       created by stale close markers, missed historical target-sell replay, or
-//       terminal exit-intent failures.
+//       created by stale close markers, missed historical target-sell replay, ledger-
+//       closed exposure, or terminal exit-intent failures, while still resolving
+//       live price from guarded fallbacks before skipping a cycle.
 // Owns: Open-position monitoring, pre-TP/SL reconciliation, and last-mile ghost cleanup.
 // Does Not Own: Creating target-sell events, buy-confirm replay, or executing exits.
 // Design Language:
 // - Reconcile stale state before consulting price snapshots.
+// - Cache snapshot miss is not enough to skip TP/SL or exit valuation when guarded price fallback exists.
 // - Open positions with active exit work should not re-enter TP/SL evaluation.
 // - Terminal failures should leave the monitor pool immediately.
 // - Do not let missing price data mask already-terminal positions.
@@ -75,6 +80,11 @@ import { listActiveExitIntentPositionIds } from '../exit/positionExitIntentStore
 // - Kind: runtime observation
 // - Retrieved: 2026-04-10
 // - Applied To: confirming repeated Price not available warnings still came from one open LIQ ghost position
+// - Verification: verified in runtime
+// - Source: /Users/almurat/Downloads/logs.1776053950823.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-13
+// - Applied To: confirming mirror-sell success still left an old open position in TP/SL monitoring and that exit valuation suppressed available price fallback
 // - Verification: verified in runtime
 // - Source: system-journal/fix-log/2026-04-10-open-position-historical-target-sell-reconciler.md
 // - Kind: repo doc
@@ -88,6 +98,7 @@ import { listActiveExitIntentPositionIds } from '../exit/positionExitIntentStore
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-08-terminal-exit-ghost-position.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-open-position-historical-target-sell-reconciler.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-terminal-exit-ghost-reconciler.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-position-monitor-price-fallback-and-ledger-ghost-repair.md
 
 const NO_OPEN_POSITIONS_LOG_WINDOW_MS = Number(process.env.NO_OPEN_POSITIONS_LOG_WINDOW_MS || '180000');
 const COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP = (process.env.COPYTRADE_DISABLE_MIRROR_SELL_DUST_SWEEP || 'true') === 'true';
@@ -291,7 +302,21 @@ export async function executePositionExit(params: {
     intentContext?: Record<string, unknown>;
 }): Promise<string | null> {
     const { userId, tokenAddress, chainId, exitReason, config } = params;
-    const tokenInfo = params.tokenInfo ?? { price: 0, symbol: 'UNKNOWN' };
+    let tokenInfo = params.tokenInfo ?? { price: 0, symbol: 'UNKNOWN' };
+    if (!(Number.isFinite(tokenInfo?.price) && tokenInfo.price > 0)) {
+        const guardPrice = await getGuardPriceSnapshot(tokenAddress, chainId, {
+            priority: 'high',
+            rpcStrategy: 'fast',
+        }).catch(() => null);
+        if (guardPrice) {
+            tokenInfo = {
+                ...tokenInfo,
+                ...guardPrice,
+                symbol: tokenInfo?.symbol || guardPrice.symbol || tokenInfo?.symbol,
+                decimals: Number.isFinite(Number(tokenInfo?.decimals)) ? tokenInfo.decimals : guardPrice.decimals,
+            };
+        }
+    }
     const hasValidPrice = Number.isFinite(tokenInfo?.price) && tokenInfo.price > 0;
     const intentDrivenExit = hasIntentContext(params.intentContext as Record<string, unknown> | undefined);
 
@@ -784,7 +809,7 @@ export async function executePositionExit(params: {
                 logger.warn(LogCode.API_FETCH_FAILED, 'Exit price missing from live data; persisting exit with unresolved USD valuation', {
                     userId,
                     token: tokenAddress,
-                    fallbackSuppressed: true
+                    fallbackSuppressed: false
                 });
             }
             const { sellVolUsd } = await persistSuccessfulExit({
@@ -1121,6 +1146,21 @@ export async function checkPositionsForExits(): Promise<void> {
                 },
             }).catch(() => [])
             : [];
+        const ledgerRows = batchPositionIds.length > 0
+            ? await prisma.copytradePositionLedger.findMany({
+                where: {
+                    positionIdLegacy: { in: batchPositionIds },
+                },
+                orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+                select: {
+                    positionIdLegacy: true,
+                    lifecycleState: true,
+                    trackedRemainingRaw: true,
+                    followerExitTxHash: true,
+                    closedAt: true,
+                },
+            }).catch(() => [])
+            : [];
         const activeExitIntentPositionIds = await listActiveExitIntentPositionIds(batchPositionIds);
         const latestTerminalExitIntentByPosition = new Map<string, {
             id: string;
@@ -1141,15 +1181,33 @@ export async function checkPositionsForExits(): Promise<void> {
                 closedAt: row.closedAt || null,
             });
         }
+        const latestLedgerByPosition = new Map<string, {
+            lifecycleState: string | null;
+            trackedRemainingRaw: string | null;
+            followerExitTxHash: string | null;
+            closedAt: Date | null;
+        }>();
+        for (const row of ledgerRows) {
+            const positionIdLegacy = String(row.positionIdLegacy || '').trim();
+            if (!positionIdLegacy) continue;
+            if (latestLedgerByPosition.has(positionIdLegacy)) continue;
+            latestLedgerByPosition.set(positionIdLegacy, {
+                lifecycleState: row.lifecycleState || null,
+                trackedRemainingRaw: row.trackedRemainingRaw || null,
+                followerExitTxHash: row.followerExitTxHash || null,
+                closedAt: row.closedAt || null,
+            });
+        }
 
         await Promise.all(batch.map(async (position) => {
             // Skip if this position is already being processed
             if (positionsBeingExited.has(position.id)) return;
 
             try {
-                // STEP A: Use cached price data only. If no cached price exists, skip this cycle.
+                // STEP A: Prefer cached snapshots, but fall back to guarded price resolution
+                // before skipping a TP/SL cycle.
                 const tokenKey = `${position.tokenAddress.toLowerCase()}_${position.chainId}`;
-                const tokenInfo = tokenPriceMap.get(tokenKey);
+                let tokenInfo = tokenPriceMap.get(tokenKey);
                 const config = configMap.get(position.configId);
 
                 const staleOpenRepair = await reconcileStaleOpenClosedPosition({
@@ -1184,6 +1242,25 @@ export async function checkPositionsForExits(): Promise<void> {
                     terminalIntent: latestTerminalExitIntentByPosition.get(position.id) || null,
                 });
                 if (terminalGhostRepair.repaired) {
+                    markPositionLocallyClosed(position.id);
+                    return;
+                }
+
+                const ledgerClosedRepair = await reconcileLedgerClosedGhostPosition({
+                    position: {
+                        id: position.id,
+                        status: position.status,
+                        tokenAddress: position.tokenAddress,
+                        tokenSymbol: position.tokenSymbol,
+                        chainId: position.chainId,
+                        userId: position.userId,
+                        configId: position.configId,
+                        exitReason: position.exitReason,
+                    },
+                    ledgerHint: latestLedgerByPosition.get(position.id) || null,
+                });
+                if (ledgerClosedRepair.repaired) {
+                    clearTpslHit(position.id);
                     markPositionLocallyClosed(position.id);
                     return;
                 }
@@ -1243,9 +1320,20 @@ export async function checkPositionsForExits(): Promise<void> {
                 }
 
                 if (!tokenInfo) {
+                    tokenInfo = await getGuardPriceSnapshot(position.tokenAddress, position.chainId, {
+                        priority: 'normal',
+                        rpcStrategy: 'cheap',
+                    }).catch(() => null);
+                    if (tokenInfo) {
+                        tokenPriceMap.set(tokenKey, tokenInfo);
+                    }
+                }
+
+                if (!tokenInfo) {
                     logger.warn(LogCode.API_FETCH_FAILED, 'TP/SL check skipped: Price not available', {
                         positionId: position.id,
                         token: resolveDisplayTokenSymbol(position.tokenSymbol, position.tokenAddress),
+                        tokenAddress: position.tokenAddress,
                         chainId: position.chainId,
                         configId: position.configId
                     });
