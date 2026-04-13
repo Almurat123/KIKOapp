@@ -1,8 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import sharp from 'sharp';
+import { Resvg } from '@resvg/resvg-js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import {
@@ -14,7 +13,7 @@ import {
 } from '../services/x/xReplyShareService.js';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-12
+// Updated: 2026-04-13
 // Author: Rowan
 // Reason: X reply mode now publishes a KIKO-hosted share link instead of
 //         returning full AI text directly on X. X card crawlers need a public
@@ -39,10 +38,10 @@ import {
 //         pixel width and preserves paragraph boundaries from the real model
 //         reply excerpt instead of forcing sentence-like fixed character cuts.
 //         Production runtime later showed the OG image can render prompt/reply
-//         text as tofu boxes on Linux when the SVG relies only on system fonts.
-//         The route now embeds a shipped English-first font into the SVG so
-//         share cards render deterministic Latin text in production instead of
-//         depending on host font packages.
+//         text as tofu boxes on Linux when the render path depends on host
+//         Fontconfig/Pango state. The final correction moved OG PNG generation
+//         to `@resvg/resvg-js` with a shipped TTF font buffer so production no
+//         longer depends on machine font configuration.
 // Goal: expose a crawler-safe X share page and OG image endpoint that reveal
 //       only preview-safe summary text while preserving a path back to the
 //       private KIKO chat session.
@@ -117,8 +116,8 @@ import {
 //   prompt/summary text but tofu-box OG rendering
 // - Kind: runtime observation
 // - Retrieved: 2026-04-13
-// - Applied To: embedding a shipped English-first font in the share SVG instead
-//   of relying on production system fonts
+// - Applied To: replacing host Fontconfig-dependent text rendering with resvg
+//   and a shipped TTF font buffer
 // - Verification: verified in runtime
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
@@ -129,9 +128,7 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const X_SHARE_FONT_PATH = path.resolve(__dirname, '../assets/fonts/Inter-Regular.woff2');
-const X_SHARE_FONT_FAMILY = 'KikoShareInter';
-let cachedShareFontBase64: string | null = null;
+const X_SHARE_FONT_PATH = path.resolve(__dirname, '../assets/fonts/Inter-Variable.ttf');
 
 function escapeHtml(input: string): string {
   return String(input || '')
@@ -153,16 +150,6 @@ function sanitizeOgText(input: string): string {
     .replace(/[\uFE0E\uFE0F]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
-}
-
-function getEmbeddedShareFontBase64(): string | null {
-  if (cachedShareFontBase64 !== null) return cachedShareFontBase64;
-  try {
-    cachedShareFontBase64 = fs.readFileSync(X_SHARE_FONT_PATH).toString('base64');
-  } catch {
-    cachedShareFontBase64 = null;
-  }
-  return cachedShareFontBase64;
 }
 
 function truncateVisualText(input: string, maxLength: number): string {
@@ -478,31 +465,51 @@ function renderShareHtml(params: {
 </html>`;
 }
 
-function renderShareSvg(params: { title: string; prompt: string; summary: string; openAppUrl: string }) {
-  const title = escapeXml(sanitizeOgText(params.title));
+function renderMultilineTextLines(params: {
+  lines: string[];
+  x: number;
+  y: number;
+  lineHeight: number;
+  className: string;
+  anchor?: 'start' | 'middle' | 'end';
+}) {
+  return params.lines
+    .map((line, index) => {
+      const dy = params.y + index * params.lineHeight;
+      return `<text x="${params.x}" y="${dy}" class="${params.className}"${params.anchor ? ` text-anchor="${params.anchor}"` : ''}>${escapeXml(line)}</text>`;
+    })
+    .join('\n');
+}
+
+function renderShareSvg(params: { title: string; prompt: string; summary: string }) {
   const promptBubble = buildPromptBubbleLayout(sanitizeOgText(params.prompt));
-  const summaryLines = wrapSvgTextByWidth(sanitizeOgText(params.summary), 880, 36, 4).map((line) => escapeXml(line));
-  const summaryLineOpacity = ['0.96', '0.74', '0.44', '0.18'];
-  const embeddedFontBase64 = getEmbeddedShareFontBase64();
-  const svgFontFamily = `'${X_SHARE_FONT_FAMILY}', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif`;
-  const summaryLineSpans = summaryLines
-    .map((line, index) => (
-      `<tspan x="112" dy="${index === 0 ? 0 : 48}" fill="rgba(245,245,247,${summaryLineOpacity[index] || '0.18'})">${line}</tspan>`
-    ))
-    .join('');
+  const summaryLines = wrapSvgTextByWidth(sanitizeOgText(params.summary), 880, 36, 4);
+  const summaryLineColors = ['#F5F5F7', '#BCBCC2', '#707076', '#2E2E33'];
+  const promptLines = promptBubble.lines.map((line) => String(line || '').replace(/&amp;/g, '&').replace(/&#39;/g, "'"));
 
   return `
 <svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .promptText {
+      font-family: Inter;
+      font-size: 23px;
+      font-weight: 500;
+      fill: #F5F5F7;
+    }
+    .ctaText {
+      font-family: Inter;
+      font-size: 23px;
+      font-weight: 700;
+      fill: #F5F5F7;
+    }
+    .titleText {
+      font-family: Inter;
+      font-size: 15px;
+      font-weight: 500;
+      fill: #5D5D62;
+    }
+  </style>
   <defs>
-    ${embeddedFontBase64 ? `
-    <style>
-      @font-face {
-        font-family: '${X_SHARE_FONT_FAMILY}';
-        src: url("data:font/woff2;base64,${embeddedFontBase64}") format('woff2');
-        font-style: normal;
-        font-weight: 400;
-      }
-    </style>` : ''}
     <linearGradient id="promptBubble" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
       <stop offset="0" stop-color="#1E1E21"/>
       <stop offset="1" stop-color="#26262A"/>
@@ -510,15 +517,32 @@ function renderShareSvg(params: { title: string; prompt: string; summary: string
   </defs>
   <rect width="1200" height="630" fill="#000000"/>
   <rect x="${promptBubble.x}" y="${promptBubble.y}" width="${promptBubble.width}" height="${promptBubble.height}" rx="${Math.floor(promptBubble.height / 2)}" fill="url(#promptBubble)" stroke="rgba(255,255,255,0.06)"/>
-  <text x="${promptBubble.textX}" y="${promptBubble.textY}" fill="#F5F5F7" font-family="${svgFontFamily}" font-size="23" font-weight="500">
-    ${promptBubble.lines.map((line, index) => `<tspan x="${promptBubble.textX}" dy="${index === 0 ? 0 : 28}">${line}</tspan>`).join('')}
-  </text>
-  <text x="112" y="336" font-family="${svgFontFamily}" font-size="36" font-weight="500">
-    ${summaryLineSpans}
-  </text>
-  <text x="112" y="548" font-size="23" fill="#F5F5F7" font-family="${svgFontFamily}" font-weight="700">Trade in KIKO</text>
-  <text x="1048" y="548" font-size="15" text-anchor="end" fill="rgba(245,245,247,0.36)" font-family="${svgFontFamily}">${title}</text>
+  ${renderMultilineTextLines({
+    lines: promptLines,
+    x: promptBubble.textX,
+    y: promptBubble.lines.length > 1 ? promptBubble.y + 40 : promptBubble.y + 45,
+    lineHeight: 28,
+    className: 'promptText',
+  })}
+  ${summaryLines
+    .map((line, index) => `<text x="112" y="${332 + index * 48}" font-family="Inter" font-size="36" font-weight="500" fill="${summaryLineColors[index] || '#2E2E33'}">${escapeXml(line)}</text>`)
+    .join('\n')}
+  <text x="112" y="548" class="ctaText">Trade in KIKO</text>
+  <text x="1088" y="548" class="titleText" text-anchor="end">${escapeXml(sanitizeOgText(params.title))}</text>
 </svg>`;
+}
+
+async function renderSharePng(params: { title: string; prompt: string; summary: string }) {
+  const svg = renderShareSvg(params);
+  const png = new Resvg(svg, {
+    fitTo: { mode: 'width', value: 1200 },
+    font: {
+      fontFiles: [X_SHARE_FONT_PATH],
+      loadSystemFonts: false,
+      defaultFontFamily: 'Inter',
+    },
+  }).render();
+  return Buffer.from(png.asPng());
 }
 
 export async function xShareRoutes(fastify: FastifyInstance) {
@@ -558,13 +582,11 @@ export async function xShareRoutes(fastify: FastifyInstance) {
       }
 
       try {
-        const svg = renderShareSvg({
+        const buffer = await renderSharePng({
           title: share.title,
           prompt: share.prompt,
           summary: share.summary,
-          openAppUrl: buildXReplyOpenAppUrl(share.chatSessionId),
         });
-        const buffer = await sharp(Buffer.from(svg)).png().toBuffer();
         return reply
           .header('Cache-Control', 'public, max-age=300')
           .type('image/png')

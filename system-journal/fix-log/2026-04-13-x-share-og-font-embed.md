@@ -3,14 +3,12 @@
 ## What Changed
 
 - Added a shipped English-first font asset for X share OG rendering:
-  - `kiko-api/src/assets/fonts/Inter-Regular.woff2`
-- Updated the X share SVG renderer to embed that font with `@font-face` as a
-  base64 data URL inside the generated SVG.
-- Updated all OG text layers (prompt bubble, assistant preview, bottom title)
-  to use the embedded font family first, then system fallbacks.
-- Added SVG-layer text sanitization that strips emoji presentation glyphs from
-  the OG image preview so missing color-emoji support does not break text
-  rendering on production Linux.
+  - `kiko-api/src/assets/fonts/Inter-Variable.ttf`
+- Replaced the X share PNG render path with `@resvg/resvg-js` and a bundled
+  TTF font buffer.
+- Removed the dependency on host Fontconfig/Pango for OG text rendering.
+- Kept SVG text sanitization so emoji presentation glyphs do not break the
+  preview image on Linux.
 
 ## Why
 
@@ -19,9 +17,14 @@ contained real prompt and summary text, but the rendered X preview image showed
 tofu boxes instead of readable text.
 
 That means the share payload was correct and the failure was in the image
-rendering layer. The production Linux renderer could not rely on local Apple
-fonts or other system fonts being present. The SVG needed a font that ships
-with the service itself.
+rendering layer. Runtime logs also showed:
+
+- `Fontconfig error: Cannot load default config file: No such file: (null)`
+
+So the real failure was not missing data but the production render path relying
+on host font configuration. A shipped `woff2` plus `sharp`/Pango was still not
+deterministic enough on Linux. The final fix moved rendering to resvg with a
+shipped TTF font buffer.
 
 ## Product Rule
 
@@ -45,8 +48,15 @@ with the service itself.
 - Applied To: confirming prompt and summary text had already been persisted
 - Verification: verified in runtime
 
-- Source: [Inter](https://github.com/rsms/inter)
+- Source: production runtime log `Fontconfig error: Cannot load default config file`
+- Kind: runtime observation
+- Retrieved: 2026-04-13
+- Applied To: ruling out host Fontconfig/Pango as a stable production render
+  dependency for X share OG images
+- Verification: verified in runtime
+
+- Source: [Google Fonts Inter](https://github.com/google/fonts/tree/main/ofl/inter)
 - Kind: external font asset
 - Retrieved: 2026-04-13
-- Applied To: shipping a deterministic English-first font for SVG OG rendering
+- Applied To: shipping a deterministic English-first TTF font buffer for resvg
 - Verification: verified in code
