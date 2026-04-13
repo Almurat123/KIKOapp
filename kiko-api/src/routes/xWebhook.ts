@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-13
 // Author: Almurat
 // Reason: webhook ingress remains the production path for X mentions, but X DM
 //         input is no longer a supported chat surface after runtime/document
@@ -7,6 +7,10 @@
 //         through public APIs. The route still keeps raw-ingress audit logs so
 //         operator debugging can distinguish "X never delivered" from "we chose
 //         to ignore unsupported DM payloads".
+//         Production runtime later showed legacy `tweet_create_events` webhook
+//         payloads can carry X snowflake ids as bare JSON numbers; normal
+//         `JSON.parse` loses precision for those ids, which made valid mentions
+//         miss the bot mentions feed confirmation step by changing tweet/user ids.
 // Goal: verify inbound X events, filter bot-authored noise, and hand off only
 //       supported mention events to the internal conversation pipeline.
 // Owns: X webhook CRC/signature handling, mention extraction, and inbound audit.
@@ -25,6 +29,8 @@
 //   non-verified accounts without extra lookup.
 // - Treat only explicit `@bot` mentions as replyable inbound work; do not infer
 //   reply eligibility from thread structure alone.
+// - Do not trust raw webhook numeric snowflakes after plain `JSON.parse`; repair
+//   legacy tweet event ids from the original raw body before mention extraction.
 // Document Provenance:
 // - Source: X Activity API docs + production lookup probes
 // - Kind: official API doc | runtime observation
@@ -42,9 +48,16 @@
 // - Retrieved: 2026-04-10
 // - Applied To: requiring explicit `@bot` mention per turn after X rejected implicit thread replies
 // - Verification: verified in runtime
+// - Source: production log `logs.1776056502806.json` + direct tweet/mentions API inspection
+// - Kind: runtime observation
+// - Retrieved: 2026-04-13
+// - Applied To: repairing legacy webhook snowflake precision so valid mention ids
+//   survive webhook parsing and match `/users/{botUserId}/mentions`
+// - Verification: verified in runtime
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-10-x-explicit-mention-only.md
+// - system-journal/fix-log/2026-04-13-x-webhook-snowflake-precision-repair.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-10-x-webhook-ingress-audit.md
 // - system-journal/fix-log/2026-04-10-x-webhook-empty-payload-audit.md
@@ -225,6 +238,143 @@ function extractModernActivityItems(payload: XActivityPayload): any[] {
   return [];
 }
 
+function findJsonArraySource(rawBody: string, propertyName: string): string | null {
+  const propertyToken = `"${propertyName}"`;
+  const propertyIndex = rawBody.indexOf(propertyToken);
+  if (propertyIndex < 0) return null;
+  const arrayStart = rawBody.indexOf('[', propertyIndex);
+  if (arrayStart < 0) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = arrayStart; index < rawBody.length; index += 1) {
+    const char = rawBody[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === '[') {
+      depth += 1;
+      continue;
+    }
+    if (char === ']') {
+      depth -= 1;
+      if (depth === 0) {
+        return rawBody.slice(arrayStart, index + 1);
+      }
+    }
+  }
+  return null;
+}
+
+function splitTopLevelObjectSources(arraySource: string): string[] {
+  const objects: string[] = [];
+  let objectStart = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < arraySource.length; index += 1) {
+    const char = arraySource[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === '{') {
+      if (depth === 0) {
+        objectStart = index;
+      }
+      depth += 1;
+      continue;
+    }
+    if (char === '}') {
+      depth -= 1;
+      if (depth === 0 && objectStart >= 0) {
+        objects.push(arraySource.slice(objectStart, index + 1));
+        objectStart = -1;
+      }
+    }
+  }
+  return objects;
+}
+
+function extractRawSnowflake(objectSource: string, fieldNames: string[]): string | null {
+  for (const fieldName of fieldNames) {
+    const patterns = [
+      new RegExp(`"${fieldName}"\\s*:\\s*"([0-9]{10,})"`),
+      new RegExp(`"${fieldName}"\\s*:\\s*([0-9]{10,})`),
+    ];
+    for (const pattern of patterns) {
+      const match = objectSource.match(pattern);
+      if (match?.[1]) {
+        return match[1];
+      }
+    }
+  }
+  return null;
+}
+
+function repairLegacyTweetSnowflakes(payload: XActivityPayload, rawBody: string): void {
+  const items = Array.isArray(payload?.tweet_create_events) ? payload.tweet_create_events : [];
+  if (items.length === 0) return;
+
+  const arraySource = findJsonArraySource(rawBody, 'tweet_create_events');
+  if (!arraySource) return;
+  const objectSources = splitTopLevelObjectSources(arraySource);
+  if (objectSources.length !== items.length) return;
+
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index];
+    const source = objectSources[index];
+    const rawId = extractRawSnowflake(source, ['id_str', 'id']);
+    const rawAuthorId = extractRawSnowflake(source, ['author_id']);
+    const rawConversationId = extractRawSnowflake(source, ['conversation_id_str', 'conversation_id']);
+    const rawInReplyToStatusId = extractRawSnowflake(source, ['in_reply_to_status_id_str', 'in_reply_to_status_id']);
+    const rawUserId = extractRawSnowflake(source, ['user_id_str', 'user_id']);
+
+    if (rawId) {
+      item.id = rawId;
+      item.id_str = rawId;
+    }
+    if (rawAuthorId) {
+      item.author_id = rawAuthorId;
+    }
+    if (rawConversationId) {
+      item.conversation_id = rawConversationId;
+      item.conversation_id_str = rawConversationId;
+    }
+    if (rawInReplyToStatusId) {
+      item.in_reply_to_status_id = rawInReplyToStatusId;
+      item.in_reply_to_status_id_str = rawInReplyToStatusId;
+    }
+    if (item?.user && rawUserId) {
+      item.user.id = rawUserId;
+      item.user.id_str = rawUserId;
+    }
+  }
+}
+
 function parseModernActivityDirectMessage(item: any): XDirectMessageEvent | null {
   const eventType = String(item?.event_type || '').trim().toLowerCase();
   if (!['dm.received', 'chat.received', 'dm.sent', 'chat.sent'].includes(eventType)) {
@@ -342,6 +492,8 @@ export async function xWebhookRoutes(fastify: FastifyInstance) {
     } catch {
       return reply.status(400).send({ error: 'Invalid JSON body' });
     }
+
+    repairLegacyTweetSnowflakes(payload, rawBody);
 
     const mentions = extractMentionEvents(payload);
     const ignoredDirectMessages = [
