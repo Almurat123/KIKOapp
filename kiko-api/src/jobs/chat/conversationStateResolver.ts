@@ -1,3 +1,26 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-14
+// Author: Rowan
+// Reason: copy-trade confirmation state must preserve wallet-binding
+//         provenance from the preflight confirmation payload into the later
+//         user-confirm execution turn.
+// Goal: keep execution confirmation state deterministic without losing the raw
+//       wallet evidence needed by persistence audit.
+// Owns: reconstructing conversation confirmation state from recent tool traces.
+// Does Not Own: wallet extraction, tool execution, or copy-trade persistence.
+// Design Language:
+// - confirmation state carries provenance; it does not reinterpret wallet identity
+// - wallet-binding metadata is separate from public tool args
+// - stale confirmation protections stay separate from audit provenance
+// Document Provenance:
+// - Source: production incident analysis of malformed BSC copy-trade target wallets
+// - Kind: runtime observation
+// - Retrieved: 2026-04-14
+// - Applied To: preserving copy-trade wallet_binding through confirmation state
+// - Verification: verified in targeted tests
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-wallet-audit-provenance.md
 import type {
     ChatContextSnapshot,
     ChatHistoryMessage,
@@ -292,6 +315,9 @@ function resolveOrderConfirmationFromToolTrace(trace: RecentToolTrace | null): T
                     mirrorSell: typeof orderPayload.args.mirror_sell === 'boolean' ? orderPayload.args.mirror_sell : undefined,
                     takeProfitPct: Number.isFinite(Number(orderPayload.args.take_profit_pct)) ? Number(orderPayload.args.take_profit_pct) : undefined,
                     stopLossPct: Number.isFinite(Number(orderPayload.args.stop_loss_pct)) ? Number(orderPayload.args.stop_loss_pct) : undefined,
+                    walletBinding: (payload.wallet_binding && typeof payload.wallet_binding === 'object')
+                        ? payload.wallet_binding
+                        : undefined,
                 },
             };
         }

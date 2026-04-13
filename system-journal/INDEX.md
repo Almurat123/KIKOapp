@@ -60,6 +60,8 @@ owner boundaries, and major fixes.
 - [Fix Log: 2026-04-13 Copytrade Native Balance Evidence](./fix-log/2026-04-13-copytrade-native-balance-evidence.md)
 - [Fix Log: 2026-04-13 Copytrade Wallet Entity Hardening](./fix-log/2026-04-13-copytrade-wallet-entity-hardening.md)
 - [Fix Log: 2026-04-13 Copytrade Duplicate Config Hardening](./fix-log/2026-04-13-copytrade-duplicate-config-hardening.md)
+- [Fix Log: 2026-04-13 Copytrade Wallet Deterministic Extraction](./fix-log/2026-04-13-copytrade-wallet-deterministic-extraction.md)
+- [Fix Log: 2026-04-14 Copytrade Wallet Audit Provenance](./fix-log/2026-04-14-copytrade-wallet-audit-provenance.md)
 - [Fix Log: 2026-04-13 Copytrade Turbo TokenInfo Bypass](./fix-log/2026-04-13-copytrade-turbo-tokeninfo-bypass.md)
 - [Fix Log: 2026-04-13 Copytrade Sell Relayer Webhook Repair](./fix-log/2026-04-13-copytrade-sell-relayer-webhook-repair.md)
 - [Fix Log: 2026-04-13 Webhook Weak-Evidence Dispatch Hardening](./fix-log/2026-04-13-webhook-weak-evidence-dispatch-hardening.md)

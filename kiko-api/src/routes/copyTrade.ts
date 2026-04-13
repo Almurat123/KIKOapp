@@ -1,9 +1,11 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-13
+// Updated: 2026-04-14
 // Author: Rowan
 // Reason: signed copy-trade config creation allowed duplicate active configs for
 //         the same user, chain, and target wallet, which multiplied tracked
-//         wallet counts and made webhook ownership ambiguous.
+//         wallet counts and made webhook ownership ambiguous. Database-level
+//         active uniqueness now also needs signed create races to resolve
+//         idempotently instead of leaking raw unique errors.
 // Goal: preserve one active config per user+chain+target tuple while keeping
 //       signed updates explicit and auditable.
 // Owns: HTTP signed copy-trade config create/update validation and persistence.
@@ -13,6 +15,8 @@
 // - active copy-trade configs are unique by user + chain + target wallet
 // - duplicate creates return the existing config instead of creating a second active row
 // - signed updates cannot move one config onto another active config's target tuple
+// - database unique conflicts are safe races and must not increment tracked-wallet counts
+// - signed create outcomes emit wallet provenance audit evidence
 // Document Provenance:
 // - Source: production database inspection showing duplicate active BSC configs for one user and target wallet
 // - Kind: runtime observation
@@ -24,6 +28,8 @@
 // - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
 // - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-duplicate-config-hardening.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-wallet-deterministic-extraction.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-wallet-audit-provenance.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import { FastifyInstance } from 'fastify';
 import prisma from '../db/prisma.js';
@@ -49,6 +55,7 @@ import { syncCopyTradeWebhookChain } from '../services/copyTradeWebhookSync.js';
 import { resolveMaxEntryDeviationBps } from '../services/copytrade-v2/config/entryDeviationPolicy.js';
 import { CopytradeV2QueryService } from '../services/copytrade-v2/data-flow/queryService.js';
 import { assertCopyTradeAutoTradingAuthorized } from '../services/copyTradeAuthorization.js';
+import { safeRecordCopyTradeWalletAudit } from '../services/copyTradeWalletAuditService.js';
 
 interface CreateConfigBody {
     signedPayload: Record<string, unknown> | string;
@@ -281,6 +288,22 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 orderBy: { createdAt: 'desc' },
             });
             if (existingActive) {
+                await safeRecordCopyTradeWalletAudit({
+                    userId: user.privyDid,
+                    configId: existingActive.id,
+                    action: 'signed_create_existing_active',
+                    chainId: existingActive.chainId,
+                    binding: {
+                        extractedWallets: [],
+                        llmTargetWallet: null,
+                        finalTargetWallet: normalizedTarget,
+                        source: 'signed_payload',
+                    },
+                    finalTargetWallet: normalizedTarget,
+                    writtenTargetWallet: existingActive.targetWallet,
+                    source: 'signed_http',
+                    reasonCode: 'ALREADY_EXISTS',
+                });
                 return reply.send({
                     success: true,
                     config: serializeCopyTradeConfig(existingActive),
@@ -289,34 +312,90 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
             }
 
             // Create config
-            const config = await prisma.copyTradeConfig.create({
-                data: {
+            let config;
+            try {
+                config = await prisma.copyTradeConfig.create({
+                    data: {
+                        userId: user.privyDid,
+                        targetWallet: normalizedTarget,
+                        chainId: configData.chainId,
+                        buyAmountUsd: configData.buyAmountUsd,
+                        maxSlippageBps: configData.maxSlippageBps,
+                        minMarketCapUsd: configData.minMarketCapUsd,
+                        minLiquidityUsd: configData.minLiquidityUsd,
+                        minTargetValueUsd: configData.minTargetValueUsd,
+                        copyTradeTokenCooldownMinutes: configData.copyTradeTokenCooldownMinutes,
+                        executionMode: resolvedMode.mode,
+                        disableTokenInfo: resolvedMode.mode === 'turbo',
+                        takeProfitPct: configData.takeProfitPct,
+                        stopLossPct: configData.stopLossPct,
+                        mirrorSell: configData.mirrorSell,
+                        aiAnalysisMode: configData.aiAnalysisMode,
+                        enableDynamicTP: configData.enableDynamicTP,
+                        dynamicTPMinProfitPct: configData.dynamicTPMinProfitPct ?? 100,
+                        configPayload: payload as any,
+                        configHash: verifyResult.configHash,
+                        configSignature: signature,
+                        signerAddress: normalizeAddress(signerAddress),
+                        signedNonce: payload.nonce,
+                        signatureScheme: COPYTRADE_SIGNATURE_SCHEME,
+                        signatureVerifiedAt: new Date(),
+                        requiresResign: false,
+                    },
+                });
+            } catch (error: any) {
+                if (error?.code !== 'P2002') {
+                    throw error;
+                }
+                const racedConfig = await prisma.copyTradeConfig.findFirst({
+                    where: {
+                        userId: user.privyDid,
+                        chainId,
+                        targetWallet: { equals: normalizedTarget, mode: 'insensitive' },
+                        status: 'active',
+                    },
+                    orderBy: { createdAt: 'desc' },
+                });
+                if (!racedConfig) {
+                    throw error;
+                }
+                await safeRecordCopyTradeWalletAudit({
                     userId: user.privyDid,
-                    targetWallet: normalizedTarget,
-                    chainId: configData.chainId,
-                    buyAmountUsd: configData.buyAmountUsd,
-                    maxSlippageBps: configData.maxSlippageBps,
-                    minMarketCapUsd: configData.minMarketCapUsd,
-                    minLiquidityUsd: configData.minLiquidityUsd,
-                    minTargetValueUsd: configData.minTargetValueUsd,
-                    copyTradeTokenCooldownMinutes: configData.copyTradeTokenCooldownMinutes,
-                    executionMode: resolvedMode.mode,
-                    disableTokenInfo: resolvedMode.mode === 'turbo',
-                    takeProfitPct: configData.takeProfitPct,
-                    stopLossPct: configData.stopLossPct,
-                    mirrorSell: configData.mirrorSell,
-                    aiAnalysisMode: configData.aiAnalysisMode,
-                    enableDynamicTP: configData.enableDynamicTP,
-                    dynamicTPMinProfitPct: configData.dynamicTPMinProfitPct ?? 100,
-                    configPayload: payload as any,
-                    configHash: verifyResult.configHash,
-                    configSignature: signature,
-                    signerAddress: normalizeAddress(signerAddress),
-                    signedNonce: payload.nonce,
-                    signatureScheme: COPYTRADE_SIGNATURE_SCHEME,
-                    signatureVerifiedAt: new Date(),
-                    requiresResign: false,
+                    configId: racedConfig.id,
+                    action: 'signed_create_unique_race_existing_active',
+                    chainId: racedConfig.chainId,
+                    binding: {
+                        extractedWallets: [],
+                        llmTargetWallet: null,
+                        finalTargetWallet: normalizedTarget,
+                        source: 'signed_payload',
+                    },
+                    finalTargetWallet: normalizedTarget,
+                    writtenTargetWallet: racedConfig.targetWallet,
+                    source: 'signed_http',
+                    reasonCode: 'P2002',
+                });
+                return reply.send({
+                    success: true,
+                    config: serializeCopyTradeConfig(racedConfig),
+                    alreadyExists: true,
+                });
+            }
+
+            await safeRecordCopyTradeWalletAudit({
+                userId: user.privyDid,
+                configId: config.id,
+                action: 'signed_create_created',
+                chainId: config.chainId,
+                binding: {
+                    extractedWallets: [],
+                    llmTargetWallet: null,
+                    finalTargetWallet: normalizedTarget,
+                    source: 'signed_payload',
                 },
+                finalTargetWallet: normalizedTarget,
+                writtenTargetWallet: config.targetWallet,
+                source: 'signed_http',
             });
 
             // Update or create tracked wallet (using composite key: address + chainId)

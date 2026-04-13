@@ -76,8 +76,9 @@ import {
 //         URLs for new shares. Product behavior later clarified that a human
 //         clicking the X card must land in KIKO, not stay on the API-owned
 //         share page. The route therefore keeps crawler-readable HTML/meta for
-//         card generation, but adds an immediate script + noscript redirect to
-//         the real KIKO chat URL for browser users.
+//         card generation, but server-redirects non-crawler visitors to the
+//         real KIKO chat URL. Client-side script redirects are not sufficient
+//         inside X in-app browsers, so this is a server-side split.
 // Goal: expose a crawler-safe X share page and OG image endpoint that reveal
 //       only preview-safe summary text while preserving a path back to the
 //       private KIKO chat session.
@@ -197,8 +198,9 @@ import {
 // - Source: user-provided click-through screenshot in active task thread
 // - Kind: runtime/product observation
 // - Retrieved: 2026-04-13
-// - Applied To: redirecting human visitors from the crawler-safe API share page
-//   to the real KIKO chat target while preserving crawler-visible meta tags
+// - Applied To: server-redirecting human visitors from the crawler-safe API
+//   share page to the real KIKO chat target while preserving crawler-visible
+//   meta tags for X/Twitter card bots
 // - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
@@ -229,6 +231,21 @@ function resolveXShareFontPath(): string {
 }
 
 const X_SHARE_FONT_PATH = resolveXShareFontPath();
+
+function isXShareCrawler(userAgent: string | undefined): boolean {
+  const value = String(userAgent || '').toLowerCase();
+  if (!value) return false;
+  return [
+    'twitterbot',
+    'xbot',
+    'facebookexternalhit',
+    'slackbot',
+    'discordbot',
+    'linkedinbot',
+    'telegrambot',
+    'whatsapp',
+  ].some((crawler) => value.includes(crawler));
+}
 
 function escapeHtml(input: string): string {
   return String(input || '')
@@ -461,9 +478,6 @@ function renderShareHtml(params: {
     <meta name="robots" content="noindex, noarchive, max-image-preview:large" />
     <link rel="canonical" href="${openAppUrl}" />
     <noscript><meta http-equiv="refresh" content="0;url=${openAppUrl}" /></noscript>
-    <script>
-      window.location.replace(${JSON.stringify(params.openAppUrl)});
-    </script>
     <style>
       :root { color-scheme: dark; }
       * { box-sizing: border-box; }
@@ -709,6 +723,12 @@ export async function xShareRoutes(fastify: FastifyInstance) {
       const shareUrl = buildXReplyShareUrl(share.token);
       const imageUrl = buildXReplyShareImageUrl(share.token, buildXReplyShareImageVersion(share.createdAt));
       const openAppUrl = buildXReplyOpenAppUrl(share.chatSessionId);
+      if (!isXShareCrawler(request.headers['user-agent'])) {
+        return reply
+          .header('Cache-Control', 'no-store, max-age=0')
+          .redirect(302, openAppUrl);
+      }
+
       return reply
         .header('Cache-Control', 'no-store, max-age=0')
         .type('text/html; charset=utf-8')

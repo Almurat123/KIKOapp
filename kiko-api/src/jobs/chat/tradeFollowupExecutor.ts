@@ -1,3 +1,27 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-14
+// Author: Rowan
+// Reason: copy-trade creation executes on a later confirmation turn where the
+//         latest user message is often just "confirm", so wallet provenance from
+//         the original request must be carried explicitly.
+// Goal: execute confirmed copy-trade tools with the same wallet-binding audit
+//       evidence captured during preflight.
+// Owns: direct follow-up execution for confirmed trade/order actions.
+// Does Not Own: extracting wallets, validating copy-trade config payloads, or
+//               writing wallet audit records.
+// Design Language:
+// - confirmation tokens bind public tool args
+// - audit provenance rides in tool context, not public args
+// - confirmation follow-up must not re-derive target wallets from "confirm"
+// Document Provenance:
+// - Source: production incident analysis of malformed BSC copy-trade target wallets
+// - Kind: runtime observation
+// - Retrieved: 2026-04-14
+// - Applied To: passing copy-trade walletBinding through execute follow-up context
+// - Verification: verified in TypeScript and targeted tests
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-wallet-audit-provenance.md
 import * as chatRepo from '../../repositories/chatRepository.js';
 import { chatWS } from '../../services/chatWebSocket.js';
 import type { ChatContextSnapshot, OrchestratorToolResult } from './contracts.js';
@@ -101,6 +125,9 @@ export async function executeDirectTradeFollowup(params: {
             broker: params.broker,
             toolExecutionEngine: params.toolExecutionEngine,
             snapshot: params.snapshot,
+            extraToolContext: copy.walletBinding
+                ? { __copyTradeWalletBindingAudit: copy.walletBinding }
+                : undefined,
             executionGate: {
                 phase: 'execute',
                 confirmationToken: computeConfirmationToken(
@@ -146,6 +173,7 @@ async function invokeTool(params: {
         phase: 'execute';
         confirmationToken?: string;
     };
+    extraToolContext?: Record<string, any>;
 }): Promise<OrchestratorToolResult> {
     const toolResult = await params.toolExecutionEngine.execute({
         id: `direct:${params.toolName}:${Date.now()}`,
@@ -153,6 +181,7 @@ async function invokeTool(params: {
         arguments: params.args,
     }, {
         ...(params.task.toolContext || {}),
+        ...(params.extraToolContext || {}),
         sessionId: params.task.sessionId,
         messageId: params.task.assistantMessageId,
         userId: params.userId,

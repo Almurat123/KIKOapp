@@ -11,11 +11,17 @@ The share page keeps:
 2. `og:*` metadata
 3. the public OG image URL
 
-It now also emits:
+It originally emitted:
 
 1. `link rel="canonical"` pointing to the KIKO chat URL
 2. a JavaScript redirect to the KIKO chat URL
 3. a `noscript` refresh fallback
+
+The production click-through check showed JavaScript redirect is not enough for X in-app
+navigation. The route now uses a server-side split:
+
+1. known card crawlers receive the crawler-readable HTML metadata
+2. non-crawler visitors receive a `302` redirect to the KIKO chat URL
 
 ## Why
 
@@ -38,6 +44,15 @@ HTML page. The API route must therefore split responsibilities:
   - confirming the share page was being used as the final human landing page
   - changing the route to redirect humans into KIKO
 - Verification: verified in code
+
+### Source 3
+- Source: production fetch of `https://api.kikoapp.app/x/share/<token>`
+- Kind: runtime observation
+- Retrieved: 2026-04-14
+- Applied to:
+  - confirming the route still returned `200 text/html` to normal user navigation
+  - replacing client-side redirect with server-side crawler/user split
+- Verification: verified in runtime
 
 ### Source 2
 - Source: X Cards markup behavior from previous integration work
@@ -70,7 +85,8 @@ Does not own:
 Verified in code:
 - share page keeps meta tags
 - share page emits canonical KIKO chat URL
-- share page redirects browser users to KIKO chat
+- non-crawler visitors receive server-side redirect to KIKO chat
+- crawler visitors still receive metadata HTML
 
 Not yet verified:
 - X in-app browser redirect behavior after production deployment

@@ -1,10 +1,13 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-13
+// Updated: 2026-04-14
 // Author: Rowan
 // Reason: this layer arbitrates local tool execution and must distinguish
 //         actual failures from confirmation checkpoints. Copy-trade wallet
 //         execution also needs a last-mile guard so malformed or stale model
-//         wallet args cannot outrank the user's literal wallet string.
+//         wallet args cannot outrank the user's literal wallet string, and so
+//         multiple latest-message wallet literals cannot be silently auto-picked.
+//         It also carries wallet-binding provenance through confirmation turns
+//         so the persistence owner can audit the final wallet.
 // Goal: preserve hard policy enforcement while surfacing confirmation-required
 //       order mutations as soft checkpoints instead of user-facing failures,
 //       while preventing malformed copy-trade target wallets from reaching tools.
@@ -15,6 +18,8 @@
 // - gate responses must preserve confirmation payloads for the next turn
 // - avoid branding pending user-confirmation checkpoints as runtime errors
 // - exact user wallet literals outrank malformed model-produced copy-trade args
+// - multiple latest-message wallet literals are a hard ambiguity, not a model choice
+// - wallet-binding provenance follows the confirmation payload but is not a public tool argument
 // Document Provenance:
 // - Source: runtime observation of copytrade confirmation payloads rendering as plan errors
 // - Kind: runtime observation
@@ -24,7 +29,7 @@
 // - Source: chat transcript + runtime logs + production database inspection for BSC copy-trade target wallets
 // - Kind: runtime observation
 // - Retrieved: 2026-04-13
-// - Applied To: repairing malformed copy-trade target_wallet args from exact user-provided addresses before tool execution
+// - Applied To: repairing malformed copy-trade target_wallet args from exact user-provided addresses before tool execution and blocking ambiguous multi-wallet input
 // - Verification: verified in unit tests and code review
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
@@ -32,18 +37,35 @@
 // - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-copytrade-confirmation-soft-gate.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-wallet-entity-hardening.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-wallet-deterministic-extraction.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-wallet-audit-provenance.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import { toolRegistry } from '../../tooling/registry.js';
 import { ensureToolRegistryInitialized } from '../../tooling/bootstrap.js';
 import type { OrchestratorToolCall, OrchestratorToolResult } from './contracts.js';
 import { checkToolAgainstPolicy, createPolicyError, type ControlPolicySnapshot } from './controlPolicy.js';
 import { checkMutationExecutionGate } from './executionGate.js';
-import { isStrictEvmAddress, isStrictSolanaAddress, isStrictWalletAddress } from '../../utils/validation.js';
+import { isStrictWalletAddress } from '../../utils/validation.js';
+import { extractUniqueWalletAddressesFromText } from '../../utils/walletAddressExtraction.js';
+import type { CopyTradeWalletBindingAudit } from '../../services/copyTradeWalletAuditService.js';
+
+interface PreparedToolCall {
+    call: OrchestratorToolCall;
+    walletBindingAudit?: CopyTradeWalletBindingAudit;
+    blocked?: OrchestratorToolResult;
+}
 
 export class ToolExecutionEngine {
     async execute(call: OrchestratorToolCall, toolContext: Record<string, any>): Promise<OrchestratorToolResult> {
         ensureToolRegistryInitialized();
-        const sanitizedCall = this.sanitizeToolCall(call, toolContext || {});
+        const preparedCall = this.prepareToolCall(call, toolContext || {});
+        if (preparedCall.blocked) {
+            return preparedCall.blocked;
+        }
+        const sanitizedCall = preparedCall.call;
+        const executionContext = preparedCall.walletBindingAudit
+            ? { ...(toolContext || {}), __copyTradeWalletBindingAudit: preparedCall.walletBindingAudit }
+            : (toolContext || {});
         const controlPolicy = (toolContext?.__controlPolicy || null) as ControlPolicySnapshot | null;
         const policyCheck = checkToolAgainstPolicy({
             call: sanitizedCall,
@@ -77,12 +99,16 @@ export class ToolExecutionEngine {
         });
         if (!mutationGate.allow) {
             if (mutationGate.responsePayload?.requires_confirmation === true) {
+                const responsePayload = this.attachWalletBindingToConfirmationPayload(
+                    mutationGate.responsePayload,
+                    preparedCall.walletBindingAudit,
+                );
                 return {
                     id: sanitizedCall.id,
                     name: sanitizedCall.name,
                     arguments: sanitizedCall.arguments || {},
                     ok: true,
-                    result: mutationGate.responsePayload,
+                    result: responsePayload,
                     metadata: {
                         source: 'execution_gate',
                         confirmationRequired: true,
@@ -123,7 +149,7 @@ export class ToolExecutionEngine {
             };
         }
         try {
-            const result = await toolRegistry.execute(sanitizedCall.name, sanitizedCall.arguments || {}, toolContext || {});
+            const result = await toolRegistry.execute(sanitizedCall.name, sanitizedCall.arguments || {}, executionContext);
             const normalizedFailure = this.extractFailure(result);
             if (normalizedFailure) {
                 return {
@@ -155,50 +181,125 @@ export class ToolExecutionEngine {
         }
     }
 
-    private sanitizeToolCall(call: OrchestratorToolCall, toolContext: Record<string, any>): OrchestratorToolCall {
+    private prepareToolCall(call: OrchestratorToolCall, toolContext: Record<string, any>): PreparedToolCall {
         const args = { ...(call.arguments || {}) };
         if (call.name !== 'create_copy_trade_config') {
-            return { ...call, arguments: args };
+            return { call: { ...call, arguments: args } };
         }
 
-        const explicitWallet = this.extractSingleLiteralWallet(toolContext?.__snapshot?.lastUserMessage);
+        const literalWallets = extractUniqueWalletAddressesFromText(toolContext?.__snapshot?.lastUserMessage);
         const currentWallet = String(args.target_wallet || args.targetWallet || '').trim();
-        if (explicitWallet) {
-            args.target_wallet = explicitWallet;
-            return { ...call, arguments: args };
+        if (literalWallets.length > 1) {
+            return {
+                call: { ...call, arguments: args },
+                blocked: this.buildCopyTradeWalletBindingError(
+                    call,
+                    args,
+                    'AMBIGUOUS_COPY_TRADE_TARGET_WALLET',
+                    'Multiple wallet addresses were found in the latest message. Choose one target wallet explicitly.',
+                    { wallet_candidates: literalWallets },
+                ),
+            };
+        }
+        if (literalWallets.length === 1) {
+            args.target_wallet = literalWallets[0];
+            return {
+                call: { ...call, arguments: args },
+                walletBindingAudit: this.buildCopyTradeWalletBindingAudit({
+                    toolContext,
+                    extractedWallets: literalWallets,
+                    llmTargetWallet: currentWallet,
+                    finalTargetWallet: literalWallets[0],
+                    source: 'latest_user_message_literal',
+                    reasonCode: currentWallet && currentWallet !== literalWallets[0] ? 'MODEL_ARG_OVERRIDDEN_BY_LITERAL' : null,
+                }),
+            };
         }
 
-        if (!isStrictWalletAddress(currentWallet)) {
-            const snapshotWallet = this.extractSingleSnapshotWallet(toolContext?.__snapshot);
-            if (snapshotWallet) {
-                args.target_wallet = snapshotWallet;
-            }
+        if (currentWallet && isStrictWalletAddress(currentWallet)) {
+            args.target_wallet = currentWallet.startsWith('0x') ? currentWallet.toLowerCase() : currentWallet;
+            return {
+                call: { ...call, arguments: args },
+                walletBindingAudit: this.buildCopyTradeWalletBindingAudit({
+                    toolContext,
+                    extractedWallets: [],
+                    llmTargetWallet: currentWallet,
+                    finalTargetWallet: args.target_wallet,
+                    source: toolContext?.__copyTradeWalletBindingAudit?.source || 'tool_argument',
+                    reasonCode: null,
+                }),
+            };
         }
 
-        return { ...call, arguments: args };
-    }
-
-    private extractSingleLiteralWallet(text: string | null | undefined): string | null {
-        const source = String(text || '');
-        const evmMatches = source.match(/\b0x[a-fA-F0-9]{40}\b/g) || [];
-        const solanaMatches = source.match(/\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/g) || [];
-        const wallets = [
-            ...evmMatches.filter((value) => isStrictEvmAddress(value)).map((value) => value.toLowerCase()),
-            ...solanaMatches.filter((value) => isStrictSolanaAddress(value)),
-        ];
-        return wallets.length === 1 ? wallets[0] : null;
-    }
-
-    private extractSingleSnapshotWallet(snapshot: any): string | null {
-        const wallets: string[] = Array.from(
-            new Set(
-                (snapshot?.requestedTokenAddresses || [])
-                    .map((value: any) => String(value || '').trim())
-                    .filter((value: string) => isStrictWalletAddress(value))
-                    .map((value: string) => value.startsWith('0x') ? value.toLowerCase() : value),
+        return {
+            call: { ...call, arguments: args },
+            blocked: this.buildCopyTradeWalletBindingError(
+                call,
+                args,
+                'INVALID_COPY_TRADE_TARGET_WALLET',
+                'A strict wallet address is required before creating a copy-trade config.',
+                {},
             ),
-        );
-        return wallets.length === 1 ? wallets[0] : null;
+        };
+    }
+
+    private buildCopyTradeWalletBindingAudit(params: {
+        toolContext: Record<string, any>;
+        extractedWallets: string[];
+        llmTargetWallet: string | null;
+        finalTargetWallet: string | null;
+        source: string;
+        reasonCode: string | null;
+    }): CopyTradeWalletBindingAudit {
+        const existing = params.toolContext?.__copyTradeWalletBindingAudit || {};
+        return {
+            rawUserMessage: existing.rawUserMessage || params.toolContext?.__snapshot?.lastUserMessage || null,
+            extractedWallets: existing.extractedWallets || params.extractedWallets,
+            llmTargetWallet: existing.llmTargetWallet || params.llmTargetWallet || null,
+            finalTargetWallet: params.finalTargetWallet || existing.finalTargetWallet || null,
+            source: existing.source || params.source,
+            reasonCode: params.reasonCode || existing.reasonCode || null,
+        };
+    }
+
+    private attachWalletBindingToConfirmationPayload(
+        responsePayload: Record<string, any>,
+        walletBindingAudit: CopyTradeWalletBindingAudit | undefined,
+    ): Record<string, any> {
+        if (!walletBindingAudit) return responsePayload;
+        const confirmationPayload = responsePayload.confirmation_payload;
+        if (!confirmationPayload || typeof confirmationPayload !== 'object') return responsePayload;
+        if (String(confirmationPayload.tool_name || '') !== 'create_copy_trade_config') return responsePayload;
+        return {
+            ...responsePayload,
+            confirmation_payload: {
+                ...confirmationPayload,
+                wallet_binding: walletBindingAudit,
+            },
+        };
+    }
+
+    private buildCopyTradeWalletBindingError(
+        call: OrchestratorToolCall,
+        args: Record<string, any>,
+        reasonCode: string,
+        message: string,
+        extraResult: Record<string, any>,
+    ): OrchestratorToolResult {
+        return {
+            id: call.id,
+            name: call.name,
+            arguments: args,
+            ok: false,
+            error: message,
+            reasonCode,
+            result: {
+                error: message,
+                reason_code: reasonCode,
+                ...extraResult,
+            },
+            metadata: { source: 'copytrade_wallet_binding_guard' },
+        };
     }
 
     private extractFailure(result: any): string | null {

@@ -36,6 +36,8 @@ The malformed wallet strings already existed before persistence:
 - Resolve copy-trade `target_wallet` from the latest literal user wallet first.
 - Add a final tool-execution repair step for `create_copy_trade_config` so an
   invalid tool arg is replaced by the exact literal wallet when one is present.
+- Move EVM/Solana literal wallet extraction into a deterministic shared owner
+  and make multi-wallet copy-trade input an explicit ambiguity.
 - Tighten `validateAddress()` to strict EVM/Solana regex validation.
 
 ## Verification
@@ -47,6 +49,8 @@ The malformed wallet strings already existed before persistence:
   - canonical-intent malformed wallet filtering
   - copy-trade target resolution preferring the literal user wallet
   - tool-execution repair before confirmation gating
+  - multi-wallet ambiguity blocking
+  - deterministic EVM/Solana wallet literal extraction
   - strict wallet validation rejecting truncated EVM addresses
 
 ## Guardrail

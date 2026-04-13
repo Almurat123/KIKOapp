@@ -300,3 +300,35 @@ test('parseTradingIntent prefers the literal copy-trade wallet from the latest u
     assert.equal(intent?.slots.target_wallet, literalWallet);
     assert.equal(intent?.slots.chain_id, 56);
 });
+
+test('parseTradingIntent marks copy-trade target wallet ambiguous when the latest user message contains multiple wallets', () => {
+    const firstWallet = '0xbd708164137146ac234aceb75d3981cd3599e21a';
+    const secondWallet = '0x077b9981bc8a2ca417cea41861111da63266988b';
+    const canonicalIntent = makeCanonicalIntent({
+        intent: 'copy_trade',
+        entities: {
+            tokenAddresses: [],
+            tokenSymbols: [],
+            walletAddresses: [firstWallet],
+            marketIdentifiers: [],
+        },
+        requestedChain: {
+            chainId: 56,
+            chainName: 'BNB Chain',
+            source: 'llm',
+        },
+    });
+
+    const intent = parseTradingIntent(
+        `Copy Trade ${firstWallet} and ${secondWallet} with $8 per trade at BSC`,
+        makeSnapshot(`Copy Trade ${firstWallet} and ${secondWallet} with $8 per trade at BSC`, {
+            normalizedIntent: canonicalIntent,
+        }),
+        canonicalIntent,
+    );
+
+    assert.equal(intent?.type, 'copy_trade');
+    assert.equal(intent?.slots.target_wallet, undefined);
+    assert.equal(intent?.slots.target_wallet_ambiguous, true);
+    assert.deepEqual(intent?.slots.target_wallet_candidates, [firstWallet, secondWallet]);
+});

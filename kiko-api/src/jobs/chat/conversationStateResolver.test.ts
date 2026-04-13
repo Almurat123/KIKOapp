@@ -293,6 +293,55 @@ test('resolveTradeConfirmationState extracts order confirmation from a prepared 
     assert.equal(state?.order?.actionClass, 'ORDER_MUTATION');
 });
 
+test('resolveTradeConfirmationState preserves copy-trade wallet binding provenance', () => {
+    const walletBinding = {
+        rawUserMessage: 'Copy Trade 0xbd708164137146ac234aceb75d3981cd3599e21a with $8',
+        extractedWallets: ['0xbd708164137146ac234aceb75d3981cd3599e21a'],
+        llmTargetWallet: '0xbd708164137146ac234aceb75d3981cd359e21a',
+        finalTargetWallet: '0xbd708164137146ac234aceb75d3981cd3599e21a',
+        source: 'latest_user_message_literal',
+        reasonCode: 'MODEL_ARG_OVERRIDDEN_BY_LITERAL',
+    };
+    const state = resolveTradeConfirmationState([
+        {
+            role: 'assistant',
+            id: 'a-copy',
+            message_index: 1,
+            data: {
+                toolTrace: {
+                    toolCalls: [
+                        {
+                            tool: 'create_copy_trade_config',
+                            status: 'success',
+                            result: {
+                                requires_confirmation: true,
+                                confirmation_payload: {
+                                    tool_name: 'create_copy_trade_config',
+                                    args: {
+                                        target_wallet: '0xbd708164137146ac234aceb75d3981cd3599e21a',
+                                        buy_amount_usd: 8,
+                                        chain_id: 56,
+                                    },
+                                    wallet_binding: walletBinding,
+                                    confirmation_token: 'copy123',
+                                    action_class: 'ORDER_MUTATION',
+                                },
+                            },
+                        },
+                    ],
+                },
+            },
+        },
+    ], 'confirm', {
+        domain: 'copy_trade',
+        intent: 'copy_trade',
+        taskMode: 'confirm',
+    } as any);
+
+    assert.equal(state?.kind, 'copy_trade_confirmation');
+    assert.deepEqual(state?.copyTrade?.walletBinding, walletBinding);
+});
+
 test('isConfirmationMessage stays strict for ordinary trade requests that contain polite language', () => {
     assert.equal(isConfirmationMessage('可以帮我报价一下这个 token 吗'), false);
     assert.equal(isConfirmationMessage('ok buy 1 eth worth of virtual'), false);

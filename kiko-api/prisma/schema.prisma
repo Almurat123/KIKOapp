@@ -149,9 +149,32 @@ model CopyTradeConfig {
   user                          User                  @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
   positions                     Position[]
   copytradeOrdersV2             CopytradeOrder[]
+  walletAudits                  CopyTradeWalletAudit[]
 
   @@index([targetWallet])
   @@index([userId])
+}
+
+model CopyTradeWalletAudit {
+  id                String           @id @default(cuid())
+  userId            String?
+  configId          String?
+  action            String
+  source            String
+  chainId           Int?
+  rawUserMessage    String?
+  extractedWallets  Json?
+  llmTargetWallet   String?
+  finalTargetWallet String?
+  writtenTargetWallet String?
+  mismatchDetected  Boolean          @default(false)
+  reasonCode        String?
+  createdAt         DateTime         @default(now())
+  config            CopyTradeConfig? @relation(fields: [configId], references: [id], onDelete: SetNull)
+
+  @@index([userId, chainId, createdAt])
+  @@index([configId])
+  @@index([finalTargetWallet])
 }
 
 model CopyTradeAnalysis {

@@ -1,3 +1,25 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-14
+// Author: Rowan
+// Reason: chat confirmation contracts now carry copy-trade wallet-binding
+//         provenance so a later confirmation turn can audit the original target
+//         wallet evidence.
+// Goal: keep funds-sensitive confirmation state explicit and serializable.
+// Owns: TypeScript contracts shared across chat orchestration owners.
+// Does Not Own: wallet extraction, confirmation policy, or persistence writes.
+// Design Language:
+// - exact wallet provenance is metadata, not a replacement for strict validation
+// - confirmation state must preserve enough evidence for audit after user confirm
+// - public executable args and audit metadata remain separate concepts
+// Document Provenance:
+// - Source: production incident analysis of malformed BSC copy-trade target wallets
+// - Kind: runtime observation
+// - Retrieved: 2026-04-14
+// - Applied To: TradeConfirmationState.copyTrade.walletBinding
+// - Verification: verified in TypeScript and targeted tests
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-wallet-audit-provenance.md
 import type { ToolDefinition } from '../../tooling/registry.js';
 import type { ActionClass, ControlPolicySnapshot } from './controlPolicy.js';
 import type { CanonicalIntent, CanonicalIntentNormalizationState } from './canonicalIntent.js';
@@ -39,6 +61,7 @@ export interface TradeConfirmationState {
         mirrorSell?: boolean;
         takeProfitPct?: number;
         stopLossPct?: number;
+        walletBinding?: Record<string, any>;
     };
     order?: {
         toolName: string;

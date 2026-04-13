@@ -1,9 +1,10 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-13
+// Updated: 2026-04-14
 // Author: Rowan
 // Reason: copy-trade tool creation accepted duplicated active configs for the
 //         same user, chain, and target wallet after malformed chat wallet args
-//         created multiple BSC rows.
+//         created multiple BSC rows. Database-level active uniqueness now also
+//         means concurrent create races must be converted into idempotent reads.
 // Goal: make copy-trade config creation idempotent for active user+chain+target
 //       tuples and reject malformed wallet args before persistence.
 // Owns: local copy-trade tool persistence and tracked-wallet count maintenance.
@@ -13,6 +14,8 @@
 // - same user + same chain + same target wallet must not create multiple active configs
 // - malformed target_wallet values fail closed before persistence
 // - idempotent create returns the existing active config instead of incrementing tracked-wallet counts
+// - database unique conflicts are safe races and must not increment tracked-wallet counts
+// - every create/existing-create outcome should emit wallet provenance audit evidence
 // Document Provenance:
 // - Source: chat transcript + runtime logs + production database inspection for BSC copy-trade target wallets
 // - Kind: runtime observation
@@ -25,6 +28,8 @@
 // - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-wallet-entity-hardening.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-duplicate-config-hardening.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-wallet-deterministic-extraction.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-wallet-audit-provenance.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import { Tool } from '../../../tooling/registry.js';
 import prisma from '../../../db/prisma.js';
@@ -37,6 +42,7 @@ import {
     assertCopyTradeAutoTradingAuthorized,
     buildCopyTradeAuthorizationStopResult,
 } from '../../../services/copyTradeAuthorization.js';
+import { safeRecordCopyTradeWalletAudit } from '../../../services/copyTradeWalletAuditService.js';
 
 export const CreateCopyTradeConfigTool: Tool = {
     definition: {
@@ -118,6 +124,17 @@ export const CreateCopyTradeConfigTool: Tool = {
             orderBy: { createdAt: 'desc' },
         });
         if (existingConfig) {
+            await safeRecordCopyTradeWalletAudit({
+                userId,
+                configId: existingConfig.id,
+                action: 'tool_create_existing_active',
+                chainId: existingConfig.chainId,
+                binding: context?.__copyTradeWalletBindingAudit || null,
+                finalTargetWallet: normalizedTarget,
+                writtenTargetWallet: existingConfig.targetWallet,
+                source: 'chat_tool',
+                reasonCode: 'ALREADY_EXISTS',
+            });
             return {
                 id: existingConfig.id,
                 summary: `Copy trade already active for ${existingConfig.targetWallet} on chain ${existingConfig.chainId}.`,
@@ -160,32 +177,84 @@ export const CreateCopyTradeConfigTool: Tool = {
             });
         }
 
-        const config = await prisma.copyTradeConfig.create({
-            data: {
+        let config;
+        try {
+            config = await prisma.copyTradeConfig.create({
+                data: {
+                    userId,
+                    targetWallet: normalizedTarget,
+                    chainId,
+                    buyAmountUsd,
+                    maxSlippageBps: Number.isFinite(Number(args.max_slippage_bps)) ? Number(args.max_slippage_bps) : 300,
+                    minMarketCapUsd: Number.isFinite(Number(args.min_market_cap_usd)) ? Number(args.min_market_cap_usd) : null,
+                    minLiquidityUsd: Number.isFinite(Number(args.min_liquidity_usd)) ? Number(args.min_liquidity_usd) : null,
+                    minTargetValueUsd: Number.isFinite(Number(args.min_target_value_usd)) ? Number(args.min_target_value_usd) : null,
+                    takeProfitPct: Number.isFinite(Number(args.take_profit_pct)) ? Number(args.take_profit_pct) : null,
+                    stopLossPct: Number.isFinite(Number(args.stop_loss_pct)) ? Number(args.stop_loss_pct) : null,
+                    mirrorSell: typeof args.mirror_sell === 'boolean' ? args.mirror_sell : true,
+                    aiAnalysisMode: 'disabled',
+                    enableDynamicTP: false,
+                    dynamicTPMinProfitPct: 100,
+                    executionMode: resolvedMode.mode,
+                    disableTokenInfo: resolvedMode.mode === 'turbo',
+                    configPayload: {
+                        maxEntryDeviationBps: Number.isFinite(Number(args.max_entry_deviation_bps))
+                            ? Number(args.max_entry_deviation_bps)
+                            : DEFAULT_COPYTRADE_ENTRY_DEVIATION_BPS,
+                    } as any,
+                    signatureScheme: 'legacy_unsigned',
+                    requiresResign: false,
+                },
+            });
+        } catch (error: any) {
+            if (error?.code !== 'P2002') {
+                throw error;
+            }
+            const racedConfig = await prisma.copyTradeConfig.findFirst({
+                where: {
+                    userId,
+                    chainId,
+                    targetWallet: { equals: normalizedTarget, mode: 'insensitive' },
+                    status: 'active',
+                },
+                orderBy: { createdAt: 'desc' },
+            });
+            if (!racedConfig) {
+                throw error;
+            }
+            await safeRecordCopyTradeWalletAudit({
                 userId,
-                targetWallet: normalizedTarget,
-                chainId,
-                buyAmountUsd,
-                maxSlippageBps: Number.isFinite(Number(args.max_slippage_bps)) ? Number(args.max_slippage_bps) : 300,
-                minMarketCapUsd: Number.isFinite(Number(args.min_market_cap_usd)) ? Number(args.min_market_cap_usd) : null,
-                minLiquidityUsd: Number.isFinite(Number(args.min_liquidity_usd)) ? Number(args.min_liquidity_usd) : null,
-                minTargetValueUsd: Number.isFinite(Number(args.min_target_value_usd)) ? Number(args.min_target_value_usd) : null,
-                takeProfitPct: Number.isFinite(Number(args.take_profit_pct)) ? Number(args.take_profit_pct) : null,
-                stopLossPct: Number.isFinite(Number(args.stop_loss_pct)) ? Number(args.stop_loss_pct) : null,
-                mirrorSell: typeof args.mirror_sell === 'boolean' ? args.mirror_sell : true,
-                aiAnalysisMode: 'disabled',
-                enableDynamicTP: false,
-                dynamicTPMinProfitPct: 100,
-                executionMode: resolvedMode.mode,
-                disableTokenInfo: resolvedMode.mode === 'turbo',
-                configPayload: {
-                    maxEntryDeviationBps: Number.isFinite(Number(args.max_entry_deviation_bps))
-                        ? Number(args.max_entry_deviation_bps)
-                        : DEFAULT_COPYTRADE_ENTRY_DEVIATION_BPS,
-                } as any,
-                signatureScheme: 'legacy_unsigned',
-                requiresResign: false,
-            },
+                configId: racedConfig.id,
+                action: 'tool_create_unique_race_existing_active',
+                chainId: racedConfig.chainId,
+                binding: context?.__copyTradeWalletBindingAudit || null,
+                finalTargetWallet: normalizedTarget,
+                writtenTargetWallet: racedConfig.targetWallet,
+                source: 'chat_tool',
+                reasonCode: 'P2002',
+            });
+            return {
+                id: racedConfig.id,
+                summary: `Copy trade already active for ${racedConfig.targetWallet} on chain ${racedConfig.chainId}.`,
+                targetWallet: racedConfig.targetWallet,
+                chainId: racedConfig.chainId,
+                buyAmountUsd: racedConfig.buyAmountUsd,
+                maxEntryDeviationBps: resolveMaxEntryDeviationBps(racedConfig).maxEntryDeviationBps,
+                status: racedConfig.status,
+                createdAt: racedConfig.createdAt,
+                alreadyExists: true,
+            };
+        }
+
+        await safeRecordCopyTradeWalletAudit({
+            userId,
+            configId: config.id,
+            action: 'tool_create_created',
+            chainId: config.chainId,
+            binding: context?.__copyTradeWalletBindingAudit || null,
+            finalTargetWallet: normalizedTarget,
+            writtenTargetWallet: config.targetWallet,
+            source: 'chat_tool',
         });
 
         await prisma.trackedWallet.upsert({

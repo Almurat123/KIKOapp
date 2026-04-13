@@ -3,7 +3,8 @@
 // Author: Rowan
 // Reason: copy-trade target wallet resolution previously trusted LLM wallet
 //         entities before the user's literal address, which allowed malformed
-//         wallet strings to flow into tool arguments.
+//         wallet strings to flow into tool arguments. Later hardening made
+//         multiple latest-message wallet literals explicit ambiguity.
 // Goal: resolve copy-trade target wallets from exact user-provided addresses
 //       first, and only fall back to normalized entities when they are strict-valid.
 // Owns: trading-intent slot resolution for chat execution and confirmation turns.
@@ -11,6 +12,7 @@
 //               database repair for already-corrupted copy-trade configs.
 // Design Language:
 // - exact wallet strings from the latest user message outrank LLM entities
+// - multiple latest-message wallet strings must block copy-trade target picking
 // - malformed wallet candidates must never become copy-trade target slots
 // - keep swap confirmation supersession separate from copy-trade wallet resolution
 // Document Provenance:
@@ -24,6 +26,7 @@
 // - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
 // - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-wallet-entity-hardening.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-wallet-deterministic-extraction.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import type { ChatContextSnapshot } from './contracts.js';
 import { resolveCanonicalChainRef } from './chainIntent.js';
@@ -31,9 +34,7 @@ import type { CanonicalIntent } from './canonicalIntent.js';
 import { resolveTradeSemantics } from '../../services/ai/tradeSemantics.js';
 import { shouldSupersedePendingSwapConfirmation } from './swapConfirmationSupersession.js';
 import { isStrictWalletAddress } from '../../utils/validation.js';
-
-const EVM_ADDRESS_RE = /\b0x[a-fA-F0-9]{40}\b/g;
-const SOLANA_ADDRESS_RE = /\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/g;
+import { extractUniqueWalletAddressesFromText } from '../../utils/walletAddressExtraction.js';
 
 export interface TradingIntent {
     kind: 'trading' | 'trade_confirmation';
@@ -88,12 +89,14 @@ export function parseTradingIntent(text: string, snapshot: ChatContextSnapshot, 
     if (normalizedIntent) {
         const canonicalChain = normalizedIntent.requestedChain;
         if (normalizedIntent.intent === 'copy_trade') {
-            const targetWallet = resolveCopyTradeTargetWallet(raw, snapshot, normalizedIntent);
+            const targetWalletResolution = resolveCopyTradeTargetWallet(raw, snapshot, normalizedIntent);
             return {
                 kind: normalizedIntent.taskMode === 'confirm' ? 'trade_confirmation' : 'trading',
                 type: 'copy_trade',
                 slots: {
-                    target_wallet: targetWallet,
+                    target_wallet: targetWalletResolution.targetWallet,
+                    target_wallet_candidates: targetWalletResolution.candidates,
+                    target_wallet_ambiguous: targetWalletResolution.ambiguous,
                     chain_id: canonicalChain?.chainId,
                     chain_name: canonicalChain?.chainName,
                 },
@@ -149,23 +152,22 @@ function resolveCopyTradeTargetWallet(
     text: string,
     snapshot: ChatContextSnapshot,
     normalizedIntent: CanonicalIntent,
-): string | undefined {
-    const literalWallet = extractStrictWallets(text)[0];
-    if (literalWallet) return literalWallet;
+): { targetWallet?: string; candidates: string[]; ambiguous: boolean } {
+    const literalWallets = extractUniqueWalletAddressesFromText(text);
+    if (literalWallets.length === 1) {
+        return { targetWallet: literalWallets[0], candidates: literalWallets, ambiguous: false };
+    }
+    if (literalWallets.length > 1) {
+        return { candidates: literalWallets, ambiguous: true };
+    }
 
     const normalizedWallet = (normalizedIntent.entities.walletAddresses || []).find((value) => isStrictWalletAddress(value));
-    if (normalizedWallet) return normalizedWallet;
-
-    return (snapshot.requestedTokenAddresses || []).find((value) => isStrictWalletAddress(value));
-}
-
-function extractStrictWallets(text: string): string[] {
-    const values = new Set<string>();
-    for (const match of String(text || '').match(EVM_ADDRESS_RE) || []) {
-        if (isStrictWalletAddress(match)) values.add(match.toLowerCase());
+    if (normalizedWallet) {
+        return { targetWallet: normalizedWallet, candidates: [normalizedWallet], ambiguous: false };
     }
-    for (const match of String(text || '').match(SOLANA_ADDRESS_RE) || []) {
-        if (isStrictWalletAddress(match)) values.add(match);
-    }
-    return Array.from(values);
+
+    const snapshotWallet = (snapshot.requestedTokenAddresses || []).find((value) => isStrictWalletAddress(value));
+    return snapshotWallet
+        ? { targetWallet: snapshotWallet, candidates: [snapshotWallet], ambiguous: false }
+        : { candidates: [], ambiguous: false };
 }

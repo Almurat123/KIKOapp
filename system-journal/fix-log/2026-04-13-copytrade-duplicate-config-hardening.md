@@ -26,6 +26,11 @@ active config's tuple.
   duplicate row.
 - Signed HTTP update rejects moves onto another active config with
   `DUPLICATE_COPY_TRADE_CONFIG`.
+- Postgres now has a partial unique index on active configs by
+  `userId + chainId + lower(targetWallet)`, so concurrent duplicate creates fail
+  at the database boundary as well as the runtime boundary.
+- Tool and signed HTTP create paths convert database unique races into an
+  existing-config response without incrementing tracked-wallet counts.
 
 ## Verification
 
@@ -33,9 +38,13 @@ active config's tuple.
 - Added a tool-level regression test proving duplicate create returns the
   existing config and does not create another row or increment tracked-wallet
   counts.
+- Added a tool-level race regression test for `P2002` unique conflicts.
+- Added migration `20260413162000_copytrade_active_target_unique` for the
+  database-level invariant.
 - Verified TypeScript and targeted unit tests.
 
 ## Guardrail
 
 Active copy-trade config identity is `userId + chainId + normalized targetWallet`.
-New code must not create a second active row for that tuple.
+New code must not create a second active row for that tuple, and the database
+must reject concurrent active duplicates even if runtime guards race.
