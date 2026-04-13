@@ -9,6 +9,9 @@
 - Removed the dependency on host Fontconfig/Pango for OG text rendering.
 - Kept SVG text sanitization so emoji presentation glyphs do not break the
   preview image on Linux.
+- Added runtime font-path fallback logic so production can resolve the font
+  from either `dist/assets` or `src/assets` when the deployment image runs
+  compiled JS without copying font assets into `dist/`.
 
 ## Why
 
@@ -25,6 +28,11 @@ So the real failure was not missing data but the production render path relying
 on host font configuration. A shipped `woff2` plus `sharp`/Pango was still not
 deterministic enough on Linux. The final fix moved rendering to resvg with a
 shipped TTF font buffer.
+
+A second production check then showed the PNG had switched from tofu-box text
+to no text at all while still drawing the bubble/background. That narrowed the
+remaining issue to font file discovery at runtime: the service was running
+compiled `dist/` code, but the font asset still lived under `src/assets/fonts`.
 
 ## Product Rule
 
@@ -54,6 +62,14 @@ shipped TTF font buffer.
 - Applied To: ruling out host Fontconfig/Pango as a stable production render
   dependency for X share OG images
 - Verification: verified in runtime
+
+- Source: production PNG response after the resvg migration rendered only the
+  bubble/background while local resvg output rendered full English text
+- Kind: runtime observation
+- Retrieved: 2026-04-13
+- Applied To: identifying runtime font-file resolution in `dist/` as the
+  remaining production failure
+- Verification: partially verified
 
 - Source: [Google Fonts Inter](https://github.com/google/fonts/tree/main/ofl/inter)
 - Kind: external font asset

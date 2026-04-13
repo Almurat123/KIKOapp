@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Resvg } from '@resvg/resvg-js';
@@ -41,7 +42,12 @@ import {
 //         text as tofu boxes on Linux when the render path depends on host
 //         Fontconfig/Pango state. The final correction moved OG PNG generation
 //         to `@resvg/resvg-js` with a shipped TTF font buffer so production no
-//         longer depends on machine font configuration.
+//         longer depends on machine font configuration. A later production
+//         check proved the server was running compiled `dist/` files without
+//         copying font assets into `dist/assets`, so the renderer drew the
+//         bubble/background but no text. The route now resolves fonts from both
+//         `dist/assets` and `src/assets` to stay correct under the current
+//         deployment model.
 // Goal: expose a crawler-safe X share page and OG image endpoint that reveal
 //       only preview-safe summary text while preserving a path back to the
 //       private KIKO chat session.
@@ -117,7 +123,8 @@ import {
 // - Kind: runtime observation
 // - Retrieved: 2026-04-13
 // - Applied To: replacing host Fontconfig-dependent text rendering with resvg
-//   and a shipped TTF font buffer
+//   and a shipped TTF font buffer, then resolving that font from `dist` or
+//   `src` depending on deployment layout
 // - Verification: verified in runtime
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
@@ -128,7 +135,24 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const X_SHARE_FONT_PATH = path.resolve(__dirname, '../assets/fonts/Inter-Variable.ttf');
+function resolveXShareFontPath(): string {
+  const candidates = [
+    path.resolve(__dirname, '../assets/fonts/Inter-Variable.ttf'),
+    path.resolve(__dirname, '../../src/assets/fonts/Inter-Variable.ttf'),
+    path.resolve(process.cwd(), 'dist/assets/fonts/Inter-Variable.ttf'),
+    path.resolve(process.cwd(), 'src/assets/fonts/Inter-Variable.ttf'),
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return candidates[0];
+}
+
+const X_SHARE_FONT_PATH = resolveXShareFontPath();
 
 function escapeHtml(input: string): string {
   return String(input || '')
