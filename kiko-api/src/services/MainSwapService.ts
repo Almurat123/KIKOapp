@@ -26,9 +26,13 @@
 //         not graduated to DEX liquidity. Later runtime logs showed the opposite
 //         failure after graduation: direct-only TP exits kept retrying the
 //         bonding-curve path after Four.Meme explicitly said to use an aggregator.
+//         A follow-up runtime gap then showed `main-swap-finish` still logging
+//         `executionProvider=null` because the resolved result provider was not
+//         being written back into the main runtime owner.
 // Goal: preserve launchpad-aware routing so four.meme sell flows stay on the
 //       launchpad path until graduation is explicitly proven, then switch to
-//       the single supported EVM aggregator path.
+//       the single supported EVM aggregator path, with runtime logs preserving
+//       the actual provider that won.
 // Owns: unified swap route selection, launchpad specialization, and launchpad
 //       fallback eligibility for EVM and Solana swaps.
 // Does Not Own: copytrade exit attempt sequencing, token launchpad detection
@@ -38,6 +42,7 @@
 // - four.meme sell-side pre-graduation failures must not fall through to 0x
 // - four.meme sell-side graduation proof (`Liquidity already added`, `Use aggregator`, `graduated`) may fall through to 0x-only
 // - launchpad fallback rules must distinguish buy and sell semantics
+// - main runtime snapshots must carry the winning provider from the finalized result
 // Document Provenance:
 // - Source: production log `logs.1776101245961.json`
 // - Kind: runtime observation
@@ -48,6 +53,11 @@
 // - Kind: runtime observation
 // - Retrieved: 2026-04-14
 // - Applied To: allowing four.meme sell fallback only after explicit graduated/liquidity-added evidence
+// - Verification: verified in logs and targeted tests
+// - Source: /Users/almurat/Downloads/logs.1776170065564.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-14
+// - Applied To: persisting fallback provider into `main-swap-finish` executionProvider
 // - Verification: verified in logs and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
@@ -699,12 +709,19 @@ export class MainSwapService {
         copytradePendingPositionId: request.executionContext?.copytradePendingPositionId || null,
       });
       const finalizeResult = (result: MainSwapResult): MainSwapResult => {
+        const resolvedRuntime = result.runtimeContext || runtimeContext;
+        if (result.metadata?.provider) {
+          resolvedRuntime.route = {
+            ...resolvedRuntime.route,
+            provider: result.metadata.provider,
+          };
+        }
         if (result.txHash) {
-          attachOrderTxHash(result.runtimeContext || runtimeContext, result.txHash, { canonical: true });
+          attachOrderTxHash(resolvedRuntime, result.txHash, { canonical: true });
         }
         const enriched: MainSwapResult = {
           ...result,
-          runtimeContext: result.runtimeContext || runtimeContext
+          runtimeContext: resolvedRuntime
         };
         if (!enriched.success && enriched.error) {
           markOrderFailure(runtimeContext, enriched.error);

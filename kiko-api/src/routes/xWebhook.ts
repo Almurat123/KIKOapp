@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-13
+// Updated: 2026-04-14
 // Author: Almurat
 // Reason: webhook ingress remains the production path for X mentions, but X DM
 //         input is no longer a supported chat surface after runtime/document
@@ -14,6 +14,13 @@
 //         A later correction moved the fix earlier in the pipeline so raw legacy
 //         snowflakes are stringified before parse, instead of trying to repair
 //         already-damaged numbers after the fact.
+//         Runtime evidence on 2026-04-14 showed another legacy payload gap:
+//         long tweets that mention the bot near the end can arrive with a
+//         truncated `text` field while the actual mention survives only in
+//         `full_text` / `extended_tweet.full_text` and
+//         `extended_tweet.entities.user_mentions`. If extraction trusts only
+//         the short `text` field, valid mentions are silently dropped before
+//         they ever reach mentions-feed confirmation or outbound reply.
 // Goal: verify inbound X events, filter bot-authored noise, and hand off only
 //       supported mention events to the internal conversation pipeline.
 // Owns: X webhook CRC/signature handling, mention extraction, and inbound audit.
@@ -36,6 +43,8 @@
 //   reply eligibility from thread structure alone.
 // - Do not trust raw webhook numeric snowflakes after plain `JSON.parse`; rewrite
 //   legacy tweet snowflake fields to strings before parsing the JSON body.
+// - For legacy `tweet_create_events`, prefer full-text fields and extended
+//   entities over the short `text` field so late-position mentions are not lost.
 // Document Provenance:
 // - Source: X Activity API docs + production lookup probes
 // - Kind: official API doc | runtime observation
@@ -66,6 +75,14 @@
 // - Applied To: stringifying legacy webhook snowflakes before parse so valid
 //   mention ids survive webhook parsing and match `/users/{botUserId}/mentions`
 // - Verification: verified in runtime
+// - Source: production log `logs.1776172125273.json` + user screenshot showing
+//   a long quoted post with `@KiKoappdev1` only near the tail
+// - Kind: runtime observation | product evidence
+// - Retrieved: 2026-04-14
+// - Applied To: reading legacy mention text from `full_text` /
+//   `extended_tweet.full_text` and mention entities from
+//   `extended_tweet.entities.user_mentions`
+// - Verification: partially verified
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-10-x-explicit-mention-only.md
@@ -75,6 +92,7 @@
 // - system-journal/fix-log/2026-04-10-x-webhook-ingress-audit.md
 // - system-journal/fix-log/2026-04-10-x-webhook-empty-payload-audit.md
 // - system-journal/fix-log/2026-04-10-x-dm-outbound-only.md
+// - system-journal/fix-log/2026-04-14-x-legacy-mention-full-text-repair.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
 // - system-journal/conflicts.md
 import crypto from 'node:crypto';
@@ -163,7 +181,10 @@ function textMentionsBot(text: string): boolean {
 }
 
 function eventMentionsBot(item: any): boolean {
-  const mentions = Array.isArray(item?.entities?.user_mentions) ? item.entities.user_mentions : [];
+  const mentions = [
+    ...(Array.isArray(item?.entities?.user_mentions) ? item.entities.user_mentions : []),
+    ...(Array.isArray(item?.extended_tweet?.entities?.user_mentions) ? item.extended_tweet.entities.user_mentions : []),
+  ];
   const username = String(getXBotUsername() || env.x.botUsername || '').trim().replace(/^@/, '').toLowerCase();
   const botUserId = String(getXBotUserId() || env.x.botUserId || '').trim();
   return mentions.some((entry: any) => {
@@ -188,6 +209,20 @@ export function verifyXWebhookSignature(signature: unknown, rawBody: string, sec
   return safeSecretEquals(signature, computeXWebhookSignature(rawBody, secret));
 }
 
+function getLegacyTweetText(item: any): string {
+  const candidates = [
+    item?.full_text,
+    item?.extended_tweet?.full_text,
+    item?.note_tweet?.text,
+    item?.text,
+  ];
+  for (const candidate of candidates) {
+    const text = String(candidate || '').trim();
+    if (text) return text;
+  }
+  return '';
+}
+
 export function extractMentionEvents(payload: XActivityPayload): XMentionEvent[] {
   const usersById = buildUsersById(payload.users);
   const botUserId = String(getXBotUserId() || env.x.botUserId || '').trim();
@@ -196,7 +231,7 @@ export function extractMentionEvents(payload: XActivityPayload): XMentionEvent[]
   const parsed: Array<XMentionEvent | null> = items.map((item): XMentionEvent | null => {
       const id = toId(item?.id || item?.id_str);
       const authorId = toId(item?.author_id || item?.user?.id || item?.user?.id_str);
-      const text = String(item?.text || '').trim();
+      const text = getLegacyTweetText(item);
       if (!id || !authorId || !text) return null;
       if (botUserId && authorId === botUserId) return null;
 

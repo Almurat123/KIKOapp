@@ -303,6 +303,7 @@ test('MainSwapService falls back to 0x-only EVM swap for fourmeme graduated sell
     assert.equal(result.metadata.provider, '0x:fourmeme:fallback');
     assert.equal(result.runtimeContext?.canonicalTxHash, fallbackTxHash);
     assert.deepEqual(result.runtimeContext?.relatedTxHashes, [fallbackTxHash]);
+    assert.equal(result.runtimeContext?.route.provider, '0x:fourmeme:fallback');
   } finally {
     fourMemeSwapService.fastSwap = originalFastSwap;
     mainSwapAny.executeEvmSwap = originalExecuteEvmSwap;

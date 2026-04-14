@@ -48,6 +48,14 @@ or other standard EVM routing until DEX graduation is explicitly known.
   - preserving main swap runtime tx hash before `[OrderRuntime] main-swap-finish`
 - Verification: verified in logs and targeted tests
 
+- Source: `/Users/almurat/Downloads/logs.1776170065564.json`
+- Kind: runtime observation
+- Retrieved: 2026-04-14
+- Applied To:
+  - preserving `executionProvider=0x:fourmeme:fallback` in `main-swap-finish`
+  - proving the deployed runtime now records both provider and canonical tx hash
+- Verification: verified in logs and targeted tests
+
 ## Guardrails
 
 - BSC four.meme pre-graduation sells are launchpad-owned flows.
@@ -57,3 +65,5 @@ or other standard EVM routing until DEX graduation is explicitly known.
 - Graduation evidence is message-level evidence from the launchpad execution
   owner; ordinary bonding-curve reverts such as `GW: GW` must still fail safely
   and must not enter 0x.
+- Main runtime close-out logs must reflect the final winning provider, not only
+  the tx hash.
