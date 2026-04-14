@@ -24,6 +24,11 @@ or other standard EVM routing until DEX graduation is explicitly known.
 - Immediate exit retries for `direct_only` never include external retry steps.
 - `MainSwapService` no longer falls back to standard EVM routing when a
   four.meme sell reverts on the launchpad path.
+- Follow-up correction: if the Four.Meme sell path itself returns explicit
+  graduation evidence (`Liquidity already added to DEX`, `Use aggregator
+  instead`, or `graduated`), `MainSwapService` may switch that sell to the
+  standard EVM aggregator path. This is not a generic fallback; it is a
+  graduation-proof escape from the bonding-curve owner.
 
 ## Document Provenance
 
@@ -35,9 +40,20 @@ or other standard EVM routing until DEX graduation is explicitly known.
   - four.meme sell fallback prohibition in MainSwapService
 - Verification: verified in runtime, code review, and targeted tests
 
+- Source: `/Users/almurat/Downloads/logs.1776169106790.json`
+- Kind: runtime observation
+- Retrieved: 2026-04-14
+- Applied To:
+  - allowing Four.Meme graduated sell fallback to the 0x-only EVM route
+  - preserving main swap runtime tx hash before `[OrderRuntime] main-swap-finish`
+- Verification: verified in logs and targeted tests
+
 ## Guardrails
 
 - BSC four.meme pre-graduation sells are launchpad-owned flows.
 - Direct-only means every immediate retry attempt remains direct.
 - Standard EVM / 0x fallback requires explicit graduation evidence, not a
   generic launchpad revert string.
+- Graduation evidence is message-level evidence from the launchpad execution
+  owner; ordinary bonding-curve reverts such as `GW: GW` must still fail safely
+  and must not enter 0x.

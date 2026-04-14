@@ -23,9 +23,12 @@
 //         fallback vocabulary as buy-side launchpad routing. That made the sell
 //         owner boundary ambiguous: a direct bonding-curve sell failure could
 //         still drift toward standard aggregator routing even when the token had
-//         not graduated to DEX liquidity.
+//         not graduated to DEX liquidity. Later runtime logs showed the opposite
+//         failure after graduation: direct-only TP exits kept retrying the
+//         bonding-curve path after Four.Meme explicitly said to use an aggregator.
 // Goal: preserve launchpad-aware routing so four.meme sell flows stay on the
-//       launchpad path until graduation is explicitly proven.
+//       launchpad path until graduation is explicitly proven, then switch to
+//       the single supported EVM aggregator path.
 // Owns: unified swap route selection, launchpad specialization, and launchpad
 //       fallback eligibility for EVM and Solana swaps.
 // Does Not Own: copytrade exit attempt sequencing, token launchpad detection
@@ -33,6 +36,7 @@
 // Design Language:
 // - four.meme buy-side graduation may fall back to standard EVM routing
 // - four.meme sell-side pre-graduation failures must not fall through to 0x
+// - four.meme sell-side graduation proof (`Liquidity already added`, `Use aggregator`, `graduated`) may fall through to 0x-only
 // - launchpad fallback rules must distinguish buy and sell semantics
 // Document Provenance:
 // - Source: production log `logs.1776101245961.json`
@@ -40,6 +44,11 @@
 // - Retrieved: 2026-04-14
 // - Applied To: forbidding four.meme sell fallback to standard EVM swap after launchpad revert
 // - Verification: verified in runtime and targeted tests
+// - Source: /Users/almurat/Downloads/logs.1776169106790.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-14
+// - Applied To: allowing four.meme sell fallback only after explicit graduated/liquidity-added evidence
+// - Verification: verified in logs and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
@@ -89,6 +98,7 @@ import type { TxLifecycleResult } from './txLifecycle.js';
 import type { OrderRuntimeContext } from './order-runtime/types.js';
 import {
   createOrderRuntimeContext,
+  attachOrderTxHash,
   markOrderFallbackResult,
   markOrderFallbackStarted,
   markOrderFailure,
@@ -689,6 +699,9 @@ export class MainSwapService {
         copytradePendingPositionId: request.executionContext?.copytradePendingPositionId || null,
       });
       const finalizeResult = (result: MainSwapResult): MainSwapResult => {
+        if (result.txHash) {
+          attachOrderTxHash(result.runtimeContext || runtimeContext, result.txHash, { canonical: true });
+        }
         const enriched: MainSwapResult = {
           ...result,
           runtimeContext: result.runtimeContext || runtimeContext
@@ -1285,14 +1298,18 @@ export class MainSwapService {
           } catch (fourMemeErr: any) {
             const message = String(fourMemeErr?.message || fourMemeErr || '');
             const isSell = !isNativeToken(request.tokenIn, request.chainId);
-            if (isSell) {
-              throw fourMemeErr;
-            }
             const shouldFallbackToDex =
               message.includes('Liquidity already added to DEX')
               || message.includes('Use aggregator instead.')
               || message.toLowerCase().includes('graduated')
               || message.toLowerCase().includes('disabled');
+            const sellHasGraduationProof =
+              message.includes('Liquidity already added to DEX')
+              || message.includes('Use aggregator instead.')
+              || message.toLowerCase().includes('graduated');
+            if (isSell && !sellHasGraduationProof) {
+              throw fourMemeErr;
+            }
             if (!shouldFallbackToDex) {
               throw fourMemeErr;
             }

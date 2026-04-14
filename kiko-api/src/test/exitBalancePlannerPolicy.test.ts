@@ -546,7 +546,7 @@ describe('exit balance planner policy', () => {
     }
   });
 
-  test('fourmeme mirror sell plans direct-primary routing on BSC', () => {
+  test('fourmeme mirror sell plans direct-only routing on BSC', () => {
     const plan = buildEvmExitPlanFromSnapshot({
       userId: 'user-1',
       tokenAddress: '0x352a46b12d6a39775a83ba286f036b9e271effff',
@@ -602,7 +602,7 @@ describe('exit balance planner policy', () => {
 
     assert.equal(plan.kind, 'swap');
     if (plan.kind === 'swap') {
-      assert.equal(plan.sellRoutePolicy, 'direct_primary');
+      assert.equal(plan.sellRoutePolicy, 'direct_only');
       assert.equal(plan.launchpadProvider, 'fourmeme');
       assert.equal(plan.runtimeContext.metadata.launchpadProvider, 'fourmeme');
     }

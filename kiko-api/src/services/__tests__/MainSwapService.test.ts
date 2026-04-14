@@ -249,3 +249,62 @@ test('MainSwapService does not fall back to standard EVM swap for fourmeme sells
     mainSwapAny.executeEvmSwap = originalExecuteEvmSwap;
   }
 });
+
+test('MainSwapService falls back to 0x-only EVM swap for fourmeme graduated sells and preserves tx hash in runtime', async () => {
+  const originalFastSwap = fourMemeSwapService.fastSwap;
+  const mainSwapAny = MainSwapService as any;
+  const originalExecuteEvmSwap = mainSwapAny.executeEvmSwap;
+  const fallbackTxHash = '0xa7aad058af7da682160f50705597b96492fd50ea5196579261d330fd5f4e040f';
+  let evmFallbackCalled = false;
+
+  fourMemeSwapService.fastSwap = async () => {
+    throw new Error('Liquidity already added to DEX. Use aggregator instead.');
+  };
+  mainSwapAny.executeEvmSwap = async () => {
+    evmFallbackCalled = true;
+    return {
+      success: true,
+      txHash: fallbackTxHash,
+      metadata: {
+        provider: '0x',
+        mode: 'copytrade',
+      },
+    };
+  };
+
+  try {
+    const runtimeContext = createOrderRuntimeContext({
+      userId: 'did:privy:user-fourmeme-graduated-sell',
+      walletAddress: '0x1234567890123456789012345678901234567890',
+      chainId: 56,
+      side: 'sell',
+      mode: 'copytrade',
+    });
+    const result = await MainSwapService.executeSwap({
+      userId: 'did:privy:user-fourmeme-graduated-sell',
+      walletAddress: '0x1234567890123456789012345678901234567890',
+      accessToken: '',
+      tokenIn: '0xd6eb45a72735cf1a896702d71f2df115c07affff',
+      tokenOut: 'ETH',
+      amountIn: '1000',
+      chainId: 56,
+      slippageBps: 300,
+      mode: 'copytrade',
+      launchpadProvider: 'fourmeme',
+      runtimeContext,
+      executionContext: {
+        sellRoutePolicy: 'direct_only',
+      },
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.txHash, fallbackTxHash);
+    assert.equal(evmFallbackCalled, true);
+    assert.equal(result.metadata.provider, '0x:fourmeme:fallback');
+    assert.equal(result.runtimeContext?.canonicalTxHash, fallbackTxHash);
+    assert.deepEqual(result.runtimeContext?.relatedTxHashes, [fallbackTxHash]);
+  } finally {
+    fourMemeSwapService.fastSwap = originalFastSwap;
+    mainSwapAny.executeEvmSwap = originalExecuteEvmSwap;
+  }
+});
