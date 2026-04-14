@@ -10,6 +10,9 @@ This fix closes three regressions observed in `logs.1776165812688.json`:
   preparation block turbo-mode dispatch.
 - Mirror-sell exits that return a successful `requireConfirmedTx` swap result
   are persisted as confirmed exits instead of `exit_finality_pending`.
+- Follow-up from `logs.1776168258795.json`: Four.Meme direct sell success
+  hashes are merged from top-level `swapResult.txHash` into the exit runtime
+  snapshot even when nested `swapResult.runtimeContext` has no canonical hash.
 
 ## Root Cause
 
@@ -24,6 +27,11 @@ This fix closes three regressions observed in `logs.1776165812688.json`:
   state only. For direct exits where `submitCopytradeExit()` was called with
   `requireConfirmedTx: true`, a successful swap result with a tx hash is already
   confirmed evidence unless an explicit failed state exists.
+- `copytrade-v2/exit/runtime.ts` only copied tx hashes from nested
+  `swapResult.runtimeContext`. Four.Meme direct sell returns the executed sell
+  hash as top-level `swapResult.txHash`, so runtime snapshot logs could show
+  `canonicalTxHash: null` and `allTxHashes: []` immediately after a successful
+  Four.Meme sell.
 
 ## What Changed
 
@@ -38,6 +46,9 @@ This fix closes three regressions observed in `logs.1776165812688.json`:
   for normal configs.
 - `exit/executor.ts` trusts `swapResult.success === true` with canonical tx hash
   as confirmed success, after preserving explicit failed lifecycle precedence.
+- `exit/runtime.ts` now merges top-level `swapResult.txHash` as canonical exit
+  evidence and uses result metadata as provider evidence when nested runtime
+  context is absent.
 
 ## Guardrails
 
@@ -46,6 +57,8 @@ This fix closes three regressions observed in `logs.1776165812688.json`:
 - Turbo followers must not wait for normal-mode liquidity scans.
 - `requireConfirmedTx` success must not be downgraded to pending visibility
   unless there is explicit failed evidence.
+- Runtime snapshot merge must not depend exclusively on nested runtime context;
+  provider-level txHash evidence is authoritative for the executed exit attempt.
 
 ## Verification
 
@@ -54,6 +67,8 @@ This fix closes three regressions observed in `logs.1776165812688.json`:
   exposure preflight owner.
 - Added finality tests for confirmed swap success and explicit failed lifecycle
   precedence.
+- Added regression coverage for top-level Four.Meme `swapResult.txHash`
+  entering `canonicalTxHash` and `relatedTxHashes`.
 
 ## Document Provenance
 
@@ -73,3 +88,10 @@ This fix closes three regressions observed in `logs.1776165812688.json`:
 - Applied To: preserving the hot-path boundary that keeps non-essential context
   enrichment out of turbo buy dispatch
 - Verification: verified in code design review
+
+- Source: `/Users/almurat/Downloads/logs.1776168258795.json`
+- Kind: runtime observation
+- Retrieved: 2026-04-14
+- Applied To: top-level Four.Meme sell tx hash merge into copytrade exit runtime
+  snapshot
+- Verification: verified in logs and targeted regression test

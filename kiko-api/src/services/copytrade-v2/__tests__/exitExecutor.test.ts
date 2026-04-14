@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildExitAttempts, resolveAttemptFinality } from '../exit/executor.js';
-import { createExitOrderRuntimeContext } from '../exit/runtime.js';
+import { createExitOrderRuntimeContext, mergeSwapResultIntoExitRuntime } from '../exit/runtime.js';
+import { snapshotOrderRuntime } from '../../order-runtime/context.js';
 import type { EvmExitSwapPlan } from '../exit/types.js';
 
 function makePlan(sellRoutePolicy: EvmExitSwapPlan['sellRoutePolicy']): EvmExitSwapPlan {
@@ -94,4 +95,25 @@ test('exit finality keeps explicit failed lifecycle above swap success', () => {
 
   assert.equal(finality.finalityState, 'confirmed_failed');
   assert.equal(finality.finalityReasonCode, 'receipt_status_0');
+});
+
+test('exit runtime merge preserves top-level Four.Meme swap tx hash without nested runtime context', () => {
+  const plan = makePlan('direct_only');
+  const sellTxHash = '0xf5ae1d55a43c399f3dadbbb188f3cc935d3b5f0707fef812a658e89085a0d9ae';
+
+  mergeSwapResultIntoExitRuntime(plan.runtimeContext, {
+    success: true,
+    txHash: sellTxHash,
+    metadata: {
+      provider: 'four_meme',
+      mode: 'copytrade',
+      launchpad: 'four_meme',
+    },
+  } as any);
+
+  const snapshot = snapshotOrderRuntime(plan.runtimeContext);
+
+  assert.equal(snapshot.canonicalTxHash, sellTxHash);
+  assert.deepEqual(snapshot.relatedTxHashes, [sellTxHash]);
+  assert.equal(snapshot.metadata.directProvider, 'four_meme');
 });
