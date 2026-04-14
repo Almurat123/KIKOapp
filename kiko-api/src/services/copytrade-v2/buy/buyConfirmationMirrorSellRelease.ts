@@ -7,11 +7,19 @@ import { upsertTargetSellEvent } from '../exit/targetSellEventStore.js';
 import { armPendingAttributedPositionsForMirrorSell } from '../positions/pendingAttributedPositionLedger.js';
 import type { MirrorSellIntentDisposition } from '../positions/mirrorSellIntentPolicy.js';
 
+export type MirrorSellReleaseResult =
+  | { outcome: 'scheduled' }
+  | { outcome: 'already_active' }
+  | { outcome: 'armed_pending' }
+  | { outcome: 'no_position' | 'closed_position' | 'not_scheduled' };
+
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-14
 // Author: Avery Lin
 // Reason: Historical target-sell evidence can surface after buy-confirm or later from
 //         monitor-side orphan recovery, so both owners must share one durable release path.
+//         The helper also must distinguish "scheduled new exit work" from "reused existing
+//         active intent" so upper layers do not mis-log idempotent reuse as fresh replay.
 // Goal: Convert historical mirror-sell evidence into the same persisted event and
 //       exit-intent flow used by the live runtime, without leaving silent open positions.
 // Owns: Releasing historical target-sell evidence into event store and exit-intent scheduling.
@@ -20,6 +28,7 @@ import type { MirrorSellIntentDisposition } from '../positions/mirrorSellIntentP
 // - Historical replay must go through the same durable event path as live sell webhooks.
 // - Preserve target-sell metadata when replaying history.
 // - Do not silently mark order state armed without creating or reusing durable exit work.
+// - Do not collapse idempotent reuse into the same success shape as newly scheduled exit work.
 // Document Provenance:
 // - Source: system-journal/fix-log/2026-04-10-buy-confirm-target-sell-replay-gap.md
 // - Kind: repo doc
@@ -31,11 +40,17 @@ import type { MirrorSellIntentDisposition } from '../positions/mirrorSellIntentP
 // - Retrieved: 2026-04-10
 // - Applied To: reusing the same helper for monitor-side orphan repair
 // - Verification: verified in code
+// - Source: /Users/almurat/Downloads/logs.1776159582066.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-14
+// - Applied To: separating active-intent reuse from true historical replay so ghost logs do not misreport duplicate exit release
+// - Verification: verified in runtime
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
 // - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-buy-confirm-target-sell-replay-gap.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-historical-target-sell-release-result-semantics.md
 
 export async function releaseMirrorSellAfterBuyConfirm(params: {
   position: {
@@ -66,7 +81,7 @@ export async function releaseMirrorSellAfterBuyConfirm(params: {
     upsertTargetSellEvent?: typeof upsertTargetSellEvent;
     armPendingAttributedPositionsForMirrorSell?: typeof armPendingAttributedPositionsForMirrorSell;
   };
-}): Promise<boolean> {
+}): Promise<MirrorSellReleaseResult> {
   const position = params.position;
   const buildEventPayload = params.deps?.buildTargetSellEventPayload || buildTargetSellEventPayload;
   const persistTargetSell = params.deps?.persistTargetSellEventAndSchedulePositions || persistTargetSellEventAndSchedulePositions;
@@ -74,7 +89,7 @@ export async function releaseMirrorSellAfterBuyConfirm(params: {
   const upsertSellEvent = params.deps?.upsertTargetSellEvent || upsertTargetSellEvent;
   const armPendingPosition = params.deps?.armPendingAttributedPositionsForMirrorSell || armPendingAttributedPositionsForMirrorSell;
   if (!position || String(position.status || '').toLowerCase() === 'closed') {
-    return false;
+    return { outcome: position ? 'closed_position' : 'no_position' };
   }
 
   const targetSellTxHash = String(params.targetSellTxHash || '').trim();
@@ -99,7 +114,7 @@ export async function releaseMirrorSellAfterBuyConfirm(params: {
     if (targetSellTxHash) {
       await upsertSellEvent(buildReplayEvent()).catch(() => null);
     }
-    await armPendingPosition({
+    const armedCount = await armPendingPosition({
       userId: position.userId,
       chainId: position.chainId,
       tokenAddress: position.tokenAddress,
@@ -107,11 +122,11 @@ export async function releaseMirrorSellAfterBuyConfirm(params: {
       targetSellTxHash: targetSellTxHash || undefined,
       reasonCode: params.reasonCode || 'target_sell_seen_in_history_unverified',
     }).catch(() => 0);
-    return true;
+    return { outcome: armedCount > 0 ? 'armed_pending' : 'not_scheduled' };
   }
 
   if (!targetSellTxHash) {
-    return scheduleExitIntent({
+    const scheduled = await scheduleExitIntent({
       position: {
         id: position.id,
         userId: position.userId,
@@ -129,6 +144,7 @@ export async function releaseMirrorSellAfterBuyConfirm(params: {
         targetWallet: params.targetWallet,
       },
     });
+    return { outcome: scheduled ? 'scheduled' : 'not_scheduled' };
   }
 
   const scheduled = await persistTargetSell({
@@ -153,5 +169,7 @@ export async function releaseMirrorSellAfterBuyConfirm(params: {
     },
   });
 
-  return scheduled.scheduled > 0 || scheduled.skipped > 0;
+  if (scheduled.scheduled > 0) return { outcome: 'scheduled' };
+  if (scheduled.skipped > 0) return { outcome: 'already_active' };
+  return { outcome: 'not_scheduled' };
 }

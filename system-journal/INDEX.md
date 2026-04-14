@@ -71,6 +71,7 @@ owner boundaries, and major fixes.
 - [Fix Log: 2026-04-14 Copytrade Buy Dispatch Audit Decoupling](./fix-log/2026-04-14-copytrade-buy-dispatch-audit-decoupling.md)
 - [Fix Log: 2026-04-14 Copytrade Buy Preparation Stage Audit](./fix-log/2026-04-14-copytrade-buy-preparation-stage-audit.md)
 - [Fix Log: 2026-04-14 Copytrade Buy Cooldown Runtime Enforcement](./fix-log/2026-04-14-copytrade-buy-cooldown-runtime-enforcement.md)
+- [Fix Log: 2026-04-14 Copytrade Historical Target Sell Release Result Semantics](./fix-log/2026-04-14-copytrade-historical-target-sell-release-result-semantics.md)
 - [Fix Log: 2026-04-13 Copytrade Turbo TokenInfo Bypass](./fix-log/2026-04-13-copytrade-turbo-tokeninfo-bypass.md)
 - [Fix Log: 2026-04-13 Copytrade Sell Relayer Webhook Repair](./fix-log/2026-04-13-copytrade-sell-relayer-webhook-repair.md)
 - [Fix Log: 2026-04-13 Webhook Weak-Evidence Dispatch Hardening](./fix-log/2026-04-13-webhook-weak-evidence-dispatch-hardening.md)

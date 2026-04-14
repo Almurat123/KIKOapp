@@ -220,7 +220,7 @@ test('applyBuyConfirmationTransition replays durable target sell history into ex
       }),
       releaseMirrorSellAfterBuyConfirm: async (payload: any) => {
         releasedPayload = payload;
-        return true;
+        return { outcome: 'scheduled' as const };
       },
       resolveBuyConfirmationPromotionAction: async () => ({ action: 'promote_open' }),
       emitCopytradeDomainAudit: () => undefined,

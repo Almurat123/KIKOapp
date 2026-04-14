@@ -38,7 +38,7 @@ test('buy-confirmation mirror sell release schedules canonical target-sell inten
     },
   });
 
-  assert.equal(released, true);
+  assert.equal(released.outcome, 'scheduled');
   assert.equal(scheduledPayload?.event?.source, 'buy_confirmation');
   assert.equal(scheduledPayload?.positions?.[0]?.id, 'pos-1');
 });
@@ -72,7 +72,7 @@ test('buy-confirmation mirror sell release falls back to direct intent schedulin
     },
   });
 
-  assert.equal(released, true);
+  assert.equal(released.outcome, 'scheduled');
   assert.equal(scheduledFallback?.exitReason, 'mirror_sell');
   assert.equal(scheduledFallback?.position?.id, 'pos-1');
 });
@@ -118,9 +118,38 @@ test('buy-confirmation mirror sell release only arms exit for unverified history
     },
   });
 
-  assert.equal(released, true);
+  assert.equal(released.outcome, 'armed_pending');
   assert.equal(upsertedEvent?.targetSellTxHash, '0xhist');
   assert.equal(upsertedEvent?.metadata?.releaseDisposition, 'arm_exit');
   assert.equal(armedPayload?.positionIds?.[0], 'pos-2');
   assert.equal(armedPayload?.reasonCode, 'TARGET_SELL_SEEN_IN_HISTORY_UNVERIFIED');
+});
+
+test('buy-confirmation mirror sell release reports already_active when durable scheduler reused an active exit intent', async () => {
+  const released = await releaseMirrorSellAfterBuyConfirm({
+    position: {
+      id: 'pos-3',
+      status: 'open',
+      userId: 'user-3',
+      configId: 'cfg-3',
+      chainId: 56,
+      tokenAddress: '0x65021a79aeef22b17cdc1b768f5e79a8618beba3',
+    },
+    chainId: 56,
+    tokenAddress: '0x65021a79aeef22b17cdc1b768f5e79a8618beba3',
+    targetWallet: '0xtarget',
+    targetSellTxHash: '0xhist-active',
+    reasonCode: 'TARGET_SELL_EVENT_REPLAYED_FROM_STORE',
+    disposition: 'execute_immediately',
+    deps: {
+      buildTargetSellEventPayload(payload: any) {
+        return payload;
+      },
+      async persistTargetSellEventAndSchedulePositions(payload: any) {
+        return { event: payload.event, scheduled: 0, skipped: 1 };
+      },
+    },
+  });
+
+  assert.equal(released.outcome, 'already_active');
 });

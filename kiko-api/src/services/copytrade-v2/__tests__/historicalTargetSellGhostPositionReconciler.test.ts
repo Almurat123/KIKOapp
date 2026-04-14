@@ -32,7 +32,7 @@ test('replays historical target sell for open ghost position without active inte
       },
       async releaseMirrorSellAfterBuyConfirm(payload: any) {
         calls.push(payload);
-        return true;
+        return { outcome: 'scheduled' };
       },
     },
   });
@@ -95,11 +95,42 @@ test('skips when no executable historical sell exists', async () => {
       },
       async releaseMirrorSellAfterBuyConfirm() {
         released = true;
-        return true;
+        return { outcome: 'scheduled' };
       },
     },
   });
 
   assert.equal(result.repaired, false);
   assert.equal(released, false);
+});
+
+test('treats already-active exit intent reuse as repaired without claiming fresh replay', async () => {
+  const result = await reconcileHistoricalTargetSellGhostPosition({
+    position: {
+      id: 'pos-1',
+      status: 'open',
+      userId: 'user-1',
+      configId: 'config-1',
+      chainId: 8453,
+      tokenAddress: '0xtoken',
+      leaderTxHash: '0xbuy',
+      createdAt: new Date('2026-04-08T13:06:38.000Z'),
+    },
+    targetWallet: '0xtarget',
+    deps: {
+      async resolveHistoricalTargetSellIntent() {
+        return {
+          disposition: 'execute_immediately',
+          targetSellTxHash: '0xsell',
+          reasonCode: 'TARGET_SELL_EVENT_REPLAYED_FROM_STORE',
+        };
+      },
+      async releaseMirrorSellAfterBuyConfirm() {
+        return { outcome: 'already_active' as const };
+      },
+    },
+  });
+
+  assert.equal(result.repaired, true);
+  assert.equal(result.targetSellTxHash, '0xsell');
 });

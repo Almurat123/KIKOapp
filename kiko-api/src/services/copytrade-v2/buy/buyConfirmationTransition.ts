@@ -439,7 +439,7 @@ export async function applyBuyConfirmationTransition(params: {
     && historicalMirrorIntent?.disposition === 'execute_immediately'
     && (promotionAction.action === 'promote_open' || promotionAction.action === 'already_open')
   ) {
-    const released = await releaseHistoricalMirrorSell({
+    const releaseResult = await releaseHistoricalMirrorSell({
       position: {
         id: persistedPositionId,
         status: 'open',
@@ -468,16 +468,26 @@ export async function applyBuyConfirmationTransition(params: {
         reasonCode: historicalMirrorIntent.reasonCode,
         error,
       });
-      return false;
+      return { outcome: 'not_scheduled' as const };
     });
 
-    if (released) {
+    if (releaseResult.outcome === 'scheduled') {
       logger.info(LogCode.SYS_INFO, '[CopyTradeBuyConfirm] Historical target sell replay released into exit flow', {
         positionId: persistedPositionId,
         chainId,
         token: tokenToBuy,
         targetSellTxHash: historicalMirrorIntent.targetSellTxHash || undefined,
         reasonCode: historicalMirrorIntent.reasonCode,
+      });
+      resolvedMirrorIntent = chooseMirrorSellIntent(directMirrorIntent, historicalMirrorIntent);
+    } else if (releaseResult.outcome === 'already_active' || releaseResult.outcome === 'armed_pending') {
+      logger.info(LogCode.SYS_INFO, '[CopyTradeBuyConfirm] Historical target sell reused existing exit work', {
+        positionId: persistedPositionId,
+        chainId,
+        token: tokenToBuy,
+        targetSellTxHash: historicalMirrorIntent.targetSellTxHash || undefined,
+        reasonCode: historicalMirrorIntent.reasonCode,
+        releaseOutcome: releaseResult.outcome,
       });
       resolvedMirrorIntent = chooseMirrorSellIntent(directMirrorIntent, historicalMirrorIntent);
     }
