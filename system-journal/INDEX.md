@@ -6,6 +6,7 @@ owner boundaries, and major fixes.
 ## Current Entries
 
 - [Design Language: Copytrade Race Recovery](./design-language/copytrade-race-recovery.md)
+- [Design Language: Copytrade Buy Hot Path Refactor Todo](./design-language/copytrade-buy-hot-path-refactor-todo.md)
 - [Design Language: DirectSwap V4 Hook Provenance](./design-language/directswap-v4-hook-provenance.md)
 - [Design Language: Loading Resilience](./design-language/loading-resilience.md)
 - [Design Language: Farcaster Mini App Shell](./design-language/farcaster-miniapp-shell.md)
@@ -70,6 +71,8 @@ owner boundaries, and major fixes.
 - [Fix Log: 2026-04-14 Copytrade BSC Four.meme Direct-Only Exit](./fix-log/2026-04-14-copytrade-bsc-fourmeme-direct-only-exit.md)
 - [Fix Log: 2026-04-14 Copytrade Buy Dispatch Audit Decoupling](./fix-log/2026-04-14-copytrade-buy-dispatch-audit-decoupling.md)
 - [Fix Log: 2026-04-14 Copytrade Buy Preparation Stage Audit](./fix-log/2026-04-14-copytrade-buy-preparation-stage-audit.md)
+- [Fix Log: 2026-04-14 Copytrade Buy Config Index And Shared Warmup Decoupling](./fix-log/2026-04-14-copytrade-buy-config-index-and-shared-warmup-decoupling.md)
+- [Fix Log: 2026-04-14 Copytrade Turbo Preparation Skip](./fix-log/2026-04-14-copytrade-turbo-preparation-skip.md)
 - [Fix Log: 2026-04-14 Copytrade Buy Cooldown Runtime Enforcement](./fix-log/2026-04-14-copytrade-buy-cooldown-runtime-enforcement.md)
 - [Fix Log: 2026-04-14 Copytrade Historical Target Sell Release Result Semantics](./fix-log/2026-04-14-copytrade-historical-target-sell-release-result-semantics.md)
 - [Fix Log: 2026-04-13 Copytrade Turbo TokenInfo Bypass](./fix-log/2026-04-13-copytrade-turbo-tokeninfo-bypass.md)

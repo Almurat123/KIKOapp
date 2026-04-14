@@ -4,11 +4,14 @@
 // Reason: copy-trade status transitions were still able to reactivate configs
 //         that had already been marked `requiresResign`, which let broken
 //         signed payloads re-enter the active runtime and webhook ownership set.
+//         The buy hot path now also depends on an active-config index, so write
+//         paths must invalidate that read-side cache immediately.
 // Goal: preserve one visible, actionable config surface per valid persisted
 //       config while blocking unsafe reactivation of malformed or stale-signed
-//       configs.
+//       configs, while keeping read-side config index state coherent after writes.
 // Owns: HTTP signed copy-trade config create/update validation, persistence,
-//       and list-time config sanitization for user-visible rows.
+//       list-time config sanitization for user-visible rows, and config-index
+//       invalidation after write-side changes.
 // Does Not Own: chat entity extraction, tool confirmation state, or copy-trade
 //               execution runtime.
 // Design Language:
@@ -23,6 +26,7 @@
 // - configs marked `requiresResign` cannot re-enter `active` through status toggles
 // - delete success must not be downgraded to a pseudo-failure just because the
 //   tracked-wallet summary row is already missing
+// - config writes must invalidate the target-wallet read index in the same request path
 // Document Provenance:
 // - Source: production logs `logs.1776097448703.json`, `logs.1776098593325.json`, `logs.1776097169065.json`
 // - Kind: runtime observation
@@ -31,8 +35,14 @@
 //   of user-visible duplicate stale cards, preserving delete access for hidden-bad rows,
 //   blocking unsafe status reactivation, and delete-path tracked-wallet cleanup semantics
 // - Verification: verified in runtime and code review
+// - Source: /Users/almurat/KiKo/system-journal/design-language/copytrade-buy-hot-path-refactor-todo.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-14
+// - Applied To: config write invalidation for buy-path config index coherence
+// - Verification: verified in code design review
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/copytrade-buy-hot-path-refactor-todo.md
 // - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
 // - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
@@ -67,6 +77,7 @@ import { getEmbeddedWalletAddress } from '../services/privyWallet.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { syncCopyTradeWebhookChain } from '../services/copyTradeWebhookSync.js';
 import { resolveMaxEntryDeviationBps } from '../services/copytrade-v2/config/entryDeviationPolicy.js';
+import { invalidateActiveCopyTradeConfigIndex, invalidateActiveCopyTradeConfigIndexEntries } from '../services/copytrade-v2/config/copyTradeConfigIndex.js';
 import { CopytradeV2QueryService } from '../services/copytrade-v2/data-flow/queryService.js';
 import { assertCopyTradeAutoTradingAuthorized } from '../services/copyTradeAuthorization.js';
 import { safeRecordCopyTradeWalletAudit } from '../services/copyTradeWalletAuditService.js';
@@ -185,6 +196,14 @@ async function quarantineInvalidConfigsForList(rawConfigs: any[]) {
             configIds: quarantined.map((item) => item.id),
             reasons: quarantined,
         });
+        invalidateActiveCopyTradeConfigIndexEntries(
+            rawConfigs
+                .filter((config) => quarantined.some((item) => item.id === config.id))
+                .map((config) => ({
+                    targetWallet: config.targetWallet,
+                    chainId: config.chainId,
+                }))
+        );
     }
 
     return visible;
@@ -503,6 +522,7 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
             });
 
             console.log('[CopyTrade] Created config:', config.id, 'for target:', normalizedTarget);
+            invalidateActiveCopyTradeConfigIndex(normalizedTarget, chainId);
 
             const createSync = await syncCopyTradeWebhookChain(chainId, 'config_create');
             if (!createSync.ok) {
@@ -623,6 +643,7 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
             });
 
             console.log('[CopyTrade] Deleted config:', id);
+            invalidateActiveCopyTradeConfigIndex(config.targetWallet, config.chainId);
 
             // Remove from Alchemy webhook (if no other configs tracking this wallet)
             const remainingConfigs = await prisma.copyTradeConfig.count({
@@ -879,6 +900,11 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
 
             }
 
+            invalidateActiveCopyTradeConfigIndexEntries([
+                { targetWallet: existing.targetWallet, chainId: existing.chainId },
+                { targetWallet: normalizedNextTarget, chainId },
+            ]);
+
             for (const reconcileChainId of new Set<number>([existing.chainId, chainId])) {
                 const updateSync = await syncCopyTradeWebhookChain(reconcileChainId, 'config_update');
                 if (!updateSync.ok) {
@@ -978,6 +1004,7 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                     where: { id: existing.id },
                     data: { status },
                 });
+                invalidateActiveCopyTradeConfigIndex(existing.targetWallet, existing.chainId);
 
                 const statusSync = await syncCopyTradeWebhookChain(existing.chainId, 'config_status_change');
                 if (!statusSync.ok) {

@@ -118,3 +118,42 @@ test('applyPreparedTokenInfoPatch propagates shared market data to escalated con
   assert.equal(prepared.tokenInfoByConfigId.get('strict-user')?.price, 0.452485568);
   assert.equal(prepared.tokenInfoByConfigId.get('strict-user')?.marketCap, 123456);
 });
+
+test('preparePerConfigBuyLiquidity skips resolver when turbo-only policy disables liquidity scans', async () => {
+  let resolverCalls = 0;
+  const tokenInfo = {
+    price: 0.001,
+    symbol: 'FAST',
+    decimals: 18,
+  };
+
+  const prepared = await preparePerConfigBuyLiquidity({
+    tokenToBuy: '0x0000000000000000000000000000000000000001',
+    chainId: 56,
+    swap: { txHash: '0xleader' } as any,
+    tokenInfo,
+    configs: [
+      { id: 'config-1', minLiquidityUsd: 1000 },
+      { id: 'config-2', minLiquidityUsd: 5000 },
+    ],
+    skipLiquidityScan: true,
+  }, {
+    resolveBuyLiquidityGuardSnapshot: async () => {
+      resolverCalls += 1;
+      return {
+        liquidityUsd: 10000,
+        source: 'rpc',
+        reliable: true,
+        poolCount: 1,
+        fallbackUsed: false,
+        metadata: {},
+      };
+    },
+  } as any);
+
+  assert.equal(resolverCalls, 0);
+  assert.equal(prepared.sharedLiquidityGuardSnapshot.source, 'unavailable');
+  assert.equal(prepared.sharedLiquidityGuardSnapshot.metadata?.mode, 'turbo_skip_liquidity_scan');
+  assert.equal(prepared.tokenInfoByConfigId.get('config-1'), prepared.sharedTokenInfo);
+  assert.equal(prepared.tokenInfoByConfigId.get('config-2'), prepared.sharedTokenInfo);
+});

@@ -107,11 +107,11 @@ import {
     buildTargetSellEventPayload,
     persistTargetSellEventAndSchedulePositions
 } from './copytrade-v2/exit/positionExitIntentScheduler.js';
-import { getCopytradeBuySharedWarmup } from './copytrade-v2/buy/buySharedWarmup.js';
 import {
     applyPreparedTokenInfoPatch,
     preparePerConfigBuyLiquidity
 } from './copytrade-v2/buy/perConfigBuyLiquidity.js';
+import { resolveCopytradeSharedPreparationPolicy } from './copytrade-v2/buy/sharedPreparationPolicy.js';
 import { shouldDeferStrongRpcMonitoring } from './copytrade-v2/buy/preConfirmationRpcPolicy.js';
 import {
     evaluateCopyTradeDelay,
@@ -125,6 +125,7 @@ import { getReferenceExpectedOutput } from './dex/directSwap/application/quoteEn
 import type { ConfirmationOutcome } from './swap/confirmationCoordinator.js';
 import { evaluateStaleBuySignal } from './copytrade-v2/buy/staleBuyPolicy.js';
 import { TRADE_METADATA_PROFILE } from './rpc/profile.js';
+import { getActiveCopyTradeConfigIndex } from './copytrade-v2/config/copyTradeConfigIndex.js';
 import {
     executePositionExit as executePositionExitRuntime,
     checkPositionsForExits as checkPositionsForExitsRuntime,
@@ -311,25 +312,34 @@ type CopytradeBuyPreparationStage = {
 // Updated: 2026-04-14
 // Author: Mira Chen
 // Reason: Copytrade buy latency analysis exposed large pre-trade gaps before `buy_dispatch_gate`,
-// but this owner layer did not attribute the latency to named preparation stages.
+// and the buy owner needed both stage timing evidence and a thinner config-resolution path.
 // Goal: Preserve stage-by-stage timing evidence for the synchronous buy preparation path so hot-path
-// latency can be assigned to warmup, config filtering, metadata fallback, and token info fetch.
+// latency can be assigned to config index fetch, filtering, metadata fallback, and token info fetch.
 // Owns: Recording and flushing buy preparation stage timing before `processBuyWithInfo` starts.
 // Does Not Own: Trade admission policy, stale-signal veto thresholds, or swap execution retries.
 // Design Language:
 // - Preparation timing must be attributed to explicit stages instead of blamed on downstream guards.
+// - Hot-path config resolution should prefer a prepared config index over rebuilding follower context per event.
 // - Stage audit may observe the path, but must not change trade decisions.
 // - Forbidden local patch patterns: anonymous elapsed logs without stage labels or owner reason.
+// - Forbidden local patch patterns: restoring synchronous follower warmup as the primary hot-path lookup.
 // Document Provenance:
 // - Source: /Users/almurat/Downloads/logs.1776151885257.json
 // - Kind: runtime observation
 // - Retrieved: 2026-04-14
 // - Applied To: copytrade buy preparation stage audit before runtime buy execution
 // - Verification: verified in log analysis and local replay
+// - Source: /Users/almurat/KiKo/system-journal/design-language/copytrade-buy-hot-path-refactor-todo.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-14
+// - Applied To: config-index-first preparation path for copytrade buy
+// - Verification: verified in code design review
 // See also:
 // - system-journal/INDEX.md
+// - system-journal/design-language/copytrade-buy-hot-path-refactor-todo.md
 // - system-journal/design-language/copytrade-race-recovery.md
 // - system-journal/owner-map/copytrade-webhook-ingress.md
+// - system-journal/fix-log/2026-04-14-copytrade-buy-config-index-and-shared-warmup-decoupling.md
 // - system-journal/fix-log/2026-04-14-copytrade-buy-preparation-stage-audit.md
 function createCopytradeBuyPreparationAuditContext(params: {
     targetWallet: string;
@@ -948,63 +958,23 @@ async function handleTargetBuy(
         txHash: swap.txHash
     });
 
-    const rawConfigsFound = await cacheHub.getCopyTradeConfigs(
-        normalizedWallet,
-        chainId,
-        () => withRetry(() => prisma.copyTradeConfig.findMany({
-            where: {
-                targetWallet: { mode: 'insensitive', equals: normalizedWallet },
-                chainId,
-                status: 'active',
-            },
-        }))
-    ) as any[];
-    preparationAudit.mark('raw_configs_fetch', { found: rawConfigsFound.length });
+    const indexedConfigs = await getActiveCopyTradeConfigIndex(chainId, normalizedWallet) as any[];
+    preparationAudit.mark('config_index_fetch', { found: indexedConfigs.length });
 
-    const rawConfigs = rawConfigsFound.filter((config) =>
-        normalizeAddress(config?.targetWallet || '') === normalizedWallet
-    );
-    preparationAudit.mark('raw_configs_filter', {
-        matched: rawConfigs.length,
-        filteredOut: Math.max(0, rawConfigsFound.length - rawConfigs.length)
-    });
-
-    if (rawConfigs.length === 0) {
+    if (indexedConfigs.length === 0) {
         logger.throttled(LogCode.WTC_TX_SKIPPED, 'No active configurations found for this wallet', { targetWallet, chainId });
         preparationAudit.flush('no_active_configs');
         return;
     }
-    if (rawConfigsFound.length !== rawConfigs.length) {
-        logger.warn(LogCode.WTC_TX_SKIPPED, 'Filtered mismatched target wallet configs on buy path', {
-            targetWallet: normalizedWallet,
-            chainId,
-            found: rawConfigsFound.length,
-            matched: rawConfigs.length
-        });
-    }
 
-    const userIds = [...new Set(rawConfigs.map(c => c.userId))];
-    // ⚡ Fire token metadata in parallel with the shared warmup so both arrive together.
+    // ⚡ Fire token metadata in parallel with config-index filtering so metadata
+    // can arrive without blocking the follower config lookup path.
     const turboMetaPromise = getTokenMetadata(chainId, tokenToBuy, {
         rpcStrategy: TRADE_METADATA_PROFILE.strategy,
         profile: TRADE_METADATA_PROFILE,
     }).catch(() => null);
-    const sharedWarmup = await getCopytradeBuySharedWarmup(chainId, userIds);
-    preparationAudit.mark('shared_warmup', {
-        userCount: userIds.length,
-        userMapSize: sharedWarmup.userMap.size
-    });
-    const userMap = sharedWarmup.userMap;
     const allowSelfTarget = (process.env.COPYTRADE_ALLOW_SELF_TARGET || 'false') === 'true';
-    const configs = rawConfigs
-        .map((c: any) => ({
-            ...c,
-            user: userMap.get(c.userId),
-            executionMode: resolveExecutionModeForConfig(c),
-            // safe: full path, normal/turbo: fast path enabled (all EVM chains)
-            fastExecutionEnabled: resolveExecutionModeForConfig(c) !== 'safe'
-        }))
-        .filter((c) => Boolean(c.user))
+    const configs = indexedConfigs
         .filter((c) => {
             if (allowSelfTarget) return true;
             const userWallet = normalizeAddress(c.user?.walletAddress || '');
@@ -1019,14 +989,14 @@ async function handleTargetBuy(
             }
             return true;
         });
-    preparationAudit.mark('config_materialize', {
+    preparationAudit.mark('config_index_filter', {
         configs: configs.length,
         allowSelfTarget
     });
 
     if (configs.length === 0) {
         logger.throttled(LogCode.WTC_TX_SKIPPED, 'No valid user records for configs', { targetWallet, chainId });
-        preparationAudit.flush('no_valid_configs_after_materialize');
+        preparationAudit.flush('no_valid_configs_after_index');
         return;
     }
 
@@ -1109,7 +1079,7 @@ async function handleTargetBuy(
                 metadataTimedOut,
                 configCount: uniqueExecutableConfigs.length
             });
-            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, sharedWarmup, context?.timing, detectedAt);
+            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, context?.timing, detectedAt);
             return;
         } catch (err: any) {
             preparationAudit.mark('turbo_metadata_fallback_failed', {
@@ -1165,7 +1135,7 @@ async function handleTargetBuy(
                 provider: launchpadResult.provider,
                 configCount: uniqueExecutableConfigs.length
             });
-            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, sharedWarmup, context?.timing, detectedAt);
+            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, context?.timing, detectedAt);
             return;
         }
 
@@ -1203,7 +1173,7 @@ async function handleTargetBuy(
                 preparationAudit.flush('process_buy_with_info_rpc_metadata_fallback', {
                     configCount: uniqueExecutableConfigs.length
                 });
-                await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, sharedWarmup, context?.timing, detectedAt);
+                await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, context?.timing, detectedAt);
                 return;
             } catch (metaErr: any) {
                 logger.warn(LogCode.API_FETCH_FAILED, 'Metadata fallback failed', { token: tokenToBuy, error: metaErr.message });
@@ -1222,7 +1192,7 @@ async function handleTargetBuy(
         provider: tokenInfo.provider || null,
         configCount: uniqueExecutableConfigs.length
     });
-    await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, tokenInfo, false, launchpadPromise, tokenInfoCache, sharedWarmup, context?.timing, detectedAt);
+    await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, tokenInfo, false, launchpadPromise, tokenInfoCache, context?.timing, detectedAt);
 }
 
 /**
@@ -1237,13 +1207,43 @@ async function processBuyWithInfo(
     isFallbackMode: boolean,
     launchpadPromise?: Promise<any>,
     tokenInfoCache?: Map<string, Promise<any>>,
-    sharedWarmup?: Awaited<ReturnType<typeof getCopytradeBuySharedWarmup>>,
     timing?: CopyTradeTimingSnapshot,
     detectedAt?: number
 ) {
     const PROFILE = process.env.COPYTRADE_PROFILE ? process.env.COPYTRADE_PROFILE === 'true' : true;
     const tStart = Date.now();
     tokenInfo.tokenAddress = tokenToBuy;
+    // CONTEXT MEMORY
+    // Updated: 2026-04-14
+    // Author: Mira Chen
+    // Reason: Turbo-only copytrade batches were still paying synchronous liquidity
+    // and market-cap preparation costs before buy submission, despite the shared
+    // preparation policy already marking those enrichment steps as skippable.
+    // Goal: Keep turbo-only buy dispatch focused on admission/send and leave
+    // non-essential enrichment outside the critical path.
+    // Owns: Applying shared-preparation skip policy inside the legacy buy bridge.
+    // Does Not Own: Mode selection, liquidity guard semantics for non-turbo modes,
+    // or downstream swap route execution.
+    // Design Language:
+    // - Turbo-only batches may use metadata/implied-price fallbacks to reach send faster.
+    // - Normal/safety batches keep synchronous liquidity and market-cap enrichment.
+    // - Forbidden local patch patterns: reintroducing liquidity scans before turbo-only send.
+    // Document Provenance:
+    // - Source: system-journal/design-language/copytrade-buy-hot-path-refactor-todo.md
+    // - Kind: repo doc
+    // - Retrieved: 2026-04-14
+    // - Applied To: turbo-only preparation skip in processBuyWithInfo
+    // - Verification: verified in code design review
+    // See also:
+    // - system-journal/INDEX.md
+    // - system-journal/design-language/copytrade-buy-hot-path-refactor-todo.md
+    // - system-journal/owner-map/copytrade-webhook-ingress.md
+    // - system-journal/fix-log/2026-04-14-copytrade-buy-config-index-and-shared-warmup-decoupling.md
+    // - system-journal/fix-log/2026-04-14-copytrade-turbo-preparation-skip.md
+    const sharedPreparationPolicy = resolveCopytradeSharedPreparationPolicy(
+        configs,
+        resolveExecutionModeForConfig
+    );
     const targetValueSnapshot = await computeBuyTargetValueSnapshot(swap, chainId, tokenInfo);
     let targetSwapValueUsd = targetValueSnapshot.targetSwapValueUsd;
     let strictTargetSwapValueUsd = targetValueSnapshot.strictTargetSwapValueUsd;
@@ -1332,7 +1332,7 @@ async function processBuyWithInfo(
                     }
                 }
 
-                if (chainId === 900 && (!tokenInfo.marketCap || tokenInfo.marketCap <= 0)) {
+                if (!sharedPreparationPolicy.skipMarketCapDerivation && chainId === 900 && (!tokenInfo.marketCap || tokenInfo.marketCap <= 0)) {
                     try {
                         const supplyResp = await callRpc<any>('solana', 'getTokenSupply', [tokenToBuy], {
                             rpcClass: 'best_effort_read',
@@ -1364,7 +1364,14 @@ async function processBuyWithInfo(
         }
     }
 
-    const preparedBuyLiquidity = await preparePerConfigBuyLiquidity({ tokenToBuy, chainId, swap, tokenInfo, configs });
+    const preparedBuyLiquidity = await preparePerConfigBuyLiquidity({
+        tokenToBuy,
+        chainId,
+        swap,
+        tokenInfo,
+        configs,
+        skipLiquidityScan: sharedPreparationPolicy.skipLiquidityScan
+    });
     applyPreparedTokenInfoPatch(preparedBuyLiquidity, {
         price: tokenInfo.price,
         marketCap: tokenInfo.marketCap,
@@ -1387,7 +1394,7 @@ async function processBuyWithInfo(
         guardLiquidityMeta: liquidityGuardSnapshot.metadata || undefined,
     });
 
-    if (chainId === 900 && tokenInfo.price > 0 && (!tokenInfo.marketCap || tokenInfo.marketCap <= 0)) {
+    if (!sharedPreparationPolicy.skipMarketCapDerivation && chainId === 900 && tokenInfo.price > 0 && (!tokenInfo.marketCap || tokenInfo.marketCap <= 0)) {
         try {
             const supplyResp = await callRpc<any>('solana', 'getTokenSupply', [tokenToBuy], {
                 rpcClass: 'best_effort_read',
@@ -1416,13 +1423,15 @@ async function processBuyWithInfo(
 
     recordNewTrade(targetWallet, chainId, 'buy', targetSwapValueUsd);
 
+    const cacheStart = Date.now();
+    const sharedNativePrice = await cacheHub.getNativePrice(chainId, async () => getNativeTokenPriceUsd(chainId));
+    const cacheMs = Date.now() - cacheStart;
+
     const turboConfigs = configs.filter((c) => resolveExecutionModeForConfig(c) === 'turbo');
     const normalConfigs = configs.filter((c) => resolveExecutionModeForConfig(c) !== 'turbo');
 
     if (turboConfigs.length > 0) {
-        const turboUserIds = [...new Set(turboConfigs.map(c => c.userId).filter(Boolean))];
-        const quickNativePrice = sharedWarmup!.nativePriceUsd;
-        const turboUserSettingsMap = sharedWarmup!.userSettingsMap;
+        const quickNativePrice = sharedNativePrice;
         logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTrade] Turbo fast lane enabled', {
             userCount: turboConfigs.length,
             token: tokenToBuy,
@@ -1433,7 +1442,7 @@ async function processBuyWithInfo(
             turboConfigs.map((config) =>
                 processSingleUserBuy(
                     config,
-                    turboUserSettingsMap.get(config.userId),
+                    config.userSettings,
                     targetWallet,
                     tokenToBuy,
                     swap,
@@ -1480,17 +1489,11 @@ async function processBuyWithInfo(
     // Handles 200+ users with liquidity awareness and adaptive batching
     // =================================================================
 
-    // ⚡ PERFORMANCE OPTIMIZATION: Fetch shared data ONCE for all users via Cache Hub
-    const cacheStart = Date.now();
-    const userSettingsMap = sharedWarmup!.userSettingsMap;
-    const sharedNativePrice = sharedWarmup!.nativePriceUsd;
-    const cacheMs = Date.now() - cacheStart;
-
-    logger.debug(LogCode.EXE_QUOTE_FETCHED, '⚡ Shared data fetched via Cache Hub', {
+    logger.debug(LogCode.EXE_QUOTE_FETCHED, '⚡ Shared native price fetched for copytrade buy', {
         userCount: configs.length,
         userCountTurboBypassed: turboConfigs.length,
         nativePrice: sharedNativePrice,
-        settingsFetched: userSettingsMap.size
+        settingsFetched: configs.filter((config) => Boolean(config.userSettings)).length
     });
 
     // ⚡ BATCH FILTER: Pre-filter users IN PARALLEL (优化: 串行 → 并行)
@@ -1498,7 +1501,7 @@ async function processBuyWithInfo(
     const filterStart = Date.now();
     const filterResults = await Promise.all(
         workingConfigs.map(async (config) => {
-            const userSettings = userSettingsMap.get(config.userId);
+            const userSettings = config.userSettings;
             const guardedTokenInfo = tokenInfoByConfigId.get(config.id) || tokenInfo;
             const guardedLiquiditySnapshot = liquidityGuardSnapshotByConfigId.get(config.id) || liquidityGuardSnapshot;
             const universalSlippageBps = resolveCopytradeSlippageBps(config, userSettings);
@@ -1668,7 +1671,7 @@ async function processBuyWithInfo(
             batch.map(config =>
                 processSingleUserBuy(
                     config,
-                    userSettingsMap.get(config.userId),
+                    config.userSettings,
                     targetWallet,
                     tokenToBuy,
                     swap,

@@ -5,9 +5,13 @@
 //         same user, chain, and target wallet after malformed chat wallet args
 //         created multiple BSC rows. Database-level active uniqueness now also
 //         means concurrent create races must be converted into idempotent reads.
+//         The buy hot path now also uses a config index, so tool writes must
+//         invalidate that read model immediately.
 // Goal: make copy-trade config creation idempotent for active user+chain+target
-//       tuples and reject malformed wallet args before persistence.
-// Owns: local copy-trade tool persistence and tracked-wallet count maintenance.
+//       tuples, reject malformed wallet args before persistence, and keep the
+//       active-config index coherent after tool writes.
+// Owns: local copy-trade tool persistence, tracked-wallet count maintenance,
+//       and config-index invalidation after create.
 // Does Not Own: signed Trade page config updates, chat wallet entity extraction,
 //               or historical production row cleanup.
 // Design Language:
@@ -16,14 +20,21 @@
 // - idempotent create returns the existing active config instead of incrementing tracked-wallet counts
 // - database unique conflicts are safe races and must not increment tracked-wallet counts
 // - every create/existing-create outcome should emit wallet provenance audit evidence
+// - successful tool writes must invalidate the target-wallet config index
 // Document Provenance:
 // - Source: chat transcript + runtime logs + production database inspection for BSC copy-trade target wallets
 // - Kind: runtime observation
 // - Retrieved: 2026-04-13
 // - Applied To: idempotent create semantics and strict wallet persistence guard
 // - Verification: verified in code review and unit tests
+// - Source: /Users/almurat/KiKo/system-journal/design-language/copytrade-buy-hot-path-refactor-todo.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-14
+// - Applied To: config index invalidation after tool-side create
+// - Verification: verified in code design review
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/copytrade-buy-hot-path-refactor-todo.md
 // - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
 // - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-wallet-entity-hardening.md
@@ -43,6 +54,7 @@ import {
     buildCopyTradeAuthorizationStopResult,
 } from '../../../services/copyTradeAuthorization.js';
 import { safeRecordCopyTradeWalletAudit } from '../../../services/copyTradeWalletAuditService.js';
+import { invalidateActiveCopyTradeConfigIndex } from '../../../services/copytrade-v2/config/copyTradeConfigIndex.js';
 
 export const CreateCopyTradeConfigTool: Tool = {
     definition: {
@@ -273,6 +285,7 @@ export const CreateCopyTradeConfigTool: Tool = {
                 activeConfigs: { increment: 1 },
             },
         });
+        invalidateActiveCopyTradeConfigIndex(normalizedTarget, chainId);
 
         const syncResult = await syncCopyTradeWebhookChain(chainId, 'tool_create');
         if (!syncResult.ok) {
