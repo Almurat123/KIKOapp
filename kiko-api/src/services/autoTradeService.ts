@@ -1216,34 +1216,60 @@ async function processBuyWithInfo(
     // CONTEXT MEMORY
     // Updated: 2026-04-14
     // Author: Mira Chen
-    // Reason: Turbo-only copytrade batches were still paying synchronous liquidity
-    // and market-cap preparation costs before buy submission, despite the shared
-    // preparation policy already marking those enrichment steps as skippable.
-    // Goal: Keep turbo-only buy dispatch focused on admission/send and leave
-    // non-essential enrichment outside the critical path.
-    // Owns: Applying shared-preparation skip policy inside the legacy buy bridge.
+    // Reason: Mixed copytrade batches let normal-mode liquidity preparation run before
+    // turbo-mode submission, so a non-turbo follower could hold the hot lane for seconds.
+    // Goal: Dispatch turbo followers after only required target-value/native-price prep,
+    // then run full liquidity and batch guards for normal followers.
+    // Owns: Splitting turbo and normal preparation inside the legacy buy bridge.
     // Does Not Own: Mode selection, liquidity guard semantics for non-turbo modes,
     // or downstream swap route execution.
     // Design Language:
+    // - Turbo batches must not wait for normal-mode liquidity scans.
     // - Turbo-only batches may use metadata/implied-price fallbacks to reach send faster.
     // - Normal/safety batches keep synchronous liquidity and market-cap enrichment.
-    // - Forbidden local patch patterns: reintroducing liquidity scans before turbo-only send.
+    // - Forbidden local patch patterns: reintroducing mixed-batch liquidity scans before turbo send.
     // Document Provenance:
     // - Source: system-journal/design-language/copytrade-buy-hot-path-refactor-todo.md
     // - Kind: repo doc
     // - Retrieved: 2026-04-14
-    // - Applied To: turbo-only preparation skip in processBuyWithInfo
+    // - Applied To: hot-path owner boundary that forbids non-essential pre-send work
     // - Verification: verified in code design review
+    // - Source: /Users/almurat/Downloads/logs.1776165812688.json
+    // - Kind: runtime observation
+    // - Retrieved: 2026-04-14
+    // - Applied To: mixed-batch turbo/normal buy preparation split in processBuyWithInfo
+    // - Verification: verified in logs, code review, and tsc
     // See also:
     // - system-journal/INDEX.md
     // - system-journal/design-language/copytrade-buy-hot-path-refactor-todo.md
     // - system-journal/owner-map/copytrade-webhook-ingress.md
     // - system-journal/fix-log/2026-04-14-copytrade-buy-config-index-and-shared-warmup-decoupling.md
     // - system-journal/fix-log/2026-04-14-copytrade-turbo-preparation-skip.md
+    // - system-journal/fix-log/2026-04-14-copytrade-target-signal-cooldown-and-exit-finality.md
     const sharedPreparationPolicy = resolveCopytradeSharedPreparationPolicy(
         configs,
         resolveExecutionModeForConfig
     );
+    const turboConfigs = configs.filter((c) => resolveExecutionModeForConfig(c) === 'turbo');
+    const normalConfigs = configs.filter((c) => resolveExecutionModeForConfig(c) !== 'turbo');
+    const sharedNativePricePromise = cacheHub
+        .getNativePrice(chainId, async () => getNativeTokenPriceUsd(chainId))
+        .catch((error: any) => {
+            logger.warn(LogCode.API_FETCH_FAILED, 'Unable to prefetch shared native price for copytrade buy', {
+                chainId,
+                error: error?.message || String(error)
+            });
+            return 0;
+        });
+    let cacheMs = 0;
+    let sharedNativePriceMemo: number | null = null;
+    const getSharedNativePrice = async () => {
+        if (sharedNativePriceMemo !== null) return sharedNativePriceMemo;
+        const cacheStart = Date.now();
+        sharedNativePriceMemo = await sharedNativePricePromise;
+        cacheMs += Date.now() - cacheStart;
+        return sharedNativePriceMemo;
+    };
     const targetValueSnapshot = await computeBuyTargetValueSnapshot(swap, chainId, tokenInfo);
     let targetSwapValueUsd = targetValueSnapshot.targetSwapValueUsd;
     let strictTargetSwapValueUsd = targetValueSnapshot.strictTargetSwapValueUsd;
@@ -1364,13 +1390,89 @@ async function processBuyWithInfo(
         }
     }
 
+    recordNewTrade(targetWallet, chainId, 'buy', targetSwapValueUsd);
+
+    const turboPreparedBuyLiquidity = turboConfigs.length > 0
+        ? await preparePerConfigBuyLiquidity({
+            tokenToBuy,
+            chainId,
+            swap,
+            tokenInfo,
+            configs: turboConfigs,
+            skipLiquidityScan: true
+        })
+        : null;
+    if (turboPreparedBuyLiquidity) {
+        applyPreparedTokenInfoPatch(turboPreparedBuyLiquidity, {
+            price: tokenInfo.price,
+            marketCap: tokenInfo.marketCap,
+            fdv: tokenInfo.fdv,
+            provider: tokenInfo.provider
+        });
+    }
+
+    if (turboConfigs.length > 0) {
+        const quickNativePrice = await getSharedNativePrice();
+        logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTrade] Turbo fast lane enabled', {
+            userCount: turboConfigs.length,
+            token: tokenToBuy,
+            chainId
+        });
+
+        const turboResults = await Promise.allSettled(
+            turboConfigs.map((config) =>
+                processSingleUserBuy(
+                    config,
+                    config.userSettings,
+                    targetWallet,
+                    tokenToBuy,
+                    swap,
+                    chainId,
+                    turboPreparedBuyLiquidity?.tokenInfoByConfigId.get(config.id)
+                        || turboPreparedBuyLiquidity?.sharedTokenInfo
+                        || tokenInfo,
+                    targetSwapValueUsd,
+                    strictTargetSwapValueUsd,
+                    strictTargetSwapValueReliable,
+                    strictTargetSwapValueSource,
+                    strictMinGuardRequired,
+                    isFallbackMode,
+                    1.0,
+                    quickNativePrice,
+                    launchpadPromise,
+                    tokenInfoCache,
+                    timing,
+                    detectedAt
+                )
+            )
+        );
+
+        const turboSummary = summarizeSingleUserBuyResults(turboResults);
+        logger.info(LogCode.EXE_TX_CONFIRMED, '[CopyTrade] Turbo fast lane complete', {
+            userCount: turboConfigs.length,
+            success: turboSummary.submitted,
+            submitted: turboSummary.submitted,
+            confirmed: turboSummary.confirmed,
+            awaitingVisibility: turboSummary.awaitingVisibility,
+            executed: turboSummary.executed,
+            pending: turboSummary.pending,
+            skipped: turboSummary.skipped,
+            failed: turboSummary.failed,
+            totalMs: Date.now() - tStart
+        });
+    }
+
+    if (normalConfigs.length === 0) {
+        return;
+    }
+
     const preparedBuyLiquidity = await preparePerConfigBuyLiquidity({
         tokenToBuy,
         chainId,
         swap,
         tokenInfo,
-        configs,
-        skipLiquidityScan: sharedPreparationPolicy.skipLiquidityScan
+        configs: normalConfigs,
+        skipLiquidityScan: false
     });
     applyPreparedTokenInfoPatch(preparedBuyLiquidity, {
         price: tokenInfo.price,
@@ -1384,7 +1486,8 @@ async function processBuyWithInfo(
     const liquidityGuardSnapshotByConfigId = preparedBuyLiquidity.liquidityGuardSnapshotByConfigId;
 
     logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Processing configurations for buy', {
-        count: configs.length,
+        count: normalConfigs.length,
+        totalCount: configs.length,
         price: tokenInfo.price,
         fallback: isFallbackMode,
         guardLiquidityUsd: liquidityGuardSnapshot.liquidityUsd,
@@ -1421,67 +1524,7 @@ async function processBuyWithInfo(
         }
     }
 
-    recordNewTrade(targetWallet, chainId, 'buy', targetSwapValueUsd);
-
-    const cacheStart = Date.now();
-    const sharedNativePrice = await cacheHub.getNativePrice(chainId, async () => getNativeTokenPriceUsd(chainId));
-    const cacheMs = Date.now() - cacheStart;
-
-    const turboConfigs = configs.filter((c) => resolveExecutionModeForConfig(c) === 'turbo');
-    const normalConfigs = configs.filter((c) => resolveExecutionModeForConfig(c) !== 'turbo');
-
-    if (turboConfigs.length > 0) {
-        const quickNativePrice = sharedNativePrice;
-        logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTrade] Turbo fast lane enabled', {
-            userCount: turboConfigs.length,
-            token: tokenToBuy,
-            chainId
-        });
-
-        const turboResults = await Promise.allSettled(
-            turboConfigs.map((config) =>
-                processSingleUserBuy(
-                    config,
-                    config.userSettings,
-                    targetWallet,
-                    tokenToBuy,
-                    swap,
-                    chainId,
-                    tokenInfoByConfigId.get(config.id) || tokenInfo,
-                    targetSwapValueUsd,
-                    strictTargetSwapValueUsd,
-                    strictTargetSwapValueReliable,
-                    strictTargetSwapValueSource,
-                    strictMinGuardRequired,
-                    isFallbackMode,
-                    1.0,
-                    quickNativePrice,
-                    launchpadPromise,
-                    tokenInfoCache,
-                    timing,
-                    detectedAt
-                )
-            )
-        );
-
-        const turboSummary = summarizeSingleUserBuyResults(turboResults);
-        logger.info(LogCode.EXE_TX_CONFIRMED, '[CopyTrade] Turbo fast lane complete', {
-            userCount: turboConfigs.length,
-            success: turboSummary.submitted,
-            submitted: turboSummary.submitted,
-            confirmed: turboSummary.confirmed,
-            awaitingVisibility: turboSummary.awaitingVisibility,
-            executed: turboSummary.executed,
-            pending: turboSummary.pending,
-            skipped: turboSummary.skipped,
-            failed: turboSummary.failed,
-            totalMs: Date.now() - tStart
-        });
-    }
-
-    if (normalConfigs.length === 0) {
-        return;
-    }
+    const sharedNativePrice = await getSharedNativePrice();
     const workingConfigs = normalConfigs;
 
     // =================================================================

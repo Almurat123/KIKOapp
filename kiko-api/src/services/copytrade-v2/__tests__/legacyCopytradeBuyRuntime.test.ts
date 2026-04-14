@@ -140,6 +140,7 @@ test('legacy copytrade buy runtime defers buy dispatch audit off the synchronous
 test('legacy copytrade buy runtime blocks recent same-token cooldown before pending position create', async () => {
   const transitions: any[] = [];
   const notifications: any[] = [];
+  let exposurePreflightArgs: any = null;
   let duplicateWhereCalled = false;
 
   const result = await processSingleUserBuy({
@@ -202,12 +203,15 @@ test('legacy copytrade buy runtime blocks recent same-token cooldown before pend
     MAX_COPY_TRADE_USD: 1000,
     notificationService: { sendNotification: async () => null },
     describeCooldownMode: (minutes: number) => minutes > 0 ? 'recent_strategy_activity' : 'disabled',
-    evaluateCopytradeExposurePreflight: async () => ({
-      allowed: false,
-      reasonCode: 'COOLDOWN_RECENT_STRATEGY_ACTIVITY',
-      metrics: { recentCooldownPositionCount: 1, recentCooldownPositionIds: ['pos-1'] },
-      exposure: { state: 'none', reasonCode: 'none', blockingPositions: [] },
-    }),
+    evaluateCopytradeExposurePreflight: async (params: any) => {
+      exposurePreflightArgs = params;
+      return {
+        allowed: false,
+        reasonCode: 'COOLDOWN_RECENT_STRATEGY_ACTIVITY',
+        metrics: { recentCooldownPositionCount: 1, recentCooldownPositionIds: ['pos-1'] },
+        exposure: { state: 'none', reasonCode: 'none', blockingPositions: [] },
+      };
+    },
     claimOrCreateCanonicalOrder: async () => ({ id: 'order-cooldown' }),
     advanceCanonicalOrderState: async (params: any) => {
       transitions.push(params);
@@ -224,6 +228,8 @@ test('legacy copytrade buy runtime blocks recent same-token cooldown before pend
   assert.equal(transitions.length, 1);
   assert.equal(transitions[0].reasonCode, 'cooldown_recent_strategy_activity');
   assert.equal(notifications.length, 1);
+  assert.equal(exposurePreflightArgs.targetWallet, '0xtarget');
+  assert.equal(exposurePreflightArgs.sourceTxHash, '0xleader-cooldown');
 });
 
 test('legacy copytrade buy runtime blocks active exposure before pending position create', async () => {

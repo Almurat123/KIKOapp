@@ -413,6 +413,7 @@ export async function processSingleUserBuy(params: {
             // Design Language:
             // - Cooldown configured in user/config settings must veto runtime admission, not just appear in audit logs.
             // - Pending-lock dedupe and recent-strategy cooldown are separate controls and both must be enforced.
+            // - Same-token cooldown must include target-wallet signal history, not only follower position rows.
             // - Forbidden local patch patterns: treating `cooldown` audit fields as enforcement evidence.
             // Document Provenance:
             // - Source: /Users/almurat/Downloads/logs.1776155212543.json
@@ -425,6 +426,7 @@ export async function processSingleUserBuy(params: {
             // - system-journal/design-language/copytrade-race-recovery.md
             // - system-journal/owner-map/copytrade-webhook-ingress.md
             // - system-journal/fix-log/2026-04-14-copytrade-buy-cooldown-runtime-enforcement.md
+            // - system-journal/fix-log/2026-04-14-copytrade-target-signal-cooldown-and-exit-finality.md
             const cooldownMinutes = config.copyTradeTokenCooldownMinutes ?? userSettings?.copyTradeTokenCooldownMinutes ?? 60;
             guardAudit.cooldown = {
                 minutes: cooldownMinutes,
@@ -438,6 +440,8 @@ export async function processSingleUserBuy(params: {
                     tokenAddress: tokenToBuy,
                     chainId,
                     cooldownMinutes,
+                    targetWallet,
+                    sourceTxHash: leaderTxHash || null,
                     allowScaleIn: false,
                 });
                 if (!exposurePreflight.allowed) {

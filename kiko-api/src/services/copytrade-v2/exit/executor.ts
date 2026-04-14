@@ -2,28 +2,35 @@
 // Updated: 2026-04-14
 // Author: Rowan
 // Reason: mirror-sell retry expansion treated `direct_primary` as "prefer
-//         direct first, but allow external retries later". That was too loose
-//         for BSC four.meme pre-graduation exits, which must remain on the
-//         launchpad route instead of leaking into 0x-based retries.
-// Goal: preserve route-policy semantics across retries so `direct_only`
-//       remains direct on every immediate attempt.
-// Owns: immediate copytrade exit attempt construction and route/slippage
-//       escalation order.
+//         direct first, but allow external retries later"; later runtime logs
+//         also showed confirmed direct exits being persisted as pending because
+//         finality adjudication ignored a `requireConfirmedTx` success result.
+// Goal: preserve route-policy semantics across retries and close confirmed exit
+//       swaps immediately when the execution facade has already required confirmation.
+// Owns: immediate copytrade exit attempt construction, route/slippage escalation
+//       order, and attempt-level finality normalization.
 // Does Not Own: launchpad detection, swap execution internals, or persisted
 //               position attribution.
 // Design Language:
 // - exit retries keep amount constant and only vary route/slippage
 // - `direct_only` means no external retry steps in the immediate attempt set
 // - route-policy names must map to strict execution behavior, not soft hints
+// - `requireConfirmedTx` success with a canonical tx hash is confirmed exit evidence unless explicit failure is present
 // Document Provenance:
 // - Source: production log `logs.1776101245961.json`
 // - Kind: runtime observation
 // - Retrieved: 2026-04-14
 // - Applied To: introducing `direct_only` exit attempts for four.meme sell flows
 // - Verification: verified in code review and targeted tests
+// - Source: /Users/almurat/Downloads/logs.1776165812688.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-14
+// - Applied To: trusting confirmed swap-result success in mirror-sell attempt finality
+// - Verification: verified in logs and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-bsc-fourmeme-direct-only-exit.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-target-signal-cooldown-and-exit-finality.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 import { logger } from '../../../utils/logger.js';
@@ -149,11 +156,12 @@ async function runExitSwapAttempt(
   return result.swapResult;
 }
 
-function resolveAttemptFinality(params: {
+export function resolveAttemptFinality(params: {
   plan: EvmExitSwapPlan;
   txHash?: string | null;
   runtimeContext: EvmExitSwapPlan['runtimeContext'];
   txLifecycle?: any;
+  swapSuccess?: boolean;
   error?: string;
 }) {
   const snapshot = snapshotOrderRuntime(params.runtimeContext);
@@ -180,6 +188,14 @@ function resolveAttemptFinality(params: {
     || finality.state === 'chain_observed'
     || finality.state === 'rpc_uncertain';
 
+  if (finality.state === 'confirmed_failed') {
+    return {
+      finalityState: 'confirmed_failed' as const,
+      finalityReasonCode: finality.reasonCode || 'confirmed_failed',
+      txHash: canonicalTxHash || undefined,
+      allTxHashes,
+    };
+  }
   if (finality.state === 'confirmed_success') {
     return {
       finalityState: 'confirmed_success' as const,
@@ -188,11 +204,13 @@ function resolveAttemptFinality(params: {
       allTxHashes,
     };
   }
-  if (finality.state === 'confirmed_failed') {
+  if (params.swapSuccess && canonicalTxHash) {
     return {
-      finalityState: 'confirmed_failed' as const,
-      finalityReasonCode: finality.reasonCode || 'confirmed_failed',
-      txHash: canonicalTxHash || undefined,
+      finalityState: 'confirmed_success' as const,
+      finalityReasonCode: finality.reasonCode && finality.reasonCode !== 'none'
+        ? finality.reasonCode
+        : 'swap_result_success_require_confirmed',
+      txHash: canonicalTxHash,
       allTxHashes,
     };
   }
@@ -250,6 +268,7 @@ export async function executeEvmExitPlan(plan: EvmExitSwapPlan): Promise<EvmExit
         txHash: result.txHash,
         runtimeContext: lastRuntime,
         txLifecycle: result.txLifecycle,
+        swapSuccess: result.success === true,
         error: result.error || undefined,
       });
       if (finality.finalityState === 'confirmed_success' && finality.txHash) {
