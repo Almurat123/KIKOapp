@@ -299,6 +299,73 @@ const COPYTRADE_MAX_DELAY_MS = Number(process.env.COPYTRADE_MAX_DELAY_MS || '450
 const COPYTRADE_TURBO_MAX_DELAY_MS = Number(process.env.COPYTRADE_TURBO_MAX_DELAY_MS || '12000');
 const COPYTRADE_HARD_MAX_DELAY_MS = Number(process.env.COPYTRADE_HARD_MAX_DELAY_MS || '180000');
 
+type CopytradeBuyPreparationStage = {
+    stage: string;
+    durationMs: number;
+    sinceStartMs: number;
+    meta?: Record<string, unknown>;
+};
+
+// CONTEXT MEMORY
+// Updated: 2026-04-14
+// Author: Mira Chen
+// Reason: Copytrade buy latency analysis exposed large pre-trade gaps before `buy_dispatch_gate`,
+// but this owner layer did not attribute the latency to named preparation stages.
+// Goal: Preserve stage-by-stage timing evidence for the synchronous buy preparation path so hot-path
+// latency can be assigned to warmup, config filtering, metadata fallback, and token info fetch.
+// Owns: Recording and flushing buy preparation stage timing before `processBuyWithInfo` starts.
+// Does Not Own: Trade admission policy, stale-signal veto thresholds, or swap execution retries.
+// Design Language:
+// - Preparation timing must be attributed to explicit stages instead of blamed on downstream guards.
+// - Stage audit may observe the path, but must not change trade decisions.
+// - Forbidden local patch patterns: anonymous elapsed logs without stage labels or owner reason.
+// Document Provenance:
+// - Source: /Users/almurat/Downloads/logs.1776151885257.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-14
+// - Applied To: copytrade buy preparation stage audit before runtime buy execution
+// - Verification: verified in log analysis and local replay
+// See also:
+// - system-journal/INDEX.md
+// - system-journal/design-language/copytrade-race-recovery.md
+// - system-journal/owner-map/copytrade-webhook-ingress.md
+// - system-journal/fix-log/2026-04-14-copytrade-buy-preparation-stage-audit.md
+function createCopytradeBuyPreparationAuditContext(params: {
+    targetWallet: string;
+    token: string;
+    chainId: number;
+    txHash?: string;
+}) {
+    const startedAt = Date.now();
+    let stageStartedAt = startedAt;
+    const stages: CopytradeBuyPreparationStage[] = [];
+
+    return {
+        mark(stage: string, meta?: Record<string, unknown>) {
+            const now = Date.now();
+            stages.push({
+                stage,
+                durationMs: Math.max(0, now - stageStartedAt),
+                sinceStartMs: Math.max(0, now - startedAt),
+                meta
+            });
+            stageStartedAt = now;
+        },
+        flush(reason: string, extra?: Record<string, unknown>) {
+            logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTradeTiming] buy preparation stages', {
+                targetWallet: params.targetWallet,
+                token: params.token,
+                chainId: params.chainId,
+                txHash: params.txHash,
+                reason,
+                totalMs: Math.max(0, Date.now() - startedAt),
+                stages,
+                ...(extra || {})
+            });
+        }
+    };
+}
+
 /**
  * Pure delay check for copy trade (used in processBuyWithInfo; exported for tests).
  * @param detectedAtOrTiming - Legacy detectedAt or structured timing snapshot
@@ -873,6 +940,12 @@ async function handleTargetBuy(
     });
 
     logger.debug(LogCode.EXE_QUOTE_FETCHED, `Fast path execution started for ${tokenToBuy}`, { targetWallet, token: tokenToBuy });
+    const preparationAudit = createCopytradeBuyPreparationAuditContext({
+        targetWallet,
+        token: tokenToBuy,
+        chainId,
+        txHash: swap.txHash
+    });
 
     const rawConfigsFound = await cacheHub.getCopyTradeConfigs(
         normalizedWallet,
@@ -885,13 +958,19 @@ async function handleTargetBuy(
             },
         }))
     ) as any[];
+    preparationAudit.mark('raw_configs_fetch', { found: rawConfigsFound.length });
 
     const rawConfigs = rawConfigsFound.filter((config) =>
         normalizeAddress(config?.targetWallet || '') === normalizedWallet
     );
+    preparationAudit.mark('raw_configs_filter', {
+        matched: rawConfigs.length,
+        filteredOut: Math.max(0, rawConfigsFound.length - rawConfigs.length)
+    });
 
     if (rawConfigs.length === 0) {
         logger.throttled(LogCode.WTC_TX_SKIPPED, 'No active configurations found for this wallet', { targetWallet, chainId });
+        preparationAudit.flush('no_active_configs');
         return;
     }
     if (rawConfigsFound.length !== rawConfigs.length) {
@@ -910,6 +989,10 @@ async function handleTargetBuy(
         profile: TRADE_METADATA_PROFILE,
     }).catch(() => null);
     const sharedWarmup = await getCopytradeBuySharedWarmup(chainId, userIds);
+    preparationAudit.mark('shared_warmup', {
+        userCount: userIds.length,
+        userMapSize: sharedWarmup.userMap.size
+    });
     const userMap = sharedWarmup.userMap;
     const allowSelfTarget = (process.env.COPYTRADE_ALLOW_SELF_TARGET || 'false') === 'true';
     const configs = rawConfigs
@@ -935,9 +1018,14 @@ async function handleTargetBuy(
             }
             return true;
         });
+    preparationAudit.mark('config_materialize', {
+        configs: configs.length,
+        allowSelfTarget
+    });
 
     if (configs.length === 0) {
         logger.throttled(LogCode.WTC_TX_SKIPPED, 'No valid user records for configs', { targetWallet, chainId });
+        preparationAudit.flush('no_valid_configs_after_materialize');
         return;
     }
 
@@ -946,16 +1034,25 @@ async function handleTargetBuy(
         targetWallet: normalizedWallet,
         token: tokenToBuy,
     });
+    preparationAudit.mark('signature_filter', {
+        configs: configs.length,
+        executableConfigs: executableConfigs.length
+    });
     if (executableConfigs.length === 0) {
         logger.warn(LogCode.WTC_TX_SKIPPED, 'No executable copy trade configs after signature validation', {
             chainId,
             targetWallet: normalizedWallet,
             token: tokenToBuy,
         });
+        preparationAudit.flush('no_executable_configs');
         return;
     }
 
     const uniqueExecutableConfigs = dedupeConfigsByUser(executableConfigs);
+    preparationAudit.mark('dedupe_configs', {
+        executableConfigs: executableConfigs.length,
+        uniqueExecutableConfigs: uniqueExecutableConfigs.length
+    });
     if (uniqueExecutableConfigs.length !== executableConfigs.length) {
         logger.warn(LogCode.WTC_TX_SKIPPED, 'Buy path deduped duplicate configs for same user', {
             targetWallet: normalizedWallet,
@@ -979,6 +1076,9 @@ async function handleTargetBuy(
     const launchpadPromise = (chainId === 8453 || chainId === 56 || chainId === 900)
         ? detectLaunchpadToken(tokenToBuy, chainId).catch(() => null)
         : Promise.resolve(null);
+    preparationAudit.mark('launchpad_detection_started', {
+        enabled: chainId === 8453 || chainId === 56 || chainId === 900
+    });
 
     const skipTokenInfo = uniqueExecutableConfigs.every(c => c.executionMode === 'turbo');
     if (skipTokenInfo) {
@@ -991,6 +1091,10 @@ async function handleTargetBuy(
                 getTokenDecimals,
                 chainId,
             });
+            preparationAudit.mark('turbo_metadata_fallback', {
+                provider: fallbackInfo.provider,
+                metadataTimedOut
+            });
 
             logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTrade] Token info disabled - using RPC metadata fallback', {
                 token: tokenToBuy,
@@ -999,9 +1103,17 @@ async function handleTargetBuy(
                 metadataTimedOut,
             });
 
+            preparationAudit.flush('process_buy_with_info_turbo_fallback', {
+                provider: fallbackInfo.provider,
+                metadataTimedOut,
+                configCount: uniqueExecutableConfigs.length
+            });
             await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, sharedWarmup, context?.timing, detectedAt);
             return;
         } catch (err: any) {
+            preparationAudit.mark('turbo_metadata_fallback_failed', {
+                error: err?.message?.slice(0, 120) || 'unknown'
+            });
             logger.warn(LogCode.API_FETCH_FAILED, '[CopyTrade] Token info disabled but metadata fallback failed', {
                 token: tokenToBuy,
                 error: err?.message?.slice(0, 120)
@@ -1012,7 +1124,15 @@ async function handleTargetBuy(
 
     const tokenInfoPromise = getTokenInfoOnce(tokenInfoCache, tokenToBuy, chainId, { priority: 'high', rpcStrategy: TRADE_METADATA_PROFILE, fastMode: true });
     const tokenInfo = await tokenInfoPromise;
+    preparationAudit.mark('token_info_fetch', {
+        hasTokenInfo: Boolean(tokenInfo),
+        hasPrice: Boolean(tokenInfo?.price && tokenInfo.price > 0)
+    });
     const launchpadResult = await resolveLaunchpad(launchpadPromise, chainId);
+    preparationAudit.mark('launchpad_resolve', {
+        provider: launchpadResult?.provider || null,
+        hasLaunchpadData: Boolean(launchpadResult?.data)
+    });
 
     if (!tokenInfo || tokenInfo.price <= 0) {
         if (launchpadResult && launchpadResult.data) {
@@ -1040,6 +1160,10 @@ async function handleTargetBuy(
                 websites: [],
                 provider: launchpadResult.provider
             };
+            preparationAudit.flush('process_buy_with_info_launchpad_fallback', {
+                provider: launchpadResult.provider,
+                configCount: uniqueExecutableConfigs.length
+            });
             await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, sharedWarmup, context?.timing, detectedAt);
             return;
         }
@@ -1065,12 +1189,19 @@ async function handleTargetBuy(
                     websites: [],
                     provider: 'rpc-metadata'
                 };
+                preparationAudit.mark('rpc_metadata_only_fallback', {
+                    symbol: fallbackInfo.symbol,
+                    decimals: fallbackInfo.decimals
+                });
 
                 logger.warn(LogCode.API_FETCH_FAILED, 'RPC price missing - proceeding with metadata-only fallback (fast mode)', {
                     token: tokenToBuy,
                     chainId
                 });
 
+                preparationAudit.flush('process_buy_with_info_rpc_metadata_fallback', {
+                    configCount: uniqueExecutableConfigs.length
+                });
                 await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, fallbackInfo, true, launchpadPromise, tokenInfoCache, sharedWarmup, context?.timing, detectedAt);
                 return;
             } catch (metaErr: any) {
@@ -1079,9 +1210,17 @@ async function handleTargetBuy(
         }
 
         logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping trade: No valid token information or price found', { targetWallet, token: tokenToBuy });
+        preparationAudit.flush('missing_token_info', {
+            allowFastFallback,
+            hasLaunchpadData: Boolean(launchpadResult?.data)
+        });
         return;
     }
 
+    preparationAudit.flush('process_buy_with_info_standard', {
+        provider: tokenInfo.provider || null,
+        configCount: uniqueExecutableConfigs.length
+    });
     await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, uniqueExecutableConfigs, tokenInfo, false, launchpadPromise, tokenInfoCache, sharedWarmup, context?.timing, detectedAt);
 }
 

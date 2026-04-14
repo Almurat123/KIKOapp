@@ -14,6 +14,101 @@ type SingleUserBuyResult = {
     outcome: 'executed' | 'pending' | 'skipped' | 'failed';
 };
 
+type DeferredTimingAuditInput = {
+    userId: string;
+    tokenToBuy: string;
+    chainId: number;
+    executionMode: string;
+    turboMode: boolean;
+    timing: any;
+    delayCheck: {
+        skip: boolean;
+        delayMs: number;
+        hardDelayMs: number;
+        maxDelayMs: number;
+        delayAnchor: string;
+        reasonCode?: string;
+    };
+    inboundDelayMs: number | null;
+    delayFirstSeenMs: number | null;
+    logger: any;
+    LogCode: any;
+    emitCopyTradeTimingAudit: (...args: any[]) => void;
+    deferTimingAudit?: (fn: () => void) => void;
+};
+
+// CONTEXT MEMORY
+// Updated: 2026-04-14
+// Author: Mira Chen
+// Reason: Copytrade buy delay veto and timing audit had drifted into the same synchronous owner path, making
+// the audit stage look like a blocking trade gate even though only stale-signal rejection must remain inline.
+// Goal: Keep the stale-signal veto synchronous while moving buy-dispatch timing audit emission off the hot path.
+// Owns: Deferring buy dispatch delay logs and timing audit emission after the delay verdict is computed.
+// Does Not Own: Deciding the delay policy itself, waiting for quote readiness, or changing stale-signal thresholds.
+// Design Language:
+// - Synchronous buy entry may compute a stale-signal verdict, but audit emission must not be treated as trade work.
+// - Delay evidence must be captured at the decision point and emitted later without mutating the verdict.
+// - Forbidden local patch patterns: introducing sleeps around buy dispatch audit or folding delay logging back into inline execution.
+// Document Provenance:
+// - Source: /Users/almurat/Downloads/logs.1776151885257.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-14
+// - Applied To: separating synchronous stale veto from asynchronous buy dispatch audit
+// - Verification: verified in runtime logs and local replay
+// See also:
+// - system-journal/INDEX.md
+// - system-journal/design-language/copytrade-race-recovery.md
+// - system-journal/owner-map/copytrade-webhook-ingress.md
+// - system-journal/fix-log/2026-04-14-copytrade-buy-dispatch-audit-decoupling.md
+function deferBuyDispatchAudit(input: DeferredTimingAuditInput): void {
+    const runLater = input.deferTimingAudit
+        || ((fn: () => void) => {
+            if (typeof setImmediate === 'function') {
+                setImmediate(fn);
+                return;
+            }
+            setTimeout(fn, 0);
+        });
+
+    const payload = {
+        userId: input.userId,
+        token: input.tokenToBuy,
+        chainId: input.chainId,
+        executionMode: input.executionMode,
+        turboMode: input.turboMode,
+        delayMs: input.delayCheck.delayMs,
+        hardDelayMs: input.delayCheck.hardDelayMs,
+        maxDelayMs: input.delayCheck.maxDelayMs,
+        delayAnchor: input.delayCheck.delayAnchor,
+        reasonCode: input.delayCheck.reasonCode || null,
+        skip: input.delayCheck.skip
+    };
+
+    runLater(() => {
+        try {
+            if (input.inboundDelayMs !== null && input.inboundDelayMs > 800) {
+                input.logger.info(input.LogCode.EXE_QUOTE_FETCHED, '[CopyTradeTiming] user buy dispatch delay', {
+                    userId: input.userId,
+                    token: input.tokenToBuy,
+                    chainId: input.chainId,
+                    inboundDelayMs: input.inboundDelayMs,
+                    delayFirstSeenMs: input.delayFirstSeenMs,
+                    delayAnchor: input.delayCheck.delayAnchor,
+                    executionMode: input.executionMode
+                });
+            }
+            input.emitCopyTradeTimingAudit('buy_dispatch_gate', input.timing, payload);
+        } catch (error: any) {
+            input.logger.warn(input.LogCode.SYS_ERROR, 'Deferred buy dispatch audit failed', {
+                userId: input.userId,
+                token: input.tokenToBuy,
+                chainId: input.chainId,
+                error: error?.message || String(error)
+            });
+        }
+    });
+}
+
 export async function processSingleUserBuy(params: {
     config: any;
     userSettings: any;
@@ -46,6 +141,7 @@ export async function processSingleUserBuy(params: {
         getCopyTradeDispatchTimingAnchor,
         isCopyTradeDelayExceeded,
         emitCopyTradeTimingAudit,
+        deferTimingAudit,
         isTokenLockedForUser,
         resolveCopytradeSlippageBps,
         resolveEntryDeviationModePolicy,
@@ -246,30 +342,21 @@ export async function processSingleUserBuy(params: {
         try {
             const dispatchTimingAnchor = getCopyTradeDispatchTimingAnchor(timing);
             const inboundDelayMs = dispatchTimingAnchor.timestamp ? Math.max(0, Date.now() - dispatchTimingAnchor.timestamp) : null;
-            if (inboundDelayMs !== null && inboundDelayMs > 800) {
-                logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTradeTiming] user buy dispatch delay', {
-                    userId: config.userId,
-                    token: tokenToBuy,
-                    chainId,
-                    inboundDelayMs,
-                    delayFirstSeenMs: timing?.firstSeenAt ? Math.max(0, Date.now() - timing.firstSeenAt) : null,
-                    delayAnchor: dispatchTimingAnchor.delayAnchor,
-                    executionMode
-                });
-            }
             const delayCheck = isCopyTradeDelayExceeded(timing || detectedAt, turboMode);
-            emitCopyTradeTimingAudit('buy_dispatch_gate', timing, {
+            deferBuyDispatchAudit({
                 userId: config.userId,
-                token: tokenToBuy,
+                tokenToBuy,
                 chainId,
                 executionMode,
                 turboMode,
-                delayMs: delayCheck.delayMs,
-                hardDelayMs: delayCheck.hardDelayMs,
-                maxDelayMs: delayCheck.maxDelayMs,
-                delayAnchor: delayCheck.delayAnchor,
-                reasonCode: delayCheck.reasonCode || null,
-                skip: delayCheck.skip
+                timing,
+                delayCheck,
+                inboundDelayMs,
+                delayFirstSeenMs: timing?.firstSeenAt ? Math.max(0, Date.now() - timing.firstSeenAt) : null,
+                logger,
+                LogCode,
+                emitCopyTradeTimingAudit,
+                deferTimingAudit
             });
             if (delayCheck.skip) {
                 logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping trade: copytrade delay exceeded', {
