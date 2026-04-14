@@ -21,13 +21,15 @@
 //   users can still delete them
 // - list hydration should rely on config-owned summary fields, not card-level N+1 reads
 // - configs marked `requiresResign` cannot re-enter `active` through status toggles
+// - delete success must not be downgraded to a pseudo-failure just because the
+//   tracked-wallet summary row is already missing
 // Document Provenance:
 // - Source: production logs `logs.1776097448703.json`, `logs.1776098593325.json`, `logs.1776097169065.json`
 // - Kind: runtime observation
 // - Retrieved: 2026-04-14
 // - Applied To: list-time quarantine of malformed copy-trade configs, removal
 //   of user-visible duplicate stale cards, preserving delete access for hidden-bad rows,
-//   and blocking unsafe status reactivation
+//   blocking unsafe status reactivation, and delete-path tracked-wallet cleanup semantics
 // - Verification: verified in runtime and code review
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
@@ -41,6 +43,7 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-strategy-list-read-write-decoupling.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-reactivation-and-webhook-address-guard.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-quarantine-visible-delete.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-delete-tracked-wallet-idempotence.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import { FastifyInstance } from 'fastify';
 import prisma from '../db/prisma.js';
@@ -598,18 +601,25 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                     where: { id },
                 });
 
-                // Decrement tracked wallet counter (composite key)
-                await tx.trackedWallet.update({
+                // Keep delete idempotent even when the tracked-wallet summary row was
+                // never created or was already cleaned up by earlier repair work.
+                const trackedWalletUpdate = await tx.trackedWallet.updateMany({
                     where: {
-                        address_chainId: {
-                            address: config.targetWallet,
-                            chainId: config.chainId
-                        }
+                        address: config.targetWallet,
+                        chainId: config.chainId,
+                        activeConfigs: { gt: 0 },
                     },
                     data: {
                         activeConfigs: { decrement: 1 },
                     },
-                }).catch(e => console.warn('[CopyTrade] Could not decrement tracked wallet:', e.message));
+                });
+                if (trackedWalletUpdate.count === 0) {
+                    console.info('[CopyTrade] Tracked wallet summary already absent or zero during delete', {
+                        configId: id,
+                        targetWallet: config.targetWallet,
+                        chainId: config.chainId,
+                    });
+                }
             });
 
             console.log('[CopyTrade] Deleted config:', id);
