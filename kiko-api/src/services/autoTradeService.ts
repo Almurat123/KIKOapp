@@ -77,6 +77,7 @@ import { resolveEntryDeviationModePolicy } from './copytrade-v2/config/entryDevi
 import { emitEntryDeviationSummary } from './copytrade-v2/audit/entryDeviationAudit.js';
 import { executeEvmCopytradeBuySubmissionFlow } from './copytrade-v2/buy/evmBuySubmissionFlow.js';
 import { persistCopytradeBuySubmission } from './copytrade-v2/buy/buyPersistenceFlow.js';
+import { evaluateCopytradeExposurePreflight } from './copytrade-v2/buy/exposurePreflight.js';
 import { dispatchCopyTradeIfReady } from './copytrade-v2/ingress/copyTradeFastDispatcher.js';
 import { runPostBuyAiFlow } from './copytrade-v2/buy/postBuyAiFlow.js';
 import { applyBuyConfirmationTransition } from './copytrade-v2/buy/buyConfirmationTransition.js';
@@ -2031,6 +2032,7 @@ function getLegacyCopytradeBuyRuntimeDeps() {
         getTokenInfoOnce,
         getTokenInfo,
         persistCopytradeBuySubmission,
+        evaluateCopytradeExposurePreflight,
         resolveDisplayTokenSymbol,
         buildOrderAuditFields,
         resolveDisplayTokenSymbolAsync,

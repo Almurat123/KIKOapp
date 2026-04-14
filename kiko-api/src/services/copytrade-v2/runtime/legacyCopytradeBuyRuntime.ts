@@ -179,6 +179,7 @@ export async function processSingleUserBuy(params: {
         getTokenInfoOnce,
         getTokenInfo,
         persistCopytradeBuySubmission,
+        evaluateCopytradeExposurePreflight,
         claimOrCreateCanonicalOrder,
         advanceCanonicalOrderState,
         listActiveCanonicalOrders,
@@ -400,6 +401,86 @@ export async function processSingleUserBuy(params: {
                 maxEntryDeviationThresholdPolicy: entryDeviationPolicy.thresholdPolicy,
                 maxEntryDeviationModeFloorBps: entryDeviationPolicy.modeFloorBps,
             };
+            // CONTEXT MEMORY
+            // Updated: 2026-04-14
+            // Author: Mira Chen
+            // Reason: Production loss investigation showed the buy runtime was only enforcing pending-position
+            // duplicate locks, while the configured 60-minute same-token cooldown never reached the actual buy path.
+            // Goal: Preserve strategy-level re-entry blocking before buy submission so recent same-token activity
+            // cannot slip through as a fresh copytrade buy within the cooldown window.
+            // Owns: Applying exposure preflight and cooldown veto before any pending position is created.
+            // Does Not Own: Mirror-sell attribution, exit intent ownership, or transaction source identity.
+            // Design Language:
+            // - Cooldown configured in user/config settings must veto runtime admission, not just appear in audit logs.
+            // - Pending-lock dedupe and recent-strategy cooldown are separate controls and both must be enforced.
+            // - Forbidden local patch patterns: treating `cooldown` audit fields as enforcement evidence.
+            // Document Provenance:
+            // - Source: /Users/almurat/Downloads/logs.1776155212543.json
+            // - Kind: runtime observation
+            // - Retrieved: 2026-04-14
+            // - Applied To: runtime buy admission preflight for active exposure and recent same-token cooldown
+            // - Verification: verified in logs and code
+            // See also:
+            // - system-journal/INDEX.md
+            // - system-journal/design-language/copytrade-race-recovery.md
+            // - system-journal/owner-map/copytrade-webhook-ingress.md
+            // - system-journal/fix-log/2026-04-14-copytrade-buy-cooldown-runtime-enforcement.md
+            const cooldownMinutes = config.copyTradeTokenCooldownMinutes ?? userSettings?.copyTradeTokenCooldownMinutes ?? 60;
+            guardAudit.cooldown = {
+                minutes: cooldownMinutes,
+                enabled: cooldownMinutes > 0,
+                mode: describeCooldownMode(cooldownMinutes)
+            };
+            if (cooldownMinutes > 0 && typeof evaluateCopytradeExposurePreflight === 'function') {
+                const exposurePreflight = await evaluateCopytradeExposurePreflight({
+                    userId: config.userId,
+                    configId: effectiveConfig.id,
+                    tokenAddress: tokenToBuy,
+                    chainId,
+                    cooldownMinutes,
+                    allowScaleIn: false,
+                });
+                if (!exposurePreflight.allowed) {
+                    const metrics = exposurePreflight.metrics || {};
+                    const reasonCode = exposurePreflight.reasonCode === 'COOLDOWN_RECENT_STRATEGY_ACTIVITY'
+                        ? 'cooldown_recent_strategy_activity'
+                        : 'entry_policy_block_active_exposure';
+                    logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping trade: exposure preflight blocked copytrade buy', {
+                        userId: config.userId,
+                        token: tokenToBuy,
+                        chainId,
+                        configId: effectiveConfig.id,
+                        reasonCode,
+                        exposureReasonCode: exposurePreflight.reasonCode,
+                        metrics,
+                    });
+                    sendNotificationAsync({
+                        userId: config.userId,
+                        farcasterFid: config.user.farcasterFid,
+                        type: 'COPY_TRADE_SKIPPED',
+                        data: {
+                            tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
+                            tokenAddress: tokenToBuy,
+                            targetWallet,
+                            chainId,
+                            skipReason: exposurePreflight.reasonCode === 'COOLDOWN_RECENT_STRATEGY_ACTIVITY'
+                                ? `Token cooldown active (${cooldownMinutes}m). Recent strategy activity already exists for this token.`
+                                : 'Existing exposure is still active for this token. Scale-in is disabled.',
+                            ...buildCopyTradeNotificationEvidence(tokenInfo, { targetBuyValueUsd: targetSwapValueUsd }),
+                        }
+                    }, `copytrade_skip_${reasonCode}`);
+                    emitGuardAudit('skip', reasonCode, {
+                        exposureReasonCode: exposurePreflight.reasonCode,
+                        exposureMetrics: metrics,
+                    });
+                    await advanceOrder('FAILED_TERMINAL', reasonCode, 'ORDER_BUY_SKIPPED', {
+                        skipReasonCode: reasonCode,
+                        exposureReasonCode: exposurePreflight.reasonCode,
+                        exposureMetrics: metrics,
+                    });
+                    return { outcome: 'skipped' };
+                }
+            }
             const observedMarketCapUsd = Number(tokenInfo?.marketCap || 0);
             const observedLiquidityUsd = Number(
                 tokenInfo?.guardLiquidityUsd ?? tokenInfo?.liquidity ?? 0
@@ -564,13 +645,6 @@ export async function processSingleUserBuy(params: {
                     return { outcome: 'skipped' };
                 }
             }
-
-            const cooldownMinutes = config.copyTradeTokenCooldownMinutes ?? userSettings?.copyTradeTokenCooldownMinutes ?? 60;
-            guardAudit.cooldown = {
-                minutes: cooldownMinutes,
-                enabled: cooldownMinutes > 0,
-                mode: describeCooldownMode(cooldownMinutes)
-            };
 
             let targetExecutionPrice = 0;
             let entryDeviationReferencePrice = 0;
