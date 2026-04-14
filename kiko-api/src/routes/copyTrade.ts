@@ -17,15 +17,17 @@
 // - signed updates cannot move one config onto another active config's target tuple
 // - database unique conflicts are safe races and must not increment tracked-wallet counts
 // - signed create outcomes emit wallet provenance audit evidence
-// - list responses must not expose malformed legacy configs as actionable cards
+// - list responses must surface malformed legacy configs as quarantined rows so
+//   users can still delete them
 // - list hydration should rely on config-owned summary fields, not card-level N+1 reads
 // - configs marked `requiresResign` cannot re-enter `active` through status toggles
 // Document Provenance:
-// - Source: production logs `logs.1776097448703.json`, `logs.1776098593325.json`
+// - Source: production logs `logs.1776097448703.json`, `logs.1776098593325.json`, `logs.1776097169065.json`
 // - Kind: runtime observation
 // - Retrieved: 2026-04-14
 // - Applied To: list-time quarantine of malformed copy-trade configs, removal
-//   of user-visible duplicate stale cards, and blocking unsafe status reactivation
+//   of user-visible duplicate stale cards, preserving delete access for hidden-bad rows,
+//   and blocking unsafe status reactivation
 // - Verification: verified in runtime and code review
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
@@ -38,6 +40,7 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-wallet-audit-provenance.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-strategy-list-read-write-decoupling.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-reactivation-and-webhook-address-guard.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-quarantine-visible-delete.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import { FastifyInstance } from 'fastify';
 import prisma from '../db/prisma.js';
@@ -145,7 +148,7 @@ function getConfigListQuarantineReason(config: any): string | null {
 }
 
 async function quarantineInvalidConfigsForList(rawConfigs: any[]) {
-    const quarantined: Array<{ id: string; reason: string; hideFromList: boolean }> = [];
+    const quarantined: Array<{ id: string; reason: string }> = [];
     const visible: any[] = [];
 
     for (const config of rawConfigs) {
@@ -155,15 +158,13 @@ async function quarantineInvalidConfigsForList(rawConfigs: any[]) {
             continue;
         }
 
-        const hideFromList = reason === 'invalid_target_wallet';
-        quarantined.push({ id: config.id, reason, hideFromList });
-        if (!hideFromList) {
-            visible.push({
-                ...config,
-                status: 'paused',
-                requiresResign: true,
-            });
-        }
+        quarantined.push({ id: config.id, reason });
+        visible.push({
+            ...config,
+            status: 'paused',
+            requiresResign: true,
+            quarantineReason: reason,
+        });
     }
 
     if (quarantined.length > 0) {

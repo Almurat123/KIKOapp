@@ -17,11 +17,12 @@ import { fetchApi } from './api';
 // - Reads may fall back to stale data; mutations must still surface failures plainly.
 // - Do not hide signature/auth errors behind rate-limit recovery.
 // - Strategy cards should render from config-owned summary fields whenever available.
+// - Quarantined copy-trade configs must remain visible so users can still delete them.
 // Document Provenance:
-// - Source: production log `logs.1776097448703.json`
+// - Source: production logs `logs.1776097448703.json`, `logs.1776097169065.json`
 // - Kind: runtime observation
 // - Retrieved: 2026-04-14
-// - Applied To: exposing persisted target summary fields to the strategy page
+// - Applied To: exposing persisted target summary fields and quarantined config state to the strategy page
 // - Verification: verified in runtime and code review
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
@@ -29,6 +30,7 @@ import { fetchApi } from './api';
 // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-08-rate-limit-loading-stall.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-strategy-list-read-write-decoupling.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-quarantine-visible-delete.md
 
 // Types matching the Prisma model and API response
 export type CopyTradeExecutionMode = 'safe' | 'normal' | 'turbo';
@@ -59,6 +61,7 @@ export interface CopyTradeConfig {
     signatureScheme?: string | null;
     signatureVerifiedAt?: string | null;
     requiresResign?: boolean;
+    quarantineReason?: string | null;
     targetTrackedTxCount?: number | null;
     targetWalletTxCount?: number | null;
     targetProfitUsd?: number | null;

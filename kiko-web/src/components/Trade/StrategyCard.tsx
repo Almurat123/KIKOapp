@@ -24,17 +24,19 @@ import { resolveChainPresentation } from '../../utils/chainPresentation';
 // - strategy cards must not perform per-card copy-trade metric fetches on mount
 // - render from persisted config summary fields when available
 // - keep user actions available even when live refresh endpoints are degraded
+// - quarantined configs stay visible for delete, but cannot be resumed or edited
 // Document Provenance:
-// - Source: production log `logs.1776097448703.json`
+// - Source: production logs `logs.1776097448703.json`, `logs.1776097169065.json`
 // - Kind: runtime observation
 // - Retrieved: 2026-04-14
-// - Applied To: removing card-level `target-status` fetches
+// - Applied To: removing card-level `target-status` fetches and preserving delete access for quarantined configs
 // - Verification: verified in runtime and code review
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
 // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-strategy-list-read-write-decoupling.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-quarantine-visible-delete.md
 
 interface StrategyCardProps {
   strategy: TradingStrategy;
@@ -68,6 +70,8 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
   const isActive = strategy.status === 'active';
   const status = (strategy.status || 'paused').toUpperCase();
   const isDeleted = status === 'DELETED';
+  const isQuarantined = isCopyTrade && Boolean(copyConfig?.requiresResign && copyConfig?.quarantineReason);
+  const disableMutationExceptDelete = isDeleted || isQuarantined;
   const executionCount = (strategy.executionHistory || []).length;
   const targetTradeCount = Number(copyConfig?.targetTrackedTxCount ?? copyConfig?.targetWalletTxCount ?? 0);
   const targetProfitUsd = Number(copyConfig?.targetProfitUsd ?? 0);
@@ -92,7 +96,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
         className={styles.actionBtn}
         {...agentAttrs({ id: `trade.strategy.card.${strategy.id}.edit`, role: 'button', action: 'open', page: 'trade', key: 'strategy_id' })}
         onClick={() => onEdit(strategy)}
-        disabled={isDeleted}
+        disabled={disableMutationExceptDelete}
       >
         <Edit size={14} />
         <span>Edit</span>
@@ -101,7 +105,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
         className={styles.actionBtn}
         {...agentAttrs({ id: `trade.strategy.card.${strategy.id}.toggle`, role: 'button', action: 'toggle', page: 'trade', key: 'strategy_id' })}
         onClick={() => onToggleStatus(strategy.id)}
-        disabled={isDeleted}
+        disabled={disableMutationExceptDelete}
       >
         {isActive ? <Pause size={14} /> : <Play size={14} />}
         <span>{isActive ? 'Pause' : 'Resume'}</span>
@@ -245,7 +249,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
 
         <div className={styles.footerInfo}>
           <Info size={10} />
-          <span>Executed {displayedTradeCount} trades</span>
+          <span>{isQuarantined ? 'Config quarantined. Delete this strategy to clean it up.' : `Executed ${displayedTradeCount} trades`}</span>
         </div>
       </div>
 
