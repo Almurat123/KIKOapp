@@ -3,13 +3,15 @@
 // Author: Linh Tran
 // Reason: Neynar now owns Farcaster mention/reply ingress, but all legacy
 //         public-read helpers must stay disabled so paid quota is not consumed
-//         by search or profile fallback traffic.
+//         by search or profile fallback traffic. Cast publishing now also
+//         prefers a dedicated Neynar signer UUID when available.
 // Goal: keep ingress reads centralized while preventing unrelated routes from
 //       touching Neynar at runtime.
-// Owns: Neynar API key discovery, notifications fetch, cast lookup, and hard
-//       disable switches for legacy read helpers.
-// Does Not Own: Hub RPC publication, worker cadence, conversation policy, or
-//               social search fallback selection.
+// Owns: Neynar API key discovery, notifications fetch, cast lookup, optional
+//       cast publishing via signer UUID, and hard disable switches for legacy
+//       read helpers.
+// Does Not Own: Hub RPC publication fallback, worker cadence, conversation
+//               policy, or social search fallback selection.
 // Design Language:
 // - Keep ingress reads enabled only for notifications and cast lookup.
 // - Return immediately from legacy read helpers instead of probing the API.
@@ -43,7 +45,7 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import * as unifiedApiService from '../config/unifiedApiService.js';
 import { env } from '../config/env.js';
-import type { FarcasterCastContext, FarcasterMentionEvent } from './farcaster-agent/types.js';
+import type { FarcasterCastContext, FarcasterMentionEvent, FarcasterSendResult } from './farcaster-agent/types.js';
 
 const MAX_NEYNAR_NOTIFICATION_LIMIT = 25;
 const LEGACY_NEYNAR_READS_ENABLED = false;
@@ -53,6 +55,10 @@ let cachedNeynarApiKey: string | null = null;
 
 function getNeynarApiKey(): string {
     return String(env.apiKeys.neynar || process.env.NEYNAR_API_KEY || '').trim();
+}
+
+function getNeynarSignerUuid(): string {
+    return String(env.farcasterAgent.neynarSignerUuid || process.env.NEYNAR_SIGNER_UUID || '').trim();
 }
 
 function getNeynarClient(): NeynarAPIClient | null {
@@ -345,6 +351,10 @@ export function hasNeynarNotificationsConfigured(): boolean {
     return Boolean(getNeynarApiKey());
 }
 
+export function hasNeynarCastPublishingConfigured(): boolean {
+    return Boolean(getNeynarApiKey() && getNeynarSignerUuid());
+}
+
 /**
  * Fetch mention/reply notifications for a specific Farcaster FID using Neynar.
  */
@@ -415,6 +425,46 @@ export async function fetchNeynarCastContextByHash(params: {
         logger.error(LogCode.SYS_ERROR, 'Neynar: cast lookup error', {
             error: error.message,
             hash,
+        });
+        return null;
+    }
+}
+
+export async function publishNeynarCastReply(params: {
+    text: string;
+    parentHash: string;
+    parentAuthorFid: number;
+    idem?: string;
+}): Promise<FarcasterSendResult | null> {
+    const client = getNeynarClient();
+    const signerUuid = getNeynarSignerUuid();
+    const parentHash = normalizeHexHash(params.parentHash);
+    if (!client || !signerUuid || !parentHash || !Number.isFinite(params.parentAuthorFid) || params.parentAuthorFid <= 0) {
+        return null;
+    }
+
+    try {
+        const response = await client.publishCast({
+            signerUuid,
+            text: String(params.text || '').trim(),
+            parent: parentHash,
+            parentAuthorFid: Math.trunc(params.parentAuthorFid),
+            idem: String(params.idem || '').trim() || undefined,
+        });
+        const hash = normalizeHexHash(response.cast?.hash);
+        if (!hash) {
+            throw new Error('Neynar publishCast response missing cast hash');
+        }
+
+        return {
+            hash,
+            raw: response,
+        };
+    } catch (error: any) {
+        logger.warn(LogCode.API_FETCH_FAILED, 'Neynar: cast publish error', {
+            error: error.message,
+            parentHash,
+            signerConfigured: Boolean(signerUuid),
         });
         return null;
     }
@@ -553,8 +603,10 @@ export default {
     getTrendingFeed,
     isNeynarConfigured,
     hasNeynarNotificationsConfigured,
+    hasNeynarCastPublishingConfigured,
     fetchNeynarMentionPage,
     fetchNeynarCastContextByHash,
+    publishNeynarCastReply,
     getUsersNeynar,
     getUserByUsername,
     checkIsFollowing

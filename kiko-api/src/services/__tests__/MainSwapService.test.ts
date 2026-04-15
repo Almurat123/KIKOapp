@@ -250,6 +250,43 @@ test('MainSwapService does not fall back to standard EVM swap for fourmeme sells
   }
 });
 
+test('MainSwapService does not fall back to standard EVM swap for pre-graduation fourmeme buys', async () => {
+  const originalFastSwap = fourMemeSwapService.fastSwap;
+  const mainSwapAny = MainSwapService as any;
+  const originalExecuteEvmSwap = mainSwapAny.executeEvmSwap;
+  let evmFallbackCalled = false;
+
+  fourMemeSwapService.fastSwap = async () => {
+    throw new Error('Execution reverted with reason: Slippage: Slippage');
+  };
+  mainSwapAny.executeEvmSwap = async () => {
+    evmFallbackCalled = true;
+    throw new Error('should not reach evm fallback');
+  };
+
+  try {
+    const result = await MainSwapService.executeSwap({
+      userId: 'did:privy:user-fourmeme-buy',
+      walletAddress: '0x1234567890123456789012345678901234567890',
+      accessToken: '',
+      tokenIn: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+      tokenOut: '0xd6eb45a72735cf1a896702d71f2df115c07affff',
+      amountIn: '0.001',
+      chainId: 56,
+      slippageBps: 300,
+      mode: 'copytrade',
+      launchpadProvider: 'fourmeme',
+    });
+
+    assert.equal(result.success, false);
+    assert.match(String(result.error || ''), /Slippage: Slippage/);
+    assert.equal(evmFallbackCalled, false);
+  } finally {
+    fourMemeSwapService.fastSwap = originalFastSwap;
+    mainSwapAny.executeEvmSwap = originalExecuteEvmSwap;
+  }
+});
+
 test('MainSwapService falls back to 0x-only EVM swap for fourmeme graduated sells and preserves tx hash in runtime', async () => {
   const originalFastSwap = fourMemeSwapService.fastSwap;
   const mainSwapAny = MainSwapService as any;

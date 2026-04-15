@@ -3,7 +3,9 @@
 // Author: Linh Tran
 // Reason: Farcaster mention ingress now prefers the dedicated Neynar webhook
 //         route when enabled, while this module still owns polling fallback,
-//         Hub fallback, and reply publication semantics.
+//         Hub fallback, and reply publication semantics. Reply publication now
+//         prefers Neynar signer publishing when configured, then falls back
+//         to Hub.
 // Goal: keep mention retrieval, cast parsing, and reply publication
 //       centralized while preserving deterministic source selection,
 //       transient-error recovery, and a webhook-first ingress split.
@@ -20,7 +22,8 @@
 // - Transient RPC cancellation must invalidate the current endpoint so the
 //   next request can advance to a different Hub.
 // - Mention events should be normalized before the worker sees them.
-// - Reply publication must keep parent-cast semantics explicit.
+// - Reply publication should prefer Neynar signer publishing when configured
+//   but keep parent-cast semantics explicit.
 // - Avoid leaking provider-specific payload shapes into the worker.
 // Document Provenance:
 // - Source: Neynar webhook documentation and notifications API
@@ -37,6 +40,11 @@
 // - Kind: local SDK source
 // - Retrieved: 2026-04-15
 // - Applied To: getCastsByMention, getCast, makeCastAdd, and submitMessage usage
+// - Verification: verified in code
+// - Source: Neynar SDK `publishCast` typing
+// - Kind: local SDK source
+// - Retrieved: 2026-04-15
+// - Applied To: reply publication through signer UUID before Hub fallback
 // - Verification: verified in code
 // - Source: /Users/almurat/KiKo/kiko-api/src/services/snapchainService.ts
 // - Kind: repo doc
@@ -80,6 +88,7 @@ import type { FarcasterCastContext, FarcasterMentionEvent, FarcasterSendResult }
 import {
   fetchNeynarCastContextByHash,
   fetchNeynarMentionPage,
+  publishNeynarCastReply,
   hasNeynarNotificationsConfigured,
 } from '../neynarService.js';
 
@@ -464,6 +473,20 @@ export class FarcasterApiClient {
     parentAuthorFid: number;
     idem: string;
   }): Promise<FarcasterSendResult> {
+    const neynarReply = await publishNeynarCastReply({
+      text: params.text,
+      parentHash: params.parentHash,
+      parentAuthorFid: params.parentAuthorFid,
+      idem: params.idem,
+    });
+    if (neynarReply) {
+      logger.info(LogCode.SYS_INFO, '[Farcaster] cast reply published via Neynar', {
+        parentHash: params.parentHash,
+        parentAuthorFid: params.parentAuthorFid,
+      });
+      return neynarReply;
+    }
+
     return runHubRequestWithFailover('cast reply publish', async (client) => {
       const parentHash = asBytes(params.parentHash);
       if (!parentHash) {

@@ -3,7 +3,9 @@
 // Author: Linh Tran
 // Reason: Neynar webhook deliveries need a dedicated server entrypoint so the
 //         Farcaster agent can receive cast.created mention/reply events without
-//         continuing to spend quota on polling.
+//         continuing to spend quota on polling. The route also needs an early
+//         ingress log so operators can tell the difference between "no request
+//         arrived" and "request arrived but failed auth/validation."
 // Goal: verify inbound Neynar webhook signatures, normalize mention/reply
 //       payloads, and hand off accepted events to the existing Farcaster
 //       ingress worker with no extra business logic in the route.
@@ -13,6 +15,8 @@
 //               lookup.
 // Design Language:
 // - ACK fast after signature verification.
+// - Emit a safe ingress marker before auth so webhook delivery failures are
+//   observable even when signature verification fails.
 // - Never parse or enqueue unsigned webhook requests.
 // - Only admit cast.created payloads that actually mention or reply to the bot.
 // - Keep the route payload-neutral; downstream worker logic owns conversation
@@ -58,7 +62,22 @@ function getRequestSignature(request: FastifyRequest): string {
 
 export default async function neynarWebhookRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post('/', { config: { rawBody: true } }, async (request: FastifyRequest, reply: FastifyReply) => {
+    logger.info(LogCode.SYS_INFO, '[Farcaster][Neynar] webhook ingress hit', {
+      method: request.method,
+      url: request.url,
+      botFid: env.farcasterAgent.botFid,
+      enabled: env.farcasterAgent.neynarWebhookEnabled,
+      hasSecret: Boolean(env.farcasterAgent.neynarWebhookSecret),
+      signaturePresent: Boolean(getRequestSignature(request)),
+      rawBodyPresent: Boolean((request as any).rawBody),
+      contentType: String(request.headers['content-type'] || ''),
+    });
+
     if (!env.farcasterAgent.neynarWebhookEnabled || !env.farcasterAgent.neynarWebhookSecret) {
+      logger.warn(LogCode.API_NOTIFY_FAILED, '[Farcaster][Neynar] webhook ingress disabled', {
+        enabled: env.farcasterAgent.neynarWebhookEnabled,
+        hasSecret: Boolean(env.farcasterAgent.neynarWebhookSecret),
+      });
       return reply.status(503).send({ error: 'Neynar webhook ingress disabled' });
     }
 
@@ -69,6 +88,11 @@ export default async function neynarWebhookRoutes(fastify: FastifyInstance): Pro
 
     const signature = getRequestSignature(request);
     if (!verifyNeynarWebhookSignature(signature, rawBody, env.farcasterAgent.neynarWebhookSecret)) {
+      logger.warn(LogCode.API_NOTIFY_FAILED, '[Farcaster][Neynar] webhook ingress invalid signature', {
+        botFid: env.farcasterAgent.botFid,
+        signaturePresent: Boolean(signature),
+        rawBodyBytes: Buffer.byteLength(rawBody, 'utf8'),
+      });
       return reply.status(401).send({ error: 'Invalid signature' });
     }
 
@@ -76,6 +100,10 @@ export default async function neynarWebhookRoutes(fastify: FastifyInstance): Pro
     try {
       payload = JSON.parse(rawBody);
     } catch {
+      logger.warn(LogCode.API_NOTIFY_FAILED, '[Farcaster][Neynar] webhook ingress invalid JSON body', {
+        botFid: env.farcasterAgent.botFid,
+        rawBodyBytes: Buffer.byteLength(rawBody, 'utf8'),
+      });
       return reply.status(400).send({ error: 'Invalid JSON body' });
     }
 
@@ -100,4 +128,3 @@ export default async function neynarWebhookRoutes(fastify: FastifyInstance): Pro
     });
   });
 }
-

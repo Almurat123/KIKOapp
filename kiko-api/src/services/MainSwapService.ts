@@ -17,7 +17,7 @@
  */
 
 // CONTEXT MEMORY
-// Updated: 2026-04-14
+// Updated: 2026-04-15
 // Author: Rowan
 // Reason: BSC four.meme pre-launch mirror sells were allowed to share the same
 //         fallback vocabulary as buy-side launchpad routing. That made the sell
@@ -26,11 +26,15 @@
 //         not graduated to DEX liquidity. Later runtime logs showed the opposite
 //         failure after graduation: direct-only TP exits kept retrying the
 //         bonding-curve path after Four.Meme explicitly said to use an aggregator.
+//         A later buy-side incident showed pre-graduation four.meme launches
+//         could still fall through to standard EVM routing after a bonding-curve
+//         slippage revert, even though no DEX pool existed yet.
 //         A follow-up runtime gap then showed `main-swap-finish` still logging
 //         `executionProvider=null` because the resolved result provider was not
 //         being written back into the main runtime owner.
 // Goal: preserve launchpad-aware routing so four.meme sell flows stay on the
-//       launchpad path until graduation is explicitly proven, then switch to
+//       launchpad path until graduation is explicitly proven, four.meme buy
+//       flows also stay launchpad-owned before graduation, then switch to
 //       the single supported EVM aggregator path, with runtime logs preserving
 //       the actual provider that won.
 // Owns: unified swap route selection, launchpad specialization, and launchpad
@@ -38,9 +42,9 @@
 // Does Not Own: copytrade exit attempt sequencing, token launchpad detection
 //               storage, or aggregator quote policy outside the chosen route.
 // Design Language:
-// - four.meme buy-side graduation may fall back to standard EVM routing
+// - four.meme buy-side pre-graduation failures must not fall through to 0x
 // - four.meme sell-side pre-graduation failures must not fall through to 0x
-// - four.meme sell-side graduation proof (`Liquidity already added`, `Use aggregator`, `graduated`) may fall through to 0x-only
+// - four.meme fallback to standard EVM routing requires explicit graduation proof (`Liquidity already added`, `Use aggregator`, `graduated`)
 // - launchpad fallback rules must distinguish buy and sell semantics
 // - main runtime snapshots must carry the winning provider from the finalized result
 // Document Provenance:
@@ -59,10 +63,16 @@
 // - Retrieved: 2026-04-14
 // - Applied To: persisting fallback provider into `main-swap-finish` executionProvider
 // - Verification: verified in logs and targeted tests
+// - Source: /Users/almurat/Downloads/logs.1776245404831.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-15
+// - Applied To: forbidding four.meme buy fallback to standard EVM routing after pre-graduation slippage revert
+// - Verification: verified in runtime logs, local quote/pool repro, and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-bsc-fourmeme-direct-only-exit.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-fourmeme-buy-pregraduation-fallback-prohibition.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 import { logger } from '../utils/logger.js';
@@ -118,6 +128,16 @@ import { logOrderRuntimeSnapshot } from './order-runtime/sinks/logger.js';
 import { inferOrderReasonCode } from './order-runtime/reasonCodes.js';
 import { resolveTxFinalState } from './order-runtime/adjudicator/finalState.js';
 import { describeVisibilityFailure, shouldPassVisibilityGate } from './rpc/visibilityPolicy.js';
+
+function hasFourMemeGraduationProof(error: unknown): boolean {
+  const message = String(error || '').toLowerCase();
+  if (!message) return false;
+  return (
+    message.includes('liquidity already added to dex')
+    || message.includes('use aggregator instead')
+    || message.includes('graduated')
+  );
+}
 import { evaluateCopytradeBuyAcceptedInflight } from './copytrade-v2/buy/copytradeBuyAcceptedInflight.js';
 import { evaluateCopytradeBuyAdmission } from './copytrade-v2/buy/buyAdmissionGuard.js';
 import { evaluateCopytradeBuySendState } from './copytrade-v2/buy/copytradeBuySendState.js';
@@ -1314,20 +1334,7 @@ export class MainSwapService {
             break;
           } catch (fourMemeErr: any) {
             const message = String(fourMemeErr?.message || fourMemeErr || '');
-            const isSell = !isNativeToken(request.tokenIn, request.chainId);
-            const shouldFallbackToDex =
-              message.includes('Liquidity already added to DEX')
-              || message.includes('Use aggregator instead.')
-              || message.toLowerCase().includes('graduated')
-              || message.toLowerCase().includes('disabled');
-            const sellHasGraduationProof =
-              message.includes('Liquidity already added to DEX')
-              || message.includes('Use aggregator instead.')
-              || message.toLowerCase().includes('graduated');
-            if (isSell && !sellHasGraduationProof) {
-              throw fourMemeErr;
-            }
-            if (!shouldFallbackToDex) {
+            if (!hasFourMemeGraduationProof(message)) {
               throw fourMemeErr;
             }
             logger.warn(

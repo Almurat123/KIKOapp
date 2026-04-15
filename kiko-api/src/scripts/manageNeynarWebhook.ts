@@ -16,6 +16,8 @@
 //   delivery.
 // - Print the resulting webhook id, target URL, and action so operators can
 //   confirm the dashboard state immediately.
+// - Allow explicit API-key override so the operator can target the online paid
+//   key instead of the local workspace `.env` value.
 // Document Provenance:
 // - Source: Neynar Documentation, Webhooks in Dashboard
 // - Kind: official API doc
@@ -61,6 +63,18 @@ function requireEnv(name: string): string {
   return value;
 }
 
+function readApiKey(): { value: string; source: string } {
+  const cliValue = String(readArg('--api-key') || '').trim();
+  if (cliValue) {
+    return { value: cliValue, source: 'cli' };
+  }
+  const envValue = String(process.env.NEYNAR_API_KEY || '').trim();
+  if (envValue) {
+    return { value: envValue, source: 'env' };
+  }
+  throw new Error('Missing required Neynar API key. Pass --api-key=... or set NEYNAR_API_KEY');
+}
+
 function normalizeUrl(value: string): string {
   return String(value || '').trim().replace(/\/+$/, '');
 }
@@ -71,7 +85,7 @@ async function main(): Promise<void> {
     throw new Error(`Unsupported command: ${command}`);
   }
 
-  const apiKey = requireEnv('NEYNAR_API_KEY');
+  const apiKeyInfo = readApiKey();
   const botFidRaw = String(
     readArg('--bot-fid')
     || process.env.FARCASTER_AGENT_BOT_FID
@@ -96,17 +110,18 @@ async function main(): Promise<void> {
   const subscription = buildNeynarMentionSubscription(botFid);
 
   if (command === 'list') {
-    const webhooks = await listNeynarWebhooks(apiKey);
+    const webhooks = await listNeynarWebhooks(apiKeyInfo.value);
     const matched = webhooks.find((item) => normalizeUrl(String(item.target_url || '')) === callbackUrl) || null;
     console.log(JSON.stringify({
       callbackUrl,
+      apiKeySource: apiKeyInfo.source,
       matchedWebhookId: matched?.webhook_id || null,
       webhooks,
     }, null, 2));
     return;
   }
 
-  const result = await ensureNeynarWebhook(apiKey, {
+  const result = await ensureNeynarWebhook(apiKeyInfo.value, {
     name: webhookName,
     url: callbackUrl,
     subscription,
@@ -115,6 +130,7 @@ async function main(): Promise<void> {
   console.log(JSON.stringify({
     action: result.action,
     callbackUrl,
+    apiKeySource: apiKeyInfo.source,
     webhookId: result.webhook.webhook_id || null,
     targetUrl: result.webhook.target_url || null,
     title: result.webhook.title || webhookName,

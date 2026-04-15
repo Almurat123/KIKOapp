@@ -109,6 +109,16 @@ function deferBuyDispatchAudit(input: DeferredTimingAuditInput): void {
     });
 }
 
+function hasFourMemeGraduationProof(error: unknown): boolean {
+    const message = String(error || '').toLowerCase();
+    if (!message) return false;
+    return (
+        message.includes('liquidity already added to dex')
+        || message.includes('use aggregator instead')
+        || message.includes('graduated')
+    );
+}
+
 export async function processSingleUserBuy(params: {
     config: any;
     userSettings: any;
@@ -1238,6 +1248,33 @@ export async function processSingleUserBuy(params: {
                         useStandardSwap = true;
                     }
                 } else if (launchpad && launchpad.provider === 'fourmeme' && chainId === 56) {
+                    // CONTEXT MEMORY
+                    // Updated: 2026-04-15
+                    // Author: Mira Chen
+                    // Reason: Runtime evidence showed pre-graduation Four.meme copytrade buys could revert on the
+                    // bonding-curve path (`Slippage: Slippage`) and then drift into standard EVM fallback, even
+                    // though the token still had no discoverable DEX pool.
+                    // Goal: Keep Four.meme buy submission owned by the launchpad path until that same owner emits
+                    // explicit graduation proof.
+                    // Owns: Deciding whether a Four.meme fast-buy failure may continue into standard EVM buy routing.
+                    // Does Not Own: Four.meme contract pricing, DEX pool discovery, or generic swap retries after
+                    // a route has been selected.
+                    // Design Language:
+                    // - Pre-graduation Four.meme buy failures are terminal within the launchpad owner.
+                    // - Standard EVM fallback requires explicit graduation evidence from the Four.meme path.
+                    // - Forbidden local patch patterns: treating generic revert strings like `Slippage` as permission to route to 0x.
+                    // Document Provenance:
+                    // - Source: /Users/almurat/Downloads/logs.1776245404831.json
+                    // - Kind: runtime observation
+                    // - Retrieved: 2026-04-15
+                    // - Applied To: prohibiting copytrade Four.meme buy fallback after pre-graduation launchpad revert
+                    // - Verification: verified in runtime logs, local quote/pool repro, and targeted tests
+                    // See also:
+                    // - /Users/almurat/KiKo/system-journal/INDEX.md
+                    // - /Users/almurat/KiKo/system-journal/owner-map/backend-swap-validation.md
+                    // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-bsc-fourmeme-direct-only-exit.md
+                    // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-fourmeme-buy-pregraduation-fallback-prohibition.md
+                    // - /Users/almurat/KiKo/system-journal/conflicts.md
                     logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Four.meme token detected - attempting launchpad fast path', {
                         userId: config.userId,
                         token: tokenToBuy
@@ -1257,9 +1294,20 @@ export async function processSingleUserBuy(params: {
                         useStandardSwap = !txHash;
                     } catch (fourMemeErr: any) {
                         const message = String(fourMemeErr?.message || fourMemeErr || '');
+                        if (!hasFourMemeGraduationProof(message)) {
+                            logger.warn(
+                                LogCode.EXE_TX_REVERTED,
+                                'Four.meme fast swap failed without graduation proof; aborting standard fallback',
+                                {
+                                    userId: config.userId,
+                                    error: message,
+                                }
+                            );
+                            throw fourMemeErr;
+                        }
                         logger.warn(
                             LogCode.EXE_TX_REVERTED,
-                            'Four.meme fast swap failed, falling back to standard route',
+                            'Four.meme fast swap reported graduation proof, falling back to standard route',
                             {
                                 userId: config.userId,
                                 error: message,

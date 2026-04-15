@@ -12,9 +12,11 @@
 //         API can emit crawler-safe share pages instead of public AI text.
 //         Farcaster agent ingress now uses Neynar notifications with Hub
 //         fallback for hydration/publication, and can now switch to a
-//         dedicated Neynar webhook ingress. The env boundary must keep the API
-//         key, webhook secret, hub RPC endpoints, signer key, and default poll
-//         cadence explicit without mutating X runtime assumptions.
+//         dedicated Neynar webhook ingress. Reply publication can also use a
+//         dedicated Neynar signer UUID when available. The env boundary must
+//         keep the API key, webhook secret, hub RPC endpoints, signer key,
+//         signer UUID, and default poll cadence explicit without mutating X
+//         runtime assumptions.
 // Goal: keep startup validation as the single owner for deployment-time security
 //       and connectivity requirements around X auth and Farcaster agent ingress.
 // Owns: env parsing and hard-fail validation for X auth configuration and
@@ -28,6 +30,7 @@
 // - Webhook CRC must use the X app API/consumer secret, never OAuth2 client secret fallback.
 // - Farcaster agent ingress must stay disabled unless its API key, hub RPC endpoint list, signer key, and bot identity are configured.
 // - Farcaster webhook ingress must stay disabled unless its callback secret is configured.
+// - Neynar cast publishing must use a dedicated signer UUID, never a webhook secret.
 // - `FARCASTER_AGENT_HUB_RPC_URL` may contain a comma-separated fallback list.
 // - Polling cadence defaults to 10 seconds and must remain env-driven so ops
 //   can raise it to 15 minutes or 1 hour without code changes.
@@ -218,6 +221,7 @@ export interface EnvConfig {
         botFid: number;
         botUsername: string;
         signerPrivateKey: string;
+        neynarSignerUuid?: string;
         neynarWebhookEnabled: boolean;
         neynarWebhookSecret: string;
         neynarWebhookCallbackUrl: string;
@@ -317,6 +321,7 @@ function validateEnv(): EnvConfig {
         (process.env.FARCASTER_AGENT_ENABLED || '') === '1';
     const farcasterBotFid = parseInt(process.env.FARCASTER_AGENT_BOT_FID || process.env.KIKO_FARCASTER_FID || '0', 10);
     const farcasterSignerPrivateKey = process.env.FARCASTER_SIGNER_PRIVATE_KEY || '';
+    const farcasterNeynarSignerUuid = String(process.env.NEYNAR_SIGNER_UUID || '').trim();
     const farcasterNeynarWebhookSecret = process.env.NEYNAR_WEBHOOK_SECRET || '';
     const farcasterNeynarWebhookCallbackUrl = process.env.NEYNAR_WEBHOOK_CALLBACK_URL || 'https://api.kikoapp.app/api/webhook/neynar';
     const farcasterNeynarWebhookName = process.env.NEYNAR_WEBHOOK_NAME || 'kiko-farcaster-agent';
@@ -571,6 +576,7 @@ function validateEnv(): EnvConfig {
             botFid: Number.isFinite(farcasterBotFid) ? farcasterBotFid : 0,
             botUsername: process.env.FARCASTER_AGENT_BOT_USERNAME || process.env.KIKO_FARCASTER_USERNAME || 'kikoapp',
             signerPrivateKey: farcasterSignerPrivateKey,
+            neynarSignerUuid: farcasterNeynarSignerUuid || undefined,
             neynarWebhookEnabled: farcasterNeynarWebhookEnabled,
             neynarWebhookSecret: farcasterNeynarWebhookSecret,
             neynarWebhookCallbackUrl: farcasterNeynarWebhookCallbackUrl,
