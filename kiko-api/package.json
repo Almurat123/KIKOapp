@@ -49,6 +49,8 @@
     "diagnose:copytrade-signal-mapping": "tsx src/scripts/diagnoseCopytradeSignalMapping.ts",
     "diagnose:solana-target-resolution": "tsx src/scripts/summarizeSolanaTargetResolutionAudit.ts",
     "test:trending:direct-swap": "tsx src/scripts/testTrendingDirectSwapSmoke.ts",
+    "farcaster:webhook:ensure": "tsx src/scripts/manageNeynarWebhook.ts ensure",
+    "farcaster:webhook:list": "tsx src/scripts/manageNeynarWebhook.ts list",
     "x:webhook:ensure": "tsx src/scripts/manageXWebhook.ts ensure",
     "x:webhook:list": "tsx src/scripts/manageXWebhook.ts list",
     "x:webhook:diagnose": "tsx src/scripts/diagnoseXWebhookSubscription.ts",

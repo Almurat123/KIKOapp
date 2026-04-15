@@ -8,10 +8,10 @@
 // Author: Almurat
 // Reason: the server bootstrap now owns X OAuth preload and route registration
 //         so the bot can authorize once and serve credentials at runtime.
-//         Farcaster polling ingress now also starts here because it shares the
-//         chat worker and needs explicit startup/shutdown ordering. The current
-//         free Snapchain Hub path still starts here so polling remains tied to
-//         server lifecycle instead of a separate daemon. X public
+//         Farcaster ingress now also starts here because it shares the chat
+//         worker and needs explicit startup/shutdown ordering. The current
+//         webhook route and legacy fallback path both mount here so ingress
+//         remains tied to server lifecycle instead of a separate daemon. X public
 //         reply shares now also mount here because they must bypass browser-only
 //         origin/app-key checks and remain crawler-accessible.
 //         Runtime OAuth repair on 2026-04-15 showed first-party browser console
@@ -21,7 +21,7 @@
 //         so operator-initiated bot reauthorization can be recovered without
 //         opening general API security.
 // Goal: keep X auth routes mounted before startup, preload stored credentials,
-//       expose crawler-safe X share routes, bring Farcaster agent polling after
+//       expose crawler-safe X share routes, bring Farcaster agent ingress after
 //       chat worker boot, and preserve existing worker boot order.
 // Owns: top-level route wiring, public-route security bypasses, and startup sequencing for the API server.
 // Does Not Own: OAuth token exchange details, webhook parsing, or chat logic.
@@ -29,17 +29,19 @@
 // - Register auth infrastructure before starting workers.
 // - Preload runtime credentials before X ingress comes up.
 // - Keep startup order explicit and fail fast when auth is misconfigured.
-// - Bring Farcaster polling up only after chat execution is available.
+// - Bring Farcaster ingress up only after chat execution is available.
 // - Public X share routes must bypass origin/app-key enforcement so X crawlers can fetch cards.
 // - X auth start/callback routes must answer first-party preflight requests
 //   with explicit Authorization/credentials headers; do not apply this fallback
 //   to unrelated API paths.
 // Document Provenance:
-// - Source: @farcaster/hub-nodejs README and public Hub runtime observation
+// - Source: @farcaster/hub-nodejs README, Neynar webhook docs, and public Hub
+//   runtime observation
 // - Kind: local SDK source / runtime observation
 // - Retrieved: 2026-04-12
-// - Applied To: booting a polling worker against the free Snapchain Hub RPC path
-// - Verification: verified in runtime
+// - Applied To: booting Farcaster ingress against webhook and fallback polling
+//   paths
+// - Verification: partially verified
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-11-x-reply-share-pages.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-11
@@ -54,10 +56,13 @@
 // - Verification: partially verified
 // See also:
 // - system-journal/INDEX.md
+// - system-journal/owner-map/farcaster-neynar-webhook-ingress.md
+// - system-journal/fix-log/2026-04-15-farcaster-neynar-webhook-ingress.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-09-x-auth-origin-bypass.md
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
 // - system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
+// - system-journal/fix-log/2026-04-15-farcaster-neynar-webhook-ingress.md
 // - system-journal/fix-log/2026-04-11-x-reply-share-pages.md
 // - system-journal/fix-log/2026-04-15-x-oauth-start-cors-repair.md
 // - system-journal/conflicts.md
@@ -89,6 +94,7 @@ import { favoriteRoutes } from './routes/favorites.js';
 import copyTradeRoutes from './routes/copyTrade.js';
 import webhookRoutes from './routes/webhook.js';
 import { xWebhookRoutes } from './routes/xWebhook.js';
+import neynarWebhookRoutes from './routes/neynarWebhook.js';
 import { newsRoutes } from './routes/news.js';
 import { polymarketRoutes } from './routes/polymarket.js';
 import { zoraRoutes } from './routes/zora.js';
@@ -460,6 +466,10 @@ fastify.register(async (fastify) => {
     });
     fastify.register(xWebhookRoutes, {
         prefix: '/api/webhook/x',
+        config: { rawBody: true }
+    });
+    fastify.register(neynarWebhookRoutes, {
+        prefix: '/api/webhook/neynar',
         config: { rawBody: true }
     });
     fastify.register(newsRoutes, { prefix: '/api/news' });

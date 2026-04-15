@@ -2,11 +2,12 @@
 // Updated: 2026-04-15
 // Author: Linh Tran
 // Reason: Farcaster mention automation now consumes normalized events from the
-//         API client, which prefers Neynar notifications and falls back to Hub
-//         RPC when needed.
+//         webhook ingress when enabled, and otherwise falls back to the API
+//         client polling path plus Hub RPC hydration.
 // Goal: preserve deterministic Farcaster mention handling while keeping polling
 //       cheap, idempotent, and aligned with linked-user chat sessions.
-// Owns: inbound Farcaster mention polling, dedupe, session routing, and reply dispatch.
+// Owns: inbound Farcaster mention polling fallback, webhook-fed dedupe, session
+//       routing, and reply dispatch.
 // Does Not Own: Farcaster account provisioning, frontend linking UI, or generic chat logic.
 // Design Language:
 // - Never process the same inbound event twice.
@@ -15,11 +16,14 @@
 //   raise it to 15 minutes or 1 hour without code changes.
 // - Only linked Farcaster users can trigger full agent execution.
 // - Keep public replies short enough for cast publication limits.
+// - Prefer webhook-fed mention ingress when the webhook is enabled; use
+//   notification polling only as the fallback path.
 // Document Provenance:
-// - Source: Neynar notifications and cast lookup APIs
+// - Source: Neynar webhook documentation and notifications/cast lookup APIs
 // - Kind: official API doc
 // - Retrieved: 2026-04-15
-// - Applied To: normalized mention event consumption and thread hydration
+// - Applied To: webhook-fed mention ingress, normalized mention event
+//   consumption, and thread hydration
 // - Verification: verified in code
 // - Source: @farcaster/hub-nodejs README and dist typings
 // - Kind: local SDK source
@@ -28,6 +32,8 @@
 // - Verification: verified in runtime
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-webhook-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-notifications-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
@@ -252,10 +258,13 @@ export class FarcasterIngressWorker {
 
   start(): void {
     if (!env.farcasterAgent.enabled) return;
-    this.scheduleMentions(1000);
+    if (!env.farcasterAgent.neynarWebhookEnabled) {
+      this.scheduleMentions(1000);
+    }
     this.scheduleRecovery(2000);
     logger.info(LogCode.SYS_STARTUP, '[Farcaster] ingress worker started', {
       botFid: env.farcasterAgent.botFid,
+      webhookEnabled: env.farcasterAgent.neynarWebhookEnabled,
       pollMentionsMs: env.farcasterAgent.pollMentionsMs,
       pollPageSize: env.farcasterAgent.pollPageSize,
     });
@@ -282,6 +291,7 @@ export class FarcasterIngressWorker {
   }
 
   async pollMentionsOnce(): Promise<void> {
+    if (env.farcasterAgent.neynarWebhookEnabled) return;
     if (this.runningMentions || !farcasterApiClient.isConfigured()) return;
     this.runningMentions = true;
 

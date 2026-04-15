@@ -11,9 +11,10 @@
 //         X mention replies also need an explicit public share base URL so the
 //         API can emit crawler-safe share pages instead of public AI text.
 //         Farcaster agent ingress now uses Neynar notifications with Hub
-//         fallback for hydration/publication, so the env boundary must keep the
-//         API key, hub RPC endpoints, signer key, and default poll cadence
-//         explicit without mutating X runtime assumptions.
+//         fallback for hydration/publication, and can now switch to a
+//         dedicated Neynar webhook ingress. The env boundary must keep the API
+//         key, webhook secret, hub RPC endpoints, signer key, and default poll
+//         cadence explicit without mutating X runtime assumptions.
 // Goal: keep startup validation as the single owner for deployment-time security
 //       and connectivity requirements around X auth and Farcaster agent ingress.
 // Owns: env parsing and hard-fail validation for X auth configuration and
@@ -26,6 +27,7 @@
 // - Sensitive token storage must require a valid encryption key.
 // - Webhook CRC must use the X app API/consumer secret, never OAuth2 client secret fallback.
 // - Farcaster agent ingress must stay disabled unless its API key, hub RPC endpoint list, signer key, and bot identity are configured.
+// - Farcaster webhook ingress must stay disabled unless its callback secret is configured.
 // - `FARCASTER_AGENT_HUB_RPC_URL` may contain a comma-separated fallback list.
 // - Polling cadence defaults to 10 seconds and must remain env-driven so ops
 //   can raise it to 15 minutes or 1 hour without code changes.
@@ -34,7 +36,8 @@
 // - Source: Neynar notifications API and local Farcaster agent runtime
 // - Kind: official API doc / runtime observation
 // - Retrieved: 2026-04-15
-// - Applied To: Farcaster agent API-key gating, mention ingress, and reply publication env requirements
+// - Applied To: Farcaster agent API-key gating, mention ingress, webhook ingress,
+//   and reply publication env requirements
 // - Verification: verified in runtime
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
 // - Kind: repo doc
@@ -53,6 +56,8 @@
 // - Verification: verified in code
 // See also:
 // - system-journal/INDEX.md
+// - system-journal/owner-map/farcaster-neynar-webhook-ingress.md
+// - system-journal/fix-log/2026-04-15-farcaster-neynar-webhook-ingress.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-10-x-oauth1-helper-flow.md
 // - system-journal/fix-log/2026-04-09-x-webhook-crc-secret-boundary.md
@@ -213,6 +218,10 @@ export interface EnvConfig {
         botFid: number;
         botUsername: string;
         signerPrivateKey: string;
+        neynarWebhookEnabled: boolean;
+        neynarWebhookSecret: string;
+        neynarWebhookCallbackUrl: string;
+        neynarWebhookName: string;
         pollMentionsMs: number;
         pollPageSize: number;
         pollMaxPages: number;
@@ -308,6 +317,13 @@ function validateEnv(): EnvConfig {
         (process.env.FARCASTER_AGENT_ENABLED || '') === '1';
     const farcasterBotFid = parseInt(process.env.FARCASTER_AGENT_BOT_FID || process.env.KIKO_FARCASTER_FID || '0', 10);
     const farcasterSignerPrivateKey = process.env.FARCASTER_SIGNER_PRIVATE_KEY || '';
+    const farcasterNeynarWebhookSecret = process.env.NEYNAR_WEBHOOK_SECRET || '';
+    const farcasterNeynarWebhookCallbackUrl = process.env.NEYNAR_WEBHOOK_CALLBACK_URL || 'https://api.kikoapp.app/api/webhook/neynar';
+    const farcasterNeynarWebhookName = process.env.NEYNAR_WEBHOOK_NAME || 'kiko-farcaster-agent';
+    const farcasterNeynarWebhookEnabled =
+        (process.env.NEYNAR_WEBHOOK_ENABLED || '').toLowerCase() === 'true' ||
+        (process.env.NEYNAR_WEBHOOK_ENABLED || '') === '1' ||
+        Boolean(farcasterNeynarWebhookSecret);
     const farcasterHubRpcUrls = String(process.env.FARCASTER_AGENT_HUB_RPC_URL || process.env.SNAPCHAIN_HUB_RPC_URL || 'hub.merv.fun:3381')
         .split(',')
         .map((value) => value.trim())
@@ -336,6 +352,9 @@ function validateEnv(): EnvConfig {
         if (!farcasterSignerPrivateKey) {
             throw new Error('Missing required Farcaster agent env var in production: FARCASTER_SIGNER_PRIVATE_KEY');
         }
+    }
+    if (isProduction && farcasterNeynarWebhookEnabled && !farcasterNeynarWebhookSecret) {
+        throw new Error('Missing required Farcaster webhook env var in production: NEYNAR_WEBHOOK_SECRET');
     }
 
     const hasAlchemyWebhookSecret =
@@ -552,6 +571,10 @@ function validateEnv(): EnvConfig {
             botFid: Number.isFinite(farcasterBotFid) ? farcasterBotFid : 0,
             botUsername: process.env.FARCASTER_AGENT_BOT_USERNAME || process.env.KIKO_FARCASTER_USERNAME || 'kikoapp',
             signerPrivateKey: farcasterSignerPrivateKey,
+            neynarWebhookEnabled: farcasterNeynarWebhookEnabled,
+            neynarWebhookSecret: farcasterNeynarWebhookSecret,
+            neynarWebhookCallbackUrl: farcasterNeynarWebhookCallbackUrl,
+            neynarWebhookName: farcasterNeynarWebhookName,
             pollMentionsMs: parseInt(process.env.FARCASTER_AGENT_POLL_MENTIONS_MS || '10000', 10),
             pollPageSize: parseInt(process.env.FARCASTER_AGENT_POLL_PAGE_SIZE || '15', 10),
             pollMaxPages: parseInt(process.env.FARCASTER_AGENT_POLL_MAX_PAGES || '3', 10),

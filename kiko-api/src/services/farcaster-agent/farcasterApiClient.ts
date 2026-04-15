@@ -1,19 +1,20 @@
 // CONTEXT MEMORY
 // Updated: 2026-04-15
 // Author: Linh Tran
-// Reason: Farcaster mention ingestion now prefers Neynar notifications when
-//         the API key is configured, while this module still owns Hub fallback
-//         and reply publication semantics.
+// Reason: Farcaster mention ingress now prefers the dedicated Neynar webhook
+//         route when enabled, while this module still owns polling fallback,
+//         Hub fallback, and reply publication semantics.
 // Goal: keep mention retrieval, cast parsing, and reply publication
-//       centralized while preserving deterministic source selection and
-//       transient-error recovery.
-// Owns: Neynar notification preference, Hub RPC connectivity, endpoint
+//       centralized while preserving deterministic source selection,
+//       transient-error recovery, and a webhook-first ingress split.
+// Owns: Neynar notification polling fallback, Hub RPC connectivity, endpoint
 //       rotation, mention page parsing, cast hydration, and reply cast
 //       publication for the Farcaster agent.
 // Does Not Own: polling cadence, linked-user policy, conversation mapping, or
 //               AI execution.
 // Design Language:
-// - Prefer Neynar notifications for mention polling when the API key exists.
+// - Prefer webhook-fed ingress when enabled; keep notifications polling only as
+//   the fallback path when the webhook is not configured.
 // - Hub RPC access must stay centralized, with left-to-right fallback across
 //   configured endpoints and then known public peers.
 // - Transient RPC cancellation must invalidate the current endpoint so the
@@ -22,10 +23,10 @@
 // - Reply publication must keep parent-cast semantics explicit.
 // - Avoid leaking provider-specific payload shapes into the worker.
 // Document Provenance:
-// - Source: Neynar notifications API `fetchAllNotifications`
+// - Source: Neynar webhook documentation and notifications API
 // - Kind: official API doc
 // - Retrieved: 2026-04-15
-// - Applied To: mention/reply notification polling before Hub fallback
+// - Applied To: webhook-first mention ingress and polling fallback behavior
 // - Verification: verified in code
 // - Source: Neynar cast lookup API `lookupCastByHashOrUrl`
 // - Kind: official API doc
@@ -51,6 +52,8 @@
 // - Verification: verified in runtime
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-webhook-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-notifications-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-mention-hub-fallback.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-mention-hub-request-failover.md
