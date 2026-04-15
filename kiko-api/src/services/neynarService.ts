@@ -93,10 +93,11 @@ function clampNotificationLimit(value: number): number {
     return Math.min(Math.max(Math.trunc(value), 1), MAX_NEYNAR_NOTIFICATION_LIMIT);
 }
 
-function normalizeHexHash(value?: string | null): string | null {
+export function normalizeNeynarCastHash(value?: string | null): string | null {
     const normalized = String(value || '').trim();
     if (!normalized) return null;
-    return normalized.startsWith('0x') ? normalized : `0x${normalized}`;
+    const withPrefix = (/^0x/i.test(normalized) ? normalized : `0x${normalized}`).toLowerCase();
+    return /^0x[0-9a-fA-F]{40}$/.test(withPrefix) ? withPrefix.toLowerCase() : null;
 }
 
 function toIsoTimestamp(value?: string | number | null): string | null {
@@ -155,7 +156,7 @@ export function buildNeynarCastReplyParams(params: {
 }
 
 function castToContext(cast: NeynarCast): FarcasterCastContext | null {
-    const hash = normalizeHexHash(cast.hash);
+    const hash = normalizeNeynarCastHash(cast.hash);
     const text = String(cast.text || '').trim();
     const authorFid = Number(cast.author?.fid || 0);
     if (!hash || !text || !Number.isFinite(authorFid) || authorFid <= 0) {
@@ -167,7 +168,7 @@ function castToContext(cast: NeynarCast): FarcasterCastContext | null {
         text,
         authorFid,
         authorUsername: String(cast.author?.username || '').trim() || null,
-        parentHash: normalizeHexHash(cast.parent_hash),
+        parentHash: normalizeNeynarCastHash(cast.parent_hash),
         parentAuthorFid: Number(cast.parent_author?.fid || 0) || null,
         timestamp: toIsoTimestamp(cast.timestamp),
     };
@@ -190,7 +191,7 @@ function notificationToMentionEvent(notification: NeynarNotification): Farcaster
         authorUsername: context.authorUsername || null,
         parentHash: context.parentHash || null,
         parentAuthorFid: context.parentAuthorFid || null,
-        rootCastHash: normalizeHexHash(cast.thread_hash) || context.hash,
+        rootCastHash: normalizeNeynarCastHash(cast.thread_hash) || context.hash,
         occurredAt: toIsoTimestamp(notification.most_recent_timestamp) || context.timestamp || null,
     };
 }
@@ -436,7 +437,7 @@ export async function fetchNeynarCastContextByHash(params: {
     viewerFid?: number;
 }): Promise<FarcasterCastContext | null> {
     const client = getNeynarClient();
-    const hash = normalizeHexHash(params.hash);
+    const hash = normalizeNeynarCastHash(params.hash);
     if (!client || !hash) {
         return null;
     }
@@ -467,7 +468,7 @@ export async function publishNeynarCastReply(params: {
 }): Promise<FarcasterSendResult | null> {
     const client = getNeynarClient();
     const signerUuid = getNeynarSignerUuid();
-    const parentHash = normalizeHexHash(params.parentHash);
+    const parentHash = normalizeNeynarCastHash(params.parentHash);
     if (!client || !signerUuid || !parentHash || !Number.isFinite(params.parentAuthorFid) || params.parentAuthorFid <= 0) {
         return null;
     }
@@ -480,7 +481,7 @@ export async function publishNeynarCastReply(params: {
             parentAuthorFid: Math.trunc(params.parentAuthorFid),
             idem: String(params.idem || '').trim() || undefined,
         }));
-        const hash = normalizeHexHash(response.cast?.hash);
+        const hash = normalizeNeynarCastHash(response.cast?.hash);
         if (!hash) {
             throw new Error('Neynar publishCast response missing cast hash');
         }
