@@ -32,6 +32,7 @@ owner boundaries, and major fixes.
 - [Fix Log: 2026-04-13 Farcaster Verified Identity Sync](./fix-log/2026-04-13-farcaster-verified-identity-sync.md)
 - [Fix Log: 2026-04-13 Farcaster Follow Gate And Unique FID](./fix-log/2026-04-13-farcaster-follow-gate-and-unique-fid.md)
 - [Fix Log: 2026-04-15 Farcaster Mention Hub Fallback](./fix-log/2026-04-15-farcaster-mention-hub-fallback.md)
+- [Fix Log: 2026-04-15 Farcaster Mention Hub Request Failover](./fix-log/2026-04-15-farcaster-mention-hub-request-failover.md)
 - [Fix Log: 2026-04-10 Chat Home Deferred Runtime](./fix-log/2026-04-10-chat-home-deferred-runtime.md)
 - [Fix Log: 2026-04-10 Chat Home Route Eager Entry](./fix-log/2026-04-10-chat-home-route-eager-entry.md)
 - [Fix Log: 2026-04-10 Token Page Stray Read Rate Limit](./fix-log/2026-04-10-token-page-stray-read-rate-limit.md)

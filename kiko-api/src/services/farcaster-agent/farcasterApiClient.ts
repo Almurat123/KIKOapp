@@ -1,19 +1,22 @@
 // CONTEXT MEMORY
 // Updated: 2026-04-15
 // Author: Linh Tran
-// Reason: The single Hub path proved too brittle when the local Snapchain node
-//         stopped returning Farcaster mentions. This module now owns Hub client
-//         creation with ordered fallback to known public peers so mention
-//         polling can recover without changing worker policy.
-// Goal: keep mention retrieval, cast parsing, and reply publication centralized
-//       while preserving deterministic left-to-right fallback.
-// Owns: Hub RPC connectivity, mention page parsing, cast hydration, and reply
-//       cast publication for the Farcaster agent.
+// Reason: The first healthy Hub can still become unstable after startup. This
+//         module now owns Hub client creation and request-level failover so
+//         mention polling can rotate away from a failing endpoint without
+//         changing worker policy.
+// Goal: keep mention retrieval, cast parsing, and reply publication
+//       centralized while preserving deterministic left-to-right fallback and
+//       transient-error recovery.
+// Owns: Hub RPC connectivity, endpoint rotation, mention page parsing, cast
+//       hydration, and reply cast publication for the Farcaster agent.
 // Does Not Own: polling cadence, linked-user policy, conversation mapping, or
 //               AI execution.
 // Design Language:
 // - Hub RPC access must stay centralized, with left-to-right fallback across
 //   configured endpoints and then known public peers.
+// - Transient RPC cancellation must invalidate the current endpoint so the
+//   next request can advance to a different Hub.
 // - Mention events should be normalized before the worker sees them.
 // - Reply publication must keep parent-cast semantics explicit.
 // - Avoid leaking provider-specific payload shapes into the worker.
@@ -28,9 +31,17 @@
 // - Retrieved: 2026-04-15
 // - Applied To: public Hub RPC fallback ordering for reachability recovery
 // - Verification: verified in code
+// - Source: /Users/almurat/Downloads/logs.1776233864338.json and
+//   /Users/almurat/Downloads/logs.1776233683014.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-15
+// - Applied To: request-level failover after repeated `Call cancelled` mention
+//   polls on the same replica
+// - Verification: verified in runtime
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-mention-hub-fallback.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-mention-hub-request-failover.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import {
   CastId,
@@ -78,6 +89,7 @@ interface HubMentionPage {
 
 let hubClientPromise: Promise<HubRpcClient> | null = null;
 let hubClientInstance: HubRpcClient | null = null;
+let hubClientEndpointIndex: number | null = null;
 let signerCache: NobleEd25519Signer | null = null;
 
 function clampPageSize(value: number): number {
@@ -127,6 +139,47 @@ function resolveHubEndpoints(rawUrls: string[]): HubEndpoint[] {
   return endpoints;
 }
 
+function getHubEndpointLabel(endpoint?: HubEndpoint | null): string {
+  if (!endpoint) return DEFAULT_HUB_RPC_URL;
+  return `${endpoint.useSsl ? 'grpcs' : 'grpc'}://${endpoint.address}`;
+}
+
+function isTransientHubRpcError(error: unknown): boolean {
+  const message = String((error as any)?.message || error || '').toLowerCase();
+  const code = Number((error as any)?.code ?? (error as any)?.status ?? NaN);
+  return (
+    message.includes('call cancelled')
+    || message.includes('cancelled')
+    || message.includes('deadline exceeded')
+    || message.includes('no connection established')
+    || message.includes('unavailable')
+    || code === 1
+    || code === 4
+    || code === 14
+  );
+}
+
+function closeCurrentHubClient(): void {
+  if (hubClientInstance) {
+    hubClientInstance.close();
+  }
+  hubClientInstance = null;
+  hubClientPromise = null;
+}
+
+function advanceHubEndpointCursor(): void {
+  const endpoints = resolveHubEndpoints(env.farcasterAgent.hubRpcUrls);
+  if (endpoints.length === 0) {
+    hubClientEndpointIndex = null;
+    return;
+  }
+
+  const nextIndex = hubClientEndpointIndex === null
+    ? 0
+    : (hubClientEndpointIndex + 1) % endpoints.length;
+  hubClientEndpointIndex = nextIndex;
+}
+
 function waitForHubReady(client: HubRpcClient): Promise<void> {
   return new Promise((resolve, reject) => {
     client.$.waitForReady(Date.now() + HUB_READY_TIMEOUT_MS, (error) => {
@@ -143,8 +196,16 @@ async function getHubClient(): Promise<HubRpcClient> {
   if (!hubClientPromise) {
     hubClientPromise = (async () => {
       const endpoints = resolveHubEndpoints(env.farcasterAgent.hubRpcUrls);
+      const startIndex = endpoints.length === 0 || hubClientEndpointIndex === null
+        ? 0
+        : Math.max(0, Math.min(hubClientEndpointIndex, endpoints.length - 1));
+      const orderedEndpoints = [
+        ...endpoints.slice(startIndex),
+        ...endpoints.slice(0, startIndex),
+      ];
 
-      for (const endpoint of endpoints) {
+      for (let offset = 0; offset < orderedEndpoints.length; offset += 1) {
+        const endpoint = orderedEndpoints[offset];
         const client = endpoint.useSsl
           ? getSSLHubRpcClient(endpoint.address, { 'grpc.max_receive_message_length': HUB_RECEIVE_LIMIT_BYTES })
           : getInsecureHubRpcClient(endpoint.address, { 'grpc.max_receive_message_length': HUB_RECEIVE_LIMIT_BYTES });
@@ -152,15 +213,16 @@ async function getHubClient(): Promise<HubRpcClient> {
         try {
           await waitForHubReady(client);
           hubClientInstance = client;
+          hubClientEndpointIndex = (startIndex + offset) % endpoints.length;
           logger.info(LogCode.SYS_INFO, '[Farcaster] Snapchain Hub RPC ready', {
-            hubRpcUrl: endpoint.address,
+            hubRpcUrl: getHubEndpointLabel(endpoint),
             useSsl: endpoint.useSsl,
           });
           return client;
         } catch (error) {
           client.close();
           logger.warn(LogCode.API_FETCH_FAILED, '[Farcaster] Hub RPC endpoint unavailable, trying next fallback', {
-            hubRpcUrl: endpoint.address,
+            hubRpcUrl: getHubEndpointLabel(endpoint),
             useSsl: endpoint.useSsl,
             error: String((error as any)?.message || error || 'unknown_error'),
           });
@@ -178,12 +240,43 @@ async function getHubClient(): Promise<HubRpcClient> {
 }
 
 export function closeHubClient(): void {
-  if (hubClientInstance) {
-    hubClientInstance.close();
-  }
-  hubClientInstance = null;
-  hubClientPromise = null;
+  closeCurrentHubClient();
+  hubClientEndpointIndex = null;
   signerCache = null;
+}
+
+async function runHubRequestWithFailover<T>(
+  operationName: string,
+  operation: (client: HubRpcClient) => Promise<T>,
+): Promise<T> {
+  const endpoints = resolveHubEndpoints(env.farcasterAgent.hubRpcUrls);
+  if (endpoints.length === 0) {
+    throw new Error('No configured Farcaster Hub RPC endpoints are available');
+  }
+
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < endpoints.length; attempt += 1) {
+    const client = await getHubClient();
+    try {
+      return await operation(client);
+    } catch (error) {
+      lastError = error;
+      if (!isTransientHubRpcError(error) || attempt === endpoints.length - 1) {
+        throw error;
+      }
+
+      logger.warn(LogCode.API_FETCH_FAILED, `[Farcaster] ${operationName} failed on active Hub, rotating fallback`, {
+        hubRpcUrl: getHubEndpointLabel(resolveHubEndpoints(env.farcasterAgent.hubRpcUrls)[hubClientEndpointIndex ?? 0] || null),
+        error: String((error as any)?.message || error || 'unknown_error'),
+      });
+
+      closeCurrentHubClient();
+      advanceHubEndpointCursor();
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError || 'unknown_error'));
 }
 
 function getSigner(): NobleEd25519Signer {
@@ -280,40 +373,42 @@ export class FarcasterApiClient {
   }
 
   async fetchMentionPage(params?: { pageToken?: Uint8Array | null; pageSize?: number }): Promise<HubMentionPage> {
-    const client = await getHubClient();
-    const response = await client.getCastsByMention(
-      FidRequest.create({
-        fid: env.farcasterAgent.botFid,
-        pageSize: clampPageSize(params?.pageSize ?? env.farcasterAgent.pollPageSize),
-        pageToken: params?.pageToken || undefined,
-        reverse: true,
-      }),
-    );
+    return runHubRequestWithFailover('mention fetch', async (client) => {
+      const response = await client.getCastsByMention(
+        FidRequest.create({
+          fid: env.farcasterAgent.botFid,
+          pageSize: clampPageSize(params?.pageSize ?? env.farcasterAgent.pollPageSize),
+          pageToken: params?.pageToken || undefined,
+          reverse: true,
+        }),
+      );
 
-    if (response.isErr()) {
-      throw response.error;
-    }
+      if (response.isErr()) {
+        throw response.error;
+      }
 
-    return response.value;
+      return response.value;
+    });
   }
 
   async fetchCastByHash(params: { fid: number; hash: string }): Promise<FarcasterCastContext | null> {
-    const client = await getHubClient();
-    const castHash = asBytes(params.hash);
-    if (!castHash || !Number.isFinite(params.fid) || params.fid <= 0) return null;
+    return runHubRequestWithFailover('cast fetch', async (client) => {
+      const castHash = asBytes(params.hash);
+      if (!castHash || !Number.isFinite(params.fid) || params.fid <= 0) return null;
 
-    const response = await client.getCast(
-      CastId.create({
-        fid: params.fid,
-        hash: castHash,
-      }),
-    );
+      const response = await client.getCast(
+        CastId.create({
+          fid: params.fid,
+          hash: castHash,
+        }),
+      );
 
-    if (response.isErr()) {
-      return null;
-    }
+      if (response.isErr()) {
+        return null;
+      }
 
-    return messageToCastContext(response.value);
+      return messageToCastContext(response.value);
+    });
   }
 
   async publishCastReply(params: {
@@ -322,48 +417,49 @@ export class FarcasterApiClient {
     parentAuthorFid: number;
     idem: string;
   }): Promise<FarcasterSendResult> {
-    const parentHash = asBytes(params.parentHash);
-    if (!parentHash) {
-      throw new Error('Invalid parent hash for Farcaster reply');
-    }
+    return runHubRequestWithFailover('cast reply publish', async (client) => {
+      const parentHash = asBytes(params.parentHash);
+      if (!parentHash) {
+        throw new Error('Invalid parent hash for Farcaster reply');
+      }
 
-    const client = await getHubClient();
-    const signer = getSigner();
-    const reply = await makeCastAdd(
-      {
-        text: params.text,
-        embedsDeprecated: [],
-        mentions: [],
-        parentCastId: {
-          fid: params.parentAuthorFid,
-          hash: parentHash,
+      const signer = getSigner();
+      const reply = await makeCastAdd(
+        {
+          text: params.text,
+          embedsDeprecated: [],
+          mentions: [],
+          parentCastId: {
+            fid: params.parentAuthorFid,
+            hash: parentHash,
+          },
+          parentUrl: undefined,
+          mentionsPositions: [],
+          embeds: [],
+          type: CastType.CAST,
         },
-        parentUrl: undefined,
-        mentionsPositions: [],
-        embeds: [],
-        type: CastType.CAST,
-      },
-      {
-        fid: env.farcasterAgent.botFid,
-        network: FarcasterNetwork.MAINNET,
-        timestamp: currentFarcasterTimestamp(),
-      },
-      signer,
-    );
+        {
+          fid: env.farcasterAgent.botFid,
+          network: FarcasterNetwork.MAINNET,
+          timestamp: currentFarcasterTimestamp(),
+        },
+        signer,
+      );
 
-    if (reply.isErr()) {
-      throw reply.error;
-    }
+      if (reply.isErr()) {
+        throw reply.error;
+      }
 
-    const submitted = await client.submitMessage(reply.value);
-    if (submitted.isErr()) {
-      throw submitted.error;
-    }
+      const submitted = await client.submitMessage(reply.value);
+      if (submitted.isErr()) {
+        throw submitted.error;
+      }
 
-    return {
-      hash: asHexString(submitted.value.hash),
-      raw: submitted.value,
-    };
+      return {
+        hash: asHexString(submitted.value.hash),
+        raw: submitted.value,
+      };
+    });
   }
 }
 
