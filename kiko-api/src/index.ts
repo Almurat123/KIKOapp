@@ -19,7 +19,9 @@
 //         can still fail CORS before the route gets a chance to mint the X
 //         authorize URL. The bootstrap now owns a narrow auth-route CORS fallback
 //         so operator-initiated bot reauthorization can be recovered without
-//         opening general API security.
+//         opening general API security. Neynar webhook debugging also needed a
+//         pre-routing tap because route-local logs cannot explain 404/method
+//         mismatch cases.
 // Goal: keep X auth routes mounted before startup, preload stored credentials,
 //       expose crawler-safe X share routes, bring Farcaster agent ingress after
 //       chat worker boot, and preserve existing worker boot order.
@@ -34,6 +36,8 @@
 // - X auth start/callback routes must answer first-party preflight requests
 //   with explicit Authorization/credentials headers; do not apply this fallback
 //   to unrelated API paths.
+// - Emit a pre-routing request tap for `/api/webhook/neynar` so missing route
+//   hits and method/path mismatches are observable before Fastify routing.
 // Document Provenance:
 // - Source: @farcaster/hub-nodejs README, Neynar webhook docs, and public Hub
 //   runtime observation
@@ -191,6 +195,12 @@ function isXAuthRoute(url: string): boolean {
         || url.startsWith('/api/auth/x?');
 }
 
+function isNeynarWebhookPath(url: string): boolean {
+    return url === '/api/webhook/neynar'
+        || url.startsWith('/api/webhook/neynar?')
+        || url.startsWith('/api/webhook/neynar/');
+}
+
 function applyXAuthCorsFallback(request: any, reply: any): void {
     if (!isXAuthRoute(request.url || '')) return;
     const origin = String(request.headers?.origin || '').trim().replace(/\/+$/, '');
@@ -205,6 +215,16 @@ function applyXAuthCorsFallback(request: any, reply: any): void {
 
 fastify.addHook('onRequest', async (request, reply) => {
     applyXAuthCorsFallback(request, reply);
+    if (isNeynarWebhookPath(request.url || '')) {
+        logger.info(LogCode.SYS_INFO, '[Farcaster][Neynar] webhook request reached server', {
+            method: request.method,
+            url: request.url,
+            contentType: String(request.headers['content-type'] || ''),
+            signaturePresent: Boolean(request.headers['x-neynar-signature']),
+            webhookEnabled: env.farcasterAgent.neynarWebhookEnabled,
+            botFid: env.farcasterAgent.botFid,
+        });
+    }
     if (request.method === 'OPTIONS' && isXAuthRoute(request.url || '')) {
         return reply.status(204).send();
     }
