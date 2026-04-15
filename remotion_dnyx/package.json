@@ -1,0 +1,20 @@
+{
+  "name": "remotion_dnyx",
+  "version": "1.0.0",
+  "description": "dnyx studios style demo",
+  "type": "module",
+  "scripts": {
+    "dev": "remotion preview src/index.ts",
+    "render": "remotion render src/index.ts Main Main.mp4"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.448",
+    "@remotion/renderer": "4.0.448",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "react": "19.2.5",
+    "react-dom": "19.2.5",
+    "remotion": "4.0.448",
+    "typescript": "6.0.2"
+  }
+}

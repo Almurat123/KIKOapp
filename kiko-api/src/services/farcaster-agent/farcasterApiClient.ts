@@ -1,36 +1,36 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-12
+// Updated: 2026-04-15
 // Author: Linh Tran
-// Reason: Farcaster agent ingress moved off Neynar and onto a free Snapchain
-//         Hub RPC path, so this module now owns Hub client creation, mention
-//         polling parsing, cast lookup, and reply submission through the local
-//         signer boundary.
-// Goal: keep Snapchain access, cast parsing, and reply publication centralized
-//       so the worker can stay policy-focused and the env boundary stays small.
+// Reason: The single Hub path proved too brittle when the local Snapchain node
+//         stopped returning Farcaster mentions. This module now owns Hub client
+//         creation with ordered fallback to known public peers so mention
+//         polling can recover without changing worker policy.
+// Goal: keep mention retrieval, cast parsing, and reply publication centralized
+//       while preserving deterministic left-to-right fallback.
 // Owns: Hub RPC connectivity, mention page parsing, cast hydration, and reply
 //       cast publication for the Farcaster agent.
 // Does Not Own: polling cadence, linked-user policy, conversation mapping, or
 //               AI execution.
 // Design Language:
 // - Hub RPC access must stay centralized, with left-to-right fallback across
-//   configured endpoints, and remain signable from one signer key.
+//   configured endpoints and then known public peers.
 // - Mention events should be normalized before the worker sees them.
 // - Reply publication must keep parent-cast semantics explicit.
 // - Avoid leaking provider-specific payload shapes into the worker.
 // Document Provenance:
 // - Source: @farcaster/hub-nodejs README and dist typings
 // - Kind: local SDK source
-// - Retrieved: 2026-04-12
+// - Retrieved: 2026-04-15
 // - Applied To: getCastsByMention, getCast, makeCastAdd, and submitMessage usage
-// - Verification: verified in runtime
-// - Source: public Hub runtime observation against hub.merv.fun:3381
-// - Kind: runtime observation
-// - Retrieved: 2026-04-12
-// - Applied To: default free Hub RPC endpoint, fallback ordering, and readiness expectations
-// - Verification: verified in runtime
+// - Verification: verified in code
+// - Source: /Users/almurat/KiKo/kiko-api/src/services/snapchainService.ts
+// - Kind: repo doc
+// - Retrieved: 2026-04-15
+// - Applied To: public Hub RPC fallback ordering for reachability recovery
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-mention-hub-fallback.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import {
   CastId,
@@ -53,6 +53,14 @@ import { LogCode } from '../../config/logRegistry.js';
 import type { FarcasterCastContext, FarcasterMentionEvent, FarcasterSendResult } from './types.js';
 
 const DEFAULT_HUB_RPC_URL = 'hub.merv.fun:3381';
+const PUBLIC_HUB_FALLBACK_URLS = [
+  'http://54.236.164.51:3381',
+  'http://54.87.204.167:3381',
+  'http://44.197.255.20:3381',
+  'http://54.157.62.17:3381',
+  'http://34.195.157.114:3381',
+  'http://107.20.169.236:3381',
+];
 const FARCASTER_EPOCH_MS = 1609459200000;
 const MAX_PAGE_SIZE = 50;
 const HUB_READY_TIMEOUT_MS = 5000;
@@ -96,8 +104,13 @@ function normalizeHubEndpoint(raw: string): HubEndpoint {
 function resolveHubEndpoints(rawUrls: string[]): HubEndpoint[] {
   const seen = new Set<string>();
   const endpoints: HubEndpoint[] = [];
+  const orderedUrls = [
+    ...rawUrls,
+    DEFAULT_HUB_RPC_URL,
+    ...PUBLIC_HUB_FALLBACK_URLS,
+  ];
 
-  for (const raw of rawUrls) {
+  for (const raw of orderedUrls) {
     const value = String(raw || '').trim();
     if (!value) continue;
     const endpoint = normalizeHubEndpoint(value);
