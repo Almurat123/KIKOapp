@@ -183,7 +183,7 @@ function notificationToMentionEvent(notification: NeynarNotification): Farcaster
 
     const notificationType = notification.type === 'reply' || notification.type === 'replies' ? 'replies' : 'mentions';
     return {
-        eventId: `farcaster:neynar:${notificationType}:${context.hash}`,
+        eventId: `farcaster:mention:${context.hash}`,
         notificationType,
         castHash: context.hash,
         text: context.text,
