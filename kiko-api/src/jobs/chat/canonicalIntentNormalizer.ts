@@ -1,29 +1,36 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-15
+// Updated: 2026-04-16
 // Author: Rowan
 // Reason: canonical intent normalization was consuming Farcaster transport
 //         wrapper text and misclassifying literal token-address queries as
 //         Farcaster social discovery because the latest user message still
 //         contained ingress scaffolding.
-// Goal: feed normalization with the effective user query and sanitized recent
-//       user history so routing decisions reflect user intent instead of
-//       transport metadata.
+// Goal: feed normalization with the effective user query, sanitized recent
+//       user history, and explicit address-type hints so routing decisions
+//       reflect user intent instead of transport metadata or raw address shape.
 // Owns: canonical-intent normalization prompt assembly and invalid-result handling.
 // Does Not Own: snapshot assembly, webhook ingress formatting, or downstream tool execution.
 // Design Language:
 // - normalization inputs should preserve user meaning but strip transport scaffolding
 // - user-role history may be sanitized for intent routing without mutating audit history
 // - routing stability beats preserving ingress wrapper prose in LLM prompts
+// - literal address classifications should inform the model before it guesses wallet vs token intent
 // Document Provenance:
 // - Source: Farcaster mention runtime logs for trace dd7b79f7-41fb-4147-8e38-44a3c4bfeff0
 // - Kind: runtime observation
 // - Retrieved: 2026-04-15
 // - Applied To: sanitizing latest_user_message and recent_history in normalization prompts
 // - Verification: verified in code and targeted tests
+// - Source: Farcaster/runtime incidents where token contracts drifted into wallet analysis
+// - Kind: runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: requested_address_classifications in normalization prompt
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-query-unwrapping-and-wallet-guard.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-address-preclassification-for-chat.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
@@ -195,6 +202,7 @@ function buildNormalizationMessages(snapshot: ChatContextSnapshot): GenerationMe
                 'Set inherit_entities_from_context=true only when the current turn is genuinely continuing the same token, wallet, market, or on-chain subject from prior turns. Set it to false when the current turn is about Kiko itself, the assistant, the system, plan/runtime behavior, or any meta/debug question.',
                 'When recent history already contains an early-buyer list and the latest turn asks what those/these wallets earned, their profit/PnL, ROI, buy/sell summary, or收益/利润/利益/获利 on that same token, classify it as wallet_pnl instead of early_buyers and inherit the token/wallet set from context.',
                 'Do not misclassify platform-introduction questions as token analysis, market analysis, or clarification-only requests just because the wording is broken.',
+                'Treat requested_address_classifications as higher-confidence evidence than raw 0x/base58 shape. If an address is marked token_contract, do not reinterpret it as wallet analysis or copy-trade target unless the user explicitly asks about a wallet. If an address is marked wallet, prefer wallet analysis over token analysis unless the user explicitly asks about a token contract.',
             ].join(' '),
         },
         {
@@ -204,6 +212,7 @@ function buildNormalizationMessages(snapshot: ChatContextSnapshot): GenerationMe
                 recent_history: recentHistory,
                 requested_token_addresses: snapshot.requestedTokenAddresses || [],
                 requested_token_symbols: snapshot.requestedTokenSymbols || [],
+                requested_address_classifications: snapshot.requestedAddressClassifications || [],
                 connected_chain_id: snapshot.runtime.chainId || null,
                 connected_chain_name: snapshot.runtime.chainName || null,
                 wallet_address: snapshot.runtime.walletAddress || snapshot.runtime.userAddress || null,

@@ -1,28 +1,33 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-15
+// Updated: 2026-04-16
 // Author: Linh Tran
 // Reason: Public Farcaster replies need a side-effect-free text formatter so
 //         tests can validate cast-safe wrapping without importing the whole
 //         ingress worker and its runtime dependencies.
 // Goal: format assistant output into a short, readable public cast reply that
-//       stays byte-safe and gives Farcaster clients line-break opportunities.
+//       stays byte-safe and only inserts line-break opportunities for
+//       continuous text runs that would otherwise render as a single overflow
+//       token.
 // Owns: whitespace normalization, display-line wrapping, and UTF-8 byte
 //       truncation for public Farcaster replies.
 // Does Not Own: reply publication, mention ingress, model generation, or
 //               provider webhook delivery.
 // Design Language:
 // - Preserve meaningful paragraph boundaries instead of flattening replies.
-// - Insert line breaks into long continuous text runs before byte truncation.
+// - Leave normal space-delimited sentences intact; only chunk continuous text
+//   runs that lack natural break points.
 // - Keep truncation UTF-8 safe.
 // - Do not decide whether a reply should be sent; callers own that policy.
 // Document Provenance:
-// - Source: Farcaster long-cast FIP discussion and runtime client observation
+// - Source: Farcaster cast writing docs and runtime client observation
 // - Kind: product doc / runtime observation
 // - Retrieved: 2026-04-15
-// - Applied To: short public replies with explicit wrap opportunities
+// - Applied To: short public replies with explicit wrap opportunities only for
+//   continuous text
 // - Verification: verified in docs and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-reply-natural-wrap.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-reply-text-wrapping.md
 // - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
@@ -41,7 +46,7 @@ function normalizeCastReplyWhitespace(text: string): string {
     .trim();
 }
 
-function chunkVisualText(value: string, maxChars: number): string[] {
+function chunkContinuousText(value: string, maxChars: number): string[] {
   const chars = Array.from(value);
   const chunks: string[] = [];
   for (let index = 0; index < chars.length; index += maxChars) {
@@ -51,7 +56,9 @@ function chunkVisualText(value: string, maxChars: number): string[] {
 }
 
 function wrapCastReplyLine(line: string, maxChars: number): string[] {
-  const chunks = chunkVisualText(line, maxChars);
+  if (!line) return [''];
+  if (/\s/.test(line)) return [line];
+  const chunks = chunkContinuousText(line, maxChars);
   return chunks.length > 0 ? chunks : [''];
 }
 

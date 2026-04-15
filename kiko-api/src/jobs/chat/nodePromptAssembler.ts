@@ -1,3 +1,31 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-16
+// Author: Rowan
+// Reason: Farcaster agent replies need a surface-specific system prompt so the
+//         model recognizes the conversation as a social-agent mode instead of a
+//         full web chat session. Without that prompt, the model drifts into
+//         report-style answers even when the public cast surface expects short,
+//         friend-like replies.
+// Goal: keep generation messages explicit about surface mode, especially for
+//       Farcaster agent turns where short, direct replies are the default.
+// Owns: generation-message assembly and surface-specific prompt overlays.
+// Does Not Own: model provider selection, runtime directive derivation, or cast publication.
+// Design Language:
+// - surface mode belongs in the system prompt, not only in downstream formatting
+// - Farcaster agent mode defaults to concise social replies unless the user asks for depth
+// - surface-specific prompt overlays should be narrow and avoid polluting main web chat behavior
+// Document Provenance:
+// - Source: Neynar/Farcaster cast writing docs and runtime screenshots of
+//           report-style public replies
+// - Kind: official API doc / runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: Farcaster agent system-prompt overlay for concise replies
+// - Verification: verified in code and targeted tests
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-reply-style-directive.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-agent-mode-prompt.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
 import { CORE_UNIFIED, GROK_SEARCH_DELTA } from '../../services/ai/prompts/v2/CORE.js';
 import { resolveCanonicalChainRef } from './chainIntent.js';
 import type { ChatContextSnapshot, PlanCard, PolymarketSelectionState, ProviderNativeEvidenceSnapshot } from './contracts.js';
@@ -30,6 +58,16 @@ const SYSTEM_PROMPT_BASE = [
     'Treat USER_SETTINGS as current preferences and USER_CONTEXT as connected-session context.',
     'If USER_QUERY explicitly names a chain or clearly implies one, that requested chain overrides the connected chain for analysis and execution planning.',
 ].join('\n\n');
+
+const FARCASTER_AGENT_MODE_PROMPT = [
+    'FARCASTER_AGENT_MODE:',
+    'This turn is running inside KiKo social-agent mode for a public Farcaster reply.',
+    'Default to a short, direct, conversational answer, like replying to a friend in-thread.',
+    'Unless the user explicitly asks for detail, keep the answer brief and high-signal.',
+    'Do not write like a webpage assistant, report, memo, or customer-support macro.',
+    'Prefer one short paragraph. Use a compact list only when the content is naturally list-shaped.',
+    'Lead with the answer immediately. Do not add meta framing or formal sections unless the user explicitly asks for a structured report.',
+].join('\n');
 
 export function assembleGenerationMessages(
     snapshot: ChatContextSnapshot,
@@ -64,6 +102,9 @@ export function assembleGenerationMessages(
     }
     if (!providerInfo.supportsNativeSearch && guidance?.searchMode === 'required') {
         systemParts.push('This provider path has no provider-native search. When search evidence is required, use local search tools such as external_web_search together with any relevant chain-analysis tools.');
+    }
+    if (isFarcasterAgentSurface(snapshot)) {
+        systemParts.push(FARCASTER_AGENT_MODE_PROMPT);
     }
     const swapModeContract = buildSwapModeContract(runtime.userSettings || {});
     if (swapModeContract) {
@@ -147,6 +188,13 @@ function buildToolGuidanceBlock(guidance?: {
     }
 
     return lines.join('\n');
+}
+
+function isFarcasterAgentSurface(snapshot: ChatContextSnapshot): boolean {
+    const runtime = snapshot.runtime || {};
+    const pageContext = String(runtime.pageContext || runtime.toolContext?.pageContext || '').toLowerCase();
+    const currentPage = String(runtime.currentPage || runtime.toolContext?.currentPage || '').toLowerCase();
+    return pageContext === 'farcaster_agent' || currentPage === 'farcaster';
 }
 
 function buildProviderNativeEvidenceBlock(providerNativeEvidence?: ProviderNativeEvidenceSnapshot[]): string {
@@ -341,6 +389,7 @@ function buildUserContext(snapshot: ChatContextSnapshot): Record<string, any> {
         recent_tools: summarizeRecentToolTrace(snapshot.recentToolTrace),
         recent_tool_results: summarizeRecentToolResults(snapshot.recentToolTrace),
         requested_addresses: limitArray(snapshot.requestedTokenAddresses, 3),
+        requested_address_classifications: summarizeRequestedAddressClassifications(snapshot.requestedAddressClassifications),
         requested_symbols: limitArray(snapshot.requestedTokenSymbols, 6),
         polymarket_selection: summarizePolymarketSelection(snapshot.polymarketSelection),
         balance_snapshot_at: normalizePrimitive(runtime.balanceSnapshotAt),
@@ -361,6 +410,19 @@ function summarizePolymarketSelection(selection: PolymarketSelectionState | null
         .map((outcome) => `${outcome.name}:${outcome.tokenId || 'none'}`)
         .join(', ');
     return `market=${primary.question} | slug=${primary.marketSlug || 'none'} | outcomes=[${outcomes}]`;
+}
+
+function summarizeRequestedAddressClassifications(classifications: ChatContextSnapshot['requestedAddressClassifications']): string[] | undefined {
+    if (!Array.isArray(classifications) || classifications.length === 0) return undefined;
+    return classifications.slice(0, 4).map((item) => {
+        const parts = [
+            item.address,
+            `kind=${item.kind}`,
+            item.chainName ? `chain=${item.chainName}` : '',
+            item.source ? `source=${item.source}` : '',
+        ].filter(Boolean);
+        return parts.join(' | ');
+    });
 }
 
 function summarizeFarcaster(farcaster: Record<string, any> | null | undefined): Record<string, any> | undefined {

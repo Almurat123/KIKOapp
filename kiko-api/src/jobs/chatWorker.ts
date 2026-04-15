@@ -23,6 +23,7 @@ import { normalizeCanonicalIntent } from './chat/canonicalIntentNormalizer.js';
 import { buildCanonicalIntentClarification } from './chat/canonicalIntent.js';
 import { applyConversationActionState } from './chat/conversationStateResolver.js';
 import { resolveRuntimeDirectives } from './chat/runtimeDirectiveResolver.js';
+import { enrichRequestedAddressClassifications } from './chat/addressEntityClassifier.js';
 import { getWalletBalance } from '../services/alchemy.js';
 import { walletService } from '../services/walletService.js';
 import { ethers } from 'ethers';
@@ -149,6 +150,7 @@ export class ChatWorker {
                 toolDefinitions: toolRegistry.getAllDefinitions(),
                 userId,
             });
+            snapshot = await enrichRequestedAddressClassifications(snapshot);
             logger.info(LogCode.AI_ORCHESTRATOR, 'ChatWorker: snapshot assembled', {
                 taskId: task.id,
                 sessionId: task.sessionId,
@@ -157,6 +159,7 @@ export class ChatWorker {
                 prefetchedKeys: Object.keys(snapshot.runtime.prefetchedToolResults || {}),
                 requestedSymbols: snapshot.requestedTokenSymbols,
                 requestedAddresses: snapshot.requestedTokenAddresses.length,
+                requestedAddressClassifications: snapshot.requestedAddressClassifications,
             });
             const normalization = await normalizeCanonicalIntent({
                 snapshot,

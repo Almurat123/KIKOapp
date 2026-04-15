@@ -19,6 +19,13 @@ test('trimCastText inserts line breaks into long continuous text', () => {
   assert.equal(lines[2].length, 6);
 });
 
+test('trimCastText keeps normal space-delimited sentences intact', () => {
+  const input = 'That address is a wallet address, but I do not have enough context yet.';
+  const formatted = trimCastText(input, 320);
+
+  assert.equal(formatted, input);
+});
+
 test('trimCastText truncates by utf8 bytes after wrapping', () => {
   const formatted = trimCastText('这是一个没有空格的很长中文回复'.repeat(20), 220);
 

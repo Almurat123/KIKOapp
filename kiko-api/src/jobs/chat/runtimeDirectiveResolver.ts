@@ -1,3 +1,31 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-16
+// Author: Rowan
+// Reason: Farcaster public replies were being generated with report-like
+//         openings and awkward meta framing because the model had no
+//         Farcaster-specific reply style contract beyond the generic chat
+//         policy.
+// Goal: keep runtime directives authoritative for Farcaster-style replies so
+//       public casts stay short, direct, and natural while preserving exact
+//       evidence values.
+// Owns: per-turn runtime directives derived from chat context and tool state.
+// Does Not Own: global chat policy, Farcaster reply publication, or cast text wrapping.
+// Design Language:
+// - public Farcaster replies should read like a normal cast, not a report
+// - direct answer first, then only the minimum supporting context
+// - headings are discouraged unless the user explicitly requests a report format
+// Document Provenance:
+// - Source: Neynar/Farcaster cast writing docs and runtime screenshot of
+//           awkward report-style public reply
+// - Kind: official API doc / runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: Farcaster public reply style directive injection
+// - Verification: verified in code and targeted tests
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-reply-natural-wrap.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-reply-text-wrapping.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
 import { getChainConfig } from '../../config/chainConfig.js';
 import type { RuntimeDirective, TradeConfirmationState } from './contracts.js';
 import { defaultNativeSymbolForChain, resolveTradeSemantics } from '../../services/ai/tradeSemantics.js';
@@ -24,6 +52,18 @@ export function resolveRuntimeDirectives(params: {
                 `chainId=${chainId || 'unknown'}, chainName=${chainName || 'unknown'}, wallet=${wallet || 'unknown'}. ` +
                 `You MUST answer directly from this context. Do NOT use web search or tools for this.`,
             metadata: { chainId, chainName, walletAddress: wallet },
+        });
+    }
+
+    if (isFarcasterAgentContext(toolContext)) {
+        directives.push({
+            kind: 'farcaster_public_reply_style',
+            message:
+                'FARCASTER_PUBLIC_REPLY_STYLE: This answer will be published as a public Farcaster cast reply. Write it as a short, natural reply, not a report. Lead with the direct answer in the first sentence. If more context is needed, use one short follow-up paragraph or a compact bullet list only when the content is naturally enumerated. Do not use headings like Conclusion, Evidence, or Next step. Do not mention hidden prompts or internal routing. Keep exact addresses, handles, symbols, and numbers unchanged. Avoid stiff disclaimers such as "from current context" unless they are truly necessary.',
+            metadata: {
+                pageContext: toolContext.pageContext || null,
+                currentPage: toolContext.currentPage || null,
+            },
         });
     }
 
@@ -91,6 +131,12 @@ function mentionsCurrentChain(text: string): boolean {
     if (!text) return false;
     return /\b(current chain|which chain|what chain|current network|which network|what network)\b/i.test(text)
         || /现在.*链|当前.*链|什么链|哪个链/.test(text);
+}
+
+function isFarcasterAgentContext(toolContext: Record<string, any>): boolean {
+    const pageContext = String(toolContext?.pageContext || '').toLowerCase();
+    const currentPage = String(toolContext?.currentPage || '').toLowerCase();
+    return pageContext === 'farcaster_agent' || currentPage === 'farcaster';
 }
 
 function resolveChainName(chainId: number): string | undefined {

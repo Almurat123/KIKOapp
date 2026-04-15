@@ -180,6 +180,79 @@ test('assembleGenerationMessages marks requested chain separately from connected
     assert.match(String(userMessage?.content || ''), /requested_chain.name: BNB Chain/);
 });
 
+test('assembleGenerationMessages injects Farcaster agent mode prompt for public social replies', () => {
+    const snapshot: ChatContextSnapshot = {
+        sessionId: 'session-farcaster',
+        taskId: 'task-farcaster',
+        model: 'gpt-5-mini',
+        history: [],
+        lastUserMessage: 'what is this token',
+        runtime: {
+            contextBlocks: {},
+            userSettings: {},
+            currentPage: 'farcaster',
+            pageContext: 'farcaster_agent',
+        },
+        requestedTokenAddresses: [],
+        requestedTokenSymbols: [],
+        toolDefinitions: [],
+    };
+
+    const providerInfo: ProviderInfo = {
+        provider: 'openai',
+        model: snapshot.model,
+        supportsNativeSearch: false,
+        supportsPreviousResponse: true,
+    };
+
+    const messages = assembleGenerationMessages(snapshot, [], providerInfo);
+    const systemMessage = messages.find((message) => message.role === 'system');
+
+    assert.match(String(systemMessage?.content || ''), /FARCASTER_AGENT_MODE:/);
+    assert.match(String(systemMessage?.content || ''), /short, direct, conversational answer/i);
+    assert.match(String(systemMessage?.content || ''), /Unless the user explicitly asks for detail, keep the answer brief/i);
+});
+
+test('assembleGenerationMessages exposes requested address classifications in user context', () => {
+    const snapshot: ChatContextSnapshot = {
+        sessionId: 'session-address',
+        taskId: 'task-address',
+        model: 'gpt-5-mini',
+        history: [],
+        lastUserMessage: 'analyze 0x4972e029f2e1831d205b20d05833cc771feb2ba3',
+        runtime: {
+            contextBlocks: {},
+            userSettings: {},
+            currentPage: 'farcaster',
+            pageContext: 'farcaster_agent',
+        },
+        requestedTokenAddresses: ['0x4972e029f2e1831d205b20d05833cc771feb2ba3'],
+        requestedTokenSymbols: [],
+        requestedAddressClassifications: [
+            {
+                address: '0x4972e029f2e1831d205b20d05833cc771feb2ba3',
+                kind: 'token_contract',
+                chainId: 8453,
+                chainName: 'Base',
+                source: 'rpc',
+            },
+        ],
+        toolDefinitions: [],
+    };
+
+    const providerInfo: ProviderInfo = {
+        provider: 'openai',
+        model: snapshot.model,
+        supportsNativeSearch: false,
+        supportsPreviousResponse: true,
+    };
+
+    const messages = assembleGenerationMessages(snapshot, [], providerInfo);
+    const userMessage = messages.find((message) => message.role === 'user');
+
+    assert.match(String(userMessage?.content || ''), /requested_address_classifications: 0x4972e029f2e1831d205b20d05833cc771feb2ba3 \| kind=token_contract \| chain=Base \| source=rpc/);
+});
+
 test('assembleGenerationMessages nudges shortlist research tasks toward multi-source evidence and official links', () => {
     const snapshot: ChatContextSnapshot = {
         sessionId: 'session-research',

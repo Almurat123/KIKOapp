@@ -219,6 +219,7 @@ export function assembleChatContext(params: {
         },
         requestedTokenAddresses: Array.from(requestedAddressSet),
         requestedTokenSymbols,
+        requestedAddressClassifications: [],
         compactedHistory: budget.compactedSummary || null,
         previousResponseId: session?.lastResponseId ? String(session.lastResponseId) : null,
         historyBudget: {

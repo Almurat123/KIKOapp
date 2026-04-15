@@ -1,17 +1,32 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-14
+// Updated: 2026-04-16
 // Author: Rowan
-// Reason: chat confirmation contracts now carry copy-trade wallet-binding
-//         provenance so a later confirmation turn can audit the original target
-//         wallet evidence.
-// Goal: keep funds-sensitive confirmation state explicit and serializable.
+// Reason: chat runtime contracts now also carry Farcaster-specific reply style
+//         directives so public cast responses stay short and natural instead of
+//         drifting into report-style answers.
+// Goal: keep funds-sensitive confirmation state explicit and serializable while
+//       preserving turn-level runtime directives as a stable orchestration contract.
 // Owns: TypeScript contracts shared across chat orchestration owners.
 // Does Not Own: wallet extraction, confirmation policy, or persistence writes.
 // Design Language:
 // - exact wallet provenance is metadata, not a replacement for strict validation
 // - confirmation state must preserve enough evidence for audit after user confirm
 // - public executable args and audit metadata remain separate concepts
+// - runtime directives are part of the orchestration contract and may carry
+//   public-reply style rules for specific surfaces like Farcaster
+// - literal address classification should be explicit context, not hidden model inference
 // Document Provenance:
+// - Source: runtime screenshot of awkward Farcaster public reply formatting
+// - Kind: runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: RuntimeDirective extension for Farcaster reply style
+// - Verification: verified in code and targeted tests
+// - Source: Farcaster/runtime address-routing incidents where token contracts
+//           were interpreted as wallet-analysis targets
+// - Kind: runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: ChatContextSnapshot.requestedAddressClassifications
+// - Verification: verified in code and targeted tests
 // - Source: production incident analysis of malformed BSC copy-trade target wallets
 // - Kind: runtime observation
 // - Retrieved: 2026-04-14
@@ -19,6 +34,8 @@
 // - Verification: verified in TypeScript and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-reply-style-directive.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-address-preclassification-for-chat.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-wallet-audit-provenance.md
 import type { ToolDefinition } from '../../tooling/registry.js';
 import type { ActionClass, ControlPolicySnapshot } from './controlPolicy.js';
@@ -141,9 +158,17 @@ export interface RenderContract {
 }
 
 export interface RuntimeDirective {
-    kind: 'chain_context' | 'swap_confirmation' | 'copy_trade_confirmation' | 'amount_semantics' | 'fast_swap_address_required' | 'fast_swap_safe_mode' | 'fast_swap_contract' | 'quote_before_swap_contract' | 'balance_auto_resolution_guard' | 'chain_switch_required';
+    kind: 'chain_context' | 'swap_confirmation' | 'copy_trade_confirmation' | 'amount_semantics' | 'fast_swap_address_required' | 'fast_swap_safe_mode' | 'fast_swap_contract' | 'quote_before_swap_contract' | 'balance_auto_resolution_guard' | 'chain_switch_required' | 'farcaster_public_reply_style';
     message: string;
     metadata?: Record<string, any>;
+}
+
+export interface RequestedAddressClassification {
+    address: string;
+    kind: 'token_contract' | 'wallet' | 'contract' | 'unknown';
+    chainId?: number | null;
+    chainName?: string | null;
+    source: 'rpc' | 'token_service' | 'heuristic';
 }
 
 export interface ProviderNativeEvidenceResult {
@@ -293,6 +318,7 @@ export interface ChatContextSnapshot {
     };
     requestedTokenAddresses: string[];
     requestedTokenSymbols: string[];
+    requestedAddressClassifications?: RequestedAddressClassification[];
     compactedHistory?: string | null;
     historyBudget?: {
         inputTokensEstimated: number;
