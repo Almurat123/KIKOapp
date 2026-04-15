@@ -4,7 +4,10 @@
 // Reason: Farcaster mention automation now consumes normalized events from the
 //         webhook ingress when enabled, while still keeping low-frequency
 //         notification polling as a safety net because Neynar webhook delivery
-//         can be delayed or absent for reply-thread mention tests.
+//         can be delayed or absent for reply-thread mention tests. Public cast
+//         replies also need client-safe formatting: collapsing all whitespace
+//         into one long line can make Farcaster clients visually truncate
+//         otherwise valid text.
 // Goal: preserve deterministic Farcaster mention handling while keeping polling
 //       cheap, idempotent, and aligned with linked-user chat sessions.
 // Owns: inbound Farcaster mention polling fallback, webhook-fed dedupe, session
@@ -17,6 +20,10 @@
 //   raise it to 15 minutes or 1 hour without code changes.
 // - Only linked Farcaster users can trigger full agent execution.
 // - Keep public replies short enough for cast publication limits.
+// - Preserve readable public reply structure; do not collapse model output into
+//   one unbroken line.
+// - Insert newlines into long continuous text runs so Farcaster clients can wrap
+//   the reply instead of visually clipping it.
 // - Prefer webhook-fed mention ingress when the webhook is enabled, but keep
 //   notification polling as a low-frequency safety net instead of disabling it
 //   completely.
@@ -32,6 +39,12 @@
 // - Retrieved: 2026-04-12
 // - Applied To: Hub fallback mention polling and thread context hydration
 // - Verification: verified in runtime
+// - Source: Farcaster long-cast FIP discussion and local runtime observation
+// - Kind: product doc / runtime observation
+// - Retrieved: 2026-04-15
+// - Applied To: keeping normal public replies short and formatted with
+//   line-break opportunities for client rendering
+// - Verification: verified in docs and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
@@ -59,6 +72,7 @@ import {
   waitForFarcasterTaskAssistantText,
 } from './farcasterChatBridge.js';
 import { farcasterReplyService } from './farcasterReplyService.js';
+import { trimCastText } from './farcasterCastText.js';
 
 const NOTIFICATION_WATERMARK_KEY = 'farcaster:ingress:mentions:last_seen_at';
 const RECOVERY_BATCH_SIZE = Math.max(1, Number(process.env.FARCASTER_AGENT_RECOVERY_BATCH_SIZE || '20'));
@@ -118,22 +132,6 @@ function eventToMentionWatermark(event: FarcasterMentionEvent): MentionWatermark
 
 function publicBindText(username?: string | null): string {
   return `Link your Farcaster account in KIKO first: ${buildFarcasterLinkUrl({ username })}`;
-}
-
-function trimCastText(text: string, maxBytes: number = 320): string {
-  const normalized = String(text || '').replace(/\s+/g, ' ').trim();
-  if (!normalized) return 'I ran into an issue processing that request. Please try again.';
-  if (Buffer.byteLength(normalized, 'utf8') <= maxBytes) return normalized;
-
-  let output = '';
-  for (const char of normalized) {
-    const candidate = `${output}${char}`;
-    if (Buffer.byteLength(`${candidate}...`, 'utf8') > maxBytes) {
-      break;
-    }
-    output = candidate;
-  }
-  return `${output.trim()}...`;
 }
 
 function normalizeMentionPayload(payload: unknown): FarcasterMentionEvent | null {
