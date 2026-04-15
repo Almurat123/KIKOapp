@@ -77,3 +77,38 @@ test('parseHubMentionEvents skips non-cast messages', () => {
 
   assert.deepEqual(events, []);
 });
+
+test('parseHubMentionEvents passes through normalized mention events', () => {
+  const events = parseHubMentionEvents({
+    messages: [],
+    events: [
+      {
+        eventId: 'farcaster:neynar:mentions:0x1234',
+        notificationType: 'mentions',
+        castHash: '0x1234',
+        text: '@kikoapp hello',
+        authorFid: 123,
+        authorUsername: 'alice',
+        parentHash: null,
+        parentAuthorFid: null,
+        rootCastHash: '0x1234',
+        occurredAt: '2026-04-15T06:00:00.000Z',
+      },
+    ],
+  } as any);
+
+  assert.deepEqual(events, [
+    {
+      eventId: 'farcaster:neynar:mentions:0x1234',
+      notificationType: 'mentions',
+      castHash: '0x1234',
+      text: '@kikoapp hello',
+      authorFid: 123,
+      authorUsername: 'alice',
+      parentHash: null,
+      parentAuthorFid: null,
+      rootCastHash: '0x1234',
+      occurredAt: '2026-04-15T06:00:00.000Z',
+    },
+  ]);
+});

@@ -293,11 +293,26 @@ CREATE TABLE IF NOT EXISTS "WalletExport" (
 );
 
 -- User Settings
+-- CONTEXT MEMORY
+-- Updated: 2026-04-15
+-- Author: Almurat
+-- Reason: the canonical default model moved from Grok to GPT while the stored
+--         user setting still owns the per-user preference used by web, X, and
+--         Farcaster reply paths.
+-- Goal: keep the SQL snapshot aligned with the current product default and the
+--       persisted per-user override.
+-- Owns: default values in the generated SQL snapshot for persisted user settings.
+-- Does Not Own: agent routing or explicit user preference writes.
+-- Document Provenance:
+-- - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-default-chat-model-switch-to-gpt.md
+-- - Kind: repo doc
+-- - Retrieved: 2026-04-15
+-- - Applied To: persisted default chat model and new-session fallback default
 CREATE TABLE IF NOT EXISTS "UserSettings" (
   "id" TEXT PRIMARY KEY,
   "userId" TEXT UNIQUE NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
   "userRole" TEXT DEFAULT 'default',
-  "defaultChatModel" TEXT DEFAULT 'grok-4-1-fast-non-reasoning',
+  "defaultChatModel" TEXT DEFAULT 'gpt-5.4-mini-2026-03-17',
   "defaultSwapAmount" DOUBLE PRECISION DEFAULT 100,
   "defaultSwapUnit" TEXT DEFAULT 'native',
   "checkTokenBeforeSwap" BOOLEAN DEFAULT TRUE,
@@ -582,11 +597,24 @@ CREATE INDEX IF NOT EXISTS idx_token_rules_token ON token_rules(chain, address);
 -- =============================================
 
 -- Chat Sessions (Conversations)
+-- CONTEXT MEMORY
+-- Updated: 2026-04-15
+-- Author: Almurat
+-- Reason: brand-new sessions must default to the same GPT model that the
+--         frontend and persisted user settings now use.
+-- Goal: keep the SQL snapshot aligned with the canonical new-session default.
+-- Owns: default values in the generated SQL snapshot for new chat sessions.
+-- Does Not Own: per-user preference selection.
+-- Document Provenance:
+-- - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-default-chat-model-switch-to-gpt.md
+-- - Kind: repo doc
+-- - Retrieved: 2026-04-15
+-- - Applied To: default chat-session model for new sessions
 CREATE TABLE IF NOT EXISTS chat_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id VARCHAR(100) NOT NULL,  -- Privy user ID (DID)
   title VARCHAR(500) DEFAULT 'New Chat',
-  model VARCHAR(50) DEFAULT 'grok-4-1-fast-non-reasoning',
+  model VARCHAR(50) DEFAULT 'gpt-5.4-mini-2026-03-17',
   status VARCHAR(20) DEFAULT 'active',  -- active, archived
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()

@@ -1,31 +1,163 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-15
+// Author: Linh Tran
+// Reason: Neynar is now the owned provider for paid notifications, cast lookup,
+//         and network search when the API key is configured.
+// Goal: keep Neynar-only reads centralized so Farcaster ingress can switch
+//       providers without duplicating API key handling or payload normalization.
+// Owns: Neynar API key discovery, notifications fetch, cast lookup, user
+//       lookup, and search/feed helpers.
+// Does Not Own: Hub RPC publication, worker cadence, or conversation policy.
+// Design Language:
+// - Prefer typed Neynar SDK calls for notifications and cast lookup.
+// - Keep provider-specific response shapes normalized before they leave this layer.
+// - Never log the API key or raw credential-bearing headers.
+// Document Provenance:
+// - Source: Neynar notifications API `fetchAllNotifications`
+// - Kind: official API doc
+// - Retrieved: 2026-04-15
+// - Applied To: mentions/replies notification polling for the Farcaster agent
+// - Verification: verified in code
+// - Source: Neynar cast lookup API `lookupCastByHashOrUrl`
+// - Kind: official API doc
+// - Retrieved: 2026-04-15
+// - Applied To: cast hydration for Farcaster thread context
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-notifications-ingress.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
 /**
  * Neynar Service
  * Provides access to Neynar's Farcaster API for full-network search
  * Used as a supplement to local database search
  */
 
+import { Configuration, NeynarAPIClient } from '@neynar/nodejs-sdk';
+
 const NEYNAR_API_BASE = 'https://api.neynar.com/v2';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import * as unifiedApiService from '../config/unifiedApiService.js';
+import { env } from '../config/env.js';
+import type { FarcasterCastContext, FarcasterMentionEvent } from './farcaster-agent/types.js';
+
+const MAX_NEYNAR_NOTIFICATION_LIMIT = 25;
+
+let cachedNeynarClient: NeynarAPIClient | null = null;
+let cachedNeynarApiKey: string | null = null;
+
+function getNeynarApiKey(): string {
+    return String(env.apiKeys.neynar || process.env.NEYNAR_API_KEY || '').trim();
+}
+
+function getNeynarClient(): NeynarAPIClient | null {
+    const apiKey = getNeynarApiKey();
+    if (!apiKey) {
+        return null;
+    }
+
+    if (!cachedNeynarClient || cachedNeynarApiKey !== apiKey) {
+        cachedNeynarClient = new NeynarAPIClient(new Configuration({ apiKey }));
+        cachedNeynarApiKey = apiKey;
+    }
+
+    return cachedNeynarClient;
+}
+
+function clampNotificationLimit(value: number): number {
+    if (!Number.isFinite(value)) return 15;
+    return Math.min(Math.max(Math.trunc(value), 1), MAX_NEYNAR_NOTIFICATION_LIMIT);
+}
+
+function normalizeHexHash(value?: string | null): string | null {
+    const normalized = String(value || '').trim();
+    if (!normalized) return null;
+    return normalized.startsWith('0x') ? normalized : `0x${normalized}`;
+}
+
+function toIsoTimestamp(value?: string | number | null): string | null {
+    if (value === null || value === undefined || value === '') return null;
+    const raw = typeof value === 'number' ? value : Date.parse(String(value));
+    const ms = Number.isFinite(raw) ? raw : NaN;
+    if (!Number.isFinite(ms)) return null;
+    return new Date(ms).toISOString();
+}
 
 interface NeynarCast {
     hash: string;
+    parent_hash?: string | null;
+    thread_hash?: string | null;
+    parent_author?: {
+        fid: number | null;
+    } | null;
     author: {
         fid: number;
         username: string;
-        display_name: string;
+        display_name?: string;
         pfp_url?: string;
     };
     text: string;
     timestamp: string;
-    reactions: {
-        likes_count: number;
-        recasts_count: number;
+    reactions?: {
+        likes_count?: number;
+        recasts_count?: number;
     };
-    replies: {
-        count: number;
+    replies?: {
+        count?: number;
     };
+}
+
+interface NeynarNotification {
+    type: 'follows' | 'recasts' | 'likes' | 'mention' | 'mentions' | 'reply' | 'replies' | 'quote' | 'quotes' | string;
+    most_recent_timestamp: string;
+    seen: boolean;
+    cast?: NeynarCast;
+}
+
+function castToContext(cast: NeynarCast): FarcasterCastContext | null {
+    const hash = normalizeHexHash(cast.hash);
+    const text = String(cast.text || '').trim();
+    const authorFid = Number(cast.author?.fid || 0);
+    if (!hash || !text || !Number.isFinite(authorFid) || authorFid <= 0) {
+        return null;
+    }
+
+    return {
+        hash,
+        text,
+        authorFid,
+        authorUsername: String(cast.author?.username || '').trim() || null,
+        parentHash: normalizeHexHash(cast.parent_hash),
+        parentAuthorFid: Number(cast.parent_author?.fid || 0) || null,
+        timestamp: toIsoTimestamp(cast.timestamp),
+    };
+}
+
+function notificationToMentionEvent(notification: NeynarNotification): FarcasterMentionEvent | null {
+    const cast = notification.cast;
+    if (!cast) return null;
+
+    const context = castToContext(cast);
+    if (!context) return null;
+
+    const notificationType = notification.type === 'reply' || notification.type === 'replies' ? 'replies' : 'mentions';
+    return {
+        eventId: `farcaster:neynar:${notificationType}:${context.hash}`,
+        notificationType,
+        castHash: context.hash,
+        text: context.text,
+        authorFid: Number(context.authorFid || 0),
+        authorUsername: context.authorUsername || null,
+        parentHash: context.parentHash || null,
+        parentAuthorFid: context.parentAuthorFid || null,
+        rootCastHash: normalizeHexHash(cast.thread_hash) || context.hash,
+        occurredAt: toIsoTimestamp(notification.most_recent_timestamp) || context.timestamp || null,
+    };
+}
+
+function normalizeNeynarCastContext(cast: NeynarCast): FarcasterCastContext | null {
+    return castToContext(cast);
 }
 
 interface NeynarSearchResponse {
@@ -202,7 +334,86 @@ export async function getTrendingFeed(limit: number = 10): Promise<any[]> {
  * Check if Neynar API is configured and working
  */
 export async function isNeynarConfigured(): Promise<boolean> {
-    return !!process.env.NEYNAR_API_KEY;
+    return Boolean(getNeynarApiKey());
+}
+
+export function hasNeynarNotificationsConfigured(): boolean {
+    return Boolean(getNeynarApiKey());
+}
+
+/**
+ * Fetch mention/reply notifications for a specific Farcaster FID using Neynar.
+ */
+export async function fetchNeynarMentionPage(params: {
+    fid: number;
+    cursor?: string | null;
+    limit?: number;
+}): Promise<{
+    events: FarcasterMentionEvent[];
+    nextCursor: string | null;
+} | null> {
+    const client = getNeynarClient();
+    if (!client || !Number.isFinite(params.fid) || params.fid <= 0) {
+        return null;
+    }
+
+    try {
+        const response = await client.fetchAllNotifications({
+            fid: params.fid,
+            type: [
+                'mentions',
+                'replies',
+            ],
+            limit: clampNotificationLimit(params.limit ?? 15),
+            cursor: params.cursor || undefined,
+        });
+
+        const events = (response.notifications || [])
+            .map(notificationToMentionEvent)
+            .filter((event): event is FarcasterMentionEvent => Boolean(event));
+
+        return {
+            events,
+            nextCursor: response.next?.cursor || null,
+        };
+    } catch (error: any) {
+        logger.error(LogCode.SYS_ERROR, 'Neynar: notifications fetch error', {
+            error: error.message,
+            fid: params.fid,
+        });
+        return null;
+    }
+}
+
+/**
+ * Fetch cast context by hash using Neynar.
+ */
+export async function fetchNeynarCastContextByHash(params: {
+    hash: string;
+    viewerFid?: number;
+}): Promise<FarcasterCastContext | null> {
+    const client = getNeynarClient();
+    const hash = normalizeHexHash(params.hash);
+    if (!client || !hash) {
+        return null;
+    }
+
+    try {
+        const response = await client.lookupCastByHashOrUrl({
+            identifier: hash,
+            type: 'hash',
+            viewerFid: Number.isFinite(params.viewerFid || NaN) && (params.viewerFid || 0) > 0 ? params.viewerFid : undefined,
+        });
+
+        const context = normalizeNeynarCastContext(response.cast);
+        return context;
+    } catch (error: any) {
+        logger.error(LogCode.SYS_ERROR, 'Neynar: cast lookup error', {
+            error: error.message,
+            hash,
+        });
+        return null;
+    }
 }
 
 /**
@@ -328,6 +539,9 @@ export default {
     searchCastsNeynar,
     getTrendingFeed,
     isNeynarConfigured,
+    hasNeynarNotificationsConfigured,
+    fetchNeynarMentionPage,
+    fetchNeynarCastContextByHash,
     getUsersNeynar,
     getUserByUsername,
     checkIsFollowing

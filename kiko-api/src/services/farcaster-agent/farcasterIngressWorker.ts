@@ -1,9 +1,9 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-12
+// Updated: 2026-04-15
 // Author: Linh Tran
-// Reason: Farcaster mention automation now uses a free Snapchain Hub RPC path,
-//         so this worker owns the poll cadence, dedupe, session routing, and
-//         recovery policy while the API client handles Hub connectivity.
+// Reason: Farcaster mention automation now consumes normalized events from the
+//         API client, which prefers Neynar notifications and falls back to Hub
+//         RPC when needed.
 // Goal: preserve deterministic Farcaster mention handling while keeping polling
 //       cheap, idempotent, and aligned with linked-user chat sessions.
 // Owns: inbound Farcaster mention polling, dedupe, session routing, and reply dispatch.
@@ -16,18 +16,19 @@
 // - Only linked Farcaster users can trigger full agent execution.
 // - Keep public replies short enough for cast publication limits.
 // Document Provenance:
+// - Source: Neynar notifications and cast lookup APIs
+// - Kind: official API doc
+// - Retrieved: 2026-04-15
+// - Applied To: normalized mention event consumption and thread hydration
+// - Verification: verified in code
 // - Source: @farcaster/hub-nodejs README and dist typings
 // - Kind: local SDK source
 // - Retrieved: 2026-04-12
-// - Applied To: `getCastsByMention` and `getCast` usage for free Hub mention polling and thread context hydration
-// - Verification: verified in runtime
-// - Source: public Hub runtime observation against hub.merv.fun:3381
-// - Kind: runtime observation
-// - Retrieved: 2026-04-12
-// - Applied To: free Hub RPC default endpoint and readiness expectations
+// - Applied To: Hub fallback mention polling and thread context hydration
 // - Verification: verified in runtime
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-notifications-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import prisma from '../../db/prisma.js';

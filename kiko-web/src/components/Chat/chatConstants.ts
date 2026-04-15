@@ -1,11 +1,12 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-15
 // Author: Almurat
-// Reason: web chat and X mention replies now share one canonical default model.
-//         The selector list still defines UI choices, but default selection must
-//         no longer depend on array order alone.
+// Reason: web chat, X mentions, and Farcaster mentions still share one canonical
+//         default model, but the product default moved from Grok to GPT. The UI
+//         must expose the same canonical default that the backend now uses for
+//         new sessions and persisted defaults.
 // Goal: keep one stable frontend default model id that matches backend session
-//       creation and X mention reply policy.
+//       creation and persisted per-user reply policy.
 // Owns: frontend-visible model catalog and canonical default selection helper.
 // Does Not Own: backend persistence, pricing, or agent execution.
 // Design Language:
@@ -13,14 +14,14 @@
 // - Keep UI model ids aligned with backend-supported model ids.
 // - Prefer explicit helpers over duplicated literal ids in components.
 // Document Provenance:
-// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-default-chat-model-switch-to-gpt.md
 // - Kind: repo doc
-// - Retrieved: 2026-04-10
-// - Applied To: setting `grok-4-1-fast-non-reasoning` as canonical frontend default
+// - Retrieved: 2026-04-15
+// - Applied To: setting `gpt-5.4-mini-2026-03-17` as canonical frontend default
 // - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-default-chat-model-switch-to-gpt.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 export interface ChatModelOption {
     id: string;
@@ -36,7 +37,7 @@ export const MODEL_OPTIONS: ChatModelOption[] = [
     { id: 'grok-4-1-fast-non-reasoning', name: 'Grok-4.1-Fast', mode: 'fast' },
 ];
 
-export const DEFAULT_CHAT_MODEL_ID = 'grok-4-1-fast-non-reasoning';
+export const DEFAULT_CHAT_MODEL_ID = 'gpt-5.4-mini-2026-03-17';
 
 export function findChatModelOption(modelId?: string | null): ChatModelOption | undefined {
     const normalized = String(modelId || '').trim().toLowerCase();

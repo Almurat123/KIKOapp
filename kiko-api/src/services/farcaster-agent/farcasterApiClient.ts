@@ -1,18 +1,19 @@
 // CONTEXT MEMORY
 // Updated: 2026-04-15
 // Author: Linh Tran
-// Reason: The first healthy Hub can still become unstable after startup. This
-//         module now owns Hub client creation and request-level failover so
-//         mention polling can rotate away from a failing endpoint without
-//         changing worker policy.
+// Reason: Farcaster mention ingestion now prefers Neynar notifications when
+//         the API key is configured, while this module still owns Hub fallback
+//         and reply publication semantics.
 // Goal: keep mention retrieval, cast parsing, and reply publication
-//       centralized while preserving deterministic left-to-right fallback and
+//       centralized while preserving deterministic source selection and
 //       transient-error recovery.
-// Owns: Hub RPC connectivity, endpoint rotation, mention page parsing, cast
-//       hydration, and reply cast publication for the Farcaster agent.
+// Owns: Neynar notification preference, Hub RPC connectivity, endpoint
+//       rotation, mention page parsing, cast hydration, and reply cast
+//       publication for the Farcaster agent.
 // Does Not Own: polling cadence, linked-user policy, conversation mapping, or
 //               AI execution.
 // Design Language:
+// - Prefer Neynar notifications for mention polling when the API key exists.
 // - Hub RPC access must stay centralized, with left-to-right fallback across
 //   configured endpoints and then known public peers.
 // - Transient RPC cancellation must invalidate the current endpoint so the
@@ -21,6 +22,16 @@
 // - Reply publication must keep parent-cast semantics explicit.
 // - Avoid leaking provider-specific payload shapes into the worker.
 // Document Provenance:
+// - Source: Neynar notifications API `fetchAllNotifications`
+// - Kind: official API doc
+// - Retrieved: 2026-04-15
+// - Applied To: mention/reply notification polling before Hub fallback
+// - Verification: verified in code
+// - Source: Neynar cast lookup API `lookupCastByHashOrUrl`
+// - Kind: official API doc
+// - Retrieved: 2026-04-15
+// - Applied To: cast hydration before Hub fallback
+// - Verification: verified in code
 // - Source: @farcaster/hub-nodejs README and dist typings
 // - Kind: local SDK source
 // - Retrieved: 2026-04-15
@@ -40,6 +51,7 @@
 // - Verification: verified in runtime
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-notifications-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-mention-hub-fallback.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-mention-hub-request-failover.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
@@ -62,6 +74,11 @@ import { env } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import type { FarcasterCastContext, FarcasterMentionEvent, FarcasterSendResult } from './types.js';
+import {
+  fetchNeynarCastContextByHash,
+  fetchNeynarMentionPage,
+  hasNeynarNotificationsConfigured,
+} from '../neynarService.js';
 
 const DEFAULT_HUB_RPC_URL = 'hub.merv.fun:3381';
 const PUBLIC_HUB_FALLBACK_URLS = [
@@ -84,6 +101,7 @@ interface HubEndpoint {
 
 interface HubMentionPage {
   messages: Message[];
+  events?: FarcasterMentionEvent[] | undefined;
   nextPageToken?: Uint8Array | undefined;
 }
 
@@ -338,6 +356,10 @@ function messageToCastContext(message: Message): FarcasterCastContext | null {
 }
 
 export function parseHubMentionEvents(payload: HubMentionPage): FarcasterMentionEvent[] {
+  if (payload.events && payload.events.length > 0) {
+    return payload.events;
+  }
+
   const events: FarcasterMentionEvent[] = [];
 
   for (const message of payload.messages || []) {
@@ -373,6 +395,20 @@ export class FarcasterApiClient {
   }
 
   async fetchMentionPage(params?: { pageToken?: Uint8Array | null; pageSize?: number }): Promise<HubMentionPage> {
+    const neynarPage = await fetchNeynarMentionPage({
+      fid: env.farcasterAgent.botFid,
+      cursor: params?.pageToken ? Buffer.from(params.pageToken).toString('utf8') : null,
+      limit: clampPageSize(params?.pageSize ?? env.farcasterAgent.pollPageSize),
+    });
+
+    if (neynarPage) {
+      return {
+        events: neynarPage.events,
+        nextPageToken: neynarPage.nextCursor ? Buffer.from(neynarPage.nextCursor, 'utf8') : undefined,
+        messages: [],
+      };
+    }
+
     return runHubRequestWithFailover('mention fetch', async (client) => {
       const response = await client.getCastsByMention(
         FidRequest.create({
@@ -392,6 +428,14 @@ export class FarcasterApiClient {
   }
 
   async fetchCastByHash(params: { fid: number; hash: string }): Promise<FarcasterCastContext | null> {
+    const neynarCast = await fetchNeynarCastContextByHash({
+      hash: params.hash,
+      viewerFid: params.fid,
+    });
+    if (neynarCast) {
+      return neynarCast;
+    }
+
     return runHubRequestWithFailover('cast fetch', async (client) => {
       const castHash = asBytes(params.hash);
       if (!castHash || !Number.isFinite(params.fid) || params.fid <= 0) return null;
