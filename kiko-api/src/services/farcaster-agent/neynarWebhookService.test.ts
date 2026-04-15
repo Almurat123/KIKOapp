@@ -10,7 +10,7 @@ import {
 test('buildNeynarMentionSubscription uses a narrow handle trigger when the bot handle is known', () => {
   assert.deepEqual(buildNeynarMentionSubscription(1576616, '@kikoapp'), {
     'cast.created': {
-      text: '(?i)@kikoapp\\b',
+      text: '(?i).*@kikoapp.*',
     },
   });
 });

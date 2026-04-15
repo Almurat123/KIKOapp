@@ -9,8 +9,10 @@
 //         may expose mention identity as profiles, numeric fids, or mention
 //         arrays. Runtime testing showed Neynar had indexed real @kikoapp casts
 //         with mentioned_profiles but did not deliver a webhook when multiple
-//         cast filters were registered together, so the subscription now uses a
-//         narrow @handle text trigger while route admission remains fid-based.
+//         cast filters were registered together, and a bare @handle regex still
+//         did not deliver a full-text cast. The subscription therefore uses a
+//         full-string-compatible @handle regex while route admission remains
+//         fid-based.
 // Goal: create or update the single callback-bound webhook, verify signed
 //       deliveries, and normalize cast.created mention/reply payloads into the
 //       same FarcasterMentionEvent shape used by the worker.
@@ -28,9 +30,9 @@
 // - Mention detection must accept `mentioned_profiles`, `mentioned_fids`, and
 //   `mentions` payload forms; do not make reply-thread mentions depend on a
 //   single Neynar response shape.
-// - Webhook subscription should prefer a narrow @handle text trigger because
-//   Neynar can index mentioned_profiles for a cast while still failing to
-//   deliver mixed mentioned_fids/parent_author_fids/text webhook filters.
+// - Webhook subscription should prefer a full-string-compatible @handle text
+//   trigger because Neynar can index mentioned_profiles for a cast while still
+//   failing to deliver mixed filters or a bare @handle regex.
 // - Only cast.created deliveries that actually mention or reply to the bot
 //   should be admitted.
 // Document Provenance:
@@ -46,7 +48,8 @@
 // - Verification: verified in docs
 // - Source: Neynar OpenAPI WebhookSubscriptionFiltersCast and production
 //   replay of cast 0x329a207af24579e6854fd038af4276757651ea48 plus Neynar
-//   lookup of cast 0x5a3c65ab14bfa4332a393bc0db807e08c6474d3e
+//   lookup of casts 0x5a3c65ab14bfa4332a393bc0db807e08c6474d3e and
+//   0x0ba48652c55a2c4721b45690153899ad9c9208d5
 // - Kind: official API doc / runtime observation
 // - Retrieved: 2026-04-15
 // - Applied To: text-trigger webhook subscription with fid-based route
@@ -172,6 +175,10 @@ function escapeRe2Literal(value: string): string {
   return value.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
 }
 
+function buildHandleTextRegex(username: string): string {
+  return `(?i).*@${escapeRe2Literal(username)}.*`;
+}
+
 function normalizeBotUsername(value?: string | null): string | null {
   const username = String(value || '').trim().replace(/^@/, '');
   return username ? username.toLowerCase() : null;
@@ -188,7 +195,7 @@ export function buildNeynarMentionSubscription(
 
   const username = normalizeBotUsername(botUsername);
   const castFilter: Record<string, unknown> = username
-    ? { text: `(?i)@${escapeRe2Literal(username)}\\b` }
+    ? { text: buildHandleTextRegex(username) }
     : { mentioned_fids: [fid] };
 
   return {

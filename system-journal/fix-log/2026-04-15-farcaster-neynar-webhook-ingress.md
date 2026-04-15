@@ -22,11 +22,12 @@
 - Added an explicit `--api-key` override on the operator script so the online
   paid key can be used even when the local workspace `.env` contains a stale
   or limited key.
-- Switched the operator-created `cast.created` subscription to a narrow
-  `@botHandle` text-regex trigger when the bot handle is known. The callback
-  route still performs fid-based admission. This avoids Neynar delivery gaps
-  observed when `mentioned_fids`, `parent_author_fids`, and `text` were
-  registered together.
+- Switched the operator-created `cast.created` subscription to a
+  full-string-compatible `@botHandle` text-regex trigger when the bot handle is
+  known. The callback route still performs fid-based admission. This avoids
+  Neynar delivery gaps observed when `mentioned_fids`, `parent_author_fids`,
+  and `text` were registered together, and when a bare `(?i)@kikoapp\b` regex
+  did not deliver a matching full-text cast.
 - Added explicit `NEYNAR_WEBHOOK_SECRET`, `NEYNAR_WEBHOOK_CALLBACK_URL`, and
   `NEYNAR_WEBHOOK_NAME` env boundaries.
 - Switched the Farcaster ingress worker to webhook-first mode when the Neynar
@@ -47,7 +48,7 @@ up in the Neynar developer portal.
   because route-local diagnostics cannot explain 404 or method mismatch cases.
 - Reply-thread `@bot` casts must be admitted when Neynar exposes the mentioned
   identity as profile objects, raw fid arrays, or mention objects.
-- The subscription should use `(?i)@botHandle\b` as the provider-side trigger
+- The subscription should use `(?i).*@botHandle.*` as the provider-side trigger
   when the bot handle is known; the route must still perform fid-based
   admission so text-only false positives are ACKed but not enqueued.
 - If the bot handle is not known, the operator script may fall back to
@@ -83,6 +84,13 @@ up in the Neynar developer portal.
   eventually handled by the polling fallback and replied via Neynar at
   `2026-04-15T11:20:32Z`, proving publication worked while webhook delivery did
   not.
+- Runtime log `/Users/almurat/Downloads/logs.1776252905211.json` showed no
+  webhook ingress for cast
+  `0x0ba48652c55a2c4721b45690153899ad9c9208d5` by `2026-04-15T11:34:43Z`,
+  while Neynar cast lookup returned text `@kikoapp ok who are you ?` and
+  `mentioned_profiles: [{ fid: 1576616, username: "kikoapp" }]`. The active
+  webhook at that time had `text: "(?i)@kikoapp\\b"`, so the provider trigger
+  was widened to `(?i).*@kikoapp.*` to tolerate full-string regex matching.
 - A locally generated webhook payload for the same cast, signed with the active
   Neynar webhook secret using HMAC-SHA512 hex, returned `200` from
   `https://api.kikoapp.app/api/webhook/neynar` with `accepted: 1`. This verifies
@@ -133,6 +141,13 @@ up in the Neynar developer portal.
   - Retrieved: 2026-04-15
   - Applied To: identifying Neynar webhook mixed-filter delivery as the failing
     layer while preserving text-trigger plus fid-admission behavior
+  - Verification: verified in runtime
+- Source: Production log and Neynar lookup of cast
+  `0x0ba48652c55a2c4721b45690153899ad9c9208d5`
+  - Kind: runtime observation
+  - Retrieved: 2026-04-15
+  - Applied To: widening the text trigger from a bare handle regex to a
+    full-string-compatible regex
   - Verification: verified in runtime
 
 ## See Also
