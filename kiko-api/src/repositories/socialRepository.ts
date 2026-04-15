@@ -1,3 +1,28 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-15
+// Author: Linh Tran
+// Reason: Legacy Farcaster search/profile fallback traffic must not consume
+//         Neynar quota now that the paid ingress path is handled elsewhere.
+// Goal: keep social reads local-first and deterministic, with no automatic
+//       Neynar supplementation from the search/profile repository layer.
+// Owns: local social search, local profile cache lookup, and KIKO official
+//       profile fallback behavior.
+// Does Not Own: Farcaster mention ingress, Hub publication, or paid API
+//               supplementation policy.
+// Design Language:
+// - Local database search is the only search path from this repository.
+// - Profile reads must not silently fan out to external Farcaster providers.
+// - Keep the repository safe to run without any Neynar key at all.
+// Document Provenance:
+// - Source: repository audit of social search/profile call sites
+// - Kind: repo doc
+// - Retrieved: 2026-04-15
+// - Applied To: disabling Neynar fallback on search/profile endpoints
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-legacy-reads-disabled.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
 import prisma, { withRetry } from '../db/prisma.js';
 import { get, set, del } from '../cache/cacheClient.js';
 import { TrendingCast } from '../types/social.js';
@@ -650,16 +675,13 @@ export async function searchCasts(
 }
 
 /**
- * Hybrid search: Local DB first, Neynar API as supplement
- * Combines results from both sources, deduplicates by hash
- * [Logic]: DB-first for speed, Neynar supplement for coverage
- * [Ref]: searchCastsNeynar sort_type: algorithmic | desc_chron
- * [Risk]: Neynar 402 if API key is free tier
+ * Hybrid search: Local DB only
+ * Keeps the call shape for existing callers without Neynar fanout.
  * @param query - Search query string
  * @param limit - Maximum number of results (default: 20)
- * @param useNeynar - Whether to use Neynar API as supplement (default: true)
+ * @param useNeynar - Retained for backward compatibility; ignored.
  * @param sortBy - Sort order: 'algorithmic' (engagement) or 'recent' (desc_chron)
- * @returns Combined array of casts from both sources
+ * @returns Local array of casts
  */
 export async function hybridSearchCasts(
     query: string,
@@ -673,38 +695,14 @@ export async function hybridSearchCasts(
         }
 
         const trimmedQuery = query.trim();
-        console.log(`[SocialRepo] Hybrid search for: "${trimmedQuery}" (limit: ${limit}, neynar: ${useNeynar}, sort: ${sortBy})`);
+        void useNeynar;
+        void sortBy;
+        console.log(`[SocialRepo] Local-only search for: "${trimmedQuery}" (limit: ${limit}, sort: ${sortBy})`);
 
-        // 1. Search local database first (fast, free)
+        // Search local database only.
         const localResults = await searchCasts(trimmedQuery, limit);
         console.log(`[SocialRepo] Local search found: ${localResults.length} casts`);
-
-        // 2. If we have enough local results or Neynar is disabled, return local only
-        if (localResults.length >= limit || !useNeynar) {
-            return localResults.slice(0, limit);
-        }
-
-        // 3. Supplement with Neynar API (for full-network coverage)
-        try {
-            const { searchCastsNeynar } = await import('../services/neynarService.js');
-            const remainingNeeded = limit - localResults.length;
-            const neynarResults = await searchCastsNeynar(trimmedQuery, remainingNeeded, 'literal', sortBy);
-
-            console.log(`[SocialRepo] Neynar search found: ${neynarResults.length} casts`);
-
-            // 4. Deduplicate by hash (local results take priority)
-            const localHashes = new Set(localResults.map(c => c.hash));
-            const uniqueNeynarResults = neynarResults.filter((c: any) => !localHashes.has(c.hash));
-
-            // 5. Combine and limit results
-            const combined = [...localResults, ...uniqueNeynarResults as TrendingCast[]];
-            console.log(`[SocialRepo] Hybrid search total: ${combined.length} casts (${localResults.length} local + ${uniqueNeynarResults.length} neynar)`);
-
-            return combined.slice(0, limit);
-        } catch (neynarError: any) {
-            console.warn(`[SocialRepo] Neynar fallback failed: ${neynarError.message}, returning local results only`);
-            return localResults;
-        }
+        return localResults.slice(0, limit);
 
     } catch (error) {
         console.error('[SocialRepo] Error in hybrid search:', error);
@@ -756,55 +754,6 @@ export async function getFarcasterProfile(username: string): Promise<any | null>
 
                 return fallbackProfile;
             }
-        }
-
-        // 2. Cache miss or expired, fetch from Neynar
-        const { getUserByUsername } = await import('../services/neynarService.js');
-        const profile = await getUserByUsername(username);
-
-        if (profile) {
-            // 3. Save to Cache table (expires in 24 hours)
-            const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-            await prisma.cache.upsert({
-                where: { key: cacheKey },
-                update: {
-                    value: JSON.stringify(profile),
-                    expiresAt,
-                    updatedAt: new Date()
-                },
-                create: {
-                    key: cacheKey,
-                    value: JSON.stringify(profile),
-                    expiresAt,
-                    updatedAt: new Date()
-                }
-            });
-            return profile;
-        } else {
-            // 4. Negative caching: Neynar failed (e.g. 402 error) or user doesn't exist
-            // Cache the "null" result for 5 minutes (300,000 ms) to prevent infinite API spam
-            const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
-            await prisma.cache.upsert({
-                where: { key: cacheKey },
-                update: {
-                    value: JSON.stringify(null), // Store 'null'
-                    expiresAt,
-                    updatedAt: new Date()
-                },
-                create: {
-                    key: cacheKey,
-                    value: JSON.stringify(null),
-                    expiresAt,
-                    updatedAt: new Date()
-                }
-            });
-            return null;
-        }
-
-        // If fetch failed but we have stale cache, return it as fallback
-        const staleValue = cached?.value;
-        if (typeof staleValue === 'string' && staleValue !== 'null') {
-            return JSON.parse(String(staleValue));
         }
 
         return null;

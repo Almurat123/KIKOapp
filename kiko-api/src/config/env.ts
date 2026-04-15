@@ -10,9 +10,10 @@
 //         and an OAuth1 helper flow for Account Activity subscription setup.
 //         X mention replies also need an explicit public share base URL so the
 //         API can emit crawler-safe share pages instead of public AI text.
-//         Farcaster agent ingress now uses Snapchain hub polling, so the env
-//         boundary must pin the hub RPC endpoints, signer key, and 10-second
-//         default poll cadence without mutating X runtime assumptions.
+//         Farcaster agent ingress now uses Neynar notifications with Hub
+//         fallback for hydration/publication, so the env boundary must keep the
+//         API key, hub RPC endpoints, signer key, and default poll cadence
+//         explicit without mutating X runtime assumptions.
 // Goal: keep startup validation as the single owner for deployment-time security
 //       and connectivity requirements around X auth and Farcaster agent ingress.
 // Owns: env parsing and hard-fail validation for X auth configuration and
@@ -24,21 +25,26 @@
 // - Operator authorization must be explicit, never inferred from generic login.
 // - Sensitive token storage must require a valid encryption key.
 // - Webhook CRC must use the X app API/consumer secret, never OAuth2 client secret fallback.
-// - Farcaster agent ingress must stay disabled unless its hub RPC endpoint list, signer key, and bot identity are configured.
+// - Farcaster agent ingress must stay disabled unless its API key, hub RPC endpoint list, signer key, and bot identity are configured.
 // - `FARCASTER_AGENT_HUB_RPC_URL` may contain a comma-separated fallback list.
 // - Polling cadence defaults to 10 seconds and must remain env-driven so ops
 //   can raise it to 15 minutes or 1 hour without code changes.
 // - Public X share links must have an explicit base URL and must not be inferred from private session paths.
 // Document Provenance:
-// - Source: @farcaster/hub-nodejs README and typed Hub RPC client exports
-// - Kind: local SDK source / official API docs
-// - Retrieved: 2026-04-12
-// - Applied To: Snapchain Hub RPC endpoint, cast mention polling, and reply submission env requirements
+// - Source: Neynar notifications API and local Farcaster agent runtime
+// - Kind: official API doc / runtime observation
+// - Retrieved: 2026-04-15
+// - Applied To: Farcaster agent API-key gating, mention ingress, and reply publication env requirements
 // - Verification: verified in runtime
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-12
 // - Applied To: 10-second default poll cadence and future env-driven cadence changes
+// - Verification: verified in code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-notifications-ingress.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-15
+// - Applied To: Farcaster agent mention/reply notification source selection
 // - Verification: verified in code
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-11-x-reply-share-pages.md
 // - Kind: repo doc

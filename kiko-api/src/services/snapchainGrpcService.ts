@@ -1,3 +1,24 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-15
+// Author: Linh Tran
+// Reason: The legacy Neynar gRPC helper must stay inert so it cannot spend
+//         quota accidentally after the Farcaster ingress switch.
+// Goal: keep this helper returning empty results unless explicitly reworked.
+// Owns: no-op safety behavior for the legacy gRPC helper.
+// Does Not Own: Farcaster mention ingress, social search, or runtime policy.
+// Design Language:
+// - Default to returning null/empty data instead of calling the remote gRPC.
+// - Never require a Neynar API key for legacy helper safety.
+// Document Provenance:
+// - Source: repository audit of snapchainGrpcService call sites
+// - Kind: repo doc
+// - Retrieved: 2026-04-15
+// - Applied To: disabling remote gRPC calls in the legacy helper
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-legacy-reads-disabled.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
 /**
  * Snapchain gRPC Hub Service for Farcaster data
  * Uses @farcaster/hub-nodejs SDK with Neynar's gRPC endpoint
@@ -8,8 +29,6 @@
  */
 
 import {
-    getSSLHubRpcClient,
-    createDefaultMetadataKeyInterceptor,
     HubRpcClient,
     FidRequest,
     ReactionsByTargetRequest,
@@ -20,39 +39,13 @@ import {
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 
-// Neynar gRPC endpoint
-const GRPC_URL = process.env.SNAPCHAIN_GRPC_URL || 'snapchain-grpc-api.neynar.com:443';
-const API_KEY = process.env.NEYNAR_API_KEY;
-
-let hubClient: HubRpcClient | null = null;
-
 /**
  * Get or create the gRPC Hub client
  * [Logic]: Singleton pattern with lazy initialization
  */
 export function getHubClient(): HubRpcClient | null {
-    if (!API_KEY) {
-        logger.warn(LogCode.SYS_INFO, 'NEYNAR_API_KEY not configured, gRPC Hub unavailable');
-        return null;
-    }
-
-    if (!hubClient) {
-        try {
-            hubClient = getSSLHubRpcClient(GRPC_URL, {
-                interceptors: [
-                    createDefaultMetadataKeyInterceptor('x-api-key', API_KEY),
-                ],
-                // [Logic]: Increased to 50MB to handle large accounts (some have 1.7GB+ data)
-                'grpc.max_receive_message_length': 50 * 1024 * 1024, // 50MB
-            });
-            logger.info(LogCode.SYS_INFO, `gRPC Hub client connected to ${GRPC_URL}`);
-        } catch (error: any) {
-            logger.error(LogCode.SYS_ERROR, 'Failed to create gRPC Hub client', { error: error.message });
-            return null;
-        }
-    }
-
-    return hubClient;
+    logger.info(LogCode.SYS_INFO, 'Legacy Neynar gRPC helper disabled by policy');
+    return null;
 }
 
 /**
@@ -183,11 +176,7 @@ export async function getReactionsByCastGrpc(fid: number, hash: string): Promise
  * Close the gRPC client connection
  */
 export function closeHubClient(): void {
-    if (hubClient) {
-        hubClient.close();
-        hubClient = null;
-        logger.info(LogCode.SYS_INFO, 'gRPC Hub client closed');
-    }
+    logger.info(LogCode.SYS_INFO, 'Legacy Neynar gRPC helper already disabled');
 }
 
 export default {

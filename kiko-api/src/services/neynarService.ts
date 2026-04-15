@@ -1,15 +1,18 @@
 // CONTEXT MEMORY
 // Updated: 2026-04-15
 // Author: Linh Tran
-// Reason: Neynar is now the owned provider for paid notifications, cast lookup,
-//         and network search when the API key is configured.
-// Goal: keep Neynar-only reads centralized so Farcaster ingress can switch
-//       providers without duplicating API key handling or payload normalization.
-// Owns: Neynar API key discovery, notifications fetch, cast lookup, user
-//       lookup, and search/feed helpers.
-// Does Not Own: Hub RPC publication, worker cadence, or conversation policy.
+// Reason: Neynar now owns Farcaster mention/reply ingress, but all legacy
+//         public-read helpers must stay disabled so paid quota is not consumed
+//         by search or profile fallback traffic.
+// Goal: keep ingress reads centralized while preventing unrelated routes from
+//       touching Neynar at runtime.
+// Owns: Neynar API key discovery, notifications fetch, cast lookup, and hard
+//       disable switches for legacy read helpers.
+// Does Not Own: Hub RPC publication, worker cadence, conversation policy, or
+//               social search fallback selection.
 // Design Language:
-// - Prefer typed Neynar SDK calls for notifications and cast lookup.
+// - Keep ingress reads enabled only for notifications and cast lookup.
+// - Return immediately from legacy read helpers instead of probing the API.
 // - Keep provider-specific response shapes normalized before they leave this layer.
 // - Never log the API key or raw credential-bearing headers.
 // Document Provenance:
@@ -43,6 +46,7 @@ import { env } from '../config/env.js';
 import type { FarcasterCastContext, FarcasterMentionEvent } from './farcaster-agent/types.js';
 
 const MAX_NEYNAR_NOTIFICATION_LIMIT = 25;
+const LEGACY_NEYNAR_READS_ENABLED = false;
 
 let cachedNeynarClient: NeynarAPIClient | null = null;
 let cachedNeynarApiKey: string | null = null;
@@ -197,12 +201,12 @@ export async function searchCastsNeynar(
     mode: 'literal' | 'semantic' | 'hybrid' = 'literal',
     sortBy: 'algorithmic' | 'recent' = 'algorithmic'
 ): Promise<any[]> {
-    const apiKey = process.env.NEYNAR_API_KEY;
-
-    if (!apiKey) {
-        logger.warn(LogCode.SYS_INFO, 'Neynar API key not configured, skipping search');
+    if (!LEGACY_NEYNAR_READS_ENABLED) {
+        logger.info(LogCode.SYS_INFO, 'Neynar legacy search disabled by policy, skipping search', { query, limit, sortBy });
         return [];
     }
+
+    const apiKey = getNeynarApiKey();
 
     try {
         logger.debug(LogCode.SYS_INFO, 'Neynar: Searching casts', { query, mode, limit, sortBy });
@@ -262,12 +266,12 @@ export async function searchCastsNeynar(
  * [Risk]: Returns empty if API key not configured
  */
 export async function getTrendingFeed(limit: number = 10): Promise<any[]> {
-    const apiKey = process.env.NEYNAR_API_KEY;
-
-    if (!apiKey) {
-        logger.warn(LogCode.SYS_INFO, 'Neynar API key not configured, skipping trending feed');
+    if (!LEGACY_NEYNAR_READS_ENABLED) {
+        logger.info(LogCode.SYS_INFO, 'Neynar legacy trending feed disabled by policy, skipping feed', { limit });
         return [];
     }
+
+    const apiKey = getNeynarApiKey();
 
     try {
         logger.debug(LogCode.SYS_INFO, 'Neynar: Fetching trending feed', { limit });
@@ -334,7 +338,7 @@ export async function getTrendingFeed(limit: number = 10): Promise<any[]> {
  * Check if Neynar API is configured and working
  */
 export async function isNeynarConfigured(): Promise<boolean> {
-    return Boolean(getNeynarApiKey());
+    return Boolean(LEGACY_NEYNAR_READS_ENABLED && getNeynarApiKey());
 }
 
 export function hasNeynarNotificationsConfigured(): boolean {
@@ -420,9 +424,12 @@ export async function fetchNeynarCastContextByHash(params: {
  * Fetch users by FIDs using Neynar API
  */
 export async function getUsersNeynar(fids: number[]): Promise<any[]> {
-    const apiKey = process.env.NEYNAR_API_KEY;
+    if (!LEGACY_NEYNAR_READS_ENABLED || fids.length === 0) {
+        return [];
+    }
 
-    if (!apiKey || fids.length === 0) {
+    const apiKey = getNeynarApiKey();
+    if (!apiKey) {
         return [];
     }
 
@@ -458,8 +465,11 @@ export async function getUsersNeynar(fids: number[]): Promise<any[]> {
  * Fetch user details by username using Neynar API
  */
 export async function getUserByUsername(username: string): Promise<any | null> {
-    const apiKey = process.env.NEYNAR_API_KEY;
+    if (!LEGACY_NEYNAR_READS_ENABLED) {
+        return null;
+    }
 
+    const apiKey = getNeynarApiKey();
     if (!apiKey) {
         return null;
     }
@@ -504,8 +514,11 @@ export async function getUserByUsername(username: string): Promise<any | null> {
  * Check if a user follows another user on Farcaster
  */
 export async function checkIsFollowing(fid: number, targetFid: number): Promise<boolean> {
-    const apiKey = process.env.NEYNAR_API_KEY;
+    if (!LEGACY_NEYNAR_READS_ENABLED) {
+        return false;
+    }
 
+    const apiKey = getNeynarApiKey();
     if (!apiKey) {
         return false;
     }

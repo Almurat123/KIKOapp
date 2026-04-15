@@ -168,7 +168,7 @@ export const SearchFarcasterCastsTool: Tool = {
         const cappedLimit = Math.min(limit, 30);
 
         try {
-            // Use hybrid search (local DB + Neynar API)
+            // Use local DB search only; Neynar fanout is disabled.
             const casts = await hybridSearchCasts(query, cappedLimit, true);
 
             // Simplify data to save tokens

@@ -1,3 +1,26 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-15
+// Author: Linh Tran
+// Reason: Legacy Farcaster user-profile fallback must not hit Neynar now that
+//         paid ingress is handled elsewhere and search/profile reads are local.
+// Goal: keep Snapchain reads Hub-first with local database fallback only.
+// Owns: Hub reads, local cache/database fallbacks, and cast/reaction shaping.
+// Does Not Own: Neynar quota consumption, paid user profile supplementation, or
+//               mention ingress policy.
+// Design Language:
+// - Do not fan out to Neynar for profile recovery.
+// - Prefer local durable sources before any remote fallback.
+// - Keep this service safe to run without a Neynar API key.
+// Document Provenance:
+// - Source: repository audit of SnapchainService Neynar fallback call sites
+// - Kind: repo doc
+// - Retrieved: 2026-04-15
+// - Applied To: removing `getUsersNeynar` fallback from profile recovery
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-legacy-reads-disabled.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
 /**
  * Snapchain Hub Service for Farcaster data
  *
@@ -11,7 +34,6 @@
 import prisma from '../db/prisma.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import * as neynarService from './neynarService.js';
 import { fetchJson } from '../config/unifiedApiService.js';
 import * as qualityUsersRepo from '../repositories/qualityUsersRepository.js';
 
@@ -21,7 +43,6 @@ import * as qualityUsersRepo from '../repositories/qualityUsersRepository.js';
 const PRIMARY_HUB_URL = process.env.SNAPCHAIN_HUB_URL || 'https://hub.pinata.cloud';
 const FALLBACK_HUB_URL = 'https://hub.merv.fun';
 const HUB_URL = PRIMARY_HUB_URL; // Backward compatibility
-const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY;
 const FARCASTER_EPOCH_SECONDS = 1609459200; // 2021-01-01 UTC
 const FARCASTER_EPOCH_MS = FARCASTER_EPOCH_SECONDS * 1000;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -354,8 +375,8 @@ export async function getUserDataByFid(fid: number): Promise<HubUserData | null>
     }
   }
 
-  // No cached data in Hub, try DB and Neynar fallbacks
-  logger.info(LogCode.SYS_INFO, 'Snapchain Hub data missing, trying DB/Neynar fallback', { fid });
+  // No cached data in Hub, try DB fallback only.
+  logger.info(LogCode.SYS_INFO, 'Snapchain Hub data missing, trying DB fallback only', { fid });
 
   // 1. Try DB fallback (Real users previously saved)
   try {
@@ -382,23 +403,6 @@ export async function getUserDataByFid(fid: number): Promise<HubUserData | null>
         pfp: cachedEntry.authorAvatar || undefined,
         bio: cachedEntry.authorBio || undefined,
         twitter: cachedEntry.authorTwitter || undefined,
-      };
-    }
-  } catch (e) { }
-
-  // 2. Try Neynar API (The ultimate source of truth for Farcaster)
-  try {
-    const neynarUser = await neynarService.getUsersNeynar([fid]);
-    if (neynarUser && neynarUser.length > 0) {
-      const u = neynarUser[0];
-      logger.info(LogCode.SYS_INFO, 'Recovered user data from Neynar fallback', { fid, username: u.username });
-      return {
-        fid,
-        username: u.username,
-        displayName: u.displayName,
-        pfp: u.pfp,
-        bio: u.bio,
-        verifications: u.verifications
       };
     }
   } catch (e) { }

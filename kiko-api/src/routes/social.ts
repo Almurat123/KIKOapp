@@ -75,7 +75,7 @@ export async function socialRoutes(fastify: FastifyInstance) {
   });
 
   // GET /api/social/search
-  // Hybrid search: local DB first, Neynar API as supplement
+  // Local search only; Neynar fanout is disabled at the repository layer.
   fastify.get('/search', async (request, reply) => {
     try {
       const query = request.query as { q?: string, query?: string, limit?: string, neynar?: string };
