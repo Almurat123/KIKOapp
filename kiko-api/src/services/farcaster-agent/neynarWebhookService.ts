@@ -7,7 +7,10 @@
 //         Reply-thread mentions must not depend on a single Neynar payload
 //         shape; webhook filters are keyed by mentioned_fids, while deliveries
 //         may expose mention identity as profiles, numeric fids, or mention
-//         arrays.
+//         arrays. Runtime testing showed Neynar had indexed a real @kikoapp
+//         cast with mentioned_profiles but did not deliver the registered
+//         mentioned_fids webhook, so the subscription now also carries a narrow
+//         @handle text fallback while route admission remains fid-based.
 // Goal: create or update the single callback-bound webhook, verify signed
 //       deliveries, and normalize cast.created mention/reply payloads into the
 //       same FarcasterMentionEvent shape used by the worker.
@@ -25,6 +28,9 @@
 // - Mention detection must accept `mentioned_profiles`, `mentioned_fids`, and
 //   `mentions` payload forms; do not make reply-thread mentions depend on a
 //   single Neynar response shape.
+// - Webhook subscription should include a narrow @handle text fallback because
+//   Neynar can index mentioned_profiles for a cast while still failing to
+//   deliver the mentioned_fids webhook event.
 // - Only cast.created deliveries that actually mention or reply to the bot
 //   should be admitted.
 // Document Provenance:
@@ -38,6 +44,12 @@
 // - Retrieved: 2026-04-15
 // - Applied To: webhook list/create/update endpoints and target-url reuse
 // - Verification: verified in docs
+// - Source: Neynar OpenAPI WebhookSubscriptionFiltersCast and production
+//   replay of cast 0x329a207af24579e6854fd038af4276757651ea48
+// - Kind: official API doc / runtime observation
+// - Retrieved: 2026-04-15
+// - Applied To: OR-filter subscription plus @handle text fallback
+// - Verification: verified in docs and signed runtime replay
 // - Source: Neynar Documentation, Verify Webhooks with HMAC Signatures
 // - Kind: official API doc
 // - Retrieved: 2026-04-15
@@ -154,17 +166,35 @@ function extractTargetUrl(record: NeynarWebhookRecord): string {
   return normalizeUrl(String(record.target_url || ''));
 }
 
-export function buildNeynarMentionSubscription(botFid: number): NeynarWebhookSubscriptionFilters {
+function escapeRe2Literal(value: string): string {
+  return value.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+}
+
+function normalizeBotUsername(value?: string | null): string | null {
+  const username = String(value || '').trim().replace(/^@/, '');
+  return username ? username.toLowerCase() : null;
+}
+
+export function buildNeynarMentionSubscription(
+  botFid: number,
+  botUsername?: string | null,
+): NeynarWebhookSubscriptionFilters {
   const fid = Number.isFinite(botFid) && botFid > 0 ? Math.trunc(botFid) : 0;
   if (!fid) {
     throw new Error('Missing or invalid Farcaster bot FID for Neynar webhook subscription');
   }
 
+  const username = normalizeBotUsername(botUsername);
+  const castFilter: Record<string, unknown> = {
+    mentioned_fids: [fid],
+    parent_author_fids: [fid],
+  };
+  if (username) {
+    castFilter.text = `(?i)@${escapeRe2Literal(username)}\\b`;
+  }
+
   return {
-    'cast.created': {
-      mentioned_fids: [fid],
-      parent_author_fids: [fid],
-    },
+    'cast.created': castFilter,
   };
 }
 

@@ -13,7 +13,8 @@
 // Design Language:
 // - Reuse by callback URL, not by spraying duplicate webhooks.
 // - Keep the subscription narrowly focused on the bot's mention and reply
-//   delivery.
+//   delivery, with a narrow @handle text fallback for Neynar mention-filter
+//   delivery gaps observed in production.
 // - Print the resulting webhook id, target URL, and action so operators can
 //   confirm the dashboard state immediately.
 // - Allow explicit API-key override so the operator can target the online paid
@@ -29,6 +30,12 @@
 // - Retrieved: 2026-04-15
 // - Applied To: list/create/update webhook endpoints and callback-url reuse
 // - Verification: verified in docs
+// - Source: Neynar OpenAPI WebhookSubscriptionFiltersCast and production
+//   signed replay of a real @kikoapp cast
+// - Kind: official API doc / runtime observation
+// - Retrieved: 2026-04-15
+// - Applied To: adding @handle text fallback to the operator-created webhook
+// - Verification: verified in docs and runtime
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
@@ -107,7 +114,13 @@ async function main(): Promise<void> {
     || process.env.NEYNAR_WEBHOOK_NAME
     || 'kiko-farcaster-agent',
   ).trim();
-  const subscription = buildNeynarMentionSubscription(botFid);
+  const botUsername = String(
+    readArg('--bot-username')
+    || process.env.FARCASTER_AGENT_BOT_USERNAME
+    || process.env.KIKO_FARCASTER_USERNAME
+    || 'kikoapp',
+  ).trim();
+  const subscription = buildNeynarMentionSubscription(botFid, botUsername);
 
   if (command === 'list') {
     const webhooks = await listNeynarWebhooks(apiKeyInfo.value);

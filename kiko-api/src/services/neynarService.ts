@@ -4,7 +4,10 @@
 // Reason: Neynar now owns Farcaster mention/reply ingress, but all legacy
 //         public-read helpers must stay disabled so paid quota is not consumed
 //         by search or profile fallback traffic. Cast publishing now also
-//         prefers a dedicated Neynar signer UUID when available.
+//         prefers a dedicated Neynar signer UUID when available. The public
+//         NeynarAPIClient wrapper accepts camelCase params and converts them to
+//         OpenAPI wire keys internally; runtime diagnosis must therefore check
+//         signer approval before blaming request shape.
 // Goal: keep ingress reads centralized while preventing unrelated routes from
 //       touching Neynar at runtime.
 // Owns: Neynar API key discovery, notifications fetch, cast lookup, optional
@@ -17,6 +20,8 @@
 // - Return immediately from legacy read helpers instead of probing the API.
 // - Keep provider-specific response shapes normalized before they leave this layer.
 // - Never log the API key or raw credential-bearing headers.
+// - NeynarAPIClient wrapper calls must use the wrapper's camelCase params; the
+//   wrapper owns converting them to OpenAPI wire keys.
 // Document Provenance:
 // - Source: Neynar notifications API `fetchAllNotifications`
 // - Kind: official API doc
@@ -28,9 +33,17 @@
 // - Retrieved: 2026-04-15
 // - Applied To: cast hydration for Farcaster thread context
 // - Verification: verified in code
+// - Source: NeynarAPIClient `publishCast` wrapper implementation and signer
+//   lookup runtime response
+// - Kind: local SDK source
+// - Retrieved: 2026-04-15
+// - Applied To: camelCase `publishCast` wrapper params and signer approval
+//   diagnosis
+// - Verification: verified in code and runtime
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-notifications-ingress.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-reply-publish-fallback.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 /**
  * Neynar Service
@@ -123,6 +136,22 @@ interface NeynarNotification {
     most_recent_timestamp: string;
     seen: boolean;
     cast?: NeynarCast;
+}
+
+export function buildNeynarCastReplyParams(params: {
+    signerUuid: string;
+    text: string;
+    parentHash: string;
+    parentAuthorFid: number;
+    idem?: string;
+}) {
+    return {
+        signerUuid: params.signerUuid,
+        text: String(params.text || '').trim(),
+        parent: params.parentHash,
+        parentAuthorFid: Math.trunc(params.parentAuthorFid),
+        idem: String(params.idem || '').trim() || undefined,
+    };
 }
 
 function castToContext(cast: NeynarCast): FarcasterCastContext | null {
@@ -444,13 +473,13 @@ export async function publishNeynarCastReply(params: {
     }
 
     try {
-        const response = await client.publishCast({
+        const response = await client.publishCast(buildNeynarCastReplyParams({
             signerUuid,
             text: String(params.text || '').trim(),
-            parent: parentHash,
+            parentHash,
             parentAuthorFid: Math.trunc(params.parentAuthorFid),
             idem: String(params.idem || '').trim() || undefined,
-        });
+        }));
         const hash = normalizeHexHash(response.cast?.hash);
         if (!hash) {
             throw new Error('Neynar publishCast response missing cast hash');

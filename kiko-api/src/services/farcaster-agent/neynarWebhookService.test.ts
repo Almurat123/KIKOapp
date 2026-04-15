@@ -2,9 +2,20 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
 import {
+  buildNeynarMentionSubscription,
   normalizeNeynarWebhookMention,
   verifyNeynarWebhookSignature,
 } from './neynarWebhookService.js';
+
+test('buildNeynarMentionSubscription keeps fid filters and adds a narrow handle fallback', () => {
+  assert.deepEqual(buildNeynarMentionSubscription(1576616, '@kikoapp'), {
+    'cast.created': {
+      mentioned_fids: [1576616],
+      parent_author_fids: [1576616],
+      text: '(?i)@kikoapp\\b',
+    },
+  });
+});
 
 test('verifyNeynarWebhookSignature accepts the documented sha512 hex signature', () => {
   const body = JSON.stringify({

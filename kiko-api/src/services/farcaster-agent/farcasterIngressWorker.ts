@@ -2,8 +2,9 @@
 // Updated: 2026-04-15
 // Author: Linh Tran
 // Reason: Farcaster mention automation now consumes normalized events from the
-//         webhook ingress when enabled, and otherwise falls back to the API
-//         client polling path plus Hub RPC hydration.
+//         webhook ingress when enabled, while still keeping low-frequency
+//         notification polling as a safety net because Neynar webhook delivery
+//         can be delayed or absent for reply-thread mention tests.
 // Goal: preserve deterministic Farcaster mention handling while keeping polling
 //       cheap, idempotent, and aligned with linked-user chat sessions.
 // Owns: inbound Farcaster mention polling fallback, webhook-fed dedupe, session
@@ -16,8 +17,9 @@
 //   raise it to 15 minutes or 1 hour without code changes.
 // - Only linked Farcaster users can trigger full agent execution.
 // - Keep public replies short enough for cast publication limits.
-// - Prefer webhook-fed mention ingress when the webhook is enabled; use
-//   notification polling only as the fallback path.
+// - Prefer webhook-fed mention ingress when the webhook is enabled, but keep
+//   notification polling as a low-frequency safety net instead of disabling it
+//   completely.
 // Document Provenance:
 // - Source: Neynar webhook documentation and notifications/cast lookup APIs
 // - Kind: official API doc
@@ -258,13 +260,12 @@ export class FarcasterIngressWorker {
 
   start(): void {
     if (!env.farcasterAgent.enabled) return;
-    if (!env.farcasterAgent.neynarWebhookEnabled) {
-      this.scheduleMentions(1000);
-    }
+    this.scheduleMentions(1000);
     this.scheduleRecovery(2000);
     logger.info(LogCode.SYS_STARTUP, '[Farcaster] ingress worker started', {
       botFid: env.farcasterAgent.botFid,
       webhookEnabled: env.farcasterAgent.neynarWebhookEnabled,
+      pollingFallbackEnabled: true,
       pollMentionsMs: env.farcasterAgent.pollMentionsMs,
       pollPageSize: env.farcasterAgent.pollPageSize,
     });
@@ -291,7 +292,6 @@ export class FarcasterIngressWorker {
   }
 
   async pollMentionsOnce(): Promise<void> {
-    if (env.farcasterAgent.neynarWebhookEnabled) return;
     if (this.runningMentions || !farcasterApiClient.isConfigured()) return;
     this.runningMentions = true;
 
