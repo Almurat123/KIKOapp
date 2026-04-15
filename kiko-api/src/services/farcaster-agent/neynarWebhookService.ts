@@ -4,6 +4,10 @@
 // Reason: Neynar webhook ingress needs a dedicated owner for webhook CRUD,
 //         signature verification, and mention normalization so the Farcaster
 //         agent can move off unstable polling without duplicating event logic.
+//         Reply-thread mentions must not depend on a single Neynar payload
+//         shape; webhook filters are keyed by mentioned_fids, while deliveries
+//         may expose mention identity as profiles, numeric fids, or mention
+//         arrays.
 // Goal: create or update the single callback-bound webhook, verify signed
 //       deliveries, and normalize cast.created mention/reply payloads into the
 //       same FarcasterMentionEvent shape used by the worker.
@@ -18,6 +22,9 @@
 //   any mention enters the worker.
 // - Webhook mention payloads must normalize into the existing FarcasterMentionEvent
 //   shape so downstream dedupe and recovery stay unchanged.
+// - Mention detection must accept `mentioned_profiles`, `mentioned_fids`, and
+//   `mentions` payload forms; do not make reply-thread mentions depend on a
+//   single Neynar response shape.
 // - Only cast.created deliveries that actually mention or reply to the bot
 //   should be admitted.
 // Document Provenance:
@@ -176,17 +183,28 @@ function toIsoTimestamp(value?: string | number | null): string | null {
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
 }
 
+function mentionArrayContainsFid(value: unknown, botFid: number): boolean {
+  if (!Array.isArray(value) || !Number.isFinite(botFid) || botFid <= 0) {
+    return false;
+  }
+  return value.some((item: any) => {
+    if (typeof item === 'number' || typeof item === 'string') {
+      return Number(item) === botFid;
+    }
+    return Number(item?.fid || item?.id || item?.profile?.fid || 0) === botFid;
+  });
+}
+
 function toMentionType(cast: Record<string, any>, botFid: number): 'mentions' | 'replies' | null {
   const parentAuthorFid = Number(cast?.parent_author?.fid || cast?.parent_author_fid || 0);
   if (Number.isFinite(botFid) && botFid > 0 && parentAuthorFid === botFid) {
     return 'replies';
   }
 
-  const mentionedProfiles = Array.isArray(cast?.mentioned_profiles) ? cast.mentioned_profiles : [];
   if (
-    Number.isFinite(botFid)
-    && botFid > 0
-    && mentionedProfiles.some((item: any) => Number(item?.fid || 0) === botFid)
+    mentionArrayContainsFid(cast?.mentioned_profiles, botFid)
+    || mentionArrayContainsFid(cast?.mentioned_fids, botFid)
+    || mentionArrayContainsFid(cast?.mentions, botFid)
   ) {
     return 'mentions';
   }
@@ -327,4 +345,3 @@ export async function ensureNeynarWebhook(apiKey: string, params: {
     }),
   };
 }
-

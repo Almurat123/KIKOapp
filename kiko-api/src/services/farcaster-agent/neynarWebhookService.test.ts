@@ -74,3 +74,44 @@ test('normalizeNeynarWebhookMention maps mention and reply casts into the worker
   assert.equal(reply?.parentHash, '0xparent');
 });
 
+test('normalizeNeynarWebhookMention accepts reply-thread mentions without profile objects', () => {
+  const mentionWithFids = normalizeNeynarWebhookMention({
+    type: 'cast.created',
+    created_at: 1708025006,
+    data: {
+      object: 'cast',
+      hash: '0xreplymention',
+      thread_hash: '0xroot',
+      parent_hash: '0xparent',
+      parent_author: { fid: 877398 },
+      author: { fid: 234506, username: 'balzgolf' },
+      text: '@kikoapp are you there',
+      timestamp: '2024-02-15T19:23:22.000Z',
+      mentioned_fids: [1576616],
+    },
+  }, 1576616);
+
+  assert.ok(mentionWithFids);
+  assert.equal(mentionWithFids?.notificationType, 'mentions');
+  assert.equal(mentionWithFids?.parentAuthorFid, 877398);
+
+  const mentionWithObjects = normalizeNeynarWebhookMention({
+    type: 'cast.created',
+    created_at: 1708025006,
+    data: {
+      object: 'cast',
+      hash: '0xreplymention2',
+      thread_hash: '0xroot',
+      parent_hash: '0xparent',
+      parent_author_fid: 877398,
+      author: { fid: 234506, username: 'balzgolf' },
+      text: '@kikoapp are you there',
+      timestamp: '2024-02-15T19:23:22.000Z',
+      mentions: [{ fid: 1576616 }],
+    },
+  }, 1576616);
+
+  assert.ok(mentionWithObjects);
+  assert.equal(mentionWithObjects?.notificationType, 'mentions');
+  assert.equal(mentionWithObjects?.parentAuthorFid, 877398);
+});
