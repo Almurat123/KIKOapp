@@ -69,6 +69,7 @@ owner boundaries, and major fixes.
 - [Fix Log: 2026-04-14 Copytrade Wallet Audit Provenance](./fix-log/2026-04-14-copytrade-wallet-audit-provenance.md)
 - [Fix Log: 2026-04-14 Copytrade Direct Followup Card Rescue](./fix-log/2026-04-14-copytrade-direct-followup-card-rescue.md)
 - [Fix Log: 2026-04-14 X Legacy Mention Full Text Repair](./fix-log/2026-04-14-x-legacy-mention-full-text-repair.md)
+- [Fix Log: 2026-04-15 X OAuth Start CORS Repair](./fix-log/2026-04-15-x-oauth-start-cors-repair.md)
 - [Fix Log: 2026-04-14 Copytrade Strategy List Read/Write Decoupling](./fix-log/2026-04-14-copytrade-strategy-list-read-write-decoupling.md)
 - [Fix Log: 2026-04-14 Copytrade Reactivation And Webhook Address Guard](./fix-log/2026-04-14-copytrade-reactivation-and-webhook-address-guard.md)
 - [Fix Log: 2026-04-14 Copytrade Quarantine Visible Delete](./fix-log/2026-04-14-copytrade-quarantine-visible-delete.md)

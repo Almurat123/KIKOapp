@@ -4,7 +4,7 @@
  */
 
 // CONTEXT MEMORY
-// Updated: 2026-04-12
+// Updated: 2026-04-15
 // Author: Almurat
 // Reason: the server bootstrap now owns X OAuth preload and route registration
 //         so the bot can authorize once and serve credentials at runtime.
@@ -14,6 +14,12 @@
 //         server lifecycle instead of a separate daemon. X public
 //         reply shares now also mount here because they must bypass browser-only
 //         origin/app-key checks and remain crawler-accessible.
+//         Runtime OAuth repair on 2026-04-15 showed first-party browser console
+//         calls from `kikoapp.app` to `api.kikoapp.app/api/auth/x/start?json=1`
+//         can still fail CORS before the route gets a chance to mint the X
+//         authorize URL. The bootstrap now owns a narrow auth-route CORS fallback
+//         so operator-initiated bot reauthorization can be recovered without
+//         opening general API security.
 // Goal: keep X auth routes mounted before startup, preload stored credentials,
 //       expose crawler-safe X share routes, bring Farcaster agent polling after
 //       chat worker boot, and preserve existing worker boot order.
@@ -25,6 +31,9 @@
 // - Keep startup order explicit and fail fast when auth is misconfigured.
 // - Bring Farcaster polling up only after chat execution is available.
 // - Public X share routes must bypass origin/app-key enforcement so X crawlers can fetch cards.
+// - X auth start/callback routes must answer first-party preflight requests
+//   with explicit Authorization/credentials headers; do not apply this fallback
+//   to unrelated API paths.
 // Document Provenance:
 // - Source: @farcaster/hub-nodejs README and public Hub runtime observation
 // - Kind: local SDK source / runtime observation
@@ -36,6 +45,13 @@
 // - Retrieved: 2026-04-11
 // - Applied To: mounting public `/x/share/*` routes outside origin/app-key enforcement
 // - Verification: verified in code
+// - Source: browser runtime failure from `kikoapp.app` console fetching
+//   `api.kikoapp.app/api/auth/x/start?json=1`
+// - Kind: runtime observation
+// - Retrieved: 2026-04-15
+// - Applied To: adding a narrow `/api/auth/x/*` preflight/header fallback for
+//   operator bot OAuth repair
+// - Verification: partially verified
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
@@ -43,6 +59,7 @@
 // - system-journal/fix-log/2026-04-09-auth-debug-cleanup.md
 // - system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
 // - system-journal/fix-log/2026-04-11-x-reply-share-pages.md
+// - system-journal/fix-log/2026-04-15-x-oauth-start-cors-repair.md
 // - system-journal/conflicts.md
 
 import 'dotenv/config';
@@ -160,6 +177,31 @@ fastify.register(cors, {
         cb(null, isAllowedCorsOrigin(origin));
     },
     credentials: true,
+});
+
+function isXAuthRoute(url: string): boolean {
+    return url === '/api/auth/x'
+        || url.startsWith('/api/auth/x/')
+        || url.startsWith('/api/auth/x?');
+}
+
+function applyXAuthCorsFallback(request: any, reply: any): void {
+    if (!isXAuthRoute(request.url || '')) return;
+    const origin = String(request.headers?.origin || '').trim().replace(/\/+$/, '');
+    if (!origin || !isAllowedCorsOrigin(origin)) return;
+    reply.header('Access-Control-Allow-Origin', origin);
+    reply.header('Vary', 'Origin');
+    reply.header('Access-Control-Allow-Credentials', 'true');
+    reply.header('Access-Control-Allow-Methods', 'GET,OPTIONS');
+    reply.header('Access-Control-Allow-Headers', 'Authorization,Content-Type,X-App-Key,X-Requested-With');
+    reply.header('Access-Control-Max-Age', '600');
+}
+
+fastify.addHook('onRequest', async (request, reply) => {
+    applyXAuthCorsFallback(request, reply);
+    if (request.method === 'OPTIONS' && isXAuthRoute(request.url || '')) {
+        return reply.status(204).send();
+    }
 });
 
 // Register raw body plugin (disabled globally, enabled per route)

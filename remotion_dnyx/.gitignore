@@ -1,0 +1,15 @@
+# Remotion
+node_modules
+.remotion
+out
+public/bundle.js
+
+# Artifacts & Frames
+*.png
+*.mp4
+remotion_dnyx/*.png
+remotion_dnyx/*.mp4
+v7_audit_*.png
+v9_audit_*.png
+v10_audit_*.png
+Main_*.mp4
