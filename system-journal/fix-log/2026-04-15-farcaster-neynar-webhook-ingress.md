@@ -22,11 +22,11 @@
 - Added an explicit `--api-key` override on the operator script so the online
   paid key can be used even when the local workspace `.env` contains a stale
   or limited key.
-- Added a narrow `@botHandle` text-regex fallback to the `cast.created`
-  subscription while keeping `mentioned_fids` and `parent_author_fids`, because
-  production runtime evidence showed Neynar had indexed a real @kikoapp cast
-  with `mentioned_profiles` but did not deliver it to the active
-  `mentioned_fids` webhook.
+- Switched the operator-created `cast.created` subscription to a narrow
+  `@botHandle` text-regex trigger when the bot handle is known. The callback
+  route still performs fid-based admission. This avoids Neynar delivery gaps
+  observed when `mentioned_fids`, `parent_author_fids`, and `text` were
+  registered together.
 - Added explicit `NEYNAR_WEBHOOK_SECRET`, `NEYNAR_WEBHOOK_CALLBACK_URL`, and
   `NEYNAR_WEBHOOK_NAME` env boundaries.
 - Switched the Farcaster ingress worker to webhook-first mode when the Neynar
@@ -47,10 +47,12 @@ up in the Neynar developer portal.
   because route-local diagnostics cannot explain 404 or method mismatch cases.
 - Reply-thread `@bot` casts must be admitted when Neynar exposes the mentioned
   identity as profile objects, raw fid arrays, or mention objects.
-- The subscription should keep `mentioned_fids` as the canonical mention
-  filter, but also include `(?i)@botHandle\b` as a delivery fallback; the route
-  must still perform fid-based admission so text-only false positives are ACKed
-  but not enqueued.
+- The subscription should use `(?i)@botHandle\b` as the provider-side trigger
+  when the bot handle is known; the route must still perform fid-based
+  admission so text-only false positives are ACKed but not enqueued.
+- If the bot handle is not known, the operator script may fall back to
+  `mentioned_fids`, but production should configure `FARCASTER_AGENT_BOT_USERNAME`
+  or pass `--bot-username`.
 - If Neynar webhook ingress is enabled, webhook deliveries remain preferred, but
   the worker must keep the env-driven polling fallback running to avoid total
   ingress loss when Neynar delivery is delayed or absent.
@@ -73,15 +75,25 @@ up in the Neynar developer portal.
   `0x329a207af24579e6854fd038af4276757651ea48` with text `@kikoapp hi`,
   parent `0x5908a8fe5d7f7d0d648bb92cb02db75425483a86`, and
   `mentioned_profiles: [{ fid: 1576616, username: "kikoapp" }]`.
+- Runtime log `/Users/almurat/Downloads/logs.1776252088483.json` showed no
+  webhook ingress for cast
+  `0x5a3c65ab14bfa4332a393bc0db807e08c6474d3e`, while Neynar cast lookup for
+  the same URL returned text `@kikoapp hi` and
+  `mentioned_profiles: [{ fid: 1576616, username: "kikoapp" }]`. The cast was
+  eventually handled by the polling fallback and replied via Neynar at
+  `2026-04-15T11:20:32Z`, proving publication worked while webhook delivery did
+  not.
 - A locally generated webhook payload for the same cast, signed with the active
   Neynar webhook secret using HMAC-SHA512 hex, returned `200` from
   `https://api.kikoapp.app/api/webhook/neynar` with `accepted: 1`. This verifies
   the callback route, secret, raw-body signature check, normalization, and
   enqueue path for the exact cast shape.
-- Neynar webhook list with the online paid key showed webhook
+- Neynar webhook list with the online paid key initially showed webhook
   `01KP87ZA871Y7PASQ67STDSZFK` active at
-  `https://api.kikoapp.app/api/webhook/neynar` with `mentioned_fids` and
-  `parent_author_fids` set to `1576616`.
+  `https://api.kikoapp.app/api/webhook/neynar` with `mentioned_fids`,
+  `parent_author_fids`, and `text` all set together. The same runtime window
+  showed a matching cast did not deliver through webhook ingress, so the
+  subscription trigger was narrowed to text-only.
 
 ## Document Provenance
 
@@ -104,15 +116,23 @@ up in the Neynar developer portal.
 - Source: Neynar OpenAPI `WebhookSubscriptionFiltersCast`
   - Kind: official API doc / local SDK generated types
   - Retrieved: 2026-04-15
-  - Applied To: treating cast filters other than `exclude_author_fids` as OR
-    and adding a text-regex fallback without removing mention/reply filters
-  - Verification: verified in docs
+  - Applied To: RE2 `text` filter support and the documented OR semantics for
+    cast filters other than `exclude_author_fids`
+  - Verification: verified in local SDK docs and contradicted by runtime
+    provider delivery behavior for the mixed-filter registration
 - Source: Production signed replay of cast
   `0x329a207af24579e6854fd038af4276757651ea48`
   - Kind: runtime observation
   - Retrieved: 2026-04-15
   - Applied To: proving KIKO callback accepts correctly signed Neynar-shaped
     mention payloads
+  - Verification: verified in runtime
+- Source: Production log and Neynar lookup of cast
+  `0x5a3c65ab14bfa4332a393bc0db807e08c6474d3e`
+  - Kind: runtime observation
+  - Retrieved: 2026-04-15
+  - Applied To: identifying Neynar webhook mixed-filter delivery as the failing
+    layer while preserving text-trigger plus fid-admission behavior
   - Verification: verified in runtime
 
 ## See Also

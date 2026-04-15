@@ -7,12 +7,18 @@ import {
   verifyNeynarWebhookSignature,
 } from './neynarWebhookService.js';
 
-test('buildNeynarMentionSubscription keeps fid filters and adds a narrow handle fallback', () => {
+test('buildNeynarMentionSubscription uses a narrow handle trigger when the bot handle is known', () => {
   assert.deepEqual(buildNeynarMentionSubscription(1576616, '@kikoapp'), {
     'cast.created': {
-      mentioned_fids: [1576616],
-      parent_author_fids: [1576616],
       text: '(?i)@kikoapp\\b',
+    },
+  });
+});
+
+test('buildNeynarMentionSubscription falls back to mentioned fid when the bot handle is unknown', () => {
+  assert.deepEqual(buildNeynarMentionSubscription(1576616), {
+    'cast.created': {
+      mentioned_fids: [1576616],
     },
   });
 });

@@ -13,7 +13,7 @@
 // Design Language:
 // - Reuse by callback URL, not by spraying duplicate webhooks.
 // - Keep the subscription narrowly focused on the bot's mention and reply
-//   delivery, with a narrow @handle text fallback for Neynar mention-filter
+//   delivery, with a narrow @handle text trigger for Neynar mixed-filter
 //   delivery gaps observed in production.
 // - Print the resulting webhook id, target URL, and action so operators can
 //   confirm the dashboard state immediately.
@@ -31,10 +31,11 @@
 // - Applied To: list/create/update webhook endpoints and callback-url reuse
 // - Verification: verified in docs
 // - Source: Neynar OpenAPI WebhookSubscriptionFiltersCast and production
-//   signed replay of a real @kikoapp cast
+//   signed replay/lookup of real @kikoapp casts
 // - Kind: official API doc / runtime observation
 // - Retrieved: 2026-04-15
-// - Applied To: adding @handle text fallback to the operator-created webhook
+// - Applied To: using @handle text as the provider trigger while the callback
+//   route keeps fid-based admission
 // - Verification: verified in docs and runtime
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
