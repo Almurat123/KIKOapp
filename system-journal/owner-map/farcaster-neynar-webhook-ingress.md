@@ -42,6 +42,12 @@ If the webhook is disabled or unconfigured, the system may fall back to
 notification polling, but the webhook owner itself still owns the callback
 contract.
 
+The provider-side `cast.created` subscription should follow Neynar's documented
+bot pattern in a single filter object:
+
+- `mentioned_fids` for direct `@bot` mentions
+- `parent_author_fids` for replies to the bot
+
 ## Document Provenance
 
 - Source: Neynar Documentation, Webhooks in Dashboard
@@ -54,6 +60,12 @@ contract.
   - Retrieved: 2026-04-15
   - Applied To: webhook list/create/update CRUD
   - Verification: verified in docs
+- Source: Neynar Documentation, Listen for @bot Mentions
+  - Kind: official API doc
+  - Retrieved: 2026-04-15
+  - Applied To: provider-side `mentioned_fids` + `parent_author_fids`
+    subscription ownership
+  - Verification: verified in docs
 - Source: Neynar Documentation, Verify Webhooks with HMAC Signatures
   - Kind: official API doc
   - Retrieved: 2026-04-15
@@ -65,4 +77,3 @@ contract.
 - system-journal/INDEX.md
 - system-journal/design-language/farcaster-miniapp-shell.md
 - system-journal/fix-log/2026-04-15-farcaster-neynar-webhook-ingress.md
-

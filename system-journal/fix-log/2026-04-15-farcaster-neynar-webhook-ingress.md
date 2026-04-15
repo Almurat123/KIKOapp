@@ -22,12 +22,9 @@
 - Added an explicit `--api-key` override on the operator script so the online
   paid key can be used even when the local workspace `.env` contains a stale
   or limited key.
-- Switched the operator-created `cast.created` subscription to a
-  full-string-compatible `@botHandle` text-regex trigger when the bot handle is
-  known. The callback route still performs fid-based admission. This avoids
-  Neynar delivery gaps observed when `mentioned_fids`, `parent_author_fids`,
-  and `text` were registered together, and when a bare `(?i)@kikoapp\b` regex
-  did not deliver a matching full-text cast.
+- Corrected the operator-created `cast.created` subscription to match Neynar's
+  official bot-mentions guide by configuring both `mentioned_fids` and
+  `parent_author_fids` on the same webhook filter.
 - Added explicit `NEYNAR_WEBHOOK_SECRET`, `NEYNAR_WEBHOOK_CALLBACK_URL`, and
   `NEYNAR_WEBHOOK_NAME` env boundaries.
 - Switched the Farcaster ingress worker to webhook-first mode when the Neynar
@@ -48,12 +45,11 @@ up in the Neynar developer portal.
   because route-local diagnostics cannot explain 404 or method mismatch cases.
 - Reply-thread `@bot` casts must be admitted when Neynar exposes the mentioned
   identity as profile objects, raw fid arrays, or mention objects.
-- The subscription should use `(?i).*@botHandle.*` as the provider-side trigger
-  when the bot handle is known; the route must still perform fid-based
-  admission so text-only false positives are ACKed but not enqueued.
-- If the bot handle is not known, the operator script may fall back to
-  `mentioned_fids`, but production should configure `FARCASTER_AGENT_BOT_USERNAME`
-  or pass `--bot-username`.
+- The subscription should use Neynar's documented FID-based `OR` filters in the
+  same `cast.created` object:
+  - `mentioned_fids` for direct `@bot` mentions
+  - `parent_author_fids` for replies to the bot
+- The route must still perform fid-based admission on received payloads.
 - If Neynar webhook ingress is enabled, webhook deliveries remain preferred, but
   the worker must keep the env-driven polling fallback running to avoid total
   ingress loss when Neynar delivery is delayed or absent.
@@ -68,6 +64,15 @@ up in the Neynar developer portal.
   passed after adding reply-thread mention payload compatibility.
 - `npm run build` passed after adding reply-thread mention payload
   compatibility.
+- Official doc re-check on 2026-04-15 confirmed that the bot-mentions webhook
+  should combine `mentioned_fids` and `parent_author_fids` under the same
+  `cast.created` filter using OR semantics. The local builder and test fixture
+  were updated to match that documented contract. Runtime delivery with the
+  corrected filter mix has not yet been re-verified.
+- After confirming the Railway public networking domain
+  `https://kiko-api-production.up.railway.app`, the live Neynar webhook target
+  was moved off the Cloudflare-fronted custom domain and onto the Railway
+  origin URL to isolate edge-proxy interference from Neynar delivery issues.
 - Runtime log `/Users/almurat/Downloads/logs.1776249263537.json` showed
   `webhookEnabled=true` and no real Neynar ingress after repeated mention tests,
   while a manual unsigned POST reached the route and produced invalid-signature
@@ -84,24 +89,18 @@ up in the Neynar developer portal.
   eventually handled by the polling fallback and replied via Neynar at
   `2026-04-15T11:20:32Z`, proving publication worked while webhook delivery did
   not.
-- Runtime log `/Users/almurat/Downloads/logs.1776252905211.json` showed no
-  webhook ingress for cast
-  `0x0ba48652c55a2c4721b45690153899ad9c9208d5` by `2026-04-15T11:34:43Z`,
-  while Neynar cast lookup returned text `@kikoapp ok who are you ?` and
-  `mentioned_profiles: [{ fid: 1576616, username: "kikoapp" }]`. The active
-  webhook at that time had `text: "(?i)@kikoapp\\b"`, so the provider trigger
-  was widened to `(?i).*@kikoapp.*` to tolerate full-string regex matching.
 - A locally generated webhook payload for the same cast, signed with the active
   Neynar webhook secret using HMAC-SHA512 hex, returned `200` from
   `https://api.kikoapp.app/api/webhook/neynar` with `accepted: 1`. This verifies
   the callback route, secret, raw-body signature check, normalization, and
   enqueue path for the exact cast shape.
-- Neynar webhook list with the online paid key initially showed webhook
-  `01KP87ZA871Y7PASQ67STDSZFK` active at
-  `https://api.kikoapp.app/api/webhook/neynar` with `mentioned_fids`,
-  `parent_author_fids`, and `text` all set together. The same runtime window
-  showed a matching cast did not deliver through webhook ingress, so the
-  subscription trigger was narrowed to text-only.
+- Neynar's official bot-mentions guide explicitly documents that
+  `mentioned_fids` and `parent_author_fids` should be configured together on the
+  same webhook when the bot must receive both direct mentions and replies.
+- Neynar API `PUT /v2/farcaster/webhook/` returned `200` for webhook
+  `01KP8NFS384Q137T2QXF1ZRJV3` after updating `target_url` to
+  `https://kiko-api-production.up.railway.app/api/webhook/neynar` while keeping
+  the bot filters unchanged.
 
 ## Document Provenance
 
@@ -116,18 +115,24 @@ up in the Neynar developer portal.
   - Retrieved: 2026-04-15
   - Applied To: webhook list/create/update endpoints
   - Verification: verified in docs
+- Source: Neynar Documentation, Listen for @bot Mentions
+  - Kind: official API doc
+  - Retrieved: 2026-04-15
+  - Applied To: correcting the provider-side subscription back to
+    `mentioned_fids` + `parent_author_fids`
+  - Verification: verified in docs
 - Source: Neynar Documentation, Verify Webhooks with HMAC Signatures
   - Kind: official API doc
   - Retrieved: 2026-04-15
   - Applied To: X-Neynar-Signature validation details
   - Verification: verified in docs
-- Source: Neynar OpenAPI `WebhookSubscriptionFiltersCast`
-  - Kind: official API doc / local SDK generated types
+- Source: Railway networking screenshot showing public domain
+  `kiko-api-production.up.railway.app`
+  - Kind: runtime/operator observation
   - Retrieved: 2026-04-15
-  - Applied To: RE2 `text` filter support and the documented OR semantics for
-    cast filters other than `exclude_author_fids`
-  - Verification: verified in local SDK docs and contradicted by runtime
-    provider delivery behavior for the mixed-filter registration
+  - Applied To: moving the live webhook target off the Cloudflare custom domain
+    to isolate delivery-path issues
+  - Verification: verified in operator UI
 - Source: Production signed replay of cast
   `0x329a207af24579e6854fd038af4276757651ea48`
   - Kind: runtime observation
@@ -139,15 +144,8 @@ up in the Neynar developer portal.
   `0x5a3c65ab14bfa4332a393bc0db807e08c6474d3e`
   - Kind: runtime observation
   - Retrieved: 2026-04-15
-  - Applied To: identifying Neynar webhook mixed-filter delivery as the failing
-    layer while preserving text-trigger plus fid-admission behavior
-  - Verification: verified in runtime
-- Source: Production log and Neynar lookup of cast
-  `0x0ba48652c55a2c4721b45690153899ad9c9208d5`
-  - Kind: runtime observation
-  - Retrieved: 2026-04-15
-  - Applied To: widening the text trigger from a bare handle regex to a
-    full-string-compatible regex
+  - Applied To: identifying that delivery was still absent even when the cast
+    clearly mentioned the bot
   - Verification: verified in runtime
 
 ## See Also

@@ -7,8 +7,9 @@
 //         Reply-thread mentions must not depend on a single Neynar payload
 //         shape; webhook filters are keyed by mentioned_fids, while deliveries
 //         may expose mention identity as profiles, numeric fids, or mention
-//         arrays. The subscription itself follows Neynar's documented bot
-//         pattern: mentioned_fids for direct @mentions.
+//         arrays. The subscription itself must follow Neynar's documented bot
+//         pattern: `mentioned_fids` for direct @mentions plus
+//         `parent_author_fids` for replies to the bot.
 // Goal: create or update the single callback-bound webhook, verify signed
 //       deliveries, and normalize cast.created mention/reply payloads into the
 //       same FarcasterMentionEvent shape used by the worker.
@@ -26,8 +27,9 @@
 // - Mention detection must accept `mentioned_profiles`, `mentioned_fids`, and
 //   `mentions` payload forms; do not make reply-thread mentions depend on a
 //   single Neynar response shape.
-// - Webhook subscription should use the narrow direct-mention fid filter; route
-//   admission remains fid-based as a second guard.
+// - Webhook subscription should use Neynar's documented fid filters for both
+//   direct mentions and replies-to-bot; route admission remains fid-based as a
+//   second guard.
 // - Only cast.created deliveries that actually mention or reply to the bot
 //   should be admitted.
 // Document Provenance:
@@ -44,7 +46,7 @@
 // - Source: Neynar "Listen for @bot Mentions" documentation
 // - Kind: official API doc
 // - Retrieved: 2026-04-15
-// - Applied To: mentioned_fids subscription filters
+// - Applied To: `mentioned_fids` + `parent_author_fids` subscription filters
 // - Verification: verified in docs
 // - Source: Neynar Documentation, Verify Webhooks with HMAC Signatures
 // - Kind: official API doc
@@ -174,6 +176,7 @@ export function buildNeynarMentionSubscription(
   return {
     'cast.created': {
       mentioned_fids: [fid],
+      parent_author_fids: [fid],
     },
   };
 }

@@ -7,10 +7,11 @@ import {
   verifyNeynarWebhookSignature,
 } from './neynarWebhookService.js';
 
-test('buildNeynarMentionSubscription uses documented fid filter for mentions', () => {
+test('buildNeynarMentionSubscription uses documented fid filters for mentions and replies', () => {
   assert.deepEqual(buildNeynarMentionSubscription(1576616, '@kikoapp'), {
     'cast.created': {
       mentioned_fids: [1576616],
+      parent_author_fids: [1576616],
     },
   });
 });
@@ -19,6 +20,7 @@ test('buildNeynarMentionSubscription does not require a bot handle', () => {
   assert.deepEqual(buildNeynarMentionSubscription(1576616), {
     'cast.created': {
       mentioned_fids: [1576616],
+      parent_author_fids: [1576616],
     },
   });
 });
