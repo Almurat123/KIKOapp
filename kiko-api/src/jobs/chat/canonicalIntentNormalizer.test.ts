@@ -298,6 +298,56 @@ test('normalizeCanonicalIntent drops malformed wallet entities instead of preser
     assert.deepEqual(result.snapshot.normalizedIntent?.entities.walletAddresses, []);
 });
 
+test('normalizeCanonicalIntent sends unwrapped Farcaster query to the normalization model', async () => {
+    const token = '0x4972e029f2e1831d205b20d05833cc771feb2ba3';
+    const snapshot = makeSnapshot(`Farcaster inbound mention context:\nCurrent @almurat: ${token}`);
+    let normalizationPayload: any = null;
+
+    const result = await normalizeCanonicalIntent({
+        snapshot,
+        generationClient: {
+            async generate(args: any) {
+                normalizationPayload = JSON.parse(String(args.messages?.[1]?.content || '{}'));
+                return {
+                    text: JSON.stringify({
+                        domain: 'token',
+                        intent: 'token_analysis',
+                        task_mode: 'analyze',
+                        output_mode: 'narrative',
+                        search_mode: 'forbidden',
+                        search_target: 'none',
+                        confidence: 0.88,
+                        explanation: 'Literal token query',
+                        entities: {
+                            token_addresses: [token],
+                            token_symbols: [],
+                            wallet_addresses: [],
+                            market_identifiers: [],
+                        },
+                        requested_chain: null,
+                        requested_time_window: null,
+                        evidence_requirements: ['onchain_token_evidence'],
+                        requires_realtime: false,
+                        requires_onchain_evidence: true,
+                        execution_candidate: false,
+                        row_count: null,
+                        locale: 'en',
+                        needs_clarification: false,
+                        clarification_question: null,
+                    }),
+                    reasoning: '',
+                    toolCalls: [],
+                };
+            },
+        } as any,
+    });
+
+    assert.equal(normalizationPayload.latest_user_message, token);
+    assert.equal(normalizationPayload.recent_history?.[0]?.content, token);
+    assert.equal(result.state.status, 'ok');
+    assert.equal(result.snapshot.normalizedIntent?.intent, 'token_analysis');
+});
+
 test('resolveNormalizationModel follows the selected model unless an override is configured', () => {
     assert.equal(resolveNormalizationModel('grok-4-1-fast-reasoning'), 'grok-4-1-fast-reasoning');
     assert.equal(resolveNormalizationModel('grok-4-1-fast-non-reasoning'), 'grok-4-1-fast-non-reasoning');

@@ -153,3 +153,34 @@ test('assembleChatContext clears swap confirmation for explicit chain switch req
 
     assert.equal(snapshot.confirmationState, null);
 });
+
+test('assembleChatContext unwraps Farcaster mention wrapper before snapshot extraction', () => {
+    const token = '0x4972e029f2e1831d205b20d05833cc771feb2ba3';
+    const snapshot = assembleChatContext({
+        task: {
+            id: 'task-4',
+            sessionId: 'session-4',
+            userMessageId: 'user-4',
+            assistantMessageId: 'assistant-4',
+            model: 'gpt-5-mini',
+            toolContext: {
+                pageContext: 'farcaster_agent',
+            },
+        },
+        session: {
+            userId: 'user-4',
+        },
+        messages: [
+            {
+                role: 'user',
+                content: `Farcaster inbound mention context:\nCurrent @almurat: ${token}`,
+            },
+        ],
+        toolDefinitions: [],
+        userId: 'user-4',
+    });
+
+    assert.equal(snapshot.lastUserMessage, token);
+    assert.deepEqual(snapshot.requestedTokenAddresses, [token]);
+    assert.deepEqual(snapshot.requestedTokenSymbols, []);
+});

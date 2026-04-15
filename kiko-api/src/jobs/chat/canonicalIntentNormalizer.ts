@@ -1,3 +1,30 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-15
+// Author: Rowan
+// Reason: canonical intent normalization was consuming Farcaster transport
+//         wrapper text and misclassifying literal token-address queries as
+//         Farcaster social discovery because the latest user message still
+//         contained ingress scaffolding.
+// Goal: feed normalization with the effective user query and sanitized recent
+//       user history so routing decisions reflect user intent instead of
+//       transport metadata.
+// Owns: canonical-intent normalization prompt assembly and invalid-result handling.
+// Does Not Own: snapshot assembly, webhook ingress formatting, or downstream tool execution.
+// Design Language:
+// - normalization inputs should preserve user meaning but strip transport scaffolding
+// - user-role history may be sanitized for intent routing without mutating audit history
+// - routing stability beats preserving ingress wrapper prose in LLM prompts
+// Document Provenance:
+// - Source: Farcaster mention runtime logs for trace dd7b79f7-41fb-4147-8e38-44a3c4bfeff0
+// - Kind: runtime observation
+// - Retrieved: 2026-04-15
+// - Applied To: sanitizing latest_user_message and recent_history in normalization prompts
+// - Verification: verified in code and targeted tests
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-query-unwrapping-and-wallet-guard.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import type { ChatContextSnapshot } from './contracts.js';
@@ -9,6 +36,7 @@ import {
     type NormalizationReasonCode,
     validateCanonicalIntentPayload,
 } from './canonicalIntent.js';
+import { extractEffectiveUserQuery } from './conversationStateResolver.js';
 
 export async function normalizeCanonicalIntent(args: {
     snapshot: ChatContextSnapshot;
@@ -137,7 +165,9 @@ function invalidResult(
 function buildNormalizationMessages(snapshot: ChatContextSnapshot): GenerationMessage[] {
     const recentHistory = snapshot.history.slice(-6).map((message) => ({
         role: message.role,
-        content: String(message.content || '').slice(0, 500),
+        content: message.role === 'user'
+            ? extractEffectiveUserQuery(String(message.content || '')).slice(0, 500)
+            : String(message.content || '').slice(0, 500),
     }));
 
     return [
@@ -170,7 +200,7 @@ function buildNormalizationMessages(snapshot: ChatContextSnapshot): GenerationMe
         {
             role: 'user',
             content: JSON.stringify({
-                latest_user_message: snapshot.lastUserMessage,
+                latest_user_message: extractEffectiveUserQuery(snapshot.lastUserMessage),
                 recent_history: recentHistory,
                 requested_token_addresses: snapshot.requestedTokenAddresses || [],
                 requested_token_symbols: snapshot.requestedTokenSymbols || [],

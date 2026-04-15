@@ -1,18 +1,29 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-14
+// Updated: 2026-04-15
 // Author: Rowan
-// Reason: copy-trade confirmation state must preserve wallet-binding
-//         provenance from the preflight confirmation payload into the later
-//         user-confirm execution turn.
-// Goal: keep execution confirmation state deterministic without losing the raw
-//       wallet evidence needed by persistence audit.
-// Owns: reconstructing conversation confirmation state from recent tool traces.
-// Does Not Own: wallet extraction, tool execution, or copy-trade persistence.
+// Reason: Farcaster inbound mentions are persisted with transport wrapper text
+//         that can pollute token-symbol extraction and canonical intent
+//         normalization if the owner layer does not recover the literal user
+//         query before downstream routing.
+// Goal: keep execution confirmation state deterministic while recovering the
+//       effective user query from wrapped transport text before entity
+//       extraction or later orchestration stages consume it.
+// Owns: reconstructing conversation confirmation state from recent tool traces
+//       and recovering literal user query text from wrapped chat ingress.
+// Does Not Own: webhook ingress formatting, tool execution, or copy-trade persistence.
 // Design Language:
 // - confirmation state carries provenance; it does not reinterpret wallet identity
 // - wallet-binding metadata is separate from public tool args
 // - stale confirmation protections stay separate from audit provenance
+// - transport wrapper labels must never become token symbols or search terms
+// - downstream intent routing should see the literal user query, not ingress scaffolding
 // Document Provenance:
+// - Source: Farcaster mention runtime logs showing "FARCASTER" and "CURRENT"
+//           leaking into requested token symbols and forcing social_discovery routing
+// - Kind: runtime observation
+// - Retrieved: 2026-04-15
+// - Applied To: unwrapping Farcaster mention context before entity extraction
+// - Verification: verified in runtime and targeted tests
 // - Source: production incident analysis of malformed BSC copy-trade target wallets
 // - Kind: runtime observation
 // - Retrieved: 2026-04-14
@@ -20,7 +31,9 @@
 // - Verification: verified in targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-wallet-audit-provenance.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-query-unwrapping-and-wallet-guard.md
 import type {
     ChatContextSnapshot,
     ChatHistoryMessage,
@@ -35,6 +48,16 @@ import { shouldSupersedePendingSwapConfirmation } from './swapConfirmationSupers
 
 const EVM_ADDR_RE = /\b0x[a-fA-F0-9]{40}\b/g;
 const SOL_ADDR_RE = /\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/g;
+const FARCASTER_CURRENT_LINE_RE = /(?:^|\n)Current\s+(?:@\S+|fid:\d+):\s*([\s\S]*)$/i;
+
+export function extractEffectiveUserQuery(text: string): string {
+    const raw = String(text || '').trim();
+    if (!raw) return '';
+    const currentMatch = raw.match(FARCASTER_CURRENT_LINE_RE);
+    const currentText = currentMatch?.[1]?.trim();
+    if (currentText) return currentText;
+    return raw;
+}
 
 export function sanitizeHistory(messages: any[]): ChatHistoryMessage[] {
     return (messages || []).map((msg) => ({
@@ -67,7 +90,7 @@ export function extractRequestedTokenAddresses(text: string): string[] {
 export function extractRequestedTokenAddressesFromHistory(messages: any[], recentUserLimit = 6): string[] {
     const values = new Set<string>();
     for (const message of collectRecentUserMessages(messages, recentUserLimit)) {
-        for (const value of extractRequestedTokenAddresses(String(message?.content || ''))) {
+        for (const value of extractRequestedTokenAddresses(extractEffectiveUserQuery(String(message?.content || '')))) {
             values.add(value);
         }
     }
@@ -82,7 +105,7 @@ export function extractRequestedTokenSymbols(text: string): string[] {
 export function extractRequestedTokenSymbolsFromHistory(messages: any[], recentUserLimit = 6): string[] {
     const values = new Set<string>();
     for (const message of collectRecentUserMessages(messages, recentUserLimit)) {
-        for (const value of extractRequestedTokenSymbols(String(message?.content || ''))) {
+        for (const value of extractRequestedTokenSymbols(extractEffectiveUserQuery(String(message?.content || '')))) {
             values.add(value);
         }
     }

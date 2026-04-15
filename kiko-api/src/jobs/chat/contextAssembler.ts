@@ -1,3 +1,31 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-15
+// Author: Rowan
+// Reason: transport wrappers from Farcaster mention ingress were leaking
+//         scaffolding words like "Farcaster" and "Current" into token-symbol
+//         extraction and canonical intent routing because this owner used the
+//         persisted wrapper text as if it were the literal user query.
+// Goal: assemble chat snapshots from the effective user query while preserving
+//       raw history for audit and still exposing deterministic runtime context
+//       to downstream planners.
+// Owns: chat snapshot assembly, requested token extraction inputs, and
+//       prefetched context hydration for orchestration.
+// Does Not Own: ingress webhook formatting, LLM normalization policy, or tool execution.
+// Design Language:
+// - snapshot.lastUserMessage should reflect the literal user query, not transport scaffolding
+// - requested token extraction must use the same cleaned user text as runtime directives
+// - preserve raw message history for audit, but do not let wrapper labels drive routing
+// Document Provenance:
+// - Source: Farcaster mention runtime logs for trace dd7b79f7-41fb-4147-8e38-44a3c4bfeff0
+// - Kind: runtime observation
+// - Retrieved: 2026-04-15
+// - Applied To: unwrapping last-user Farcaster mention text before snapshot assembly
+// - Verification: verified in runtime and targeted tests
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-query-unwrapping-and-wallet-guard.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
 import type { ToolDefinition } from '../../tooling/registry.js';
 import { contextBudgetManager } from '../../services/ai/contextBudgetManager.js';
 import type { ChatContextSnapshot } from './contracts.js';
@@ -9,6 +37,7 @@ import {
     extractRequestedTokenAddressesFromHistory,
     extractRequestedTokenSymbols,
     extractRequestedTokenSymbolsFromHistory,
+    extractEffectiveUserQuery,
     sanitizeHistory,
 } from './conversationStateResolver.js';
 import { extractRecentPolymarketSelection } from './polymarketSelectionState.js';
@@ -75,7 +104,7 @@ export function assembleChatContext(params: {
         ),
     );
     const lastUser = [...history].reverse().find((msg) => msg.role === 'user');
-    const lastUserMessage = lastUser?.content || '';
+    const lastUserMessage = extractEffectiveUserQuery(lastUser?.content || '');
     const toolContext = task.toolContext || {};
     const chainId = Number(toolContext.chainId || 0) || undefined;
     const chainName = chainId ? CHAIN_NAMES[chainId] || String(chainId) : undefined;

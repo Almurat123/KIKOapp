@@ -332,3 +332,35 @@ test('parseTradingIntent marks copy-trade target wallet ambiguous when the lates
     assert.equal(intent?.slots.target_wallet_ambiguous, true);
     assert.deepEqual(intent?.slots.target_wallet_candidates, [firstWallet, secondWallet]);
 });
+
+test('parseTradingIntent does not reuse token contract carry-over as copy-trade wallet fallback', () => {
+    const token = '0x4972e029f2e1831d205b20d05833cc771feb2ba3';
+    const canonicalIntent = makeCanonicalIntent({
+        intent: 'copy_trade',
+        entities: {
+            tokenAddresses: [],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        requestedChain: {
+            chainId: 8453,
+            chainName: 'Base',
+            source: 'llm',
+        },
+    });
+
+    const intent = parseTradingIntent(
+        'copy trade this token',
+        makeSnapshot('copy trade this token', {
+            requestedTokenAddresses: [token],
+            normalizedIntent: canonicalIntent,
+        }),
+        canonicalIntent,
+    );
+
+    assert.equal(intent?.type, 'copy_trade');
+    assert.equal(intent?.slots.target_wallet, undefined);
+    assert.deepEqual(intent?.slots.target_wallet_candidates, []);
+    assert.equal(intent?.slots.target_wallet_ambiguous, false);
+});

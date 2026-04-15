@@ -1,12 +1,13 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-13
+// Updated: 2026-04-15
 // Author: Rowan
-// Reason: copy-trade target wallet resolution previously trusted LLM wallet
-//         entities before the user's literal address, which allowed malformed
-//         wallet strings to flow into tool arguments. Later hardening made
-//         multiple latest-message wallet literals explicit ambiguity.
-// Goal: resolve copy-trade target wallets from exact user-provided addresses
-//       first, and only fall back to normalized entities when they are strict-valid.
+// Reason: copy-trade target wallet resolution previously trusted normalized
+//         wallet entities after literal extraction and then fell back to
+//         requestedTokenAddresses, which allowed token contract addresses to be
+//         mistaken for wallets because both share the same 0x address shape.
+// Goal: resolve copy-trade target wallets only from exact user-provided wallet
+//       literals first, and only fall back to normalized wallet entities when
+//       they are strict-valid and explicitly wallet-scoped.
 // Owns: trading-intent slot resolution for chat execution and confirmation turns.
 // Does Not Own: persistence validation, signed config payload generation, or
 //               database repair for already-corrupted copy-trade configs.
@@ -14,8 +15,15 @@
 // - exact wallet strings from the latest user message outrank LLM entities
 // - multiple latest-message wallet strings must block copy-trade target picking
 // - malformed wallet candidates must never become copy-trade target slots
+// - token-address carry-over must not become an implicit wallet fallback
 // - keep swap confirmation supersession separate from copy-trade wallet resolution
 // Document Provenance:
+// - Source: Farcaster mention runtime logs showing token contract addresses
+//           reaching routing state without wallet intent
+// - Kind: runtime observation
+// - Retrieved: 2026-04-15
+// - Applied To: removing requestedTokenAddresses as copy-trade wallet fallback
+// - Verification: verified in code and targeted tests
 // - Source: chat transcript + runtime logs + production database inspection for BSC copy-trade target wallets
 // - Kind: runtime observation
 // - Retrieved: 2026-04-13
@@ -27,6 +35,7 @@
 // - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-wallet-entity-hardening.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-wallet-deterministic-extraction.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-query-unwrapping-and-wallet-guard.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import type { ChatContextSnapshot } from './contracts.js';
 import { resolveCanonicalChainRef } from './chainIntent.js';
@@ -89,7 +98,7 @@ export function parseTradingIntent(text: string, snapshot: ChatContextSnapshot, 
     if (normalizedIntent) {
         const canonicalChain = normalizedIntent.requestedChain;
         if (normalizedIntent.intent === 'copy_trade') {
-            const targetWalletResolution = resolveCopyTradeTargetWallet(raw, snapshot, normalizedIntent);
+            const targetWalletResolution = resolveCopyTradeTargetWallet(raw, normalizedIntent);
             return {
                 kind: normalizedIntent.taskMode === 'confirm' ? 'trade_confirmation' : 'trading',
                 type: 'copy_trade',
@@ -150,7 +159,6 @@ export function parseTradingIntent(text: string, snapshot: ChatContextSnapshot, 
 
 function resolveCopyTradeTargetWallet(
     text: string,
-    snapshot: ChatContextSnapshot,
     normalizedIntent: CanonicalIntent,
 ): { targetWallet?: string; candidates: string[]; ambiguous: boolean } {
     const literalWallets = extractUniqueWalletAddressesFromText(text);
@@ -166,8 +174,5 @@ function resolveCopyTradeTargetWallet(
         return { targetWallet: normalizedWallet, candidates: [normalizedWallet], ambiguous: false };
     }
 
-    const snapshotWallet = (snapshot.requestedTokenAddresses || []).find((value) => isStrictWalletAddress(value));
-    return snapshotWallet
-        ? { targetWallet: snapshotWallet, candidates: [snapshotWallet], ambiguous: false }
-        : { candidates: [], ambiguous: false };
+    return { candidates: [], ambiguous: false };
 }

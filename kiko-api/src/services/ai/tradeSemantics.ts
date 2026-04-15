@@ -1,3 +1,29 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-15
+// Author: Rowan
+// Reason: Farcaster ingress wrapper labels such as "Farcaster", "Current", and
+//         "Parent" leaked into generic trade asset extraction, which polluted
+//         requested token symbols before intent normalization had a chance to
+//         recover the literal user query.
+// Goal: keep generic asset extraction permissive for trade text without letting
+//       known transport wrapper labels masquerade as token symbols.
+// Owns: generic trade asset candidate extraction and related token/symbol heuristics.
+// Does Not Own: transport wrapper removal, canonical intent routing, or wallet validation.
+// Design Language:
+// - transport scaffolding words are never assets
+// - asset extraction should stay broad, but stop words must block known wrapper leakage
+// - upstream text-cleaning and stop-word guards should overlap for defense in depth
+// Document Provenance:
+// - Source: Farcaster mention runtime logs for trace dd7b79f7-41fb-4147-8e38-44a3c4bfeff0
+// - Kind: runtime observation
+// - Retrieved: 2026-04-15
+// - Applied To: blocking wrapper labels from extractTradeAssetCandidates
+// - Verification: verified in targeted tests
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-query-unwrapping-and-wallet-guard.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
 export const STABLE_SYMBOLS = new Set(['USDC', 'USDT', 'DAI', 'FDUSD', 'BUSD', 'USD1']);
 export const NATIVE_SYMBOLS = new Set(['ETH', 'WETH', 'BNB', 'WBNB', 'SOL', 'WSOL', 'POL', 'MATIC', 'WMATIC']);
 
@@ -19,7 +45,7 @@ const EN_STOP_WORDS = new Set([
     'BUY', 'SELL', 'SWAP', 'TRADE', 'GET', 'ALL', 'WITH', 'USING', 'USE', 'SPEND', 'FOR', 'TO', 'INTO',
     'RECEIVE', 'VALUE', 'WORTH', 'ABOUT', 'AROUND', 'USD', 'DOLLAR', 'DOLLARS', 'BUCK', 'BUCKS',
     'THE', 'A', 'AN', 'OF', 'ON', 'CHAIN', 'TOKEN', 'TOKENS', 'HOT', 'TRENDING', 'VALUE', 'PLEASE',
-    'CHECK',
+    'CHECK', 'FARCASTER', 'CURRENT', 'PARENT',
 ]);
 
 export type TradeAction = 'buy' | 'sell' | 'swap' | 'unknown';

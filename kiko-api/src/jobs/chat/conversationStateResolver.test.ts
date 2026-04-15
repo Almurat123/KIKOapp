@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
     applyConversationActionState,
+    extractEffectiveUserQuery,
     extractRecentToolTrace,
     extractRequestedTokenAddressesFromHistory,
     extractRequestedTokenSymbolsFromHistory,
@@ -39,6 +40,28 @@ test('extractRequestedTokenSymbolsFromHistory keeps lowercase trade asset mentio
     ]);
 
     assert.deepEqual(symbols.sort(), ['ETH', 'VIRTUAL']);
+});
+
+test('extractEffectiveUserQuery unwraps Farcaster current cast text', () => {
+    const token = '0x4972e029f2e1831d205b20d05833cc771feb2ba3';
+    const text = `Farcaster inbound mention context:\nParent @someone: previous\nCurrent @almurat: ${token}`;
+
+    assert.equal(extractEffectiveUserQuery(text), token);
+});
+
+test('extractRequestedTokenSymbolsFromHistory ignores Farcaster transport wrapper labels', () => {
+    const token = '0x4972e029f2e1831d205b20d05833cc771feb2ba3';
+    const symbols = extractRequestedTokenSymbolsFromHistory([
+        {
+            role: 'user',
+            content: `Farcaster inbound mention context:\nCurrent @almurat: ${token}`,
+            message_index: 1,
+        },
+        { role: 'assistant', content: '收到。', message_index: 2 },
+        { role: 'user', content: '继续', message_index: 3 },
+    ]);
+
+    assert.deepEqual(symbols, []);
 });
 
 test('extractRecentToolTrace aggregates tool calls across the session instead of only the last assistant turn', () => {
