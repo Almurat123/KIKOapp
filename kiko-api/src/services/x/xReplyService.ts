@@ -20,10 +20,19 @@ async function createOrReuseDelivery(params: {
   const existing = await prisma.xMessageDelivery.findUnique({
     where: { idempotencyKey: params.idempotencyKey },
   });
-  // Treat both 'sent' AND 'pending' as already-handled to prevent concurrent
-  // processing from publishing duplicate replies.
-  if (existing && (existing.status === 'sent' || existing.status === 'pending')) {
+  if (existing && existing.status === 'sent') {
     return { record: existing, alreadySent: true };
+  }
+  // Block concurrent processing: treat recent pending records as already-sent.
+  // But if the record has been pending for more than 5 minutes, it is likely
+  // orphaned from a process crash — allow retry by falling through.
+  const STALE_PENDING_MS = 5 * 60 * 1000;
+  if (existing && existing.status === 'pending') {
+    const age = Date.now() - existing.updatedAt.getTime();
+    if (age < STALE_PENDING_MS) {
+      return { record: existing, alreadySent: true };
+    }
+    // Stale pending — fall through to the retry path below.
   }
   if (existing) {
     const record = await prisma.xMessageDelivery.update({

@@ -597,6 +597,28 @@ export class FarcasterIngressWorker {
         });
         return;
       }
+
+      // Cooldown: only send one bind reply per authorFid per 24 hours to
+      // prevent spamming the same unlinked user across multiple casts.
+      const BIND_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+      const recentBind = await prisma.farcasterMessageDelivery.findFirst({
+        where: {
+          farcasterFid: mention.authorFid,
+          messageType: 'reply',
+          status: 'sent',
+          idempotencyKey: { startsWith: 'farcaster:reply:bind:' },
+          createdAt: { gte: new Date(Date.now() - BIND_COOLDOWN_MS) },
+        },
+      });
+      if (recentBind) {
+        logger.info(LogCode.SYS_INFO, '[Farcaster] skipping bind reply: cooldown active for authorFid', {
+          castHash: mention.castHash,
+          authorFid: mention.authorFid,
+          lastBindAt: recentBind.createdAt,
+        });
+        return;
+      }
+
       await farcasterReplyService.replyToMention({
         farcasterFid: mention.authorFid,
         parentHash: mention.castHash,
