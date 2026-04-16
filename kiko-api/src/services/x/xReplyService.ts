@@ -20,7 +20,9 @@ async function createOrReuseDelivery(params: {
   const existing = await prisma.xMessageDelivery.findUnique({
     where: { idempotencyKey: params.idempotencyKey },
   });
-  if (existing && existing.status === 'sent') {
+  // Treat both 'sent' AND 'pending' as already-handled to prevent concurrent
+  // processing from publishing duplicate replies.
+  if (existing && (existing.status === 'sent' || existing.status === 'pending')) {
     return { record: existing, alreadySent: true };
   }
   if (existing) {

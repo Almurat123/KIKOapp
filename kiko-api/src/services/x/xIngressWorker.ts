@@ -499,6 +499,14 @@ export class XIngressWorker {
   }
 
   private async handleMentionBusiness(mention: XMentionEvent): Promise<void> {
+    // CRITICAL: Never interact with self. The bot's own replies can appear in
+    // the mentions feed or webhook delivery; processing them would create a
+    // self-reply loop.
+    const botUserId = getXBotUserId() || env.x.botUserId;
+    if (botUserId && mention.authorId === botUserId) {
+      return;
+    }
+
     const confirmedMention = await xApiClient.fetchMentionByTweetId(mention.id);
     if (!confirmedMention) {
       if (isMentionFeedGraceWindowOpen(mention)) {
