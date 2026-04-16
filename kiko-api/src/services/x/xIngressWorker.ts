@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-13
+// Updated: 2026-04-16
 // Author: Almurat
 // Reason: X ingress now owns only mention-driven interaction. Product direction
 //         changed after runtime/document evidence showed XChat webhook events do
@@ -17,9 +17,12 @@
 //         runtime correction showed valid mentions can appear in webhook delivery
 //         before they appear in `/users/{botUserId}/mentions`, so the worker now
 //         treats early feed misses as a retryable indexing lag instead of a
-//         final skip.
+//         final skip. X mention turns now also need hydrated thread text and
+//         attached media because the model must be able to see the real post
+//         context instead of only the current webhook text.
 // Goal: preserve deterministic mention handling while keeping X as a link-only
-//       public surface and aligning X reply model selection with persisted user preference.
+//       public surface, aligning X reply model selection with persisted user
+//       preference, and handing real thread/media context to the model.
 // Owns: inbound X mention processing, session routing, dedupe, and reply dispatch.
 // Does Not Own: OAuth exchange, X webhook signature checks, or token persistence.
 // Design Language:
@@ -35,6 +38,8 @@
 //   eligibility; public replies require confirmation from the bot mentions feed.
 // - A mention missing from `/mentions` immediately after webhook delivery may be
 //   indexing lag; retry inside a bounded grace window before final skip.
+// - Hydrate X mention context from the REST API before model execution so the
+//   current turn can include parent posts and attached media.
 // Document Provenance:
 // - Source: X Activity API docs + X Direct Messages lookup docs
 // - Kind: official API doc
@@ -88,8 +93,15 @@
 // - Applied To: retrying mention confirmation instead of final skip when webhook
 //   delivery beats mentions-feed indexing by a few seconds
 // - Verification: verified in runtime
+// - Source: X expansions/media docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-16
+// - Applied To: fetching X parent-thread text and image attachments before
+//   social-agent model execution
+// - Verification: verified in docs
 // See also:
 // - system-journal/INDEX.md
+// - system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
 // - system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
 // - system-journal/fix-log/2026-04-11-x-reply-share-pages.md
 // - system-journal/fix-log/2026-04-12-x-share-og-chat-preview.md
@@ -113,7 +125,8 @@ import { xApiClient } from './xApiClient.js';
 import { xReplyService } from './xReplyService.js';
 import { createXReplyShare } from './xReplyShareService.js';
 import { getXBotUserId } from './xCredentialsService.js';
-import type { XMentionEvent } from './types.js';
+import { dedupeSocialImages, type SocialAgentInput } from '../socialAgentInput.js';
+import type { XMentionEvent, XTweetContext } from './types.js';
 
 const MENTION_CURSOR_KEY = 'x:ingress:mentions:since_id';
 const RECOVERY_BATCH_SIZE = Math.max(1, Number(process.env.X_WEBHOOK_RECOVERY_BATCH_SIZE || '20'));
@@ -148,6 +161,113 @@ function publicShareReplyText(shareUrl: string): string {
 
 function publicBindText(username?: string | null): string {
   return `Link your X account in KIKO first: ${buildXLinkUrl({ username })}`;
+}
+
+function formatXHandle(username?: string | null, authorId?: string | null): string {
+  const normalized = String(username || '').trim().replace(/^@/, '');
+  if (normalized) return `@${normalized}`;
+  const id = String(authorId || '').trim();
+  return id ? `user:${id}` : 'user:unknown';
+}
+
+async function buildXThreadHydration(mention: XMentionEvent, maxDepth: number = 3): Promise<{
+  current: XTweetContext | null;
+  parents: XTweetContext[];
+}> {
+  const current = await xApiClient.fetchTweetContextByTweetId(mention.id).catch(() => null);
+  const parents: XTweetContext[] = [];
+  const visited = new Set<string>();
+  let nextTweetId = String(current?.parentTweetId || '').trim();
+
+  while (nextTweetId && parents.length < maxDepth && !visited.has(nextTweetId)) {
+    visited.add(nextTweetId);
+    const parent = await xApiClient.fetchTweetContextByTweetId(nextTweetId).catch(() => null);
+    if (!parent) break;
+    parents.push(parent);
+    nextTweetId = String(parent.parentTweetId || '').trim();
+  }
+
+  return {
+    current,
+    parents: parents.reverse(),
+  };
+}
+
+function buildXThreadContextText(params: {
+  mention: XMentionEvent;
+  current: XTweetContext | null;
+  parents: XTweetContext[];
+}): string | null {
+  const lines: string[] = [];
+  for (const parent of params.parents) {
+    lines.push(`Parent ${formatXHandle(parent.authorUsername, parent.authorId)}: ${parent.text}`);
+  }
+
+  for (const reference of params.current?.referencedTweets || []) {
+    if (reference.relationship !== 'quoted' || !reference.text) continue;
+    lines.push(`Quoted ${formatXHandle(reference.authorUsername, reference.authorId)}: ${reference.text}`);
+  }
+
+  return lines.length > 0 ? lines.join('\n') : null;
+}
+
+function buildXInboundPromptText(params: {
+  mention: XMentionEvent;
+  current: XTweetContext | null;
+  parents: XTweetContext[];
+}): string {
+  const contextText = buildXThreadContextText(params);
+  const currentText = String(params.current?.text || params.mention.text || '').trim();
+  const currentHandle = formatXHandle(
+    params.current?.authorUsername || params.mention.authorUsername,
+    params.current?.authorId || params.mention.authorId,
+  );
+
+  return [
+    'X inbound mention context:',
+    contextText,
+    `Current ${currentHandle}: ${currentText}`,
+  ].filter(Boolean).join('\n');
+}
+
+function buildXSocialInput(params: {
+  mention: XMentionEvent;
+  current: XTweetContext | null;
+  parents: XTweetContext[];
+}): SocialAgentInput {
+  const current = params.current;
+  const currentHandle = formatXHandle(
+    current?.authorUsername || params.mention.authorUsername,
+    current?.authorId || params.mention.authorId,
+  );
+
+  const images = dedupeSocialImages([
+    ...(current?.media || []).map((image) => ({
+      url: image.url,
+      altText: image.altText || null,
+      sourceId: current?.id || params.mention.id,
+      sourceLabel: `current X post by ${currentHandle}`,
+    })),
+    ...((current?.referencedTweets || []).flatMap((reference) => reference.media.map((image) => ({
+      url: image.url,
+      altText: image.altText || null,
+      sourceId: reference.id,
+      sourceLabel: `referenced ${reference.relationship} X post`,
+    })))),
+    ...(params.parents.flatMap((parent) => parent.media.map((image) => ({
+      url: image.url,
+      altText: image.altText || null,
+      sourceId: parent.id,
+      sourceLabel: `parent X post by ${formatXHandle(parent.authorUsername, parent.authorId)}`,
+    })))),
+  ]);
+
+  return {
+    platform: 'x',
+    currentText: String(current?.text || params.mention.text || '').trim(),
+    threadContextText: buildXThreadContextText(params),
+    images,
+  };
 }
 
 function normalizeMentionPayload(payload: unknown): XMentionEvent | null {
@@ -460,10 +580,23 @@ export class XIngressWorker {
       username: mention.authorUsername || user.xUsername || null,
     });
 
+    const threadHydration = await buildXThreadHydration(mention);
+    const socialInput = buildXSocialInput({
+      mention,
+      current: threadHydration.current,
+      parents: threadHydration.parents,
+    });
+    const promptContent = buildXInboundPromptText({
+      mention,
+      current: threadHydration.current,
+      parents: threadHydration.parents,
+    });
+
     const queued = await enqueueXAgentMessage({
       userId: user.privyDid,
       sessionId: mapping.chatSessionId,
-      content: mention.text,
+      content: promptContent,
+      socialInput,
       channel: 'mention',
       xUserId: mention.authorId,
       xUsername: mention.authorUsername || user.xUsername || null,
@@ -482,7 +615,7 @@ export class XIngressWorker {
       conversationMappingId: mapping.id,
       chatSessionId: mapping.chatSessionId,
       sourceTweetId: mention.id,
-      promptText: mention.text,
+      promptText: socialInput.currentText || mention.text,
       assistantText,
     });
 

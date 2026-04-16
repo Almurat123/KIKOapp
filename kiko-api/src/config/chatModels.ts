@@ -1,10 +1,11 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-15
+// Updated: 2026-04-16
 // Author: Almurat
 // Reason: product policy changed the canonical default away from Grok to GPT
 //         while keeping X and Farcaster replies bound to each user's saved
 //         preference. The backend must still normalize every user-selected
-//         model against one shared allowlist.
+//         model against one shared allowlist, and DeepSeek ids are being
+//         replaced by NVIDIA-hosted GLM/Kimi ids.
 // Goal: preserve a single canonical chat-model default and normalization rule
 //       across web chat, persisted user settings, X mention sessions, and
 //       Farcaster mention sessions.
@@ -15,6 +16,7 @@
 // - Normalize model ids at write boundaries before persisting them.
 // - Never let X mention sessions silently fall back to an unrelated legacy model.
 // - Do not duplicate model default strings across owner layers.
+// - Provider replacement must happen through model allowlists, not ad hoc aliases in callers.
 // Document Provenance:
 // - Source: operator request to switch the product default from Grok to GPT while
 //           preserving the user's saved model for X/Farcaster replies
@@ -24,20 +26,27 @@
 // - Verification: verified in code
 // - Source: current repo model catalog in kiko-web/src/components/Chat/chatConstants.ts
 // - Kind: repo doc
-// - Retrieved: 2026-04-15
-// - Applied To: supported model allowlist used by backend normalization
+// - Retrieved: 2026-04-16
+// - Applied To: supported model allowlist used by backend normalization after NVIDIA model replacement
+// - Verification: verified in code
+// - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
+// - Kind: official API doc
+// - Retrieved: 2026-04-16
+// - Applied To: backend-supported model ids for NVIDIA Kimi/GLM
 // - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-default-chat-model-switch-to-gpt.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-x-verified-mentions-only.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 export const DEFAULT_CHAT_MODEL = 'gpt-5.4-mini-2026-03-17';
 
 export const SUPPORTED_CHAT_MODELS = new Set([
-  'deepseek-chat',
-  'deepseek-reasoner',
+  'glm-5',
+  'kimi-k2-5-reasoning',
+  'kimi-k2-5-instant',
   'gpt-5.4-mini-2026-03-17',
   'grok-4-1-fast-reasoning',
   'grok-4-1-fast-non-reasoning',

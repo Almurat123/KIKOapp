@@ -16,18 +16,24 @@ import styles from './Sidebar.module.css';
 import type { Conversation } from '../../hooks/useConversations';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-16
 // Author: Rowan
 // Reason: Sidebar usage-summary reads were firing even when the mobile sidebar
 //         was hidden, and passive page-focus listeners kept adding authenticated
-//         reads during ordinary navigation.
+//         reads during ordinary navigation. The quota summary now exposes free
+//         usage with an optional shared cap plus one shared premium quota, so
+//         the sidebar must render that shape instead of assuming Normal/Advanced buckets.
 // Goal: limit billing-summary reads to moments when the sidebar is actually
-//       visible or when an explicit refresh is requested.
-// Owns: Sidebar-driven usage-summary refresh timing and visibility gating.
+//       visible or when an explicit refresh is requested, while rendering the
+//       server-provided quota envelope faithfully.
+// Owns: Sidebar-driven usage-summary refresh timing, visibility gating, and
+//       footer quota presentation.
 // Does Not Own: Billing quota computation, token balance mutations, or auth state.
 // Design Language:
 // - hidden mobile sidebar state must not trigger authenticated read traffic
 // - passive focus/visibility changes should not refetch quota by default
+// - free/premium quota rows from the server must not be flattened back into guessed client categories
+// - nullable free-model limits render as infinity, not zero
 // - forbidden local patch patterns: unconditional usage-summary fetches on every page activation
 // Document Provenance:
 // - Source: Production console traces showing `/api/billing/usage-summary` 429s while entering the token page
@@ -35,11 +41,25 @@ import type { Conversation } from '../../hooks/useConversations';
 // - Retrieved: 2026-04-10
 // - Applied To: gate sidebar quota reads by actual sidebar visibility
 // - Verification: partially verified
+// - Source: /Users/almurat/KiKo/kiko-api/src/routes/billing.ts
+// - Kind: repo doc
+// - Retrieved: 2026-04-16
+// - Applied To: rendering server-provided free/premium quota rows
+// - Verification: verified in code
+// - Source: operator quota-policy correction for optional free-model cap
+// - Kind: product doc
+// - Retrieved: 2026-04-16
+// - Applied To: rendering nullable free-model cap in the footer
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/chat-usage-quota-policy.md
+// - /Users/almurat/KiKo/system-journal/owner-map/chat-usage-quota.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-free-premium-chat-usage-quota-rework.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
 // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-token-page-stray-read-rate-limit.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
 
 interface SidebarProps {
   // activeTab and onTabChange removed - utilizing router
@@ -64,6 +84,14 @@ interface NavItem {
   path: string; // Added path
   subItems?: { id: string; label: string; path: string }[];
 }
+
+type UsageSummaryModelRow = {
+  model: string;
+  used: number;
+  limit: number | null;
+  category: 'free' | 'premium' | 'other';
+  limitSource: 'free_unlimited' | 'free_shared' | 'premium_shared' | 'none';
+};
 
 export const Sidebar: React.FC<SidebarProps> = ({
   isOpen,
@@ -90,11 +118,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [showAllConversations, setShowAllConversations] = useState(false);
   const [usageSummary, setUsageSummary] = useState<{
     dateUtc: string;
-    total: { used: number; limit: number };
-    normal: { used: number; limit: number };
-    advanced: { used: number; limit: number };
-    tokenBalance: number;
-    usesTotalLimitOnly: boolean;
+    total: { used: number; limit: number | null };
+    free: { used: number; limit: number | null };
+    premium: { used: number; limit: number };
+    models?: UsageSummaryModelRow[];
+    usesPremiumSharedLimit: boolean;
   } | null>(null);
   const isSidebarVisible = isMobile ? isOpen : isDesktopOpen;
 
@@ -491,33 +519,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         <div className={styles.footer}>
           <div className={styles.usageSummary}>
-            {usageSummary?.usesTotalLimitOnly ? (
-              <div className={styles.usageRow}>
-                <span className={styles.usageLabel}>Total</span>
-                <span className={styles.usageValue}>
-                  {`${usageSummary.total.used}/${usageSummary.total.limit}`}
-                </span>
-              </div>
-            ) : (
-              <>
-                <div className={styles.usageRow}>
-                  <span className={styles.usageLabel}>Normal</span>
-                  <span className={styles.usageValue}>
-                    {usageSummary ? `${usageSummary.normal.used}/${usageSummary.normal.limit}` : '--'}
-                  </span>
-                </div>
-                <div className={styles.usageRow}>
-                  <span className={styles.usageLabel}>Advanced</span>
-                  <span className={styles.usageValue}>
-                    {usageSummary ? `${usageSummary.advanced.used}/${usageSummary.advanced.limit}` : '--'}
-                  </span>
-                </div>
-              </>
-            )}
             <div className={styles.usageRow}>
-              <span className={styles.usageLabel}>Token</span>
+              <span className={styles.usageLabel}>Free</span>
               <span className={styles.usageValue}>
-                {usageSummary ? usageSummary.tokenBalance.toFixed(4) : '--'}
+                {usageSummary ? `${usageSummary.free.used}/${usageSummary.free.limit ?? '∞'}` : '--'}
+              </span>
+            </div>
+            <div className={styles.usageRow}>
+              <span className={styles.usageLabel}>Premium</span>
+              <span className={styles.usageValue}>
+                {usageSummary ? `${usageSummary.premium.used}/${usageSummary.premium.limit}` : '--'}
               </span>
             </div>
           </div>

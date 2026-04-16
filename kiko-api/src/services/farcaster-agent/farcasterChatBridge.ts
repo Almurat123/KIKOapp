@@ -1,58 +1,62 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-16
 // Author: Linh Tran
 // Reason: Farcaster polling ingress needs a dedicated bridge into the shared
 //         chat worker so mention threads can reuse the same AI runtime without
-//         pretending to be X conversations.
+//         pretending to be X conversations. Farcaster social-agent turns now
+//         also need structured thread/image metadata for the current turn while
+//         still persisting a plain text transport message for audit/history.
 // Goal: enqueue Farcaster-originated chat work with enough context for the
-//       existing agent runtime and billing gates.
-// Owns: Farcaster-to-chat task creation and assistant text waiting logic.
+//       existing agent runtime, billing gates, and vision-capable providers.
+// Owns: Farcaster-to-chat task creation, social-agent context handoff, and
+//       assistant text waiting logic.
 // Does Not Own: mention polling, reply publishing, or user linking.
 // Design Language:
 // - Reuse the shared chat worker and usage guards.
 // - Persist inbound user messages before agent execution.
 // - Carry Farcaster profile context into toolContext.
+// - Keep structured social multimodal context separate from the canonical
+//   stored message string.
 // Document Provenance:
 // - Source: repo code review of X chat bridge
 // - Kind: repo doc
 // - Retrieved: 2026-04-10
 // - Applied To: reusing chat worker/task creation for Farcaster mention threads
 // - Verification: verified in code
+// - Source: Neynar cast lookup and notifications docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-16
+// - Applied To: preserving Farcaster cast image context for the current model turn
+// - Verification: verified in docs and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import * as chatRepo from '../../repositories/chatRepository.js';
 import { trackChatMessage } from '../userActivityService.js';
-import { evaluateUsageAccess, isCurrentRequestFree } from '../usageAccess.js';
+import { evaluateUsageAccess, getUsageLimitMessage, isCurrentRequestFree } from '../usageAccess.js';
 import { recordUsage } from '../usageCounter.js';
 import { getEmbeddedWalletAddress, getSolanaEmbeddedWalletAddress } from '../privyWallet.js';
 import { chatWorker } from '../../jobs/chatWorker.js';
 import { normalizeSupportedChatModel } from '../../config/chatModels.js';
 import { buildFarcasterProfileUrl } from './farcasterIdentityService.js';
 import { env } from '../../config/env.js';
+import type { SocialAgentInput } from '../socialAgentInput.js';
 
 function normalizeTaskModel(model?: string): string {
   return normalizeSupportedChatModel(model);
 }
 
 function buildUsageLimitMessage(usageDecision: any): string {
-  if (usageDecision.reason === 'DAILY_TOTAL_LIMIT_REACHED') {
-    return `You have reached your daily total usage limit (${usageDecision.totalLimit} messages). Please check back tomorrow or increase your token balance to raise your limit.`;
-  }
-  if (usageDecision.reason === 'DAILY_ADVANCED_LIMIT_REACHED') {
-    return 'You have reached your daily limit for Advanced models. You can continue using Normal models or wait until tomorrow.';
-  }
-  if (usageDecision.reason === 'DAILY_NORMAL_LIMIT_REACHED') {
-    return 'You have reached your daily limit for Normal models. Please check back tomorrow.';
-  }
-  return 'Daily limit reached.';
+  return getUsageLimitMessage(usageDecision);
 }
 
 export async function enqueueFarcasterAgentMessage(params: {
   userId: string;
   sessionId: string;
   content: string;
+  socialInput?: SocialAgentInput | null;
   farcasterFid: number;
   farcasterUsername?: string | null;
   sourceMessageId: string;
@@ -67,7 +71,15 @@ export async function enqueueFarcasterAgentMessage(params: {
   }
 
   const taskModel = normalizeTaskModel(session.model);
-  const userMessage = await chatRepo.createMessage(params.sessionId, 'user', params.content.trim());
+  const trimmedContent = params.content.trim();
+  const socialInput = params.socialInput || null;
+  const userMessage = await chatRepo.createMessage(params.sessionId, 'user', trimmedContent, {
+    data: socialInput ? {
+      source: 'social_agent',
+      platform: socialInput.platform,
+      socialInput,
+    } : undefined,
+  });
   trackChatMessage(params.userId);
 
   const usageDecision = await evaluateUsageAccess({
@@ -128,6 +140,7 @@ export async function enqueueFarcasterAgentMessage(params: {
       sourceMessageId: params.sourceMessageId,
       rootCastHash: params.rootCastHash || null,
     },
+    socialInput: socialInput || undefined,
   };
 
   const task = await chatRepo.createTask(
@@ -143,6 +156,7 @@ export async function enqueueFarcasterAgentMessage(params: {
       userId: params.userId,
       dateUtc: usageDecision.dateUtc,
       modelCategory: usageDecision.modelCategory,
+      model: taskModel,
       assistantMessageId: assistantMessage.id,
     });
   } catch {

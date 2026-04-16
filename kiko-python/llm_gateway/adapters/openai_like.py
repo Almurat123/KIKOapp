@@ -1,5 +1,78 @@
 from __future__ import annotations
 
+# CONTEXT MEMORY
+# Updated: 2026-04-16
+# Author: Rowan
+# Reason: KiKo is removing the old DeepSeek gateway path and replacing it with
+#         NVIDIA-hosted Kimi and GLM models while keeping the existing internal
+#         streaming contract (`delta_text`, `delta_reasoning`, tool deltas,
+#         usage, citations) stable for downstream orchestration. NVIDIA's
+#         official hosted Kimi API requires different model ids and instant-mode
+#         parameters than the self-hosted vLLM examples, and GLM reasoning can
+#         arrive through more than one response field shape. A later regression
+#         also showed that generic `content` strings must never be promoted into
+#         the reasoning channel, or assistant text gets duplicated into both
+#         visible output surfaces. Runtime inspection also showed that GLM
+#         welcome/meta turns were returning plain assistant text without any
+#         preserved reasoning trace, so the gateway now has to request
+#         preserved thinking explicitly for NVIDIA-hosted GLM aliases. Kimi and
+#         Grok social-agent image turns also need provider-specific handling:
+#         NVIDIA Kimi can receive OpenAI-style `image_url` content arrays
+#         directly, while xAI image turns must be routed through the Grok SDK
+#         adapter that converts those arrays to xAI image inputs.
+# Goal: normalize NVIDIA Kimi/GLM requests and reasoning deltas into the same
+#       gateway event protocol already consumed by KiKo's Node/Python runtimes.
+# Owns: provider-family resolution, provider request shaping, SSE normalization,
+#       and provider request-id promotion inside the Python llm gateway.
+# Does Not Own: orchestration policy, model allowlists, or UI-facing model names.
+# Design Language:
+# - The gateway must normalize provider differences at the edge.
+# - Kimi Reasoning/Instant are aliases over one NVIDIA model plus request flags.
+# - GLM/Kimi reasoning deltas must reuse the existing `delta_reasoning` event.
+# - Generic assistant content must never be mirrored into the reasoning channel.
+# - Official NVIDIA-hosted API conventions take precedence over self-hosted examples.
+# - GLM preserved thinking should be requested explicitly instead of relying on
+#   hosted-runtime defaults.
+# - Removed DeepSeek fallbacks must not silently remain the default provider path.
+# - Kimi image arrays may pass through NVIDIA chat/completions unchanged.
+# - xAI image turns must use the SDK gateway, not unverified direct chat-completions.
+# Document Provenance:
+# - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
+# - Kind: official API doc
+# - Retrieved: 2026-04-16
+# - Applied To: NVIDIA request routing and Kimi/GLM reasoning normalization
+# - Verification: verified in code
+# - Source: /Users/almurat/KiKo/test.txt
+# - Kind: runtime observation
+# - Retrieved: 2026-04-16
+# - Applied To: preventing assistant text from being duplicated into reasoning deltas
+# - Verification: verified in code
+# - Source: NVIDIA GLM-4.7 model reference and Z.AI GLM-5 API guide
+# - Kind: official API doc
+# - Retrieved: 2026-04-16
+# - Applied To: enabling preserved thinking for NVIDIA-hosted GLM requests
+# - Verification: verified in docs, applied in code
+# - Source: NVIDIA NIM moonshotai/kimi-k2.5 inference docs
+# - Kind: official API doc
+# - Retrieved: 2026-04-16
+# - Applied To: forwarding structured Kimi `image_url` message content through
+#   the NVIDIA chat/completions request body
+# - Verification: verified in docs and code
+# - Source: xAI Image Understanding docs
+# - Kind: official API doc
+# - Retrieved: 2026-04-16
+# - Applied To: forcing xAI image requests through the SDK gateway where image
+#   content is converted to xAI SDK inputs
+# - Verification: verified in docs and code
+# See also:
+# - /Users/almurat/KiKo/system-journal/INDEX.md
+# - /Users/almurat/KiKo/system-journal/design-language/social-agent-multimodal-input.md
+# - /Users/almurat/KiKo/system-journal/owner-map/social-agent-multimodal-input.md
+# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-kimi-grok-social-image-input.md
+# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
+# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-glm-preserved-thinking-on-nvidia.md
+# - /Users/almurat/KiKo/system-journal/conflicts.md
+
 import asyncio
 import json
 import os
@@ -9,28 +82,171 @@ from typing import AsyncGenerator, Any
 
 import httpx
 
+from grok.message_content import messages_have_image_content
+
 from ..schemas import GatewayEvent, GenerateRequest
 
 
 OPENAI_API_URL = os.getenv("OPENAI_API_URL", "https://api.openai.com/v1/chat/completions")
-DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com/v1/chat/completions")
+NVIDIA_API_URL = os.getenv("NVIDIA_API_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
 GROK_SERVICE_URL = os.getenv("GROK_SERVICE_URL", "http://localhost:8000/grok")
 XAI_API_URL = os.getenv("XAI_API_URL", "https://api.x.ai/v1/chat/completions")
 GROK_PREFER_SDK_GATEWAY = os.getenv("GROK_PREFER_SDK_GATEWAY", "true").lower() not in {"0", "false", "no"}
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
 INTERNAL_SERVICE_KEY = os.getenv("INTERNAL_SERVICE_KEY", "")
 XAI_API_KEY = os.getenv("XAI_API_KEY", "")
 
 
+def _normalized_model(model: str) -> str:
+    return str(model or "").strip().lower()
+
+
+def _resolve_nvidia_model(model: str) -> tuple[str, dict[str, Any] | None]:
+    normalized = _normalized_model(model)
+    glm_preserved_thinking = {
+        "chat_template_kwargs": {
+            "enable_thinking": True,
+            "clear_thinking": False,
+        }
+    }
+
+    kimi_reasoning_aliases = {
+        "kimi-k2-5",
+        "kimi-k2-5-reasoning",
+        "kimi-k2-5-thinking",
+        "kimi-k2.5",
+        "kimi-k2.5-reasoning",
+        "kimi-k2.5-thinking",
+        "moonshotai/kimi-k2-5",
+        "moonshotai/kimi-k2.5",
+        "moonshotai/kimi-k2-5-reasoning",
+        "moonshotai/kimi-k2.5-reasoning",
+        "moonshotai/kimi-k2-5-thinking",
+        "moonshotai/kimi-k2.5-thinking",
+    }
+    kimi_instant_aliases = {
+        "kimi-k2-5-fast",
+        "kimi-k2-5-instant",
+        "kimi-k2.5-fast",
+        "kimi-k2.5-instant",
+        "moonshotai/kimi-k2-5-fast",
+        "moonshotai/kimi-k2-5-instant",
+        "moonshotai/kimi-k2.5-fast",
+        "moonshotai/kimi-k2.5-instant",
+    }
+    glm_aliases = {
+        "glm-5",
+        "glm5",
+        "glm-5-reasoning",
+        "glm5-reasoning",
+        "z-ai/glm5",
+        "z-ai/glm-5",
+        "z-ai/glm5-reasoning",
+        "z-ai/glm-5-reasoning",
+    }
+
+    if normalized in kimi_reasoning_aliases:
+        return "moonshotai/kimi-k2.5", None
+    if normalized in kimi_instant_aliases:
+        return "moonshotai/kimi-k2.5", {"thinking": {"type": "disabled"}}
+    if normalized in glm_aliases:
+        return "z-ai/glm5", glm_preserved_thinking
+    return model, None
+
+
+def _coerce_text_content(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        parts: list[str] = []
+        for item in value:
+            text = _coerce_text_content(item)
+            if text:
+                parts.append(text)
+        return "".join(parts)
+    if isinstance(value, dict):
+        part_type = str(value.get("type") or "").strip().lower()
+        if part_type in {"reasoning", "thinking"}:
+            return ""
+        for key in ("text", "content"):
+            text = _coerce_text_content(value.get(key))
+            if text:
+                return text
+    return ""
+
+
+def _coerce_reasoning_content(value: Any, *, allow_plain_string: bool = False) -> str:
+    if isinstance(value, str):
+        return value if allow_plain_string else ""
+    if isinstance(value, list):
+        parts: list[str] = []
+        for item in value:
+            text = _coerce_reasoning_content(item, allow_plain_string=allow_plain_string)
+            if text:
+                parts.append(text)
+        return "".join(parts)
+    if isinstance(value, dict):
+        part_type = str(value.get("type") or "").strip().lower()
+        if part_type in {"reasoning", "thinking"}:
+            for key in ("text", "content", "reasoning_content", "reasoning", "reasoning_text", "thinking"):
+                text = _coerce_reasoning_content(value.get(key), allow_plain_string=True)
+                if text:
+                    return text
+        for key in ("reasoning_content", "reasoning", "reasoning_text", "thinking"):
+            text = _coerce_reasoning_content(value.get(key), allow_plain_string=True)
+            if text:
+                return text
+    return ""
+
+
+def _extract_text_delta(data: dict[str, Any], choice: dict[str, Any], delta: dict[str, Any]) -> str:
+    for candidate in (
+        delta.get("content"),
+        choice.get("message", {}).get("content"),
+        choice.get("content"),
+        data.get("content"),
+    ):
+        text = _coerce_text_content(candidate)
+        if text:
+            return text
+    return ""
+
+
+def _extract_reasoning_delta(data: dict[str, Any], choice: dict[str, Any], delta: dict[str, Any]) -> str:
+    for candidate, allow_plain_string in (
+        (delta.get("reasoning_content"), True),
+        (delta.get("reasoning"), True),
+        (delta.get("reasoning_text"), True),
+        (delta.get("thinking"), True),
+        (delta.get("content"), False),
+        (choice.get("reasoning_content"), True),
+        (choice.get("message", {}).get("reasoning_content"), True),
+        (choice.get("message", {}).get("reasoning"), True),
+        (choice.get("message", {}).get("reasoning_text"), True),
+        (choice.get("message", {}).get("thinking"), True),
+        (data.get("reasoning_content"), True),
+        (data.get("reasoning"), True),
+        (data.get("reasoning_text"), True),
+        (data.get("thinking"), True),
+    ):
+        text = _coerce_reasoning_content(
+            candidate,
+            allow_plain_string=allow_plain_string,
+        )
+        if text:
+            return text
+    return ""
+
+
 def resolve_provider(model: str) -> str:
-    m = (model or "").lower()
+    m = _normalized_model(model)
     if m.startswith("gpt") or m.startswith("o"):
         return "openai"
     if "grok" in m:
         return "xai"
-    return "deepseek"
+    return "nvidia"
 
 
 def normalize_metadata(metadata: dict[str, Any] | None) -> dict[str, str]:
@@ -49,8 +265,8 @@ async def stream_generate(req: GenerateRequest) -> AsyncGenerator[GatewayEvent, 
     if provider == "openai":
         async for ev in _stream_openai(req, provider):
             yield ev
-    elif provider == "deepseek":
-        async for ev in _stream_deepseek(req, provider):
+    elif provider == "nvidia":
+        async for ev in _stream_nvidia(req, provider):
             yield ev
     else:
         async for ev in _stream_xai(req, provider):
@@ -83,31 +299,35 @@ async def _stream_openai(req: GenerateRequest, provider: str):
         yield ev
 
 
-async def _stream_deepseek(req: GenerateRequest, provider: str):
-    if not DEEPSEEK_API_KEY:
-        yield GatewayEvent(event_type="error", provider="deepseek", payload={"message": "DEEPSEEK_API_KEY missing"})
+async def _stream_nvidia(req: GenerateRequest, provider: str):
+    if not NVIDIA_API_KEY:
+        yield GatewayEvent(event_type="error", provider="nvidia", payload={"message": "NVIDIA_API_KEY missing"})
         return
 
+    resolved_model, extra_body = _resolve_nvidia_model(req.model)
     body: dict[str, Any] = {
-        "model": req.model,
+        "model": resolved_model,
         "messages": [m.model_dump(exclude_none=True) for m in req.messages],
         "stream": True,
     }
     if req.tools:
         body["tools"] = req.tools
         body["tool_choice"] = "auto"
+    if extra_body:
+        body["extra_body"] = extra_body
 
     async for ev in _stream_sse(
         provider=provider,
-        url=DEEPSEEK_API_URL,
-        headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
+        url=NVIDIA_API_URL,
+        headers={"Authorization": f"Bearer {NVIDIA_API_KEY}", "Content-Type": "application/json"},
         body=body,
     ):
         yield ev
 
 
 async def _stream_xai(req: GenerateRequest, provider: str):
-    if GROK_PREFER_SDK_GATEWAY:
+    has_image_input = messages_have_image_content(req.messages)
+    if GROK_PREFER_SDK_GATEWAY or has_image_input:
         url = GROK_SERVICE_URL.rstrip("/") + "/v1/chat/completions"
         headers = {"Content-Type": "application/json"}
         if INTERNAL_SERVICE_KEY:
@@ -240,13 +460,13 @@ async def _stream_sse(provider: str, url: str, headers: dict[str, str], body: di
 
                         delta = choice.get("delta") or {}
 
-                        txt = delta.get("content")
+                        txt = _extract_text_delta(data, choice, delta)
                         if txt:
                             if first_token_at is None:
                                 first_token_at = int((time.time() - started_at) * 1000)
                             yield GatewayEvent(event_type="delta_text", provider=provider, provider_request_id=provider_request_id, payload={"text": str(txt)})
 
-                        rc = delta.get("reasoning_content")
+                        rc = _extract_reasoning_delta(data, choice, delta)
                         if rc:
                             if first_token_at is None:
                                 first_token_at = int((time.time() - started_at) * 1000)

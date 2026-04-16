@@ -3,17 +3,29 @@
 // Author: Rowan
 // Reason: Farcaster agent replies need a surface-specific system prompt so the
 //         model recognizes the conversation as a social-agent mode instead of a
-//         full web chat session. Without that prompt, the model drifts into
-//         report-style answers even when the public cast surface expects short,
-//         friend-like replies.
+//         full web chat session. The same generation owner now also needs a
+//         stable history policy for NVIDIA GLM/Kimi reasoning models so stored
+//         reasoning content stays local while assistant tool-call history keeps
+//         provider-safe content shapes. Social-agent turns now also need
+//         current-turn multimodal user messages so X/Farcaster post images can
+//         reach vision-capable OpenAI, NVIDIA Kimi, and xAI Grok paths without
+//         contaminating replayed text history.
 // Goal: keep generation messages explicit about surface mode, especially for
-//       Farcaster agent turns where short, direct replies are the default.
-// Owns: generation-message assembly and surface-specific prompt overlays.
+//       Farcaster agent turns where short, direct replies are the default, keep
+//       reasoning traces out of replayed assistant history, and assemble
+//       provider-safe multimodal current-turn content for social ingress.
+// Owns: generation-message assembly, current-turn multimodal content shaping,
+//       and surface-specific prompt overlays.
 // Does Not Own: model provider selection, runtime directive derivation, or cast publication.
 // Design Language:
 // - surface mode belongs in the system prompt, not only in downstream formatting
 // - Farcaster agent mode defaults to concise social replies unless the user asks for depth
 // - surface-specific prompt overlays should be narrow and avoid polluting main web chat behavior
+// - stored reasoning content is local state, not replayable assistant history
+// - reasoning-capable provider aliases may need non-null assistant content for tool-call turns
+// - social multimodal inputs belong only on the current user turn, not replayed history
+// - use real image parts only on provider/model paths verified to support them
+// - NVIDIA GLM stays text-only until its active endpoint documents image input
 // Document Provenance:
 // - Source: Neynar/Farcaster cast writing docs and runtime screenshots of
 //           report-style public replies
@@ -21,10 +33,38 @@
 // - Retrieved: 2026-04-16
 // - Applied To: Farcaster agent system-prompt overlay for concise replies
 // - Verification: verified in code and targeted tests
+// - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
+// - Kind: official API doc
+// - Retrieved: 2026-04-16
+// - Applied To: treating NVIDIA reasoning-capable models like local-reasoning providers for history sanitization
+// - Verification: verified in code
+// - Source: OpenAI Images and Vision / Chat Completions docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-16
+// - Applied To: current-turn social multimodal `content` arrays with `text`
+//   and `image_url` parts on OpenAI chat-completions paths
+// - Verification: verified in docs and code
+// - Source: NVIDIA NIM moonshotai/kimi-k2.5 model and inference docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-16
+// - Applied To: enabling current-turn social image parts for Kimi over NVIDIA
+//   chat/completions while keeping GLM on fallback text
+// - Verification: verified in docs and code
+// - Source: xAI Image Understanding docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-16
+// - Applied To: emitting structured current-turn image content for Grok so the
+//   Python xAI adapter can convert it into SDK image inputs
+// - Verification: verified in docs and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/social-agent-multimodal-input.md
+// - /Users/almurat/KiKo/system-journal/owner-map/social-agent-multimodal-input.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-kimi-grok-social-image-input.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-reply-style-directive.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-agent-mode-prompt.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import { CORE_UNIFIED, GROK_SEARCH_DELTA } from '../../services/ai/prompts/v2/CORE.js';
 import { resolveCanonicalChainRef } from './chainIntent.js';
@@ -36,7 +76,7 @@ import type { SearchMode, SkillMatch } from './skillIntentMatcher.js';
 
 export interface GenerationMessage {
     role: 'system' | 'user' | 'assistant' | 'tool';
-    content: string | null;
+    content: string | Array<Record<string, any>> | null;
     tool_calls?: any[];
     tool_call_id?: string;
     reasoning_content?: string;
@@ -68,6 +108,73 @@ const FARCASTER_AGENT_MODE_PROMPT = [
     'Prefer one short paragraph. Use a compact list only when the content is naturally list-shaped.',
     'Lead with the answer immediately. Do not add meta framing or formal sections unless the user explicitly asks for a structured report.',
 ].join('\n');
+
+function buildSocialThreadContextBlock(snapshot: ChatContextSnapshot): string {
+    const socialInput = snapshot.runtime?.socialInput;
+    const threadContextText = String(socialInput?.threadContextText || '').trim();
+    if (!threadContextText) return '';
+    return `[SOCIAL_THREAD_CONTEXT]\n${threadContextText}`;
+}
+
+function buildSocialImageLabelsBlock(snapshot: ChatContextSnapshot): string {
+    const socialInput = snapshot.runtime?.socialInput;
+    const images = Array.isArray(socialInput?.images) ? socialInput.images : [];
+    if (images.length === 0) return '';
+    const lines = ['[SOCIAL_IMAGES]'];
+    images.forEach((image: any, index: number) => {
+        const label = String(image?.sourceLabel || `image ${index + 1}`).trim();
+        lines.push(`- Image ${index + 1}: ${label}`);
+    });
+    return lines.join('\n');
+}
+
+function isKimiModel(model: string): boolean {
+    const normalized = String(model || '').trim().toLowerCase();
+    return normalized.includes('kimi') || normalized.includes('moonshotai/');
+}
+
+function supportsNativeSocialImages(providerInfo: ProviderInfo): boolean {
+    if (providerInfo.provider === 'openai') return true;
+    if (providerInfo.provider === 'grok') return true;
+    return providerInfo.provider === 'nvidia' && isKimiModel(providerInfo.model);
+}
+
+function normalizeSocialImageInputs(images: any[]): Array<{ url: string; label: string }> {
+    return images
+        .map((image: any, index: number) => ({
+            url: String(image?.url || '').trim(),
+            label: String(image?.sourceLabel || `image ${index + 1}`).trim(),
+        }))
+        .filter((image) => image.url.length > 0);
+}
+
+function buildCurrentUserContent(
+    snapshot: ChatContextSnapshot,
+    providerInfo: ProviderInfo,
+    baseText: string,
+): string | Array<Record<string, any>> {
+    const socialInput = snapshot.runtime?.socialInput;
+    const images = normalizeSocialImageInputs(Array.isArray(socialInput?.images) ? socialInput.images : []);
+    if (images.length === 0) return baseText;
+
+    if (supportsNativeSocialImages(providerInfo)) {
+        return [
+            { type: 'text', text: baseText },
+            ...images.map((image: any) => ({
+                type: 'image_url',
+                image_url: {
+                    url: image.url,
+                },
+            })),
+        ];
+    }
+
+    const fallbackLines = ['[SOCIAL_IMAGE_URLS]'];
+    images.forEach((image: any, index: number) => {
+        fallbackLines.push(`- Image ${index + 1}: ${image.label} -> ${image.url}`);
+    });
+    return [baseText, fallbackLines.join('\n')].join('\n\n');
+}
 
 export function assembleGenerationMessages(
     snapshot: ChatContextSnapshot,
@@ -131,13 +238,15 @@ export function assembleGenerationMessages(
         buildExecutionPlanBlock(guidance?.executionPlan),
         buildToolGuidanceBlock(guidance),
         buildProviderNativeEvidenceBlock(guidance?.providerNativeEvidence),
+        buildSocialThreadContextBlock(snapshot),
+        buildSocialImageLabelsBlock(snapshot),
         `[SKILLS]\n${skillPrompts.length > 0 ? skillPrompts.join('\n\n') : 'No extra skill prompts selected.'}`,
         `[USER_QUERY]\n${snapshot.lastUserMessage || ''}`,
     ].join('\n\n');
 
     const messages: GenerationMessage[] = [{ role: 'system', content: systemParts.join('\n\n') }];
     messages.push(...buildHistoryMessages(snapshot));
-    messages.push({ role: 'user', content: userContent });
+    messages.push({ role: 'user', content: buildCurrentUserContent(snapshot, providerInfo, userContent) });
     return messages;
 }
 
@@ -732,7 +841,7 @@ export function sanitizeProviderHistory(history: GenerationMessage[], model: str
         });
     }
 
-    if (isDeepSeekReasonerModel(model)) {
+    if (requiresReasoningHistorySanitization(model)) {
         return history.map((msg) => {
             if (msg.role !== 'assistant') return msg;
             return {
@@ -752,6 +861,24 @@ export function sanitizeProviderHistory(history: GenerationMessage[], model: str
     });
 }
 
-function isDeepSeekReasonerModel(model: string): boolean {
-    return String(model || '').trim().toLowerCase() === 'deepseek-reasoner';
+function requiresReasoningHistorySanitization(model: string): boolean {
+    const normalized = String(model || '').trim().toLowerCase();
+    return normalized === 'deepseek-reasoner'
+        || normalized === 'glm-5'
+        || normalized === 'glm-5-reasoning'
+        || normalized === 'glm5'
+        || normalized === 'z-ai/glm5'
+        || normalized === 'z-ai/glm-5'
+        || normalized === 'kimi-k2.5'
+        || normalized === 'kimi-k2.5-reasoning'
+        || normalized === 'kimi-k2.5-thinking'
+        || normalized === 'kimi-k2-5'
+        || normalized === 'kimi-k2-5-reasoning'
+        || normalized === 'kimi-k2-5-thinking'
+        || normalized === 'moonshotai/kimi-k2.5'
+        || normalized === 'moonshotai/kimi-k2.5-reasoning'
+        || normalized === 'moonshotai/kimi-k2.5-thinking'
+        || normalized === 'moonshotai/kimi-k2-5'
+        || normalized === 'moonshotai/kimi-k2-5-reasoning'
+        || normalized === 'moonshotai/kimi-k2-5-thinking';
 }

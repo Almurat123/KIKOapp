@@ -1,49 +1,31 @@
-import { AbsoluteFill, random } from 'remotion';
-import { useCurrentFrame } from 'remotion';
+import { AbsoluteFill } from 'remotion';
 
 export const PostProcessing: React.FC = () => {
-  const frame = useCurrentFrame();
-  
-  // 每一帧生成不同的种子以实现动态噪点
-  const noiseSeed = random(`noise-${frame}`);
-  const noiseX = (noiseSeed - 0.5) * 10;
-  const noiseY = (random(`noise-y-${frame}`) - 0.5) * 10;
-
   return (
     <AbsoluteFill style={{ pointerEvents: 'none', zIndex: 100 }}>
-      {/* 1. 动态噪点层 */}
+      {/* 1. 广角边缘暗角 (优化渐变梯度) */}
       <div style={{
         position: 'absolute',
-        width: '120%',
-        height: '120%',
-        left: '-10%',
-        top: '-10%',
-        backgroundImage: 'url("https://www.transparenttextures.com/patterns/stardust.png")', // 使用一个通用的噪点纹理
-        opacity: 0.12,
-        transform: `translate(${noiseX}px, ${noiseY}px)`,
-        mixBlendMode: 'overlay',
+        inset: 0,
+        background: 'radial-gradient(circle at center, transparent 30%, rgba(0,0,0,0.7) 150%)',
+        opacity: 0.7,
       }} />
 
-      {/* 2. 全局暗角 (Vignette) */}
+      {/* 2. 微光层 (Bloom) - 仅作为高光补偿，不全局虚化 */}
       <div style={{
         position: 'absolute',
-        width: '100%',
-        height: '100%',
-        background: 'radial-gradient(circle at center, transparent 30%, rgba(0,0,0,0.5) 100%)',
+        inset: 0,
+        backgroundColor: 'rgba(255,255,255,0.02)',
+        mixBlendMode: 'screen',
       }} />
-
-      {/* 3. 色差滤镜 (SVG 实现) */}
-      <svg style={{ position: 'absolute', width: 0, height: 0 }}>
-        <filter id="chromatic-aberration">
-          <feColorMatrix in="SourceGraphic" type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="red"/>
-          <feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" result="green"/>
-          <feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="blue"/>
-          <feOffset in="red" dx="1.5" dy="0" result="red-offset"/>
-          <feOffset in="blue" dx="-1.5" dy="0" result="blue-offset"/>
-          <feBlend in="red-offset" in2="green" mode="screen" result="temp"/>
-          <feBlend in="temp" in2="blue-offset" mode="screen"/>
-        </filter>
-      </svg>
+      
+      {/* 3. 极细颗粒感 (Film Grain) */}
+      <div style={{
+        position: 'absolute',
+        inset: 0,
+        opacity: 0.03,
+        backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`,
+      }} />
     </AbsoluteFill>
   );
 };

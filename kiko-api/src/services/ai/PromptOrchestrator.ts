@@ -1,3 +1,27 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-16
+// Author: Rowan
+// Reason: prompt assembly still accepted the old DeepSeek family as the only
+//         non-Grok branch even after normal-model traffic moved to NVIDIA GLM/Kimi.
+// Goal: keep prompt composition vendor-neutral for the normal-model path while
+//       leaving Grok as the only provider with extra native-search instructions.
+// Owns: system-prompt assembly from core modules plus intent-matched skill prompts.
+// Does Not Own: provider routing, model pricing, or tool execution.
+// Design Language:
+// - Shared core instructions are provider-family neutral unless a capability demands otherwise.
+// - Grok-specific search guidance is opt-in by provider family.
+// - NVIDIA normal-model traffic must not inherit removed DeepSeek naming assumptions.
+// Document Provenance:
+// - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
+// - Kind: official API doc
+// - Retrieved: 2026-04-16
+// - Applied To: normal-provider prompt family naming for GLM/Kimi migration
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
+
 import { V2_PROMPT_MODULES } from './prompts/v2/index.js';
 import type { IntentType, ModelType, OrchestratorOptions, UserContext } from './types.js';
 import { skillRegistryExec } from '../../skills/registry.js';

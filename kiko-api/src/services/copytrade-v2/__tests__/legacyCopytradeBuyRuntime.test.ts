@@ -1,7 +1,43 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { processSingleUserBuy } from '../runtime/legacyCopytradeBuyRuntime.js';
+import {
+  processSingleUserBuy,
+  resolveEntryDeviationExcessDecision,
+} from '../runtime/legacyCopytradeBuyRuntime.js';
+
+test('legacy copytrade buy runtime skips over-threshold entry deviation even when price reference is unreliable', () => {
+  assert.deepEqual(resolveEntryDeviationExcessDecision({
+    deviationBps: 12038.76,
+    limitBps: 3000,
+    unreliableMarketPrice: true,
+  }), {
+    shouldSkip: true,
+    reasonCode: 'price_deviation_unreliable_reference_exceeded',
+  });
+});
+
+test('legacy copytrade buy runtime keeps normal entry deviation skip reason for reliable references', () => {
+  assert.deepEqual(resolveEntryDeviationExcessDecision({
+    deviationBps: 4938.71,
+    limitBps: 1500,
+    unreliableMarketPrice: false,
+  }), {
+    shouldSkip: true,
+    reasonCode: 'price_deviation_bps_exceeded',
+  });
+});
+
+test('legacy copytrade buy runtime allows entry deviation inside configured threshold', () => {
+  assert.deepEqual(resolveEntryDeviationExcessDecision({
+    deviationBps: 927.88,
+    limitBps: 3000,
+    unreliableMarketPrice: true,
+  }), {
+    shouldSkip: false,
+    reasonCode: 'entry_deviation_within_threshold',
+  });
+});
 
 test('legacy copytrade buy runtime advances canonical order when delay gate skips', async () => {
   const transitions: any[] = [];

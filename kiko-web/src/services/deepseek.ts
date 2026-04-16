@@ -2,8 +2,8 @@ import { getAuthToken } from '../utils/authToken';
 import { type AIStreamChunk } from './aiTypes';
 
 /**
- * DeepSeek API Service
- * Handles communication with DeepSeek AI API
+ * Model API Service
+ * Handles communication with the backend chat proxy for OpenAI-compatible models.
  */
 
 export interface DeepSeekMessage {
@@ -65,7 +65,7 @@ export interface DeepSeekStreamChunk {
   }>;
 }
 
-const DEFAULT_MODEL = 'deepseek-chat';
+const DEFAULT_MODEL = 'glm-5';
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 second
 
@@ -73,16 +73,17 @@ const RETRY_DELAY = 1000; // 1 second
  * Map frontend model ID to model name
  * 
  * Current mapping:
- * - deepseek-chat/deepseek-reasoner: DeepSeek
+ * - glm-5: NVIDIA-hosted GLM reasoning model
+ * - kimi-k2-5-reasoning/kimi-k2-5-instant: NVIDIA-hosted Kimi modes
  * - gpt-5.4-mini-2026-03-17: OpenAI GPT-5.4-mini
  * 
- * @param modelId - Frontend model identifier (e.g., 'deepseek-reasoner')
+ * @param modelId - Frontend model identifier (e.g., 'kimi-k2-5-reasoning')
  * @param mode - Model mode ('thinking' or 'fast')
  * @returns Actual model name
  */
 export function getModelName(modelId?: string, mode?: string): string {
   if (modelId) return modelId;
-  if (mode === 'thinking') return 'deepseek-reasoner';
+  if (mode === 'thinking') return 'glm-5';
   return DEFAULT_MODEL;
 }
 
@@ -90,8 +91,11 @@ export function getModelName(modelId?: string, mode?: string): string {
  * Get recommended max_tokens based on model type
  */
 export function getRecommendedMaxTokens(modelName: string): number {
-  if (modelName === 'deepseek-reasoner') {
+  if (modelName === 'glm-5' || modelName === 'kimi-k2-5-reasoning') {
     return 32000;
+  }
+  if (modelName === 'kimi-k2-5-instant') {
+    return 8192;
   }
   if (modelName.includes('gpt-5.4')) {
     return 16384;
@@ -110,7 +114,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Make request to DeepSeek API with retry logic
+ * Make request to backend model API with retry logic
  */
 async function makeRequest(
   request: DeepSeekRequest,
@@ -124,7 +128,7 @@ async function makeRequest(
     const authToken = await getAuthToken();
 
     if (!authToken) {
-      throw new Error('Authentication required: Please log in to use DeepSeek. No auth token available.');
+      throw new Error('Authentication required: Please log in to use AI chat. No auth token available.');
     }
 
     const response = await fetch(`${BACKEND_API_URL}/api/ai/chat`, {
@@ -141,7 +145,7 @@ async function makeRequest(
         throw new Error('Authentication failed: Please log in again. Your session may have expired.');
       }
       const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-      throw new Error(`DeepSeek API error: ${error.error?.message || response.statusText}`);
+      throw new Error(`Model API error: ${error.error?.message || response.statusText}`);
     }
 
     return response;
@@ -166,7 +170,7 @@ async function makeRequest(
 }
 
 /**
- * Send a chat completion request to DeepSeek
+ * Send a chat completion request through the backend model proxy
  */
 export async function chatCompletion(
   messages: DeepSeekMessage[],
@@ -202,9 +206,9 @@ export async function chatCompletion(
 }
 
 /**
- * Stream chat completion from DeepSeek via backend proxy
+ * Stream chat completion from the backend model proxy
  * Now supports citations from web search tool calls
- * And reasoning_content for thinking mode (deepseek-reasoner)
+ * And reasoning_content for GLM/Kimi thinking mode
  */
 export async function* streamChatCompletion(
   messages: DeepSeekMessage[],

@@ -28,6 +28,13 @@ import { getUserSettings, saveUserSettings } from '../../services/userSettingsAp
 import { ChatMessageList } from './ChatMessageList';
 import { ChatComposer } from './ChatComposer';
 import { ACTION_CARD_TYPE_MAP, COMMON_TOKENS, MODEL_OPTIONS, findChatModelOption, getDefaultChatModelOption } from './chatConstants';
+import {
+    createComposerImageDraft,
+    MAX_COMPOSER_IMAGE_COUNT,
+    type ComposerImageDraft,
+    toComposerImageAttachment,
+    validateComposerImageFile,
+} from './chatImageDrafts';
 import { requiresContractAddressInFastMode, resolveNativeToken, resolveTokenForChat, resolveTokenForFastSwap } from './chatTokenResolution';
 import { mergeTransactionCardData } from '../../utils/transactionCardState';
 import type { ChatStrategyRuntimeState } from './ChatStrategyRuntime';
@@ -36,17 +43,22 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 const LazyChatStrategyRuntime = React.lazy(() => import('./ChatStrategyRuntime').then((m) => ({ default: m.ChatStrategyRuntime })));
 
 // CONTEXT MEMORY
-// Updated: 2026-04-13
+// Updated: 2026-04-16
 // Author: Rowan
 // Reason: First-send interaction and live assistant-card rendering both depend
 //         on this owner preserving a single in-place chat surface while websocket
-//         events arrive out of order.
+//         events arrive out of order. The same owner now also has to preserve
+//         local image-draft state across the welcome shell -> live chat
+//         transition so first-send attachment previews do not disappear before
+//         the upload pipeline is wired.
 // Goal: keep `ChatInterface` as the stable owner for welcome -> send ->
 //       conversation creation and live card presentation, rendering the chat
 //       surface immediately and attaching assistant cards even if their client
-//       actions arrive before the text placeholder.
-// Owns: chat runtime bootstrapping, first-send/session behavior, and live
-//       assistant card attachment in the active conversation view.
+//       actions arrive before the text placeholder, while carrying local image
+//       drafts through the same single-owner flow.
+// Owns: chat runtime bootstrapping, first-send/session behavior, local image
+//       draft lifecycle, and live assistant card attachment in the active
+//       conversation view.
 // Does Not Own: route-level shell experiments or external page wrappers.
 // Design Language:
 // - first-send flow should stay inside one chat owner
@@ -57,6 +69,7 @@ const LazyChatStrategyRuntime = React.lazy(() => import('./ChatStrategyRuntime')
 // - prompt prefills may populate input, but should not introduce a second boot path
 // - rich assistant client actions must survive websocket event reordering inside
 //   the active conversation view
+// - local image drafts belong to the chat owner until backend upload exists
 // - forbidden local patch patterns: route-wrapper handoff logic that auto-submits through remount
 // Document Provenance:
 // - Source: Runtime observation of repeated loading and streaming UI churn after first send
@@ -74,6 +87,11 @@ const LazyChatStrategyRuntime = React.lazy(() => import('./ChatStrategyRuntime')
 // - Retrieved: 2026-04-13
 // - Applied To: ensure `show_strategy_card` can create the live assistant card message when the placeholder has not been inserted yet
 // - Verification: verified in code
+// - Source: user-provided local UI requirement and screenshot review on 2026-04-16
+// - Kind: product doc
+// - Retrieved: 2026-04-16
+// - Applied To: preserving local image draft previews across welcome -> chat transition and optimistic user messages
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
@@ -81,6 +99,7 @@ const LazyChatStrategyRuntime = React.lazy(() => import('./ChatStrategyRuntime')
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-chat-home-shell-regression-revert.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-first-send-no-loading-chat-entry.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-copytrade-card-live-hydration.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-local-image-composer-base.md
 
 interface TaskState {
     id: string;
@@ -258,6 +277,26 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const [userBalances, setUserBalances] = useState<Record<string, string>>({});
     const [input, setInput] = useState('');
     const [isStopping, setIsStopping] = useState(false);
+    const [selectedImageDrafts, setSelectedImageDrafts] = useState<ComposerImageDraft[]>([]);
+    const selectedImageDraftsRef = useRef<ComposerImageDraft[]>([]);
+    const retainedPreviewUrlsRef = useRef<Set<string>>(new Set());
+
+    useEffect(() => {
+        selectedImageDraftsRef.current = selectedImageDrafts;
+    }, [selectedImageDrafts]);
+
+    useEffect(() => {
+        return () => {
+            for (const previewUrl of retainedPreviewUrlsRef.current) {
+                try {
+                    URL.revokeObjectURL(previewUrl);
+                } catch (error) {
+                    logger.warn('Failed to revoke local image preview URL during cleanup', error);
+                }
+            }
+            retainedPreviewUrlsRef.current.clear();
+        };
+    }, []);
     const [isLoadingConversation, setIsLoadingConversation] = useState(false);
 
     // chatStarted lives in Layout (SidebarContext); we read via sidebar?.chatStarted and write via sidebar?.setChatStarted
@@ -1635,6 +1674,62 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     // Flag to prevent double submission (race condition)
     const isSubmittingRef = useRef(false);
 
+    const revokeRetainedPreviewUrl = useCallback((previewUrl: string) => {
+        if (!previewUrl) return;
+        try {
+            URL.revokeObjectURL(previewUrl);
+        } catch (error) {
+            logger.warn('Failed to revoke local image preview URL', error);
+        }
+        retainedPreviewUrlsRef.current.delete(previewUrl);
+    }, []);
+
+    const handleSelectImages = useCallback((files: File[]) => {
+        if (!files.length) return;
+
+        setSelectedImageDrafts((current) => {
+            if (current.length >= MAX_COMPOSER_IMAGE_COUNT) {
+                toast.error(`You can attach up to ${MAX_COMPOSER_IMAGE_COUNT} images.`);
+                return current;
+            }
+
+            const nextDrafts = [...current];
+            const rejectedMessages: string[] = [];
+            const remainingSlots = Math.max(0, MAX_COMPOSER_IMAGE_COUNT - current.length);
+
+            files.slice(0, remainingSlots).forEach((file) => {
+                const validationError = validateComposerImageFile(file);
+                if (validationError) {
+                    rejectedMessages.push(validationError);
+                    return;
+                }
+                const draft = createComposerImageDraft(file);
+                retainedPreviewUrlsRef.current.add(draft.previewUrl);
+                nextDrafts.push(draft);
+            });
+
+            if (files.length > remainingSlots) {
+                rejectedMessages.push(`Only ${MAX_COMPOSER_IMAGE_COUNT} images can be attached at once.`);
+            }
+
+            if (rejectedMessages.length > 0) {
+                toast.error(rejectedMessages[0]);
+            }
+
+            return nextDrafts;
+        });
+    }, []);
+
+    const handleRemoveSelectedImage = useCallback((draftId: string) => {
+        setSelectedImageDrafts((current) => {
+            const draft = current.find((item) => item.id === draftId);
+            if (draft) {
+                revokeRetainedPreviewUrl(draft.previewUrl);
+            }
+            return current.filter((item) => item.id !== draftId);
+        });
+    }, [revokeRetainedPreviewUrl]);
+
     // Always-fresh ref so event listeners can call handleSend without stale closure
     const handleSendRef = useRef<(text: string) => void>(() => { });
 
@@ -1734,6 +1829,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
         if (isSubmittingRef.current) return;
         if (!text.trim()) return;
+        const draftSnapshot = selectedImageDraftsRef.current;
+        const attachmentSnapshot = draftSnapshot.map(toComposerImageAttachment);
         if (customSettings?.fastSwapMode && requiresContractAddressInFastMode(text, chainId)) {
             toast.error('Fast Swap Mode requires a contract address for non-whitelisted tokens.');
             return;
@@ -1762,6 +1859,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             timestamp: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             date: now.toISOString().split('T')[0],
             type: 'text',
+            data: attachmentSnapshot.length > 0 ? { attachments: attachmentSnapshot } : undefined,
         };
 
         // CRITICAL: Immediately mark this message ID as processed to block the auto-send useEffect
@@ -1788,6 +1886,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
         // 4. Clear input immediately
         setInput('');
+        setSelectedImageDrafts([]);
 
         // CRITICAL: Stop any previous generation BEFORE showing new thinking
         if (isThinking || isStreaming || !!currentConv?.activeTask || !!sendAbortControllerRef.current) {
@@ -1840,6 +1939,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 }
                 if (!conversationId) sidebar?.setChatStarted(false);
                 if (!conversationId) setWelcomePendingMessages(prev => prev.filter(m => m.id !== userMsg.id));
+                setSelectedImageDrafts(draftSnapshot);
                 setFirstSendPending(false);
                 return;
             }
@@ -1857,6 +1957,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 // If stopping a new conversation (no ID yet), just reset local state
                 if (!conversationId) sidebar?.setChatStarted(false);
                 if (!conversationId) setWelcomePendingMessages(prev => prev.filter(m => m.id !== userMsg.id));
+                setSelectedImageDrafts(draftSnapshot);
                 setFirstSendPending(false);
                 return;
             }
@@ -1904,6 +2005,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 } else {
                     toast.error('Unable to create chat session. Please refresh and try again.');
                 }
+                setSelectedImageDrafts(draftSnapshot);
                 setFirstSendPending(false);
                 return;
             }
@@ -2015,6 +2117,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 } else if (conversationId) {
                     clearActiveTask(conversationId, updateConversation, 'send_aborted');
                 }
+                setSelectedImageDrafts(draftSnapshot);
                 return;
             }
 
@@ -2037,6 +2140,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     activeTask: null
                 });
             }
+            setSelectedImageDrafts(draftSnapshot);
         } finally {
             sendAbortControllerRef.current = null;
             // Clear sending flag
@@ -2234,7 +2338,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             zIndex: 10 // Above chat until gone
                         }}
                     >
-                        <WelcomeScreen onSuggestionClick={handleSend} />
+                        <WelcomeScreen
+                            onSuggestionClick={handleSend}
+                            selectedImageDrafts={selectedImageDrafts}
+                            onSelectImages={handleSelectImages}
+                            onRemoveImage={handleRemoveSelectedImage}
+                        />
                     </motion.div>
                 )}
             </AnimatePresence>
@@ -2320,6 +2429,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 isModelDropdownOpen={isModelDropdownOpen}
                 isBusy={isBusy}
                 isStopping={isStopping}
+                selectedImageDrafts={selectedImageDrafts}
                 inputTop={safariKeyboard.inputTop}
                 isKeyboardVisible={safariKeyboard.isKeyboardVisible}
                 textareaRef={textareaRef}
@@ -2342,6 +2452,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     setIsModelDropdownOpen(false);
                     logger.debug('Model changed to:', model.id);
                 }}
+                onSelectImages={handleSelectImages}
+                onRemoveImage={handleRemoveSelectedImage}
                 onOpenSettings={() => setIsSettingsOpen(true)}
                 onPrimaryAction={() => isBusy ? stopGeneration() : handleSend()}
             />

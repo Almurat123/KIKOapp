@@ -4,58 +4,52 @@ export const Camera: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
 
-  // 1. 甩镜核心时段：在 45-75 帧之间爆发动能
-  const panProgress = interpolate(
-    frame,
-    [45, 75],
-    [0, 1],
-    { easing: (t) => t * t * t * (t * (t * 6 - 15) + 10), extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } // Quintic Easing
+  // 1. 下沉式阻尼曲线 (Quart Out)
+  const easeQuartOut = (t: number) => 1 - Math.pow(1 - t, 4);
+
+  // 2. 物理 24mm 机位轨迹
+  const cx = interpolate(frame, [15, 65, 110], [0, 0, 900], { easing: easeQuartOut, extrapolateRight: 'clamp' });
+  const cz = interpolate(frame, [0, 60, durationInFrames], [0, 350, 450], { easing: easeQuartOut });
+  const cy = interpolate(frame, [0, durationInFrames], [0, 100]);
+  const ry = interpolate(frame, [50, 100], [0, 12], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+
+  // 3. 稳态色散计算 (RGB Ghosting)
+  const prevCx = interpolate(frame - 1, [15, 65, 110], [0, 0, 900], { easing: easeQuartOut });
+  const velocity = Math.abs(cx - prevCx);
+  const caShift = interpolate(velocity, [0, 25], [0, 4], { extrapolateRight: 'clamp' }); // 最大 4px 偏移
+
+  const renderWorld = (offset: number, opacity: number, colorFilter?: string) => (
+    <div style={{
+      position: 'absolute',
+      width: '100%',
+      height: '100%',
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      transform: `translate3d(${-cx + offset}px, ${-cy}px, ${-cz}px) rotateY(${-ry}deg)`,
+      transformStyle: 'preserve-3d',
+      opacity,
+      mixBlendMode: colorFilter ? 'screen' : 'normal',
+      filter: colorFilter,
+    }}>
+      {children}
+    </div>
   );
-
-  // 2. 长廊慢速漂移 (0-150 全程背景)
-  const driftProgress = interpolate(frame, [0, durationInFrames], [0, 1]);
-
-  // 3. 构造三段式位移
-  // 起点聚焦文字中心，中段爆发性甩向 UI，末尾保持缓慢环绕
-  const txInitial = interpolate(frame, [0, 45], [0, -40]); // 聚焦期微动
-  const txPan = interpolate(panProgress, [0, 1], [0, 700]); // 甩镜期爆发 700px
-  const txDrift = interpolate(driftProgress, [0.5, 1], [0, 100], { extrapolateLeft: 'clamp' }); // 漂移期
-  
-  const tx = txInitial + txPan + txDrift;
-
-  // 4. 暴力广角与消失点对冲 (仅在甩镜期剧烈偏移)
-  const eyeX = interpolate(panProgress, [0, 1], [50, 80]); // 视点向右对冲，产生侧切形变
-  const eyeY = interpolate(driftProgress, [0, 1], [45, 55]);
-
-  // 5. Z 轴推进
-  const scale = interpolate(frame, [0, durationInFrames], [0.8, 1.2]);
-
-  // 6. 姿态展示
-  const rotateY = interpolate(panProgress, [0, 1], [-10, 10]);
-  const rotateX = interpolate(frame, [0, durationInFrames], [5, -5]);
 
   return (
     <AbsoluteFill style={{
-      perspective: '1000px', // 回归电影质感视距
-      perspectiveOrigin: `${eyeX}% ${eyeY}%`,
+      perspective: '800px', // 稳健的 24mm
       transformStyle: 'preserve-3d',
     }}>
-      <div style={{
-        width: '100%',
-        height: '100%',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        transform: `
-          scale(${scale}) 
-          translateX(${tx}px) 
-          rotateY(${rotateY}deg) 
-          rotateX(${rotateX}deg)
-        `,
-        transformStyle: 'preserve-3d',
-      }}>
-        {children}
-      </div>
+      {/* 极速期通过三层叠加模拟 Chromatic Aberration */}
+      {caShift > 0.3 ? (
+        <>
+          {renderWorld(caShift, 1, 'none')}
+          {renderWorld(-caShift, 0.4, 'none')}
+        </>
+      ) : (
+        renderWorld(0, 1)
+      )}
     </AbsoluteFill>
   );
 };

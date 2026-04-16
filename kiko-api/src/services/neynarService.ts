@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-15
+// Updated: 2026-04-16
 // Author: Linh Tran
 // Reason: Neynar now owns Farcaster mention/reply ingress, but all legacy
 //         public-read helpers must stay disabled so paid quota is not consumed
@@ -7,12 +7,15 @@
 //         prefers a dedicated Neynar signer UUID when available. The public
 //         NeynarAPIClient wrapper accepts camelCase params and converts them to
 //         OpenAPI wire keys internally; runtime diagnosis must therefore check
-//         signer approval before blaming request shape.
+//         signer approval before blaming request shape. Social-agent mention
+//         replies now also need cast embed images preserved as normalized media
+//         inputs for the chat runtime.
 // Goal: keep ingress reads centralized while preventing unrelated routes from
-//       touching Neynar at runtime.
-// Owns: Neynar API key discovery, notifications fetch, cast lookup, optional
-//       cast publishing via signer UUID, and hard disable switches for legacy
-//       read helpers.
+//       touching Neynar at runtime, while also exposing normalized cast image
+//       context for Farcaster social-agent turns.
+// Owns: Neynar API key discovery, notifications fetch, cast lookup, normalized
+//       cast media extraction, optional cast publishing via signer UUID, and
+//       hard disable switches for legacy read helpers.
 // Does Not Own: Hub RPC publication fallback, worker cadence, conversation
 //               policy, or social search fallback selection.
 // Design Language:
@@ -22,6 +25,8 @@
 // - Never log the API key or raw credential-bearing headers.
 // - NeynarAPIClient wrapper calls must use the wrapper's camelCase params; the
 //   wrapper owns converting them to OpenAPI wire keys.
+// - Normalize image-bearing embeds before they leave this owner so the chat
+//   runtime does not need to understand raw Neynar embed variants.
 // Document Provenance:
 // - Source: Neynar notifications API `fetchAllNotifications`
 // - Kind: official API doc
@@ -40,9 +45,15 @@
 // - Applied To: camelCase `publishCast` wrapper params and signer approval
 //   diagnosis
 // - Verification: verified in code and runtime
+// - Source: Neynar cast lookup and notifications docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-16
+// - Applied To: preserving cast embed image URLs for social-agent model input
+// - Verification: verified in docs
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-notifications-ingress.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-neynar-notifications-standdown.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-reply-publish-fallback.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 /**
@@ -59,6 +70,7 @@ import { LogCode } from '../config/logRegistry.js';
 import * as unifiedApiService from '../config/unifiedApiService.js';
 import { env } from '../config/env.js';
 import type { FarcasterCastContext, FarcasterMentionEvent, FarcasterSendResult } from './farcaster-agent/types.js';
+import { normalizeSocialImageUrl } from './socialAgentInput.js';
 
 const MAX_NEYNAR_NOTIFICATION_LIMIT = 25;
 const LEGACY_NEYNAR_READS_ENABLED = false;
@@ -106,6 +118,37 @@ function toIsoTimestamp(value?: string | number | null): string | null {
     const ms = Number.isFinite(raw) ? raw : NaN;
     if (!Number.isFinite(ms)) return null;
     return new Date(ms).toISOString();
+}
+
+function isLikelyImageUrl(url: string): boolean {
+    return /\.(png|jpe?g|gif|webp|avif)(\?|#|$)/i.test(url);
+}
+
+function extractEmbedImages(embeds: unknown, sourceLabel: string): NonNullable<FarcasterCastContext['images']> {
+    const results: NonNullable<FarcasterCastContext['images']> = [];
+    const items = Array.isArray(embeds) ? embeds : [];
+
+    for (const item of items) {
+        const embed = item as any;
+        const directUrl = normalizeSocialImageUrl(embed?.url);
+        const metadataType = String(embed?.metadata?.content_type || '').trim().toLowerCase();
+        const nestedImages = extractEmbedImages(embed?.cast?.embeds, `quoted ${sourceLabel}`);
+
+        if (directUrl && (metadataType.startsWith('image/') || isLikelyImageUrl(directUrl) || embed?.metadata?.image)) {
+            results.push({
+                url: directUrl,
+                altText: null,
+                mimeType: metadataType || null,
+                sourceLabel,
+            });
+        }
+
+        if (nestedImages.length > 0) {
+            results.push(...nestedImages);
+        }
+    }
+
+    return results;
 }
 
 interface NeynarCast {
@@ -171,6 +214,7 @@ function castToContext(cast: NeynarCast): FarcasterCastContext | null {
         parentHash: normalizeNeynarCastHash(cast.parent_hash),
         parentAuthorFid: Number(cast.parent_author?.fid || 0) || null,
         timestamp: toIsoTimestamp(cast.timestamp),
+        images: extractEmbedImages((cast as any).embeds, `Farcaster cast ${hash}`),
     };
 }
 

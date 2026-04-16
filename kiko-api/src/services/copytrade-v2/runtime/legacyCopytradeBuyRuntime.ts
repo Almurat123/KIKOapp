@@ -119,6 +119,25 @@ function hasFourMemeGraduationProof(error: unknown): boolean {
     );
 }
 
+export function resolveEntryDeviationExcessDecision(params: {
+    deviationBps: number;
+    limitBps: number;
+    unreliableMarketPrice: boolean;
+}): {
+    shouldSkip: boolean;
+    reasonCode: 'price_deviation_bps_exceeded' | 'price_deviation_unreliable_reference_exceeded' | 'entry_deviation_within_threshold';
+} {
+    if (!Number.isFinite(params.deviationBps) || !Number.isFinite(params.limitBps) || params.deviationBps <= params.limitBps) {
+        return { shouldSkip: false, reasonCode: 'entry_deviation_within_threshold' };
+    }
+    return {
+        shouldSkip: true,
+        reasonCode: params.unreliableMarketPrice
+            ? 'price_deviation_unreliable_reference_exceeded'
+            : 'price_deviation_bps_exceeded',
+    };
+}
+
 export async function processSingleUserBuy(params: {
     config: any;
     userSettings: any;
@@ -833,25 +852,44 @@ export async function processSingleUserBuy(params: {
                         thresholdReasonCode: effectiveConfig.maxEntryDeviationReasonCode,
                         thresholdPolicy: effectiveConfig.maxEntryDeviationThresholdPolicy,
                     });
+                    // CONTEXT MEMORY
+                    // Updated: 2026-04-16
+                    // Author: Mira Chen
+                    // Reason: Runtime evidence showed turbo/Four.meme buys could bypass an over-threshold
+                    //         entry deviation when liquidity and reference pricing were both unreliable, then
+                    //         fail on-chain with launchpad slippage or opaque launchpad reverts.
+                    // Goal: Treat unreliable price anchors as less, not more, permission to buy once the
+                    //       configured entry-deviation ceiling has already been exceeded.
+                    // Owns: Final buy-admission decision for entry-deviation excess before pending-position creation.
+                    // Does Not Own: Four.meme contract revert semantics, retry/slippage widening, or post-graduation fallback routing.
+                    // Design Language:
+                    // - An unreliable reference price cannot justify bypassing an exceeded entry-deviation limit.
+                    // - Turbo may skip slow liquidity scans, but it must not convert missing quality evidence into buy permission.
+                    // - Forbidden local patch patterns: letting launchpad contract reverts act as the first effective price guard.
+                    // Document Provenance:
+                    // - Source: /Users/almurat/Downloads/logs.1776331932518.json
+                    // - Kind: runtime observation
+                    // - Retrieved: 2026-04-16
+                    // - Applied To: BNTI turbo/Four.meme buy with ENTRY_DEVIATION_UNRELIABLE_PRICE_BYPASS followed by Slippage revert
+                    // - Verification: verified in runtime logs
+                    // See also:
+                    // - /Users/almurat/KiKo/system-journal/INDEX.md
+                    // - /Users/almurat/KiKo/system-journal/owner-map/copytrade-webhook-ingress.md
+                    // - /Users/almurat/KiKo/system-journal/owner-map/backend-swap-validation.md
+                    // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-copytrade-entry-deviation-unreliable-bypass-block.md
+                    // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-fourmeme-buy-pregraduation-fallback-prohibition.md
                     if (shouldEnforceBuyGuard(guardPolicy, 'priceDeviationBps') && deviationBps > effectiveConfig.maxEntryDeviationBps) {
                         const unreliableMarketPrice = isEntryDeviationPriceUnreliable(chainId, tokenInfo);
-                        if (unreliableMarketPrice) {
-                            logger.warn(LogCode.DEC_PRICE_IMPACT_HIGH, 'Entry deviation exceeded but bypassed due unreliable market price source', {
-                                userId: config.userId,
-                                token: tokenToBuy,
-                                chainId,
-                                deviationBps: deviationBps.toFixed(0),
-                                limitBps: effectiveConfig.maxEntryDeviationBps,
-                                targetExecutionPrice,
-                                currentPrice,
-                                guardLiquidityReliable: tokenInfo?.guardLiquidityReliable ?? null,
-                                guardLiquidityPoolCount: tokenInfo?.guardLiquidityPoolCount ?? null,
-                                guardLiquiditySource: tokenInfo?.guardLiquiditySource ?? null,
-                                reasonCode: 'ENTRY_DEVIATION_UNRELIABLE_PRICE_BYPASS'
-                            });
-                            emitGuardAudit('pass', 'price_deviation_unreliable_price_bypass');
-                        } else {
-                            logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping trade: entry deviation exceeds configured threshold', {
+                        const deviationDecision = resolveEntryDeviationExcessDecision({
+                            deviationBps,
+                            limitBps: effectiveConfig.maxEntryDeviationBps,
+                            unreliableMarketPrice,
+                        });
+                        if (deviationDecision.shouldSkip) {
+                            const logMessage = unreliableMarketPrice
+                                ? 'Skipping trade: entry deviation exceeds threshold with unreliable price reference'
+                                : 'Skipping trade: entry deviation exceeds configured threshold';
+                            logger.info(LogCode.WTC_TX_SKIPPED, logMessage, {
                                 userId: config.userId,
                                 token: tokenToBuy,
                                 deviationBps: deviationBps.toFixed(0),
@@ -862,7 +900,13 @@ export async function processSingleUserBuy(params: {
                                 thresholdPolicy: effectiveConfig.maxEntryDeviationThresholdPolicy,
                                 modeFloorBps: effectiveConfig.maxEntryDeviationModeFloorBps,
                                 executionMode,
-                                reasonCode: effectiveConfig.maxEntryDeviationReasonCode
+                                reasonCode: effectiveConfig.maxEntryDeviationReasonCode,
+                                skipReasonCode: deviationDecision.reasonCode,
+                                ...(unreliableMarketPrice ? {
+                                    guardLiquidityReliable: tokenInfo?.guardLiquidityReliable ?? null,
+                                    guardLiquidityPoolCount: tokenInfo?.guardLiquidityPoolCount ?? null,
+                                    guardLiquiditySource: tokenInfo?.guardLiquiditySource ?? null,
+                                } : {}),
                             });
 
                             sendNotificationAsync({
@@ -874,11 +918,13 @@ export async function processSingleUserBuy(params: {
                                     tokenAddress: tokenToBuy,
                                     targetWallet: targetWallet,
                                     chainId: chainId,
-                                    skipReason: `Entry deviation ${deviationBps.toFixed(0)} bps > limit ${effectiveConfig.maxEntryDeviationBps} bps`,
+                                    skipReason: unreliableMarketPrice
+                                        ? `Entry deviation ${deviationBps.toFixed(0)} bps > limit ${effectiveConfig.maxEntryDeviationBps} bps, and price/liquidity reference is unreliable`
+                                        : `Entry deviation ${deviationBps.toFixed(0)} bps > limit ${effectiveConfig.maxEntryDeviationBps} bps`,
                                     ...buildCopyTradeNotificationEvidence(tokenInfo, { targetBuyValueUsd: targetSwapValueUsd }),
                                 }
                             }, 'copytrade_skip_price_deviation_bps');
-                            emitGuardAudit('skip', 'price_deviation_bps_exceeded');
+                            emitGuardAudit('skip', deviationDecision.reasonCode);
                             return { outcome: 'skipped' };
                         }
                     }
@@ -1356,7 +1402,7 @@ export async function processSingleUserBuy(params: {
                         maxEntryDeviationReasonCode: effectiveConfig.maxEntryDeviationReasonCode,
                         maxEntryDeviationThresholdPolicy: effectiveConfig.maxEntryDeviationThresholdPolicy,
                         maxEntryDeviationModeFloorBps: effectiveConfig.maxEntryDeviationModeFloorBps,
-                        allowFallbackEntryDeviationBypass: isEntryDeviationPriceUnreliable(chainId, tokenInfo),
+                        allowFallbackEntryDeviationBypass: false,
                         pendingPositionId,
                         nativeBalanceEvidence,
                         refreshTokenInfoForRetry: async () => tokenInfoCache

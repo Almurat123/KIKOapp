@@ -142,7 +142,8 @@ test('routes capabilities questions to welcome skill without search', () => {
         normalizedIntent: canonicalIntent,
     }), null, canonicalIntent);
     assert.deepEqual(resolution.selectedSkills, ['welcome_onboarding']);
-    assert.equal(resolution.allowAllTools, true);
+    assert.equal(resolution.allowAllTools, false);
+    assert.deepEqual(resolution.allowedTools, []);
     assert.equal(resolution.searchMode, 'forbidden');
 });
 
@@ -175,6 +176,8 @@ test('routes assistant meta debugging turns to meta_debug without pulling stale 
     assert.ok(!resolution.selectedSkills.includes('token_analysis'));
     assert.equal(resolution.intentEnvelope.primary_intent, 'meta_debug');
     assert.equal(resolution.intentEnvelope.domain, 'assistant_meta');
+    assert.equal(resolution.allowAllTools, false);
+    assert.deepEqual(resolution.allowedTools, []);
     assert.ok(resolution.strategyNotes.some((note) => note.includes('assistant or system behavior itself')));
 });
 

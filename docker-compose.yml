@@ -87,6 +87,8 @@ services:
       context: ./kiko-api
       dockerfile: Dockerfile
     container_name: kiko-api
+    volumes:
+      - ./kiko-api/.env:/app/.env:ro
     environment:
       - NODE_ENV=production
       - PORT=3001
@@ -106,13 +108,6 @@ services:
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - XAI_API_KEY=${XAI_API_KEY}
-      # Usage limits (must be passed into container, otherwise defaults to disabled)
-      - USAGE_LIMITS_ENABLED=${USAGE_LIMITS_ENABLED:-true}
-      - USAGE_LIMITS_CHAIN_ID=${USAGE_LIMITS_CHAIN_ID:-8453}
-      - USAGE_LIMITS_TOKEN_ADDRESS=${USAGE_LIMITS_TOKEN_ADDRESS}
-      - USAGE_LIMITS_TOKEN_DECIMALS=${USAGE_LIMITS_TOKEN_DECIMALS:-18}
-      - USAGE_LIMITS_BASE_DAILY_LIMIT=${USAGE_LIMITS_BASE_DAILY_LIMIT:-15}
-      - USAGE_LIMITS_TIERS_JSON=${USAGE_LIMITS_TIERS_JSON}
     ports:
       - "127.0.0.1:3001:3001"
     depends_on:

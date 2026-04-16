@@ -1,3 +1,52 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-16
+// Author: Rowan
+// Reason: Node orchestration now needs to persist reasoning content for
+//         NVIDIA-hosted GLM and Kimi reasoning models using the same internal
+//         contract previously reserved for DeepSeek reasoning turns. Runtime
+//         traces also showed that trivial onboarding/meta turns were paying for
+//         an extra hidden plan-model call even though the answer should have
+//         been a direct response. A later runtime review showed obvious
+//         non-chain turns should not be forced back into canonical
+//         normalization after the worker already classified them as deterministic
+//         bypasses.
+// Goal: keep the broker/runtime reasoning stream and stored assistant messages
+//       consistent across reasoning-capable providers without changing the
+//       downstream message schema, while avoiding unnecessary plan-model work
+//       for direct-answer turns and respecting worker-level non-chain
+//       normalization bypass decisions.
+// Owns: orchestration-round execution, streamed reasoning emission, and
+//       assistant/tool message assembly for the Node chat path.
+// Does Not Own: provider request shaping, UI model labels, or billing buckets.
+// Design Language:
+// - reasoning is a provider-normalized internal channel, not a brand-specific one
+// - assistant tool-call messages should preserve provider-safe content shapes
+// - removed provider brands must not remain hard-coded in orchestration gates
+// - direct onboarding/meta turns should not trigger extra hidden plan-model latency
+// - worker-approved deterministic non-chain bypasses must not be re-normalized here
+// Document Provenance:
+// - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
+// - Kind: official API doc
+// - Retrieved: 2026-04-16
+// - Applied To: persisting reasoning content for GLM/Kimi reasoning-capable models
+// - Verification: verified in code
+// - Source: /Users/almurat/KiKo/test.txt
+// - Kind: runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: skipping plan-generation model calls for trivial onboarding/meta turns
+// - Verification: verified in logs, applied in code
+// - Source: /Users/almurat/KiKo/test.txt
+// - Kind: runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: respecting deterministic non-chain normalization bypass in orchestration
+// - Verification: verified in runtime and applied in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-direct-answer-tool-pruning.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-non-chain-normalization-bypass.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
+
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { containsPseudoToolCallOutput, stripPseudoToolCallOutput } from '../../services/ai/promptLeakSanitizer.js';
@@ -20,7 +69,11 @@ import {
     resolvePlanStepForTool,
 } from './taskPlanner.js';
 import { generateModelPlan } from './modelPlanGenerator.js';
-import { normalizeCanonicalIntent } from './canonicalIntentNormalizer.js';
+import {
+    buildNonChainNormalizationBypass,
+    isDeterministicNormalizationBypassState,
+    normalizeCanonicalIntent,
+} from './canonicalIntentNormalizer.js';
 import { buildCanonicalIntentClarification, type CanonicalIntent } from './canonicalIntent.js';
 import { applyConversationActionState } from './conversationStateResolver.js';
 import { tryBuildFastLaneSwapIntent, tryRunFastSwapLane } from './swapFastLane.js';
@@ -31,6 +84,28 @@ const CHAIN_EVIDENCE_TOOLS = new Set([
     'get_early_buyers',
     'analyze_creator',
 ]);
+
+function supportsStoredReasoning(model: string): boolean {
+    const normalized = String(model || '').trim().toLowerCase();
+    return normalized === 'deepseek-reasoner'
+        || normalized === 'glm-5'
+        || normalized === 'glm-5-reasoning'
+        || normalized === 'glm5'
+        || normalized === 'z-ai/glm5'
+        || normalized === 'z-ai/glm-5'
+        || normalized === 'kimi-k2.5'
+        || normalized === 'kimi-k2.5-reasoning'
+        || normalized === 'kimi-k2.5-thinking'
+        || normalized === 'kimi-k2-5'
+        || normalized === 'kimi-k2-5-reasoning'
+        || normalized === 'kimi-k2-5-thinking'
+        || normalized === 'moonshotai/kimi-k2.5'
+        || normalized === 'moonshotai/kimi-k2.5-reasoning'
+        || normalized === 'moonshotai/kimi-k2.5-thinking'
+        || normalized === 'moonshotai/kimi-k2-5'
+        || normalized === 'moonshotai/kimi-k2-5-reasoning'
+        || normalized === 'moonshotai/kimi-k2-5-thinking';
+}
 
 export async function runNodeOrchestration(params: {
     snapshot: ChatContextSnapshot;
@@ -45,18 +120,33 @@ export async function runNodeOrchestration(params: {
     const providerInfo = resolveProviderInfo(params.snapshot.model);
     await params.broker.bootstrapRuntime(buildWarmupPlan(params.snapshot.lastUserMessage));
     let normalizedSnapshot = tryBuildFastLaneSwapIntent(params.snapshot).snapshot;
+    const preNormalizationTradingIntent = parseTradingIntent(
+        normalizedSnapshot.lastUserMessage,
+        normalizedSnapshot,
+        normalizedSnapshot.normalizedIntent,
+    );
     if (!normalizedSnapshot.normalizedIntent && !normalizedSnapshot.normalizationState) {
-        const normalization = await normalizeCanonicalIntent({
-            snapshot: normalizedSnapshot,
-            generationClient: params.generationClient,
-            shouldCancel: params.shouldCancel,
-        });
-        normalizedSnapshot = applyConversationActionState(normalization.snapshot);
+        const deterministicBypass = buildNonChainNormalizationBypass(normalizedSnapshot, preNormalizationTradingIntent);
+        if (deterministicBypass) {
+            logger.info(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: skipped canonical normalization for deterministic non-chain turn', {
+                sessionId: normalizedSnapshot.sessionId,
+                taskId: normalizedSnapshot.taskId,
+                bypassKind: deterministicBypass.state.bypassKind,
+            });
+            normalizedSnapshot = applyConversationActionState(deterministicBypass.snapshot);
+        } else {
+            const normalization = await normalizeCanonicalIntent({
+                snapshot: normalizedSnapshot,
+                generationClient: params.generationClient,
+                shouldCancel: params.shouldCancel,
+            });
+            normalizedSnapshot = applyConversationActionState(normalization.snapshot);
+        }
     }
     if (normalizedSnapshot.normalizedIntent && !normalizedSnapshot.conversationActionState) {
         normalizedSnapshot = applyConversationActionState(normalizedSnapshot);
     }
-    if (!normalizedSnapshot.normalizedIntent) {
+    if (!normalizedSnapshot.normalizedIntent && !isDeterministicNormalizationBypassState(normalizedSnapshot.normalizationState)) {
         await params.broker.pushText(buildCanonicalIntentClarification({
             snapshot: normalizedSnapshot,
             reasonCode: normalizedSnapshot.normalizationState?.reasonCode,
@@ -70,11 +160,13 @@ export async function runNodeOrchestration(params: {
         await params.broker.pushText(normalizedSnapshot.normalizedIntent.clarificationQuestion);
         return;
     }
-    const tradingIntent = parseTradingIntent(
-        normalizedSnapshot.lastUserMessage,
-        normalizedSnapshot,
-        normalizedSnapshot.normalizedIntent,
-    );
+    const tradingIntent = normalizedSnapshot.normalizedIntent
+        ? parseTradingIntent(
+            normalizedSnapshot.lastUserMessage,
+            normalizedSnapshot,
+            normalizedSnapshot.normalizedIntent,
+        )
+        : preNormalizationTradingIntent;
     if (await tryRunFastSwapLane({
         snapshot: normalizedSnapshot,
         tradingIntent,
@@ -97,23 +189,26 @@ export async function runNodeOrchestration(params: {
         : skillResolution.allowedTools;
     const planning = buildTaskPlanningContext(params.snapshot, skillResolution);
     let plan = materializePlanCard(planning);
-    void generateModelPlan({
-        snapshot: params.snapshot,
-        planning,
-        skillResolution,
-        generationClient: params.generationClient,
-        shouldCancel: params.shouldCancel,
-    }).then(async (modelPlan) => {
-        if (!modelPlan) return;
-        plan = modelPlan;
-        await params.broker.applyModelPlan(modelPlan);
-    }).catch((error) => {
-        logger.warn(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: async model plan update failed', {
-            sessionId: params.snapshot.sessionId,
-            taskId: params.snapshot.taskId,
-            error: error instanceof Error ? error.message : String(error),
+    const shouldGenerateModelPlan = !(skillResolution.querySignals.welcome || skillResolution.querySignals.metaDebug);
+    if (shouldGenerateModelPlan) {
+        void generateModelPlan({
+            snapshot: params.snapshot,
+            planning,
+            skillResolution,
+            generationClient: params.generationClient,
+            shouldCancel: params.shouldCancel,
+        }).then(async (modelPlan) => {
+            if (!modelPlan) return;
+            plan = modelPlan;
+            await params.broker.applyModelPlan(modelPlan);
+        }).catch((error) => {
+            logger.warn(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: async model plan update failed', {
+                sessionId: params.snapshot.sessionId,
+                taskId: params.snapshot.taskId,
+                error: error instanceof Error ? error.message : String(error),
+            });
         });
-    });
+    }
     const executedToolResults = new Map<string, {
         name: string;
         arguments: Record<string, any>;
@@ -231,9 +326,12 @@ export async function runNodeOrchestration(params: {
             intentEnvelope: skillResolution.intentEnvelope,
             providerNativeEvidence,
         });
-        if (roundPolicyMessage?.content && roundPolicyMessage.content !== lastRoundPolicyMessage) {
+        const roundPolicyContent = typeof roundPolicyMessage?.content === 'string'
+            ? roundPolicyMessage.content
+            : null;
+        if (roundPolicyMessage && roundPolicyContent && roundPolicyContent !== lastRoundPolicyMessage) {
             messages.push(roundPolicyMessage);
-            lastRoundPolicyMessage = roundPolicyMessage.content;
+            lastRoundPolicyMessage = roundPolicyContent;
         }
         if (forceAnswerFromEvidence) {
             messages.push({
@@ -622,7 +720,7 @@ export async function runNodeOrchestration(params: {
             content: actionableToolCalls.length > 0
                 ? ''
                 : roundResult.text,
-            ...(String(params.snapshot.model || '').trim().toLowerCase() === 'deepseek-reasoner'
+            ...(supportsStoredReasoning(params.snapshot.model || '')
                 && actionableToolCalls.length === 0
                 ? { reasoning_content: roundResult.reasoning || '' }
                 : {}),
@@ -812,7 +910,7 @@ function buildTruncationContinuationInstruction(locale: 'en' | 'zh'): string {
 
 function buildEvidenceOnlyProviderOptions(
     snapshot: ChatContextSnapshot,
-    providerInfo: { provider: 'openai' | 'deepseek' | 'grok' },
+    providerInfo: { provider: 'openai' | 'nvidia' | 'grok' | 'deepseek' },
     options?: { previousResponseId?: string | null; bufferVisibleOutput?: boolean },
 ) {
     if (providerInfo.provider !== 'grok') {
@@ -860,7 +958,7 @@ function buildEvidenceOnlyProviderOptions(
 
 function shouldContinueTruncatedProviderAnswer(
     providerState: GenerationProviderState | undefined,
-    provider: 'openai' | 'deepseek' | 'grok',
+    provider: 'openai' | 'nvidia' | 'grok' | 'deepseek',
 ): boolean {
     if (provider !== 'grok') {
         return false;
@@ -900,7 +998,7 @@ function isStalePreviousResponseError(message: string): boolean {
 
 export function normalizeToolCallForProvider(
     call: { id: string; name: string; arguments: Record<string, any> },
-    provider: 'openai' | 'deepseek' | 'grok',
+    provider: 'openai' | 'nvidia' | 'grok' | 'deepseek',
 ) {
     // Hard-policy mode does not perform provider fallback tool remapping.
     // Tool names must be validated as-is by the policy layer.
@@ -983,7 +1081,7 @@ export function applyCanonicalIntentOverridesToToolCall(
     };
 }
 
-function isProviderManagedNativeTool(toolName: string, provider: 'openai' | 'deepseek' | 'grok') {
+function isProviderManagedNativeTool(toolName: string, provider: 'openai' | 'nvidia' | 'grok' | 'deepseek') {
     if (provider !== 'grok') return false;
     return isProviderNativeTool(toolName, null);
 }
@@ -1216,7 +1314,7 @@ export function buildGenerationTools(
     blockedTools: string[] = [],
     preferredTools: string[] = [],
     allowAllTools = true,
-    provider: 'openai' | 'deepseek' | 'grok' = 'deepseek',
+    provider: 'openai' | 'nvidia' | 'grok' | 'deepseek' = 'nvidia',
     phase: 'native_search_only' | 'local_analysis' | 'execution' = 'local_analysis',
 ) {
     const allowedSet = new Set(allowedTools);
@@ -1244,7 +1342,7 @@ export function buildGenerationTools(
 function resolvePhaseAllowedTools(
     allowedTools: string[],
     skillResolution: ReturnType<typeof resolveNodeSkills>,
-    provider: 'openai' | 'deepseek' | 'grok',
+    provider: 'openai' | 'nvidia' | 'grok' | 'deepseek',
     phase: 'native_search_only' | 'local_analysis' | 'execution',
 ): string[] {
     if (provider === 'grok' && phase === 'native_search_only') {
@@ -1255,7 +1353,7 @@ function resolvePhaseAllowedTools(
 
 function resolvePhaseAllowAllTools(
     skillResolution: ReturnType<typeof resolveNodeSkills>,
-    provider: 'openai' | 'deepseek' | 'grok',
+    provider: 'openai' | 'nvidia' | 'grok' | 'deepseek',
     phase: 'native_search_only' | 'local_analysis' | 'execution',
     defaultAllowAllTools: boolean,
 ): boolean {
@@ -1326,7 +1424,7 @@ async function recordProviderManagedToolRound(params: {
     skillResolution: ReturnType<typeof resolveNodeSkills>;
     query: string;
     round: number;
-    provider: 'openai' | 'deepseek' | 'grok';
+    provider: 'openai' | 'nvidia' | 'grok' | 'deepseek';
     evidenceSnapshot: ProviderNativeEvidenceSnapshot | null;
 }) {
     if (params.provider !== 'grok' || params.toolCalls.length === 0) {

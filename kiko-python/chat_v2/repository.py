@@ -5,13 +5,14 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import ChatSession, ChatMessage, AITask, MessageChunk
+from .settings import settings
 
 
 async def create_session(db: AsyncSession, user_id: str, title: str | None, model: str | None) -> ChatSession:
     session = ChatSession(
         user_id=user_id,
         title=title or "New Chat",
-        model=(model or "deepseek-chat").strip() or "deepseek-chat",
+        model=(model or settings.DEFAULT_MODEL).strip() or settings.DEFAULT_MODEL,
         status="active",
     )
     db.add(session)

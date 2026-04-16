@@ -16,6 +16,21 @@ export async function getDailyUsageCount(
     return Number(rows[0]?.count || 0);
 }
 
+export async function getDailyUsageCountByModel(
+    userId: string,
+    dateUtc: string,
+    model: string
+): Promise<number> {
+    const rows = await prisma.$queryRaw<{ count: bigint }[]>`
+        SELECT COUNT(*)::bigint AS count
+        FROM billing_usage_ledger
+        WHERE user_id = ${userId}
+          AND date_utc = ${dateUtc}::date
+          AND LOWER(model) = LOWER(${model})
+    `;
+    return Number(rows[0]?.count || 0);
+}
+
 export async function getDailyTotalUsageCount(userId: string, dateUtc: string): Promise<number> {
     const rows = await prisma.$queryRaw<{ count: bigint }[]>`
         SELECT COUNT(*)::bigint AS count

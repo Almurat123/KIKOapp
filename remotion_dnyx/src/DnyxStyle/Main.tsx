@@ -16,39 +16,40 @@ export const Main: React.FC = () => {
       <AbsoluteFill style={{ transformStyle: 'preserve-3d' }}>
         <Camera>
           
-          {/* 1. 深度背景层 (Z=-3000px) */}
+          {/* 1. 远景：Deep Bokeh 背景 (明度补偿) */}
           <div style={{ 
             position: 'absolute',
-            transform: 'translateZ(-3000px) scale(8)', 
-            transformStyle: 'preserve-3d' 
+            transform: 'translateZ(-3000px) scale(15)', 
+            transformStyle: 'preserve-3d',
+            filter: 'blur(35px) brightness(0.8)', // 略微提升亮度，确保朦胧感可见
           }}>
             <MeshBackground />
           </div>
 
-          {/* 2. 引导文字层 (Z=0px，聚焦中心) */}
-          <Sequence from={0} durationInFrames={55}>
+          {/* 2. 中景：引导节点 (0,0) */}
+          <Sequence from={0} durationInFrames={65}>
             <div style={{ 
               display: 'flex', 
               justifyContent: 'center', 
               alignItems: 'center', 
               height: '100%', 
               width: '100%',
-              transform: 'translateZ(0px)',
+              transform: 'translate3d(0, 0, 0)',
               transformStyle: 'preserve-3d'
             }}>
               <Typography text="smooth" />
             </div>
           </Sequence>
 
-          {/* 3. 核芯 UI 层 (Z=300px，爆发位移位) */}
-          <Sequence from={60}>
+          {/* 3. 前景：目标 UI (900,0) */}
+          <Sequence from={70}>
             <div style={{ 
               display: 'flex', 
               justifyContent: 'center', 
               alignItems: 'center', 
               height: '100%', 
               width: '100%',
-              transform: 'translateZ(300px)', 
+              transform: 'translate3d(900px, 0, 200px)', // 落位坐标精准对齐相机 900 路径
               transformStyle: 'preserve-3d'
             }}>
               <Card />

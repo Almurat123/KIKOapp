@@ -13,9 +13,11 @@ const PRICING: Record<string, { input: number; output: number; currency: Currenc
     // Grok 4.1 Fast (USD)
     'grok-4-1-fast-reasoning': { input: 0.20, output: 0.50, currency: 'USD' },
     'grok-4-1-fast-non-reasoning': { input: 0.20, output: 0.50, currency: 'USD' },
+    // NVIDIA trial-hosted models default to zero here until production pricing is pinned.
+    'glm-5': { input: 0, output: 0, currency: 'USD' },
+    'kimi-k2-5-reasoning': { input: 0, output: 0, currency: 'USD' },
+    'kimi-k2-5-instant': { input: 0, output: 0, currency: 'USD' },
     // GPT (USD)
-    'deepseek-chat': { input: 0.285714, output: 0.428571, currency: 'USD' },
-    'deepseek-reasoner': { input: 0.285714, output: 0.428571, currency: 'USD' },
     'gpt-4.1': { input: 2.00, output: 8.00, currency: 'USD' },
     'gpt-5.4-mini-2026-03-17': { input: 0.75, output: 4.50, currency: 'USD' },
 };

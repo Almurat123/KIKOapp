@@ -1,0 +1,87 @@
+.tray {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 2px 0 2px 1px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.tray::-webkit-scrollbar {
+  display: none;
+}
+
+.trayCompact {
+  margin-bottom: 6px;
+}
+
+.attachmentCard {
+  position: relative;
+  width: 88px;
+  height: 88px;
+  flex: 0 0 88px;
+  border-radius: 18px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
+}
+
+.attachmentCardCompact {
+  width: 72px;
+  height: 72px;
+  flex-basis: 72px;
+  border-radius: 16px;
+}
+
+.attachmentImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.removeButton {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(10, 10, 10, 0.82);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.18s ease, background 0.18s ease;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
+}
+
+.removeButton:hover {
+  transform: scale(1.04);
+  background: rgba(18, 18, 18, 0.92);
+}
+
+.dark .attachmentCard {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.light .attachmentCard {
+  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(15, 23, 42, 0.08);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+}
+
+.light .removeButton {
+  background: rgba(15, 23, 42, 0.82);
+}
+
+.light .removeButton:hover {
+  background: rgba(15, 23, 42, 0.92);
+}

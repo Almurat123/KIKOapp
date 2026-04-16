@@ -1,5 +1,30 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-16
+// Author: Rowan
+// Reason: token-context helper text still treated the normal-model path as
+//         `deepseek`, which left stale provider wording in the snapshot context
+//         after KiKo switched that path to NVIDIA-hosted GLM/Kimi.
+// Goal: preserve the cached-token-context rules for the normal-model family
+//       while removing vendor-specific wording from the active path.
+// Owns: token and launchpad context block rendering for chat orchestration.
+// Does Not Own: token fetching, skill routing, or provider request shaping.
+// Design Language:
+// - Cached local-context rules belong to the normal-model family, not a retired vendor name.
+// - Grok remains the only path with native-search seed hints in token context.
+// - Legacy DeepSeek wording may remain only as a compatibility alias, not the active branch.
+// Document Provenance:
+// - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
+// - Kind: official API doc
+// - Retrieved: 2026-04-16
+// - Applied To: normal-provider token-context wording after NVIDIA replacement
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
+
 type BuildTokenContextParams = {
-    mode: 'deepseek' | 'grok';
+    mode: 'deepseek' | 'nvidia' | 'grok';
     tokenInfo: any | null;
     contractAddress?: string;
     cacheStatusLabel?: string;
@@ -12,9 +37,10 @@ export function buildTokenContextBlock(params: BuildTokenContextParams): {
     tokenContextAvailable: boolean;
 } {
     const { mode, tokenInfo, contractAddress } = params;
+    const isCachedLocalMode = mode === 'deepseek' || mode === 'nvidia';
     if (tokenInfo) {
         const base = [
-            `[TOKEN_CONTEXT]${mode === 'deepseek' && params.cacheStatusLabel ? ` ${params.cacheStatusLabel}` : ''}`,
+            `[TOKEN_CONTEXT]${isCachedLocalMode && params.cacheStatusLabel ? ` ${params.cacheStatusLabel}` : ''}`,
             `Detected Token: ${tokenInfo.symbol} (${tokenInfo.name})`,
             `Address: ${tokenInfo.address}`,
             `Chain: ${tokenInfo.chainName} (${tokenInfo.chainId})`,
@@ -25,7 +51,7 @@ export function buildTokenContextBlock(params: BuildTokenContextParams): {
             tokenInfo.volume24h ? `24h Volume: $${tokenInfo.volume24h.toLocaleString()}` : '',
             tokenInfo.marketCap ? `Market Cap: $${tokenInfo.marketCap.toLocaleString()}` : '',
             tokenInfo.launchpad
-                ? `🚀 Launchpad: ${tokenInfo.launchpad.provider.toUpperCase()}${mode === 'deepseek' ? ' (DO NOT run active security scan on launchpad tokens).' : ' - This token was launched on a launchpad platform.'}`
+                ? `🚀 Launchpad: ${tokenInfo.launchpad.provider.toUpperCase()}${isCachedLocalMode ? ' (DO NOT run active security scan on launchpad tokens).' : ' - This token was launched on a launchpad platform.'}`
                 : '',
         ];
         if (mode === 'grok') {
@@ -34,7 +60,7 @@ export function buildTokenContextBlock(params: BuildTokenContextParams): {
             if (xSeedHandles.length > 0) base.push(`Official X (seed): ${xSeedHandles.join(', ')}`);
             if (officialSites.length > 0) base.push(`Official Sites (seed): ${officialSites.join(', ')}`);
         }
-        if (mode === 'deepseek') {
+        if (isCachedLocalMode) {
             base.push(`⚡ IMPORTANT: This token data is ALREADY AVAILABLE. DO NOT call get_token_info again for ${tokenInfo.symbol || tokenInfo.address}.`);
         }
         return {
@@ -83,4 +109,3 @@ If the user has not provided clear trade params, ask one concise follow-up for s
         launchpadContextAvailable: true,
     };
 }
-

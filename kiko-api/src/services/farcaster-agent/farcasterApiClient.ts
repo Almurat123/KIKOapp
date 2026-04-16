@@ -1,22 +1,23 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-15
+// Updated: 2026-04-16
 // Author: Linh Tran
 // Reason: Farcaster mention ingress now prefers the dedicated Neynar webhook
-//         route when enabled, while this module still owns polling fallback,
-//         Hub fallback, and reply publication semantics. Reply publication now
-//         prefers Neynar signer publishing when configured, then falls back
-//         to Hub.
+//         route when enabled, while this module still owns webhook-disabled
+//         polling fallback, Hub fallback, and reply publication semantics.
+//         Reply publication now prefers Neynar signer publishing when
+//         configured, then falls back to Hub.
 // Goal: keep mention retrieval, cast parsing, and reply publication
 //       centralized while preserving deterministic source selection,
-//       transient-error recovery, and a webhook-first ingress split.
+//       transient-error recovery, a webhook-first ingress split, and
+//       normalized cast image context for social-agent turns.
 // Owns: Neynar notification polling fallback, Hub RPC connectivity, endpoint
-//       rotation, mention page parsing, cast hydration, and reply cast
-//       publication for the Farcaster agent.
+//       rotation, mention page parsing, cast hydration, normalized cast media
+//       context, and reply cast publication for the Farcaster agent.
 // Does Not Own: polling cadence, linked-user policy, conversation mapping, or
 //               AI execution.
 // Design Language:
-// - Prefer webhook-fed ingress when enabled; keep notifications polling only as
-//   the fallback path when the webhook is not configured.
+// - Prefer webhook-fed ingress when enabled; keep notifications polling only
+//   when the webhook is not configured and otherwise fall back to Hub.
 // - Hub RPC access must stay centralized, with left-to-right fallback across
 //   configured endpoints and then known public peers.
 // - Transient RPC cancellation must invalidate the current endpoint so the
@@ -25,6 +26,7 @@
 // - Reply publication should prefer Neynar signer publishing when configured
 //   but keep parent-cast semantics explicit.
 // - Avoid leaking provider-specific payload shapes into the worker.
+// - Normalize cast image-bearing embeds before they leave this owner.
 // Document Provenance:
 // - Source: Neynar webhook documentation and notifications API
 // - Kind: official API doc
@@ -51,6 +53,11 @@
 // - Retrieved: 2026-04-15
 // - Applied To: public Hub RPC fallback ordering for reachability recovery
 // - Verification: verified in code
+// - Source: Neynar cast lookup docs + Hub embed typings
+// - Kind: official API doc | local SDK source
+// - Retrieved: 2026-04-16
+// - Applied To: preserving cast image URLs for social-agent prompt assembly
+// - Verification: verified in docs and code
 // - Source: /Users/almurat/Downloads/logs.1776233864338.json and
 //   /Users/almurat/Downloads/logs.1776233683014.json
 // - Kind: runtime observation
@@ -60,9 +67,10 @@
 // - Verification: verified in runtime
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
 // - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-webhook-ingress.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-notifications-ingress.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-neynar-notifications-standdown.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-mention-hub-fallback.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-mention-hub-request-failover.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
@@ -85,11 +93,11 @@ import { env } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import type { FarcasterCastContext, FarcasterMentionEvent, FarcasterSendResult } from './types.js';
+import { normalizeSocialImageUrl } from '../socialAgentInput.js';
 import {
   fetchNeynarCastContextByHash,
   fetchNeynarMentionPage,
   publishNeynarCastReply,
-  hasNeynarNotificationsConfigured,
 } from '../neynarService.js';
 
 const DEFAULT_HUB_RPC_URL = 'hub.merv.fun:3381';
@@ -105,6 +113,10 @@ const FARCASTER_EPOCH_MS = 1609459200000;
 const MAX_PAGE_SIZE = 50;
 const HUB_READY_TIMEOUT_MS = 5000;
 const HUB_RECEIVE_LIMIT_BYTES = 50 * 1024 * 1024;
+
+export function shouldUseNeynarMentionPolling(webhookEnabled: boolean): boolean {
+  return !webhookEnabled;
+}
 
 interface HubEndpoint {
   address: string;
@@ -342,6 +354,24 @@ function timestampToIso(timestamp?: number | null): string | null {
   return new Date(FARCASTER_EPOCH_MS + Number(timestamp) * 1000).toISOString();
 }
 
+function isLikelyImageUrl(url: string): boolean {
+  return /\.(png|jpe?g|gif|webp|avif)(\?|#|$)/i.test(url);
+}
+
+function extractHubImages(embeds: unknown, castHash: string): NonNullable<FarcasterCastContext['images']> {
+  const items = Array.isArray(embeds) ? embeds : [];
+  return items.flatMap((item: any) => {
+    const url = normalizeSocialImageUrl(item?.url);
+    if (!url || !isLikelyImageUrl(url)) return [];
+    return [{
+      url,
+      altText: null,
+      mimeType: null,
+      sourceLabel: `Farcaster cast ${castHash}`,
+    }];
+  });
+}
+
 function messageToCastContext(message: Message): FarcasterCastContext | null {
   const data = message.data;
   const castAddBody = data?.castAddBody;
@@ -364,6 +394,7 @@ function messageToCastContext(message: Message): FarcasterCastContext | null {
     parentHash,
     parentAuthorFid: parentCastId?.fid || null,
     timestamp: timestampToIso(data.timestamp),
+    images: extractHubImages(castAddBody?.embeds, castHash),
   };
 }
 
@@ -407,18 +438,20 @@ export class FarcasterApiClient {
   }
 
   async fetchMentionPage(params?: { pageToken?: Uint8Array | null; pageSize?: number }): Promise<HubMentionPage> {
-    const neynarPage = await fetchNeynarMentionPage({
-      fid: env.farcasterAgent.botFid,
-      cursor: params?.pageToken ? Buffer.from(params.pageToken).toString('utf8') : null,
-      limit: clampPageSize(params?.pageSize ?? env.farcasterAgent.pollPageSize),
-    });
+    if (shouldUseNeynarMentionPolling(env.farcasterAgent.neynarWebhookEnabled)) {
+      const neynarPage = await fetchNeynarMentionPage({
+        fid: env.farcasterAgent.botFid,
+        cursor: params?.pageToken ? Buffer.from(params.pageToken).toString('utf8') : null,
+        limit: clampPageSize(params?.pageSize ?? env.farcasterAgent.pollPageSize),
+      });
 
-    if (neynarPage) {
-      return {
-        events: neynarPage.events,
-        nextPageToken: neynarPage.nextCursor ? Buffer.from(neynarPage.nextCursor, 'utf8') : undefined,
-        messages: [],
-      };
+      if (neynarPage) {
+        return {
+          events: neynarPage.events,
+          nextPageToken: neynarPage.nextCursor ? Buffer.from(neynarPage.nextCursor, 'utf8') : undefined,
+          messages: [],
+        };
+      }
     }
 
     return runHubRequestWithFailover('mention fetch', async (client) => {

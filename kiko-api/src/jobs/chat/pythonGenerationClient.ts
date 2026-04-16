@@ -1,5 +1,28 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-16
+// Author: Rowan
+// Reason: frontend-visible streaming can only be diagnosed if provider SSE
+//         deltas are logged before they enter the broker.
+// Goal: expose provider delta cadence, forwarding decisions, and cumulative
+//       generated lengths without logging raw assistant text.
+// Owns: Node-to-Python generation stream parsing and callback forwarding.
+// Does Not Own: broker broadcast, WebSocket delivery, or frontend rendering.
+// Design Language:
+// - provider delta logs should include whether the delta was forwarded or buffered
+// - diagnostics log counts, lengths, and elapsed timing, not raw content
+// - provider logs must correlate with broker chunk indices by task id
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/test.txt
+// - Kind: runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: tracing whether model/provider streaming reaches the broker
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-stream-diagnostics.md
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
+import { logChatStreamDebug } from '../../services/chatStreamDebug.js';
 import type { GenerationMessage } from './nodePromptAssembler.js';
 
 const INTERNAL_SERVICE_KEY = process.env.INTERNAL_SERVICE_KEY || '';
@@ -11,6 +34,10 @@ const GENERATION_STREAM_DEBUG_ENABLED =
     process.env.NODE_ENV !== 'production'
     && process.env.NODE_ENV !== 'prod'
     && process.env.GENERATION_STREAM_DEBUG !== 'false';
+
+function resolveStreamPhase(taskId: string): 'normalize' | 'assistant' {
+    return String(taskId || '').endsWith(':normalize') ? 'normalize' : 'assistant';
+}
 
 function getGenerationServiceUrl(): string {
     return (process.env.GENERATION_SERVICE_URL || 'http://127.0.0.1:8000/generation').replace(/\/+$/, '');
@@ -132,6 +159,8 @@ export class PythonGenerationClient {
         let firstEventLogged = false;
         let firstEventWarned = false;
         let eventCount = 0;
+        let assistantDeltaCount = 0;
+        let reasoningDeltaCount = 0;
         const toolCalls: GenerationToolCall[] = [];
         let textBuffer = '';
         let reasoningBuffer = '';
@@ -143,6 +172,7 @@ export class PythonGenerationClient {
         const bufferVisibleOutput = shouldBufferVisibleOutputForNativeSearchPhase(params.providerOptions, params.tools);
         const allowVisibleStreamingAfterToolSignal = !bufferVisibleOutput
             && shouldAllowVisibleStreamingAfterToolSignal(params.providerOptions, params.tools);
+        const streamPhase = resolveStreamPhase(params.taskId);
 
         const flushFinalCallbacks = async () => {
             if (latestUsage) {
@@ -209,13 +239,49 @@ export class PythonGenerationClient {
                 if (event.type === 'assistant_delta') {
                     const delta = String(event.payload?.text || '');
                     textBuffer += delta;
-                    if (delta && !bufferVisibleOutput && (!toolCallSignalReceived || allowVisibleStreamingAfterToolSignal)) {
+                    const shouldForward = Boolean(delta && !bufferVisibleOutput && (!toolCallSignalReceived || allowVisibleStreamingAfterToolSignal));
+                    if (delta) {
+                        assistantDeltaCount += 1;
+                        logChatStreamDebug(LogCode.AI_ORCHESTRATOR, 'PythonGenerationClient: assistant delta received', {
+                            sessionId: params.sessionId,
+                            taskId: params.taskId,
+                            streamPhase,
+                            model: params.model,
+                            eventIndex: eventCount,
+                            deltaIndex: assistantDeltaCount,
+                            deltaLength: delta.length,
+                            cumulativeTextLength: textBuffer.length,
+                            shouldForward,
+                            bufferVisibleOutput,
+                            toolCallSignalReceived,
+                            elapsedMs: Date.now() - startedAt,
+                        });
+                    }
+                    if (shouldForward) {
                         await params.onTextDelta(delta);
                     }
                 } else if (event.type === 'reasoning_delta') {
                     const delta = String(event.payload?.text || '');
                     reasoningBuffer += delta;
-                    if (delta && !bufferVisibleOutput && (!toolCallSignalReceived || allowVisibleStreamingAfterToolSignal)) {
+                    const shouldForward = Boolean(delta && !bufferVisibleOutput && (!toolCallSignalReceived || allowVisibleStreamingAfterToolSignal));
+                    if (delta) {
+                        reasoningDeltaCount += 1;
+                        logChatStreamDebug(LogCode.AI_ORCHESTRATOR, 'PythonGenerationClient: reasoning delta received', {
+                            sessionId: params.sessionId,
+                            taskId: params.taskId,
+                            streamPhase,
+                            model: params.model,
+                            eventIndex: eventCount,
+                            deltaIndex: reasoningDeltaCount,
+                            deltaLength: delta.length,
+                            cumulativeReasoningLength: reasoningBuffer.length,
+                            shouldForward,
+                            bufferVisibleOutput,
+                            toolCallSignalReceived,
+                            elapsedMs: Date.now() - startedAt,
+                        });
+                    }
+                    if (shouldForward) {
                         await params.onReasoningDelta(delta);
                     }
                 } else if (event.type === 'usage') {

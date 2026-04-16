@@ -1,3 +1,36 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-16
+// Author: Rowan
+// Reason: chat text could arrive through WebSocket but still appear all at once
+//         if RootLayout buffered multiple chunks into one animation-frame flush.
+//         Runtime logs later confirmed backend emitted 11 fast-path chunks while
+//         the browser only rendered one update because `sessionPending` merged
+//         them before the next frame.
+// Goal: make the frontend state boundary observable: incoming chunk count,
+//       pending buffer size, flush timing, and message length before/after merge,
+//       while applying content/reasoning chunks immediately once the target
+//       assistant message already exists in local state.
+// Owns: authenticated chat WebSocket subscription and conversation state merging.
+// Does Not Own: backend chunk generation, browser WebSocket transport, or bubble styling.
+// Design Language:
+// - RootLayout stream logs should correlate ws-receive and MessageBubble render logs
+// - diagnostics must log lengths/counts, not raw assistant text
+// - requestAnimationFrame batching should be visible as flush logs
+// - once a target assistant message exists locally, content/reasoning chunks should not wait for a coalescing flush
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/test.txt
+// - Kind: runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: diagnosing whether frontend buffering coalesces backend chunks
+// - Verification: verified in code
+// - Source: /Users/almurat/KiKo/test.txt
+// - Kind: runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: replacing chunk coalescing with immediate per-message chunk application
+// - Verification: verified in runtime log and code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-stream-diagnostics.md
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { usePrivy } from '@privy-io/react-auth';
@@ -10,6 +43,7 @@ import { chatApi } from '../services/api';
 import { ToastContainer, useToast } from '../components/Toast';
 import { AgentRuntime } from '../agent/AgentRuntime';
 import { logger } from '../utils/logger';
+import { chatStreamDebug } from '../utils/chatStreamDebug';
 
 // Global Toast Component
 function GlobalToast() {
@@ -41,7 +75,12 @@ export const RootLayout: React.FC = () => {
     if (activeConv && activeConv.messages.length > 0) {
         const lastMsg = activeConv.messages[activeConv.messages.length - 1];
         if (lastMsg.role === 'assistant' && lastMsg.status === 'streaming') {
-            console.log(`[RootLayout] Rendering Streaming Frame. Content Len: ${lastMsg.content.length}`);
+            chatStreamDebug('root-render-streaming-frame', {
+                conversationId: activeConv.id,
+                messageId: lastMsg.id,
+                contentLength: lastMsg.content.length,
+                reasoningLength: (lastMsg.reasoning_content || '').length,
+            });
         }
     }
 
@@ -59,6 +98,7 @@ export const RootLayout: React.FC = () => {
     const resumeSyncInFlightRef = useRef<Promise<void> | null>(null);
     const lastResumeSyncAtRef = useRef(0);
     const firstChunkLoggedRef = useRef<Set<string>>(new Set());
+    const streamChunkStatsRef = useRef<Map<string, { chunks: number; contentLength: number; reasoningLength: number; lastAtMs: number }>>(new Map());
 
     // --- WebSocket & Sync Logic (Identical to App.tsx) ---
 
@@ -260,9 +300,17 @@ export const RootLayout: React.FC = () => {
             const schedulePendingFlush = () => {
                 const existingRaf = rafScheduledByConversationRef.current.get(targetSessionId);
                 if (existingRaf) {
+                    chatStreamDebug('root-flush-already-scheduled', {
+                        sessionId: targetSessionId,
+                        pendingMessageCount: sessionPending.size,
+                    });
                     return;
                 }
 
+                chatStreamDebug('root-flush-scheduled', {
+                    sessionId: targetSessionId,
+                    pendingMessageCount: sessionPending.size,
+                });
                 const rafId = requestAnimationFrame(() => {
                     rafScheduledByConversationRef.current.delete(targetSessionId);
                     const tConv = conversationsRef.current.find(c => c.id === targetSessionId);
@@ -273,6 +321,8 @@ export const RootLayout: React.FC = () => {
 
                     sessionPending.forEach((pMsg) => {
                         const idx = msgMap.get(pMsg.id);
+                        const beforeContentLength = idx !== undefined ? updatedMessages[idx].content.length : 0;
+                        const beforeReasoningLength = idx !== undefined ? (updatedMessages[idx].reasoning_content || '').length : 0;
                         if (idx !== undefined) {
                             updatedMessages[idx] = {
                                 ...updatedMessages[idx],
@@ -287,6 +337,18 @@ export const RootLayout: React.FC = () => {
                             updatedMessages.push({ ...pMsg, status: 'streaming' });
                             msgMap.set(pMsg.id, updatedMessages.length - 1);
                         }
+                        const afterIdx = msgMap.get(pMsg.id);
+                        const afterMessage = afterIdx !== undefined ? updatedMessages[afterIdx] : pMsg;
+                        chatStreamDebug('root-flush-applied', {
+                            sessionId: targetSessionId,
+                            messageId: pMsg.id,
+                            pendingContentLength: (pMsg.content || '').length,
+                            pendingReasoningLength: (pMsg.reasoning_content || '').length,
+                            beforeContentLength,
+                            afterContentLength: afterMessage.content.length,
+                            beforeReasoningLength,
+                            afterReasoningLength: (afterMessage.reasoning_content || '').length,
+                        });
                     });
 
                     sessionPending.clear();
@@ -358,6 +420,9 @@ export const RootLayout: React.FC = () => {
             else if (event.type === 'chunk') {
                 const messageId = event.data.messageId || event.data.message_id;
                 if (!messageId) return;
+                const isReasoningChunk = event.data.type === 'reasoning';
+                const rawContentDelta = String(event.data.content || event.data.delta || '');
+                const rawReasoningDelta = String(event.data.reasoning_content || '');
 
                 const pendingMessage = sessionPending.get(messageId) || {
                     id: messageId,
@@ -369,10 +434,10 @@ export const RootLayout: React.FC = () => {
                     usage: undefined
                 };
 
-                if (event.data.type === 'reasoning') {
-                    pendingMessage.reasoning_content = appendUniqueText(pendingMessage.reasoning_content || '', event.data.reasoning_content || '');
+                if (isReasoningChunk) {
+                    pendingMessage.reasoning_content = appendUniqueText(pendingMessage.reasoning_content || '', rawReasoningDelta);
                 } else {
-                    pendingMessage.content = appendUniqueText(pendingMessage.content || '', event.data.content || event.data.delta || '');
+                    pendingMessage.content = appendUniqueText(pendingMessage.content || '', rawContentDelta);
                     if (!firstChunkLoggedRef.current.has(`${targetSessionId}:${messageId}`) && (event.data.content || event.data.delta || '')) {
                         firstChunkLoggedRef.current.add(`${targetSessionId}:${messageId}`);
                         logger.debug('[ChatStream] first content chunk received', {
@@ -383,6 +448,35 @@ export const RootLayout: React.FC = () => {
                         });
                     }
                 }
+                const statKey = `${targetSessionId}:${messageId}`;
+                const prevStats = streamChunkStatsRef.current.get(statKey) || {
+                    chunks: 0,
+                    contentLength: 0,
+                    reasoningLength: 0,
+                    lastAtMs: 0,
+                };
+                const nowMs = performance.now();
+                const contentDeltaLength = isReasoningChunk ? 0 : rawContentDelta.length;
+                const reasoningDeltaLength = isReasoningChunk ? rawReasoningDelta.length : 0;
+                const nextStats = {
+                    chunks: prevStats.chunks + 1,
+                    contentLength: prevStats.contentLength + contentDeltaLength,
+                    reasoningLength: prevStats.reasoningLength + reasoningDeltaLength,
+                    lastAtMs: nowMs,
+                };
+                streamChunkStatsRef.current.set(statKey, nextStats);
+                chatStreamDebug('root-chunk-buffered', {
+                    sessionId: targetSessionId,
+                    messageId,
+                    seq: event.seq ?? null,
+                    chunkIndex: nextStats.chunks,
+                    chunkType: isReasoningChunk ? 'reasoning' : 'content',
+                    contentDeltaLength,
+                    reasoningDeltaLength,
+                    pendingContentLength: pendingMessage.content.length,
+                    pendingReasoningLength: (pendingMessage.reasoning_content || '').length,
+                    msSincePreviousChunk: prevStats.lastAtMs > 0 ? Math.round(nowMs - prevStats.lastAtMs) : null,
+                });
                 sessionPending.set(messageId, pendingMessage);
 
                 const targetConvForChunk = conversationsRef.current.find(c => c.id === targetSessionId);
@@ -423,6 +517,60 @@ export const RootLayout: React.FC = () => {
                     return;
                 }
 
+                if (!hasKnownTargetMessage && hasMatchingActiveTask) {
+                    const newAssistantMessage: Message = {
+                        id: messageId,
+                        role: 'assistant',
+                        content: isReasoningChunk ? '' : rawContentDelta,
+                        reasoning_content: isReasoningChunk ? rawReasoningDelta : '',
+                        status: 'streaming',
+                        timestamp: new Date().toISOString(),
+                        type: 'text',
+                        citations: [],
+                    };
+                    updateConversation(targetSessionId, {
+                        messages: [...targetConvForChunk.messages, newAssistantMessage],
+                    });
+                    sessionPending.delete(messageId);
+                    chatStreamDebug('root-placeholder-created-from-chunk', {
+                        sessionId: targetSessionId,
+                        messageId,
+                        seq: event.seq ?? null,
+                        chunkType: isReasoningChunk ? 'reasoning' : 'content',
+                        contentDeltaLength,
+                        reasoningDeltaLength,
+                    });
+                    return;
+                }
+
+                if (hasKnownTargetMessage || isLateChunkForCurrentMessage) {
+                    const updatedMessages = targetConvForChunk.messages.map((message) => {
+                        if (message.id !== messageId) return message;
+                        return {
+                            ...message,
+                            content: isReasoningChunk
+                                ? message.content
+                                : appendUniqueText(message.content || '', rawContentDelta),
+                            reasoning_content: isReasoningChunk
+                                ? appendUniqueText(message.reasoning_content || '', rawReasoningDelta)
+                                : message.reasoning_content,
+                            status: 'streaming' as const,
+                        };
+                    });
+                    updateConversation(targetSessionId, { messages: updatedMessages });
+                    sessionPending.delete(messageId);
+                    chatStreamDebug('root-chunk-applied-immediately', {
+                        sessionId: targetSessionId,
+                        messageId,
+                        seq: event.seq ?? null,
+                        chunkIndex: nextStats.chunks,
+                        chunkType: isReasoningChunk ? 'reasoning' : 'content',
+                        contentDeltaLength,
+                        reasoningDeltaLength,
+                    });
+                    return;
+                }
+
                 schedulePendingFlush();
             }
             // --- Task done (only clear task indicator; message completion is handled by message_complete) ---
@@ -459,8 +607,19 @@ export const RootLayout: React.FC = () => {
                 const completionTaskId = event.data.taskId || event.data.task_id;
                 const completionCitations = normalizeCitations(event.data.citations ?? event.data.citation);
                 firstChunkLoggedRef.current.delete(`${targetSessionId}:${completionId}`);
+                const completedStats = streamChunkStatsRef.current.get(`${targetSessionId}:${completionId}`) || null;
+                if (completedStats) {
+                    streamChunkStatsRef.current.delete(`${targetSessionId}:${completionId}`);
+                }
                 const dedupKey = `${targetSessionId}:${completionId}`;
                 console.log('[RootLayout] message_complete:', completionId, 'Pending:', sessionPending.size);
+                chatStreamDebug('root-message-complete', {
+                    sessionId: targetSessionId,
+                    messageId: completionId,
+                    seq: event.seq ?? null,
+                    pendingMessageCount: sessionPending.size,
+                    chunkStats: completedStats,
+                });
 
                 // Dispatch event to refresh sidebar usage count now that the message computation is done
                 if (typeof window !== 'undefined') {

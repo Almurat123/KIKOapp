@@ -3,7 +3,7 @@
  * Validates and loads environment variables
  */
 // CONTEXT MEMORY
-// Updated: 2026-04-11
+// Updated: 2026-04-16
 // Author: Almurat
 // Reason: X OAuth now depends on explicit operator allowlisting, encrypted
 //         bot-token storage, a distinct CRC signing secret for webhook setup,
@@ -16,11 +16,16 @@
 //         dedicated Neynar signer UUID when available. The env boundary must
 //         keep the API key, webhook secret, hub RPC endpoints, signer key,
 //         signer UUID, and default poll cadence explicit without mutating X
-//         runtime assumptions.
+//         runtime assumptions. Chat billing/usage policy now also needs one
+//         explicit env owner for free-model and premium-model lists, the
+//         optional shared free-model cap, the shared premium daily quota, and
+//         token-tier quota parsing that can bind both free and premium chat
+//         allowances for each holder tier.
 // Goal: keep startup validation as the single owner for deployment-time security
-//       and connectivity requirements around X auth and Farcaster agent ingress.
+//       and connectivity requirements around X auth, Farcaster agent ingress,
+//       and chat quota env parsing.
 // Owns: env parsing and hard-fail validation for X auth configuration and
-//       Farcaster agent runtime toggles.
+//       Farcaster agent runtime toggles, plus billing/usage quota env parsing.
 // Does Not Own: runtime OAuth exchange, token persistence, webhook handling, or
 //               Farcaster polling logic.
 // Design Language:
@@ -35,6 +40,11 @@
 // - Polling cadence defaults to 10 seconds and must remain env-driven so ops
 //   can raise it to 15 minutes or 1 hour without code changes.
 // - Public X share links must have an explicit base URL and must not be inferred from private session paths.
+// - NVIDIA GLM/Kimi are free-model traffic and can share one optional KIKO cap.
+// - GPT and Grok are premium-model traffic and share one daily free quota.
+// - `USAGE_LIMITS_TIERS_JSON` may define `freeModelLimit` and `premiumLimit`;
+//   legacy `dailyLimit` must still map into the premium limit for backward compatibility.
+// - Quota env parsing must normalize model ids once and never depend on ad hoc caller string rewrites.
 // Document Provenance:
 // - Source: Neynar notifications API and local Farcaster agent runtime
 // - Kind: official API doc / runtime observation
@@ -57,8 +67,36 @@
 // - Retrieved: 2026-04-11
 // - Applied To: explicit `X_SHARE_BASE_URL` env boundary for public crawler-safe reply shares
 // - Verification: verified in code
+// - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
+// - Kind: official API doc
+// - Retrieved: 2026-04-16
+// - Applied To: env-driven free-model allowlist and default pricing stubs after DeepSeek removal
+// - Verification: verified in code
+// - Source: /Users/almurat/KiKo/docker-compose.yml
+// - Kind: repo doc
+// - Retrieved: 2026-04-16
+// - Applied To: container env boundary for usage-limit and premium-quota configuration
+// - Verification: verified in code
+// - Source: operator quota-policy correction after DeepSeek removal
+// - Kind: product doc
+// - Retrieved: 2026-04-16
+// - Applied To: replacing Normal/Advanced quota env with free/premium model policy
+// - Verification: verified in code
+// - Source: operator quota-policy correction for optional free-model cap
+// - Kind: product doc
+// - Retrieved: 2026-04-16
+// - Applied To: `BILLING_DAILY_FREE_MODEL_LIMIT` env parsing
+// - Verification: verified in code
+// - Source: operator quota-policy correction for token-tier chat quota rebinding
+// - Kind: product doc
+// - Retrieved: 2026-04-16
+// - Applied To: dual-limit parsing for `USAGE_LIMITS_TIERS_JSON` with billing-env fallbacks
+// - Verification: verified in code
 // See also:
 // - system-journal/INDEX.md
+// - system-journal/design-language/chat-usage-quota-policy.md
+// - system-journal/owner-map/chat-usage-quota.md
+// - system-journal/fix-log/2026-04-16-free-premium-chat-usage-quota-rework.md
 // - system-journal/owner-map/farcaster-neynar-webhook-ingress.md
 // - system-journal/fix-log/2026-04-15-farcaster-neynar-webhook-ingress.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
@@ -66,6 +104,7 @@
 // - system-journal/fix-log/2026-04-09-x-webhook-crc-secret-boundary.md
 // - system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
 // - system-journal/fix-log/2026-04-11-x-reply-share-pages.md
+// - system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
 // - system-journal/conflicts.md
 import dotenv from 'dotenv';
 import path from 'node:path';
@@ -77,6 +116,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const envPath = path.resolve(__dirname, '../../.env');
 dotenv.config({ path: envPath });
+
+export interface UsageLimitTier {
+    minBalance: number;
+    dailyLimit: number;
+    freeModelLimit: number;
+    premiumLimit: number;
+}
 
 export interface EnvConfig {
     port: number;
@@ -177,13 +223,13 @@ export interface EnvConfig {
         feeRecipient?: string;
         priceCacheTtlSec: number;
         minLiquidityUsd: number;
-        dailyFreeDeepseek: number;
-        dailyFreeGrok: number;
+        dailyFreeModelLimit: number;
+        dailyFreePremium: number;
         usdMultiplier: number;
         toolPricePerCall: number;
         termsVersion: string;
-        deepseekModels: string[];
-        grokModels: string[];
+        freeModels: string[];
+        premiumModels: string[];
         modelPricing: Record<string, { promptUsdPer1M: number; completionUsdPer1M: number; cachedPromptUsdPer1M?: number }>;
     };
     usageLimits: {
@@ -192,7 +238,7 @@ export interface EnvConfig {
         tokenAddress?: string;
         tokenDecimals: number;
         baseDailyLimit: number;
-        tiers: Array<{ minBalance: number; dailyLimit: number }>;
+        tiers: UsageLimitTier[];
     };
     x: {
         enabled: boolean;
@@ -283,8 +329,8 @@ function validateEnv(): EnvConfig {
     const billingTokenDecimals = parseInt(process.env.BILLING_TOKEN_DECIMALS || '18', 10);
     const billingPriceCacheTtlSec = parseInt(process.env.BILLING_PRICE_CACHE_TTL_SEC || '600', 10);
     const billingMinLiquidityUsd = parseFloat(process.env.BILLING_DEXSCREENER_MIN_LIQUIDITY_USD || '5000');
-    const billingDailyFreeDeepseek = parseInt(process.env.BILLING_DAILY_FREE_DEEPSEEK || '10', 10);
-    const billingDailyFreeGrok = parseInt(process.env.BILLING_DAILY_FREE_GROK || '3', 10);
+    const billingDailyFreeModelLimit = parseInt(process.env.BILLING_DAILY_FREE_MODEL_LIMIT || '0', 10);
+    const billingDailyFreePremium = parseInt(process.env.BILLING_DAILY_FREE_PREMIUM || '8', 10);
     const billingUsdMultiplier = parseFloat(process.env.BILLING_USD_MULTIPLIER || '3');
     const billingToolPricePerCall = parseFloat(process.env.BILLING_TOOL_PRICE_PER_CALL || '0.005');
     const billingTermsVersion = process.env.BILLING_TERMS_VERSION || 'billing-terms-v1';
@@ -384,44 +430,73 @@ function validateEnv(): EnvConfig {
     const usageTokenDecimals = parseInt(process.env.USAGE_LIMITS_TOKEN_DECIMALS || '18', 10);
     const usageBaseDailyLimit = parseInt(process.env.USAGE_LIMITS_BASE_DAILY_LIMIT || '15', 10);
     const usageTokenAddress = process.env.USAGE_LIMITS_TOKEN_ADDRESS;
-    let usageTiers: Array<{ minBalance: number; dailyLimit: number }> = [
-        { minBalance: 0, dailyLimit: usageBaseDailyLimit },
-        { minBalance: 10_000_000, dailyLimit: 20 },
-        { minBalance: 50_000_000, dailyLimit: 25 },
+    const normalizedBillingFreeModelLimit = Number.isFinite(billingDailyFreeModelLimit) ? Math.max(0, billingDailyFreeModelLimit) : 0;
+    const normalizedBillingDailyFreePremium = Number.isFinite(billingDailyFreePremium) ? Math.max(0, billingDailyFreePremium) : 8;
+    let usageTiers: UsageLimitTier[] = [
+        { minBalance: 0, dailyLimit: usageBaseDailyLimit, freeModelLimit: normalizedBillingFreeModelLimit, premiumLimit: usageBaseDailyLimit },
+        { minBalance: 10_000_000, dailyLimit: 20, freeModelLimit: normalizedBillingFreeModelLimit, premiumLimit: 20 },
+        { minBalance: 50_000_000, dailyLimit: 25, freeModelLimit: normalizedBillingFreeModelLimit, premiumLimit: 25 },
     ];
     if (process.env.USAGE_LIMITS_TIERS_JSON) {
         try {
             const parsed = JSON.parse(process.env.USAGE_LIMITS_TIERS_JSON);
             if (Array.isArray(parsed)) {
                 usageTiers = parsed
-                    .map((t: any) => ({
-                        minBalance: Number(t.minBalance ?? t.min ?? 0),
-                        dailyLimit: Number(t.dailyLimit ?? t.limit ?? usageBaseDailyLimit),
+                    .map((t: any) => {
+                        const minBalance = Number(t.minBalance ?? t.min ?? 0);
+                        const dailyLimit = Number(t.dailyLimit ?? t.limit ?? t.premiumLimit ?? normalizedBillingDailyFreePremium);
+                        const freeModelLimit = Number(t.freeModelLimit ?? t.freeLimit ?? normalizedBillingFreeModelLimit);
+                        const premiumLimit = Number(t.premiumLimit ?? t.premiumDailyLimit ?? t.dailyLimit ?? t.limit ?? normalizedBillingDailyFreePremium);
+                        return {
+                            minBalance,
+                            dailyLimit,
+                            freeModelLimit,
+                            premiumLimit,
+                        };
+                    })
+                    .filter(t => (
+                        Number.isFinite(t.minBalance)
+                        && Number.isFinite(t.dailyLimit)
+                        && Number.isFinite(t.freeModelLimit)
+                        && Number.isFinite(t.premiumLimit)
+                    ))
+                    .map(t => ({
+                        minBalance: t.minBalance,
+                        dailyLimit: Math.max(0, t.dailyLimit),
+                        freeModelLimit: Math.max(0, t.freeModelLimit),
+                        premiumLimit: Math.max(0, t.premiumLimit),
                     }))
-                    .filter(t => Number.isFinite(t.minBalance) && Number.isFinite(t.dailyLimit))
                     .sort((a, b) => a.minBalance - b.minBalance);
             }
         } catch (error) {
             console.warn('[Env] Failed to parse USAGE_LIMITS_TIERS_JSON, using default tiers.');
         }
     }
-    const deepseekModels = (
-        process.env.BILLING_DEEPSEEK_MODELS ||
-        'deepseek-chat,deepseek-reasoner,gpt-5.4-mini-2026-03-17'
+    const freeModels = (
+        process.env.BILLING_FREE_MODELS ||
+        'glm-5,kimi-k2-5-reasoning,kimi-k2-5-instant'
     )
         .split(',')
-        .map(v => v.trim())
+        .map(v => v.trim().toLowerCase())
         .filter(Boolean);
-    const grokModels = (process.env.BILLING_GROK_MODELS || 'grok-4-1-fast-reasoning,grok-4-1-fast-non-reasoning')
+    const defaultPremiumModels = 'gpt-5.4-mini-2026-03-17,gpt-4.1,grok-4-1-fast-reasoning,grok-4-1-fast-non-reasoning';
+    const premiumModels = (
+        process.env.BILLING_PREMIUM_MODELS ||
+        (process.env.BILLING_GROK_MODELS
+            ? `gpt-5.4-mini-2026-03-17,gpt-4.1,${process.env.BILLING_GROK_MODELS}`
+            : defaultPremiumModels)
+    )
         .split(',')
-        .map(v => v.trim())
+        .map(v => v.trim().toLowerCase())
         .filter(Boolean);
     let modelPricing: Record<string, { promptUsdPer1M: number; completionUsdPer1M: number; cachedPromptUsdPer1M?: number }> = {
         'grok-4-1-fast-reasoning': { promptUsdPer1M: 0.20, completionUsdPer1M: 0.50 },
         'grok-4-1-fast-non-reasoning': { promptUsdPer1M: 0.20, completionUsdPer1M: 0.50 },
-        // OpenAI GPT (USD per 1M tokens); override via BILLING_MODEL_PRICING_JSON if needed.
-        'deepseek-chat': { promptUsdPer1M: 0.28, cachedPromptUsdPer1M: 0.028, completionUsdPer1M: 0.42 },
-        'deepseek-reasoner': { promptUsdPer1M: 0.28, cachedPromptUsdPer1M: 0.028, completionUsdPer1M: 0.42 },
+        // NVIDIA trial-hosted models are typically rate-limited rather than token-billed.
+        // Override via BILLING_MODEL_PRICING_JSON when production pricing is known.
+        'glm-5': { promptUsdPer1M: 0, completionUsdPer1M: 0 },
+        'kimi-k2-5-reasoning': { promptUsdPer1M: 0, completionUsdPer1M: 0 },
+        'kimi-k2-5-instant': { promptUsdPer1M: 0, completionUsdPer1M: 0 },
         'gpt-4.1': { promptUsdPer1M: 2.00, cachedPromptUsdPer1M: 0.50, completionUsdPer1M: 8.00 },
         'gpt-5.4-mini-2026-03-17': { promptUsdPer1M: 0.75, cachedPromptUsdPer1M: 0.075, completionUsdPer1M: 4.50 },
     };
@@ -432,7 +507,6 @@ function validateEnv(): EnvConfig {
             console.warn('[Env] Failed to parse BILLING_MODEL_PRICING_JSON, falling back to empty pricing map.');
         }
     }
-
     return {
         port,
         nodeEnv,
@@ -532,13 +606,13 @@ function validateEnv(): EnvConfig {
             feeRecipient: process.env.BILLING_FEE_RECIPIENT,
             priceCacheTtlSec: Number.isFinite(billingPriceCacheTtlSec) ? billingPriceCacheTtlSec : 600,
             minLiquidityUsd: Number.isFinite(billingMinLiquidityUsd) ? billingMinLiquidityUsd : 5000,
-            dailyFreeDeepseek: Number.isFinite(billingDailyFreeDeepseek) ? billingDailyFreeDeepseek : 10,
-            dailyFreeGrok: Number.isFinite(billingDailyFreeGrok) ? billingDailyFreeGrok : 3,
+            dailyFreeModelLimit: normalizedBillingFreeModelLimit,
+            dailyFreePremium: normalizedBillingDailyFreePremium,
             usdMultiplier: Number.isFinite(billingUsdMultiplier) ? billingUsdMultiplier : 3,
             toolPricePerCall: Number.isFinite(billingToolPricePerCall) ? billingToolPricePerCall : 0.005,
             termsVersion: billingTermsVersion,
-            deepseekModels,
-            grokModels,
+            freeModels,
+            premiumModels,
             modelPricing,
         },
         usageLimits: {

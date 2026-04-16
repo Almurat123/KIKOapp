@@ -1,10 +1,29 @@
-/**
- * Chat WebSocket Client
- * Manages connection to backend chat WebSocket
- */
+// CONTEXT MEMORY
+// Updated: 2026-04-16
+// Author: Rowan
+// Reason: backend stream diagnostics need a matching browser receive boundary
+//         to prove whether chunks arrive individually or already coalesced.
+// Goal: log WebSocket receive timing, event type, sequence number, payload size,
+//       and delta length before RootLayout mutates conversation state.
+// Owns: browser WebSocket connection, event normalization, ACK, and sync.
+// Does Not Own: conversation state merging, message rendering, or backend chunk generation.
+// Design Language:
+// - frontend receive diagnostics must use the same session/message/seq ids as backend WS logs
+// - diagnostics log metadata only, not raw assistant text
+// - production diagnostics require an explicit browser/env opt-in
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/test.txt
+// - Kind: runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: correlating WebSocket receive cadence with backend broadcasts
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-stream-diagnostics.md
 import { getAuthToken, clearAuthTokenCache } from './authToken';
 import { getRuntimeConfigUrl, getEnvUrl } from './runtimeConfig';
 import { adaptLoopbackUrlForBrowser, isLocalLikeHost } from './runtimeHosts';
+import { chatStreamDebug } from './chatStreamDebug';
 
 function resolveWsBaseUrl(): string {
     const viteEnv = (import.meta as any)?.env || {};
@@ -75,6 +94,7 @@ export class ChatWebSocketClient {
     private openTimeout: NodeJS.Timeout | null = null;
     private connectionPromise: Promise<void> | null = null;
     private connectionResolver: (() => void) | null = null;
+    private lastStreamEventAt = 0;
 
     // Sequence tracking: sessionId -> last received sequence number
     private lastReceivedSeq: Map<string, number> = new Map();
@@ -179,7 +199,22 @@ export class ChatWebSocketClient {
                     return; // Don't forward to listeners
                 }
 
-                // console.log('[ChatWS] Message received:', data.type, 'sessionId:', data.sessionId, 'seq:', data.seq);
+                const now = performance.now();
+                const dataPayload = data.data || {};
+                const deltaText = dataPayload.content ?? dataPayload.delta ?? dataPayload.reasoning_content ?? '';
+                chatStreamDebug('ws-receive', {
+                    eventType: data.type,
+                    sessionId: data.sessionId,
+                    seq: data.seq ?? null,
+                    messageId: dataPayload.messageId || dataPayload.message_id || null,
+                    chunkType: data.type === 'chunk'
+                        ? (dataPayload.type === 'reasoning' ? 'reasoning' : 'content')
+                        : undefined,
+                    deltaLength: data.type === 'chunk' ? String(deltaText || '').length : undefined,
+                    rawBytes: typeof event.data === 'string' ? event.data.length : undefined,
+                    msSincePreviousStreamEvent: this.lastStreamEventAt > 0 ? Math.round(now - this.lastStreamEventAt) : null,
+                });
+                this.lastStreamEventAt = now;
                 this.listeners.forEach(listener => listener(data));
             } catch (e) {
                 console.error('[ChatWS] Error parsing message:', e);

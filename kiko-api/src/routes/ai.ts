@@ -1,8 +1,59 @@
 /**
  * AI Routes
  * Proxy for AI API calls to avoid CORS issues
- * Supports DeepSeek/GPT tool calls for web search with real-time streaming
+ * Supports NVIDIA/OpenAI/Grok tool calls for web search with real-time streaming
  */
+// CONTEXT MEMORY
+// Updated: 2026-04-16
+// Author: Rowan
+// Reason: the direct backend AI proxy still used the old NVIDIA Kimi model id
+//         and self-hosted thinking flag shape even after the Python gateway was
+//         corrected to the official hosted API convention. A later regression
+//         also showed that plain assistant `content` must not be promoted into
+//         the reasoning channel, or reasoning-capable turns render duplicated
+//         text in both the thinking surface and the final answer. The route also
+//         surfaces usage-limit decisions, so its 429 shape must follow the
+//         current free/premium quota contract instead of legacy token-tier fields.
+//         Free-model traffic can now have one optional shared daily cap, so 429
+//         payloads must include both free and premium quota state.
+// Goal: keep the fallback/direct AI route aligned with the same NVIDIA hosted
+//       API contract used by the main generation gateway so local tests behave
+//       the same across both paths.
+// Owns: direct backend proxy request shaping and stream parsing for `/api/ai/chat`.
+// Does Not Own: worker orchestration, model catalog policy, or UI rendering.
+// Design Language:
+// - Direct proxy and worker gateway must agree on NVIDIA request semantics.
+// - Hosted Kimi uses `moonshotai/kimi-k2.5`.
+// - Hosted Kimi instant mode disables thinking via the official hosted payload shape.
+// - Reasoning extraction must accept NVIDIA typed content parts as well as flat fields.
+// - Plain assistant content must never be mirrored into reasoning output.
+// - Usage-limit errors expose free/premium quota state, not legacy token-tier caps.
+// Document Provenance:
+// - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
+// - Kind: official API doc
+// - Retrieved: 2026-04-16
+// - Applied To: direct-route NVIDIA model mapping and reasoning extraction
+// - Verification: verified in code
+// - Source: /Users/almurat/KiKo/test.txt
+// - Kind: runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: preventing assistant content from being duplicated into reasoning output
+// - Verification: verified in code
+// - Source: operator quota-policy correction after DeepSeek removal
+// - Kind: product doc
+// - Retrieved: 2026-04-16
+// - Applied To: direct-route 429 payload for shared GPT/Grok premium quota
+// - Verification: verified in code
+// - Source: operator quota-policy correction for optional free-model cap
+// - Kind: product doc
+// - Retrieved: 2026-04-16
+// - Applied To: direct-route 429 payload for shared GLM/Kimi free quota
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-free-premium-chat-usage-quota-rework.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { toolRegistry } from '../tooling/index.js';
@@ -61,22 +112,105 @@ interface ChatRequest {
     };
 }
 
-const DEEPSEEK_API_URL = process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions';
+const NVIDIA_API_URL = process.env.NVIDIA_API_URL || 'https://integrate.api.nvidia.com/v1/chat/completions';
 const OPENAI_API_URL = process.env.OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions';
 
 function normalizeModel(model?: string): string {
     const normalized = (model || '').toLowerCase().trim();
-    if (!normalized) return 'deepseek-chat';
+    if (!normalized) return 'glm-5';
     return normalized;
+}
+
+function resolveNvidiaUpstreamModel(model: string): { model: string; extraBody?: Record<string, any> } {
+    const normalized = normalizeModel(model);
+    if (
+        normalized === 'kimi-k2-5-reasoning'
+        || normalized === 'kimi-k2-5-thinking'
+        || normalized === 'kimi-k2.5-reasoning'
+        || normalized === 'kimi-k2.5-thinking'
+    ) {
+        return { model: 'moonshotai/kimi-k2.5' };
+    }
+    if (
+        normalized === 'kimi-k2-5-instant'
+        || normalized === 'kimi-k2-5-fast'
+        || normalized === 'kimi-k2.5-instant'
+        || normalized === 'kimi-k2.5-fast'
+    ) {
+        return { model: 'moonshotai/kimi-k2.5', extraBody: { thinking: { type: 'disabled' } } };
+    }
+    if (normalized === 'glm-5') {
+        return { model: 'z-ai/glm5' };
+    }
+    return { model: normalized };
+}
+
+function coerceTextContent(value: any): string {
+    if (typeof value === 'string') return value;
+    if (Array.isArray(value)) return value.map((item) => coerceTextContent(item)).filter(Boolean).join('');
+    if (value && typeof value === 'object') {
+        const partType = String(value.type || '').trim().toLowerCase();
+        if (partType === 'reasoning' || partType === 'thinking') return '';
+        return String(coerceTextContent(value.text) || coerceTextContent(value.content) || '');
+    }
+    return '';
+}
+
+function coerceReasoningContent(value: any, allowPlainString = false): string {
+    if (typeof value === 'string') return allowPlainString ? value : '';
+    if (Array.isArray(value)) return value.map((item) => coerceReasoningContent(item, allowPlainString)).filter(Boolean).join('');
+    if (value && typeof value === 'object') {
+        const partType = String(value.type || '').trim().toLowerCase();
+        if (partType === 'reasoning' || partType === 'thinking') {
+            return String(
+                coerceReasoningContent(value.text, true)
+                || coerceReasoningContent(value.content, true)
+                || coerceReasoningContent(value.reasoning_content, true)
+                || coerceReasoningContent(value.reasoning, true)
+                || coerceReasoningContent(value.reasoning_text, true)
+                || coerceReasoningContent(value.thinking, true)
+                || ''
+            );
+        }
+        return String(
+            coerceReasoningContent(value.reasoning_content, true)
+            || coerceReasoningContent(value.reasoning, true)
+            || coerceReasoningContent(value.reasoning_text, true)
+            || coerceReasoningContent(value.thinking, true)
+            || ''
+        );
+    }
+    return '';
+}
+
+function extractReasoningDelta(choice: any, data: any): string {
+    const delta = choice?.delta || {};
+    return String(
+        coerceReasoningContent(delta.reasoning_content, true)
+        || coerceReasoningContent(delta.reasoning, true)
+        || coerceReasoningContent(delta.reasoning_text, true)
+        || coerceReasoningContent(delta.thinking, true)
+        || coerceReasoningContent(delta.content, false)
+        || coerceReasoningContent(choice?.reasoning_content, true)
+        || coerceReasoningContent(choice?.message?.reasoning_content, true)
+        || coerceReasoningContent(choice?.message?.reasoning, true)
+        || coerceReasoningContent(choice?.message?.reasoning_text, true)
+        || coerceReasoningContent(choice?.message?.thinking, true)
+        || coerceReasoningContent(data?.reasoning_content, true)
+        || coerceReasoningContent(data?.reasoning, true)
+        || coerceReasoningContent(data?.reasoning_text, true)
+        || coerceReasoningContent(data?.thinking, true)
+        || ''
+    );
 }
 
 // Helper to get API Key by model provider
 function getApiKey(model: string): string {
     const normalized = normalizeModel(model);
     const useOpenAI = normalized.startsWith('gpt');
-    const key = useOpenAI ? process.env.OPENAI_API_KEY : process.env.DEEPSEEK_API_KEY;
+    const key = useOpenAI ? process.env.OPENAI_API_KEY : process.env.NVIDIA_API_KEY;
     if (!key) {
-        throw new Error(useOpenAI ? 'OPENAI_API_KEY is not set in environment variables' : 'DEEPSEEK_API_KEY is not set in environment variables');
+        throw new Error(useOpenAI ? 'OPENAI_API_KEY is not set in environment variables' : 'NVIDIA_API_KEY is not set in environment variables');
     }
     return key;
 }
@@ -240,8 +374,9 @@ async function processStreamResponse(
                             }
                             lineToForward = `data: ${JSON.stringify(data)}`;
                         }
-                        if (choice?.delta?.reasoning_content) {
-                            reasoningContent += choice.delta.reasoning_content;
+                        const reasoningDelta = extractReasoningDelta(choice, data);
+                        if (reasoningDelta) {
+                            reasoningContent += reasoningDelta;
                         }
                         if (choice?.delta?.tool_calls) {
                             hasToolCalls = true;
@@ -311,7 +446,7 @@ async function processStreamResponse(
                 id: 'sanitized-tail',
                 object: 'chat.completion.chunk',
                 created: Math.floor(Date.now() / 1000),
-                model: streamModel || 'deepseek-chat',
+                model: streamModel || 'glm-5',
                 choices: [{
                     index: 0,
                     delta: { content: trailingVisibleContent },
@@ -381,6 +516,7 @@ async function persistProxyUsage(params: {
             userId: params.userId,
             dateUtc,
             modelCategory,
+            model: params.model,
             assistantMessageId,
         });
     } catch (error: any) {
@@ -398,7 +534,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
             try {
                 const {
                     messages,
-                    model = 'deepseek-chat',
+                    model = 'glm-5',
                     temperature = 0.8,
                     max_tokens,
                     stream = false,
@@ -438,8 +574,11 @@ export async function aiRoutes(fastify: FastifyInstance) {
                         reason: usageDecision.reason,
                         dateUtc: usageDecision.dateUtc,
                         totalUsed: usageDecision.totalUsed,
-                        totalLimit: usageDecision.totalLimit,
-                        tokenBalance: usageDecision.tokenBalance
+                        freeUsed: usageDecision.freeUsed,
+                        freeLimit: usageDecision.freeLimit,
+                        premiumUsed: usageDecision.premiumUsed,
+                        premiumLimit: usageDecision.premiumLimit,
+                        modelCategory: usageDecision.modelCategory
                     });
                 }
 
@@ -720,7 +859,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                 }
 
                 const apiKey = getApiKey(normalizedModel);
-                const targetUrl = normalizedModel.startsWith('gpt') ? OPENAI_API_URL : DEEPSEEK_API_URL;
+                const targetUrl = normalizedModel.startsWith('gpt') ? OPENAI_API_URL : NVIDIA_API_URL;
                 const origin = request.headers.origin || 'http://localhost:5173';
                 let conversationMessages = [...messages];
 
@@ -738,7 +877,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     routingMode,
                     model: normalizedModel,
                 });
-                const systemPrompt = promptOrchestrator.getSystemPrompt('deepseek', intentType, { routingMode });
+                const systemPrompt = promptOrchestrator.getSystemPrompt('nvidia', intentType, { routingMode });
 
                 const dailyMarketContext: string | null = null;
 
@@ -785,13 +924,19 @@ export async function aiRoutes(fastify: FastifyInstance) {
                 while (iteration < maxIterations) {
                     iteration++;
 
+                    const upstreamModel = normalizedModel.startsWith('gpt')
+                        ? { model: normalizedModel }
+                        : resolveNvidiaUpstreamModel(normalizedModel);
                     const requestBody: any = {
-                        model: normalizedModel,
+                        model: upstreamModel.model,
                         messages: conversationMessages,
                         temperature,
                         max_tokens,
                         stream: true, // Always use streaming for real-time output
                     };
+                    if (upstreamModel.extraBody) {
+                        requestBody.extra_body = upstreamModel.extraBody;
+                    }
                     if (normalizedModel.startsWith('gpt')) {
                         // OpenAI streaming requires include_usage to emit token usage chunks.
                         requestBody.stream_options = { include_usage: true };
@@ -830,9 +975,9 @@ export async function aiRoutes(fastify: FastifyInstance) {
 
                     // Observability: log high-level request intent (safe, no message content)
                     const toolCount = requestBody.tools?.length || 0;
-                    logger.info(LogCode.AI_API_CALL, `[AI Routes] DeepSeek request summary`, { model: normalizedModel, enable_search, toolCount, tool_choice: requestBody.tool_choice || 'none' });
+                    logger.info(LogCode.AI_API_CALL, `[AI Routes] Model request summary`, { model: normalizedModel, upstreamModel: requestBody.model, enable_search, toolCount, tool_choice: requestBody.tool_choice || 'none' });
 
-                    logger.debug(LogCode.AI_API_CALL, `[AI Routes] Iteration ${iteration}: Streaming request to DeepSeek`);
+                    logger.debug(LogCode.AI_API_CALL, `[AI Routes] Iteration ${iteration}: Streaming request to upstream model provider`);
 
                     // Retry logic for DeepSeek API calls
                     let response: Response | null = null;

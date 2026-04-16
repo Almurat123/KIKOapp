@@ -73,6 +73,7 @@ export async function persistBillingUsage(params: {
         userId: params.userId,
         dateUtc,
         modelCategory,
+        model: params.model,
         assistantMessageId: params.assistantMessageId,
     });
 

@@ -1,3 +1,36 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-16
+// Author: Rowan
+// Reason: soft-policy chat turns were still expanding tool exposure to the
+//         full runtime registry, which made trivial onboarding and assistant
+//         meta/debug questions carry dozens of unrelated tool schemas into the
+//         main generation prompt and slowed visible streaming significantly.
+// Goal: keep skill resolution aligned with the actual direct-answer scope so
+//       onboarding and assistant-meta turns answer directly without bloating
+//       the model prompt with unrelated tools.
+// Owns: skill-to-tool exposure, preferred tool ranking, and query-shape-driven
+//       tool gating for Node orchestration.
+// Does Not Own: provider request transport, websocket rendering, or message persistence.
+// Design Language:
+// - Direct onboarding/meta turns should default to zero tool exposure.
+// - Tool exposure should follow the matched skill boundary, not a soft-policy fallback to all tools.
+// - Session tool history may inform follow-up analysis, but must not reopen tool access for direct meta turns.
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/test.txt
+// - Kind: runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: removing 64-tool prompt bloat from trivial `你好` / onboarding turns
+// - Verification: verified in runtime logs and code
+// - Source: NVIDIA GLM-5 and Kimi runtime logs in local development
+// - Kind: runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: reducing time-to-first-token for direct-answer turns
+// - Verification: verified in logs, applied in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-direct-answer-tool-pruning.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
+
 import { LogCode } from '../../config/logRegistry.js';
 import { skillRegistryExec } from '../../skills/registry.js';
 import { logger } from '../../utils/logger.js';
@@ -144,6 +177,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         : [];
     const hasExplicitPolymarketCoinSelection = normalizedTokenSymbols.length > 0 || requestedTokenSymbols.length > 0;
     const asksCreator = normalizedIntent?.intent === 'creator_analysis';
+    const shouldConstrainToolExposure = querySignals.welcome || querySignals.metaDebug;
 
     let selected = matchResult.rankedMatches.map((item) => item.skillId);
     if (querySignals.welcome) {
@@ -271,7 +305,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         strategyNotes.push('Do not use get_token_price as a prerequisite for selling or swapping a contract-address token. That tool is only for mainstream symbol price lookups.');
     }
 
-    if (!strictPolicy) {
+    if (!strictPolicy && !shouldConstrainToolExposure) {
         allowedTools = Array.from(availableToolNames).sort();
     }
 
@@ -393,6 +427,13 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const droppedPreferredTools = preferredTools.filter((toolName) => !availableToolNames.has(String(toolName)));
     if (droppedPreferredTools.length > 0) {
         strategyNotes.push(`Some preferred tools are not available in the current registry snapshot and were removed: ${droppedPreferredTools.join(', ')}.`);
+    }
+
+    if (shouldConstrainToolExposure) {
+        allowedTools = [];
+        preferredTools.splice(0, preferredTools.length);
+        allowAllTools = false;
+        strategyNotes.push('This is a direct onboarding/meta turn. Do not expose unrelated tool schemas unless the user explicitly asks for live verification, search, or execution.');
     }
 
     allowedTools = allowedTools.filter((toolName) => availableToolNames.has(String(toolName)));

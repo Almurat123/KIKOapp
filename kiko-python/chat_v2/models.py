@@ -5,6 +5,7 @@ from sqlalchemy import String, Text, DateTime, Integer, ForeignKey, JSON, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
+from .settings import settings
 
 
 class ChatSession(Base):
@@ -13,7 +14,7 @@ class ChatSession(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id: Mapped[str] = mapped_column(String, index=True)
     title: Mapped[str] = mapped_column(String, default="New Chat")
-    model: Mapped[str] = mapped_column(String, default="deepseek-chat")
+    model: Mapped[str] = mapped_column(String, default=settings.DEFAULT_MODEL)
     status: Mapped[str] = mapped_column(String, default="active")
     provider: Mapped[str | None] = mapped_column(String, nullable=True)
     last_response_id: Mapped[str | None] = mapped_column(String, nullable=True)

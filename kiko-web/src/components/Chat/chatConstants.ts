@@ -1,10 +1,11 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-15
+// Updated: 2026-04-16
 // Author: Almurat
 // Reason: web chat, X mentions, and Farcaster mentions still share one canonical
 //         default model, but the product default moved from Grok to GPT. The UI
 //         must expose the same canonical default that the backend now uses for
-//         new sessions and persisted defaults.
+//         new sessions and persisted defaults. The selectable normal-model
+//         family has also moved from DeepSeek ids to NVIDIA-hosted GLM/Kimi ids.
 // Goal: keep one stable frontend default model id that matches backend session
 //       creation and persisted per-user reply policy.
 // Owns: frontend-visible model catalog and canonical default selection helper.
@@ -19,9 +20,15 @@
 // - Retrieved: 2026-04-15
 // - Applied To: setting `gpt-5.4-mini-2026-03-17` as canonical frontend default
 // - Verification: verified in code
+// - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
+// - Kind: official API doc
+// - Retrieved: 2026-04-16
+// - Applied To: frontend-visible GLM/Kimi model ids and mode labels
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-default-chat-model-switch-to-gpt.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 export interface ChatModelOption {
     id: string;
@@ -30,8 +37,9 @@ export interface ChatModelOption {
 }
 
 export const MODEL_OPTIONS: ChatModelOption[] = [
-    { id: 'deepseek-chat', name: 'DeepSeek-V3.2', mode: 'fast' },
-    { id: 'deepseek-reasoner', name: 'DeepSeek-V3.2', mode: 'thinking' },
+    { id: 'glm-5', name: 'GLM-5', mode: 'thinking' },
+    { id: 'kimi-k2-5-reasoning', name: 'Kimi-K2.5', mode: 'thinking' },
+    { id: 'kimi-k2-5-instant', name: 'Kimi-K2.5', mode: 'fast' },
     { id: 'gpt-5.4-mini-2026-03-17', name: 'GPT-5.4-mini', mode: 'thinking' },
     { id: 'grok-4-1-fast-reasoning', name: 'Grok-4.1-Fast', mode: 'thinking' },
     { id: 'grok-4-1-fast-non-reasoning', name: 'Grok-4.1-Fast', mode: 'fast' },

@@ -1,10 +1,45 @@
+# CONTEXT MEMORY
+# Updated: 2026-04-16
+# Author: Rowan
+# Reason: the gateway schema previously forced every chat message content field
+#         to plain text, which prevented current-turn multimodal social-agent
+#         inputs from reaching providers that support image-aware content arrays.
+#         The same permissive boundary now carries NVIDIA Kimi image arrays and
+#         xAI Grok image turns to their provider adapters.
+# Goal: let provider adapters receive structured message content when the
+#       upstream orchestrator intentionally emits it.
+# Owns: llm-gateway message/event schemas.
+# Does Not Own: provider-specific feature gating, prompt assembly, or local
+#               history policy.
+# Design Language:
+# - gateway schemas must be permissive enough for provider-safe structured content
+# - provider capability checks belong in adapters/upstream prompt assembly, not schema coercion
+# Document Provenance:
+# - Source: OpenAI Images and Vision / Chat Completions docs
+# - Kind: official API doc
+# - Retrieved: 2026-04-16
+# - Applied To: allowing structured multimodal `content` values in gateway requests
+# - Verification: verified in docs and code
+# - Source: NVIDIA NIM moonshotai/kimi-k2.5 inference docs and xAI Image Understanding docs
+# - Kind: official API doc
+# - Retrieved: 2026-04-16
+# - Applied To: preserving structured Kimi/Grok image content until provider adapters shape it
+# - Verification: verified in docs and code
+# See also:
+# - /Users/almurat/KiKo/system-journal/INDEX.md
+# - /Users/almurat/KiKo/system-journal/design-language/social-agent-multimodal-input.md
+# - /Users/almurat/KiKo/system-journal/owner-map/social-agent-multimodal-input.md
+# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-kimi-grok-social-image-input.md
+# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
+# - /Users/almurat/KiKo/system-journal/conflicts.md
+
 from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
 class LLMMessage(BaseModel):
     role: Literal["system", "user", "assistant", "tool", "developer"]
-    content: str | None = None
+    content: Any | None = None
     name: str | None = None
     tool_call_id: str | None = None
     tool_calls: list[dict[str, Any]] | None = None
@@ -39,6 +74,6 @@ class GatewayEvent(BaseModel):
         "error",
         "latency_metrics",
     ]
-    provider: Literal["openai", "deepseek", "xai"]
+    provider: Literal["openai", "nvidia", "xai"]
     provider_request_id: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)

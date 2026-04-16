@@ -213,6 +213,192 @@ test('assembleGenerationMessages injects Farcaster agent mode prompt for public 
     assert.match(String(systemMessage?.content || ''), /Unless the user explicitly asks for detail, keep the answer brief/i);
 });
 
+test('assembleGenerationMessages emits multimodal current-turn content for OpenAI social-agent inputs', () => {
+    const snapshot: ChatContextSnapshot = {
+        sessionId: 'session-social-openai',
+        taskId: 'task-social-openai',
+        model: 'gpt-5.4-mini-2026-03-17',
+        history: [],
+        lastUserMessage: 'what is happening in this post',
+        runtime: {
+            contextBlocks: {},
+            userSettings: {},
+            currentPage: 'x',
+            pageContext: 'x_agent',
+            socialInput: {
+                platform: 'x',
+                currentText: 'what is happening in this post',
+                threadContextText: 'Parent @alice: look at this chart',
+                images: [
+                    {
+                        url: 'https://example.com/post-image.png',
+                        sourceLabel: 'current X post by @alice',
+                    },
+                ],
+            },
+        },
+        requestedTokenAddresses: [],
+        requestedTokenSymbols: [],
+        toolDefinitions: [],
+    };
+
+    const providerInfo: ProviderInfo = {
+        provider: 'openai',
+        model: snapshot.model,
+        supportsNativeSearch: false,
+        supportsPreviousResponse: true,
+    };
+
+    const messages = assembleGenerationMessages(snapshot, [], providerInfo);
+    const userMessage = messages.find((message) => message.role === 'user');
+    const content = userMessage?.content as any[];
+
+    assert.ok(Array.isArray(content));
+    assert.equal(content[0]?.type, 'text');
+    assert.match(String(content[0]?.text || ''), /\[SOCIAL_THREAD_CONTEXT\]/);
+    assert.match(String(content[0]?.text || ''), /\[SOCIAL_IMAGES\]/);
+    assert.equal(content[1]?.type, 'image_url');
+    assert.equal(content[1]?.image_url?.url, 'https://example.com/post-image.png');
+});
+
+test('assembleGenerationMessages emits multimodal current-turn content for NVIDIA Kimi social-agent inputs', () => {
+    const snapshot: ChatContextSnapshot = {
+        sessionId: 'session-social-nvidia',
+        taskId: 'task-social-nvidia',
+        model: 'kimi-k2-5-instant',
+        history: [],
+        lastUserMessage: 'what is happening in this cast',
+        runtime: {
+            contextBlocks: {},
+            userSettings: {},
+            currentPage: 'farcaster',
+            pageContext: 'farcaster_agent',
+            socialInput: {
+                platform: 'farcaster',
+                currentText: 'what is happening in this cast',
+                threadContextText: 'Parent @alice: is this image bullish?',
+                images: [
+                    {
+                        url: 'https://example.com/cast-image.png',
+                        sourceLabel: 'current Farcaster cast by @alice',
+                    },
+                ],
+            },
+        },
+        requestedTokenAddresses: [],
+        requestedTokenSymbols: [],
+        toolDefinitions: [],
+    };
+
+    const providerInfo: ProviderInfo = {
+        provider: 'nvidia',
+        model: snapshot.model,
+        supportsNativeSearch: false,
+        supportsPreviousResponse: true,
+    };
+
+    const messages = assembleGenerationMessages(snapshot, [], providerInfo);
+    const userMessage = messages.find((message) => message.role === 'user');
+    const content = userMessage?.content as any[];
+
+    assert.ok(Array.isArray(content));
+    assert.equal(content[0]?.type, 'text');
+    assert.match(String(content[0]?.text || ''), /\[SOCIAL_THREAD_CONTEXT\]/);
+    assert.equal(content[1]?.type, 'image_url');
+    assert.equal(content[1]?.image_url?.url, 'https://example.com/cast-image.png');
+});
+
+test('assembleGenerationMessages emits multimodal current-turn content for Grok social-agent inputs', () => {
+    const snapshot: ChatContextSnapshot = {
+        sessionId: 'session-social-grok',
+        taskId: 'task-social-grok',
+        model: 'grok-4-1-fast-non-reasoning',
+        history: [],
+        lastUserMessage: 'what is happening in this post',
+        runtime: {
+            contextBlocks: {},
+            userSettings: {},
+            currentPage: 'x',
+            pageContext: 'x_agent',
+            socialInput: {
+                platform: 'x',
+                currentText: 'what is happening in this post',
+                threadContextText: 'Parent @alice: look at this screenshot',
+                images: [
+                    {
+                        url: 'https://example.com/x-image.png',
+                        sourceLabel: 'current X post by @alice',
+                    },
+                ],
+            },
+        },
+        requestedTokenAddresses: [],
+        requestedTokenSymbols: [],
+        toolDefinitions: [],
+    };
+
+    const providerInfo: ProviderInfo = {
+        provider: 'grok',
+        model: snapshot.model,
+        supportsNativeSearch: true,
+        supportsPreviousResponse: true,
+    };
+
+    const messages = assembleGenerationMessages(snapshot, [], providerInfo);
+    const userMessage = messages.find((message) => message.role === 'user');
+    const content = userMessage?.content as any[];
+
+    assert.ok(Array.isArray(content));
+    assert.equal(content[0]?.type, 'text');
+    assert.match(String(content[0]?.text || ''), /\[SOCIAL_IMAGES\]/);
+    assert.equal(content[1]?.type, 'image_url');
+    assert.equal(content[1]?.image_url?.url, 'https://example.com/x-image.png');
+});
+
+test('assembleGenerationMessages falls back to image URLs on NVIDIA GLM social-agent inputs', () => {
+    const snapshot: ChatContextSnapshot = {
+        sessionId: 'session-social-glm',
+        taskId: 'task-social-glm',
+        model: 'glm-5',
+        history: [],
+        lastUserMessage: 'what is happening in this cast',
+        runtime: {
+            contextBlocks: {},
+            userSettings: {},
+            currentPage: 'farcaster',
+            pageContext: 'farcaster_agent',
+            socialInput: {
+                platform: 'farcaster',
+                currentText: 'what is happening in this cast',
+                threadContextText: 'Parent @alice: is this image bullish?',
+                images: [
+                    {
+                        url: 'https://example.com/cast-image.png',
+                        sourceLabel: 'current Farcaster cast by @alice',
+                    },
+                ],
+            },
+        },
+        requestedTokenAddresses: [],
+        requestedTokenSymbols: [],
+        toolDefinitions: [],
+    };
+
+    const providerInfo: ProviderInfo = {
+        provider: 'nvidia',
+        model: snapshot.model,
+        supportsNativeSearch: false,
+        supportsPreviousResponse: true,
+    };
+
+    const messages = assembleGenerationMessages(snapshot, [], providerInfo);
+    const userMessage = messages.find((message) => message.role === 'user');
+
+    assert.equal(typeof userMessage?.content, 'string');
+    assert.match(String(userMessage?.content || ''), /\[SOCIAL_IMAGE_URLS\]/);
+    assert.match(String(userMessage?.content || ''), /https:\/\/example\.com\/cast-image\.png/);
+});
+
 test('assembleGenerationMessages exposes requested address classifications in user context', () => {
     const snapshot: ChatContextSnapshot = {
         sessionId: 'session-address',
@@ -417,7 +603,7 @@ test('assembleGenerationMessages tells non-native-search providers to use local 
     const snapshot: ChatContextSnapshot = {
         sessionId: 'session-4',
         taskId: 'task-4',
-        model: 'deepseek-reasoner',
+        model: 'glm-5',
         history: [],
         lastUserMessage: "Search X for 0x1111111111111111111111111111111111111111 around yesterday's announcement",
         runtime: {
@@ -430,7 +616,7 @@ test('assembleGenerationMessages tells non-native-search providers to use local 
     };
 
     const providerInfo: ProviderInfo = {
-        provider: 'deepseek',
+        provider: 'nvidia',
         model: snapshot.model,
         supportsNativeSearch: false,
         supportsPreviousResponse: false,
@@ -463,7 +649,7 @@ test('assembleGenerationMessages carries early-buyer evidence requirements throu
     const snapshot: ChatContextSnapshot = {
         sessionId: 'session-5',
         taskId: 'task-5',
-        model: 'deepseek-reasoner',
+        model: 'glm-5',
         history: [],
         lastUserMessage: 'Find early buyers around 2026-03-10 12:00 UTC for 0xeCCBb861c0dda7eFd964010085488B69317e4444',
         runtime: {
@@ -476,7 +662,7 @@ test('assembleGenerationMessages carries early-buyer evidence requirements throu
     };
 
     const providerInfo: ProviderInfo = {
-        provider: 'deepseek',
+        provider: 'nvidia',
         model: snapshot.model,
         supportsNativeSearch: false,
         supportsPreviousResponse: false,
@@ -711,11 +897,11 @@ test('assembleGenerationMessages adds fast swap contract guidance when fast swap
     assert.match(String(systemMessage?.content || ''), /Quote is optional, not a blocking prerequisite/i);
 });
 
-test('assembleGenerationMessages does not send stored reasoning_content back to DeepSeek history', () => {
+test('assembleGenerationMessages does not send stored reasoning_content back to NVIDIA reasoning-model history', () => {
     const snapshot: ChatContextSnapshot = {
         sessionId: 'session-2',
         taskId: 'task-2',
-        model: 'deepseek-reasoner',
+        model: 'glm-5',
         history: [
             {
                 role: 'assistant',
@@ -738,7 +924,7 @@ test('assembleGenerationMessages does not send stored reasoning_content back to 
     };
 
     const providerInfo: ProviderInfo = {
-        provider: 'deepseek',
+        provider: 'nvidia',
         model: snapshot.model,
         supportsNativeSearch: false,
         supportsPreviousResponse: false,

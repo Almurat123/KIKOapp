@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   ArrowUp,
+  Plus,
   Settings,
   ChevronDown
 } from 'lucide-react';
@@ -15,23 +16,30 @@ import { LiquidGlassEffect } from '../Effects/LiquidGlassEffect';
 import { StardustBackground } from '../Effects/StardustBackground';
 import { agentAttrs } from '../../agent/attrs';
 import { MODEL_OPTIONS, findChatModelOption, getDefaultChatModelOption } from './chatConstants';
+import { ChatAttachmentTray } from './ChatAttachmentTray';
+import { COMPOSER_IMAGE_ACCEPT, type ComposerImageDraft } from './chatImageDrafts';
 
 const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsModal').then((m) => ({ default: m.CustomAISettingsModal })));
 
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-16
 // Author: Rowan
 // Reason: The welcome screen is the lightweight first-paint owner for the
 //         homepage, so its optional settings surface must not pin the heavier
-//         modal runtime into the default bundle.
+//         modal runtime into the default bundle. It now also needs to expose
+//         the same local image-draft affordance as the live chat composer so
+//         first-send prompt composition does not split into a second UI path.
 // Goal: preserve a responsive welcome shell that can collect the first prompt
-//       immediately while deferring optional settings UI until the user opens it.
-// Owns: welcome-screen prompt collection, model selection persistence, and the
-//       local settings-modal entry point for the welcome shell.
+//       immediately while deferring optional settings UI until the user opens
+//       it, while sharing the same local image-preview affordance as live chat.
+// Owns: welcome-screen prompt collection, model selection persistence, local
+//       draft preview placement, and the local settings-modal entry point for
+//       the welcome shell.
 // Does Not Own: full chat runtime boot, conversation creation, or chat message rendering.
 // Design Language:
 // - welcome-shell controls should stay lightweight and immediately interactive
 // - optional modal surfaces must load on demand
+// - welcome and live chat must share one image-draft affordance language
 // - forbidden local patch patterns: static imports of optional settings UI in the welcome shell
 // Document Provenance:
 // - Source: Vite production build output warning about static import preventing chunk split
@@ -39,17 +47,31 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 // - Retrieved: 2026-04-10
 // - Applied To: defer the welcome-screen settings modal behind a lazy boundary
 // - Verification: verified in code
+// - Source: user-provided local UI requirement and screenshot review on 2026-04-16
+// - Kind: product doc
+// - Retrieved: 2026-04-16
+// - Applied To: adding a GPT-style local image draft row and `+` affordance to the welcome composer
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
 // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-homepage-welcome-shell-split.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-local-image-composer-base.md
 
 interface WelcomeScreenProps {
   onSuggestionClick: (text: string) => void;
+  selectedImageDrafts: ComposerImageDraft[];
+  onSelectImages: (files: File[]) => void;
+  onRemoveImage: (attachmentId: string) => void;
 }
 
-export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick }) => {
+export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
+  onSuggestionClick,
+  selectedImageDrafts,
+  onSelectImages,
+  onRemoveImage,
+}) => {
   const { authenticated, getAccessToken } = usePrivy();
   const [isFocused, setIsFocused] = useState(false);
   const [inputValue, setInputValue] = useState(() => {
@@ -120,6 +142,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const skipInitialRemoteModelPersistRef = useRef(true);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   // Save model selection to localStorage whenever it changes
   useEffect(() => {
@@ -306,6 +329,24 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
               }}
             />
             <div className={styles.textareaContainer}>
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept={COMPOSER_IMAGE_ACCEPT}
+                multiple
+                className={styles.hiddenImageInput}
+                onChange={(event) => {
+                  const nextFiles = Array.from(event.target.files || []);
+                  if (nextFiles.length > 0) {
+                    onSelectImages(nextFiles);
+                  }
+                  event.target.value = '';
+                }}
+              />
+              <ChatAttachmentTray
+                attachments={selectedImageDrafts}
+                onRemove={onRemoveImage}
+              />
               <textarea
                 ref={textareaRef}
                 {...agentAttrs({ id: 'welcome.input.textarea', role: 'input', action: 'select', page: 'welcome', key: 'message' })}
@@ -357,6 +398,15 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
                   )}
                 </div>
 
+                <button
+                  type="button"
+                  className={styles.uploadButton}
+                  {...agentAttrs({ id: 'welcome.image.upload', role: 'button', action: 'open', page: 'welcome' })}
+                  onClick={() => imageInputRef.current?.click()}
+                  title="Add image"
+                >
+                  <Plus size={18} />
+                </button>
                 <button
                   className={styles.settingsButton}
                   {...agentAttrs({ id: 'welcome.settings.open', role: 'button', action: 'open', page: 'welcome' })}

@@ -1,13 +1,18 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-15
+// Updated: 2026-04-16
 // Author: Rowan
 // Reason: transport wrappers from Farcaster mention ingress were leaking
 //         scaffolding words like "Farcaster" and "Current" into token-symbol
 //         extraction and canonical intent routing because this owner used the
-//         persisted wrapper text as if it were the literal user query.
+//         persisted wrapper text as if it were the literal user query. This
+//         owner also now passes the active normal-model family as `nvidia`
+//         instead of the retired `deepseek` label when constructing token
+//         context blocks.
 // Goal: assemble chat snapshots from the effective user query while preserving
 //       raw history for audit and still exposing deterministic runtime context
-//       to downstream planners.
+//       to downstream planners. Social-agent turns now also need a separate
+//       current-turn multimodal envelope so prompt assembly can add image input
+//       without corrupting replayed text history.
 // Owns: chat snapshot assembly, requested token extraction inputs, and
 //       prefetched context hydration for orchestration.
 // Does Not Own: ingress webhook formatting, LLM normalization policy, or tool execution.
@@ -15,16 +20,31 @@
 // - snapshot.lastUserMessage should reflect the literal user query, not transport scaffolding
 // - requested token extraction must use the same cleaned user text as runtime directives
 // - preserve raw message history for audit, but do not let wrapper labels drive routing
+// - social multimodal context belongs in runtime metadata, not replayed history
+// - active normal-provider context blocks should use the current provider-family label
 // Document Provenance:
 // - Source: Farcaster mention runtime logs for trace dd7b79f7-41fb-4147-8e38-44a3c4bfeff0
 // - Kind: runtime observation
 // - Retrieved: 2026-04-15
 // - Applied To: unwrapping last-user Farcaster mention text before snapshot assembly
 // - Verification: verified in runtime and targeted tests
+// - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
+// - Kind: official API doc
+// - Retrieved: 2026-04-16
+// - Applied To: using the NVIDIA normal-provider label for Node token context blocks
+// - Verification: verified in code
+// - Source: X expansions/media docs + Neynar cast lookup docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-16
+// - Applied To: ChatContextSnapshot.runtime.socialInput for current-turn
+//   social thread/image context
+// - Verification: verified in docs and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
 // - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-query-unwrapping-and-wallet-guard.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import type { ToolDefinition } from '../../tooling/registry.js';
 import { contextBudgetManager } from '../../services/ai/contextBudgetManager.js';
@@ -143,7 +163,7 @@ export function assembleChatContext(params: {
         requestedTokenAddress: requestedAddressSet.values().next().value,
     });
     const tokenBlock = buildTokenContextBlock({
-        mode: 'deepseek',
+        mode: 'nvidia',
         tokenInfo: toolContext.tokenSnapshot || toolContext.tokenContext || toolContext.tokenInfo || null,
         contractAddress: requestedAddressSet.values().next().value,
         cacheStatusLabel: 'FROM NODE CONTEXT',
@@ -201,6 +221,7 @@ export function assembleChatContext(params: {
             currentPage: toolContext.currentPage,
             pageContext: toolContext.pageContext,
             farcaster: toolContext.farcaster || null,
+            socialInput: toolContext.socialInput || null,
             userSettings: toolContext.toolConfig || null,
             toolContext,
             tokenSnapshot: toolContext.tokenSnapshot || toolContext.tokenContext || toolContext.tokenInfo || null,

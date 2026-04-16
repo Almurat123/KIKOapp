@@ -4,10 +4,23 @@
 // Reason: canonical intent normalization was consuming Farcaster transport
 //         wrapper text and misclassifying literal token-address queries as
 //         Farcaster social discovery because the latest user message still
-//         contained ingress scaffolding.
+//         contained ingress scaffolding. Normalization was also inheriting
+//         slow reasoning-capable chat models, which made trivial welcome/meta
+//         turns wait on hidden reasoning that never becomes user-visible. Runtime
+//         logs later showed `glm-5` taking ~19s just to normalize "Hi, who are
+//         you?", so clear assistant-introduction turns now bypass the LLM
+//         normalizer and GLM aliases default to a fast NVIDIA Kimi instant
+//         normalizer when no explicit override is configured. A later runtime
+//         review showed obvious non-chain questions like "量子纠缠是什么" should
+//         not enter canonical normalization at all.
 // Goal: feed normalization with the effective user query, sanitized recent
-//       user history, and explicit address-type hints so routing decisions
-//       reflect user intent instead of transport metadata or raw address shape.
+//       user history, explicit address-type hints, and a fast normalization
+//       model so routing decisions reflect user intent instead of transport
+//       metadata, raw address shape, or unnecessary hidden reasoning latency,
+//       while preserving normalization reasoning as explicit state so the
+//       runtime can surface it to users instead of leaving them waiting without
+//       feedback, and let obvious non-chain turns bypass normalization with an
+//       explicit deterministic state marker.
 // Owns: canonical-intent normalization prompt assembly and invalid-result handling.
 // Does Not Own: snapshot assembly, webhook ingress formatting, or downstream tool execution.
 // Design Language:
@@ -15,6 +28,11 @@
 // - user-role history may be sanitized for intent routing without mutating audit history
 // - routing stability beats preserving ingress wrapper prose in LLM prompts
 // - literal address classifications should inform the model before it guesses wallet vs token intent
+// - normalization should prefer fast non-reasoning variants unless an explicit override is configured
+// - deterministic assistant-introduction turns should not pay for hidden LLM normalization
+// - normalization reasoning must remain distinguishable from final answer text
+//   when the runtime surfaces it to users
+// - obvious non-chain turns should bypass normalization before any JSON routing prompt is built
 // Document Provenance:
 // - Source: Farcaster mention runtime logs for trace dd7b79f7-41fb-4147-8e38-44a3c4bfeff0
 // - Kind: runtime observation
@@ -26,34 +44,99 @@
 // - Retrieved: 2026-04-16
 // - Applied To: requested_address_classifications in normalization prompt
 // - Verification: verified in code and targeted tests
+// - Source: /Users/almurat/KiKo/test.txt
+// - Kind: runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: preventing 60s normalization stalls on trivial assistant_meta turns
+// - Verification: verified in runtime and code
+// - Source: local runtime log trace 5be7a239-eda6-4ef7-a8ea-7fb4b1160de3
+// - Kind: runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: adding deterministic assistant-intro normalization and GLM normalizer remapping
+// - Verification: verified in runtime log, applied in code
+// - Source: NVIDIA NIM moonshotai/kimi-k2.5 hosted inference docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-16
+// - Applied To: confirming instant mode should avoid visible reasoning when
+//   thinking is explicitly disabled
+// - Verification: verified in docs and repo gateway code
+// - Source: /Users/almurat/KiKo/test.txt
+// - Kind: runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: bypassing canonical normalization for obvious non-chain turns
+// - Verification: verified in runtime and applied in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-query-unwrapping-and-wallet-guard.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-address-preclassification-for-chat.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-canonical-intent-fast-normalizer.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-normalization-reasoning-runtime-surface.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-non-chain-normalization-bypass.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import type { ChatContextSnapshot } from './contracts.js';
 import type { PythonGenerationClient } from './pythonGenerationClient.js';
 import type { GenerationMessage } from './nodePromptAssembler.js';
+import type { TradingIntent } from './tradingIntentResolver.js';
 import {
     applyCanonicalIntentToSnapshot,
+    type CanonicalIntent,
     type CanonicalIntentNormalizationState,
     type NormalizationReasonCode,
     validateCanonicalIntentPayload,
 } from './canonicalIntent.js';
 import { extractEffectiveUserQuery } from './conversationStateResolver.js';
+import { resolveBinaryLocale } from './runtimeLocale.js';
+
+const DIRECT_ASSISTANT_INTRO_QUERY_RE = /^(?:\s*(?:hi|hello|hey|yo|gm|good\s+(?:morning|afternoon|evening)|你好|您好|嗨|哈喽)[\s,!.，。！]*)?(?:who\s+are\s+you|what\s+are\s+you|what\s+can\s+you\s+do|what\s+can\s+kiko\s+do|what\s+is\s+kiko|introduce\s+yourself|你是谁|你能做什么|kiko\s*是什么|kiko\s*能做什么|介绍一下\s*kiko)\s*[?？!！.。]*$/i;
+const BARE_GREETING_QUERY_RE = /^\s*(?:hi|hello|hey|yo|gm|good\s+(?:morning|afternoon|evening)|你好|您好|嗨|哈喽)\s*[?？!！.。]*$/i;
+const ADDRESS_LIKE_RE = /\b0x[a-fA-F0-9]{40}\b/;
+const SPECIALIST_DOMAIN_QUERY_RE = /\b(token|coin|wallet|address|contract|swap|buy|sell|trade|copy[\s-]?trade|bridge|pnl|portfolio|balance|holding|holdings|position|positions|risk|liquidity|market\s*cap|mcap|volume|chart|dex|pool|gas|airdrop|nft|mint|zora|farcaster|warpcast|cast|casts|tweet|tweets|twitter|polymarket|prediction|odds|ethereum|eth\b|base\b|solana|sol\b|bnb\b|arbitrum|optimism|polygon|bsc\b|buyer|buyers|holder|holders|creator|profit|roi|kiko|agent|system|runtime|prompt|tool|reasoning|thinking)\b|代币|钱包|地址|合约|发币|买入|卖出|交易|兑换|换币|跨链|跟单|盈亏|持仓|仓位|风险|流动性|市值|池子|gas|铸造|预测市场|赔率|买家|持有人|创建者|利润|收益|回报|以太坊|链上|提示词|工具|思考|模型|回复|回答|系统|运行时|卡住|卡死/i;
+const GENERAL_NON_CHAIN_QUERY_RE = /\?|？|\b(what|who|why|how|when|where|explain|define|meaning|translate|summarize|write|draft|rewrite|improve|tell me)\b|是什么|什么意思|解释(?:一下)?|为啥|为什么|怎么|如何|谁是|翻译|总结|写(?:一段|一个|一首)?|润色|量子|天气|黑洞|物理|数学/i;
 
 export async function normalizeCanonicalIntent(args: {
     snapshot: ChatContextSnapshot;
     generationClient: Pick<PythonGenerationClient, 'generate'>;
     shouldCancel?: () => Promise<boolean>;
+    onReasoningDelta?: (text: string) => Promise<void> | void;
 }): Promise<{
     snapshot: ChatContextSnapshot;
     state: CanonicalIntentNormalizationState;
 }> {
-    const { snapshot, generationClient, shouldCancel } = args;
+    const { snapshot, generationClient, shouldCancel, onReasoningDelta } = args;
+    const deterministicBypass = buildNonChainNormalizationBypass(snapshot, null);
+    if (deterministicBypass) {
+        logger.info(LogCode.AI_ORCHESTRATOR, 'Canonical intent normalization: deterministic non-chain bypass', {
+            sessionId: snapshot.sessionId,
+            taskId: snapshot.taskId,
+            bypassKind: deterministicBypass.state.bypassKind,
+        });
+        return deterministicBypass;
+    }
+    const deterministicIntent = buildDeterministicAssistantIntroIntent(snapshot);
+    if (deterministicIntent) {
+        const normalizedSnapshot = applyCanonicalIntentToSnapshot(snapshot, deterministicIntent);
+        const state: CanonicalIntentNormalizationState = {
+            status: 'ok',
+            source: 'llm',
+            rawText: JSON.stringify({
+                fast_path: 'deterministic_assistant_intro',
+                intent: deterministicIntent.intent,
+                task_mode: deterministicIntent.taskMode,
+            }),
+        };
+        normalizedSnapshot.normalizationState = state;
+        logger.info(LogCode.AI_ORCHESTRATOR, 'Canonical intent normalization: deterministic assistant intro fast path', {
+            sessionId: snapshot.sessionId,
+            taskId: snapshot.taskId,
+            domain: deterministicIntent.domain,
+            intent: deterministicIntent.intent,
+        });
+        return { snapshot: normalizedSnapshot, state };
+    }
+
     const messages: GenerationMessage[] = buildNormalizationMessages(snapshot);
     const normalizationModel = resolveNormalizationModel(snapshot.model);
 
@@ -67,6 +150,7 @@ export async function normalizeCanonicalIntent(args: {
     });
 
     try {
+        let streamedReasoning = '';
         const result = await generationClient.generate({
             sessionId: snapshot.sessionId,
             taskId: `${snapshot.taskId}:normalize`,
@@ -81,20 +165,25 @@ export async function normalizeCanonicalIntent(args: {
             },
             shouldCancel,
             onTextDelta: async () => {},
-            onReasoningDelta: async () => {},
+            onReasoningDelta: async (text) => {
+                if (!text) return;
+                streamedReasoning += text;
+                await onReasoningDelta?.(text);
+            },
             onUsage: () => {},
             onCitation: () => {},
         });
 
         const rawText = String(result.text || '').trim();
+        const reasoningText = String(result.reasoning || streamedReasoning || '').trim() || undefined;
         const parsed = parseNormalizationJson(rawText);
         if (!parsed.ok) {
-            return invalidResult(snapshot, parsed.reasonCode, parsed.error, rawText);
+            return invalidResult(snapshot, parsed.reasonCode, parsed.error, rawText, reasoningText);
         }
 
         const validated = validateCanonicalIntentPayload(parsed.payload, snapshot);
         if (!validated.ok) {
-            return invalidResult(snapshot, validated.reasonCode, validated.error, rawText);
+            return invalidResult(snapshot, validated.reasonCode, validated.error, rawText, reasoningText);
         }
 
         const normalizedSnapshot = applyCanonicalIntentToSnapshot(snapshot, validated.intent);
@@ -102,6 +191,7 @@ export async function normalizeCanonicalIntent(args: {
             status: 'ok',
             source: 'llm',
             rawText,
+            reasoningText,
         };
         normalizedSnapshot.normalizationState = state;
 
@@ -126,6 +216,7 @@ export async function normalizeCanonicalIntent(args: {
             'normalization_invalid_json',
             error?.message || 'Normalization failed',
             undefined,
+            undefined,
         );
     }
 }
@@ -133,7 +224,119 @@ export async function normalizeCanonicalIntent(args: {
 export function resolveNormalizationModel(model: string): string {
     const override = String(process.env.CANONICAL_INTENT_NORMALIZER_MODEL || '').trim();
     if (override) return override;
+    const normalized = String(model || '').trim().toLowerCase();
+    if (!normalized) return model;
+
+    const exactMap: Record<string, string> = {
+        'grok-4-1-fast-reasoning': 'grok-4-1-fast-non-reasoning',
+        'kimi-k2.5-reasoning': 'kimi-k2.5',
+        'kimi-k2-5-reasoning': 'kimi-k2-5',
+        'moonshotai/kimi-k2.5-reasoning': 'moonshotai/kimi-k2.5',
+        'moonshotai/kimi-k2-5-reasoning': 'moonshotai/kimi-k2-5',
+        'glm-5': 'kimi-k2-5-instant',
+        'glm5': 'kimi-k2-5-instant',
+        'z-ai/glm5': 'kimi-k2-5-instant',
+        'z-ai/glm-5': 'kimi-k2-5-instant',
+        'glm-5-reasoning': 'kimi-k2-5-instant',
+        'glm5-reasoning': 'kimi-k2-5-instant',
+        'z-ai/glm5-reasoning': 'kimi-k2-5-instant',
+        'z-ai/glm-5-reasoning': 'kimi-k2-5-instant',
+        'deepseek-reasoner': 'deepseek-chat',
+    };
+
+    const exactMatch = exactMap[normalized];
+    if (exactMatch) return exactMatch;
+
+    if (normalized.includes('non-reasoning') || normalized.includes('non-thinking')) {
+        return model;
+    }
+    if (normalized.endsWith('-reasoning')) {
+        return model.slice(0, -'-reasoning'.length);
+    }
+    if (normalized.endsWith('-thinking')) {
+        return model.slice(0, -'-thinking'.length);
+    }
     return model;
+}
+
+export function buildNonChainNormalizationBypass(
+    snapshot: ChatContextSnapshot,
+    tradingIntent: TradingIntent | null = null,
+): {
+    snapshot: ChatContextSnapshot;
+    state: CanonicalIntentNormalizationState;
+} | null {
+    const query = extractEffectiveUserQuery(snapshot.lastUserMessage).trim();
+    if (!query) return null;
+    if (tradingIntent) return null;
+    if (DIRECT_ASSISTANT_INTRO_QUERY_RE.test(query) || BARE_GREETING_QUERY_RE.test(query)) return null;
+    if (ADDRESS_LIKE_RE.test(query)) return null;
+    if ((snapshot.requestedTokenAddresses || []).length > 0) return null;
+    if ((snapshot.requestedTokenSymbols || []).length > 0) return null;
+    if ((snapshot.requestedAddressClassifications || []).length > 0) return null;
+    if (SPECIALIST_DOMAIN_QUERY_RE.test(query)) return null;
+    if (!GENERAL_NON_CHAIN_QUERY_RE.test(query)) return null;
+
+    const state: CanonicalIntentNormalizationState = {
+        status: 'ok',
+        source: 'deterministic',
+        bypassKind: 'general_non_chain',
+        rawText: JSON.stringify({
+            fast_path: 'general_non_chain_bypass',
+            query,
+        }),
+    };
+
+    return {
+        snapshot: {
+            ...snapshot,
+            normalizedIntent: null,
+            normalizationState: state,
+        },
+        state,
+    };
+}
+
+export function isDeterministicNormalizationBypassState(
+    state: CanonicalIntentNormalizationState | null | undefined,
+): boolean {
+    return state?.status === 'ok' && state?.bypassKind === 'general_non_chain';
+}
+
+function buildDeterministicAssistantIntroIntent(snapshot: ChatContextSnapshot): CanonicalIntent | null {
+    const query = extractEffectiveUserQuery(snapshot.lastUserMessage).trim();
+    if (!query || ADDRESS_LIKE_RE.test(query)) return null;
+    if (!DIRECT_ASSISTANT_INTRO_QUERY_RE.test(query) && !BARE_GREETING_QUERY_RE.test(query)) return null;
+
+    const locale = resolveBinaryLocale(query);
+    return {
+        domain: 'assistant_meta',
+        intent: 'assistant_meta',
+        taskMode: 'discover',
+        outputMode: 'narrative',
+        searchMode: 'forbidden',
+        searchTarget: 'none',
+        confidence: 1,
+        explanation: 'Deterministic assistant introduction or greeting fast path.',
+        entities: {
+            tokenAddresses: [],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        requestedChain: null,
+        timeContext: null,
+        evidenceRequirements: [],
+        requiresRealtime: false,
+        requiresOnchainEvidence: false,
+        executionCandidate: false,
+        inheritEntitiesFromContext: false,
+        rowCount: null,
+        locale,
+        needsClarification: false,
+        clarificationQuestion: null,
+        source: 'llm',
+    };
 }
 
 function invalidResult(
@@ -141,6 +344,7 @@ function invalidResult(
     reasonCode: NormalizationReasonCode,
     error: string,
     rawText?: string,
+    reasoningText?: string,
 ): {
     snapshot: ChatContextSnapshot;
     state: CanonicalIntentNormalizationState;
@@ -158,6 +362,7 @@ function invalidResult(
         reasonCode,
         error,
         rawText,
+        reasoningText,
     };
     return {
         snapshot: {

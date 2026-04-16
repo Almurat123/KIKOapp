@@ -2,7 +2,44 @@ import { env } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 
-export type BillingCategory = 'deepseek' | 'grok' | 'other';
+// CONTEXT MEMORY
+// Updated: 2026-04-16
+// Author: Rowan
+// Reason: DeepSeek was removed from the product model catalog. NVIDIA-hosted
+//         GLM/Kimi models are now free-model traffic with one optional shared
+//         cap, while GPT and Grok share one premium daily free quota. Billing
+//         classification must no longer expose Normal/Advanced or DeepSeek/Grok
+//         quota buckets.
+// Goal: keep quota/billing classification stable around the product policy:
+//       free models share one optional cap, premium models share one quota.
+// Owns: model-family pricing classification, quota lookup helpers, and token/cost aggregation helpers.
+// Does Not Own: UI model lists, provider routing, or external vendor pricing policy.
+// Design Language:
+// - Quota buckets are product policy, not vendor-brand names.
+// - NVIDIA GLM/Kimi models belong to the shared free bucket.
+// - GPT and Grok models belong to one shared premium quota bucket.
+// - Do not reintroduce separate Normal/Advanced free-count buckets.
+// - Reasoning-token handling must remain provider-aware.
+// Document Provenance:
+// - Source: operator quota-policy correction after DeepSeek removal
+// - Kind: product doc
+// - Retrieved: 2026-04-16
+// - Applied To: classifying GLM/Kimi as free and GPT/Grok as one premium bucket
+// - Verification: verified in code
+// - Source: operator quota-policy correction for optional free-model cap
+// - Kind: product doc
+// - Retrieved: 2026-04-16
+// - Applied To: returning one env-driven shared limit for free-model traffic
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/chat-usage-quota-policy.md
+// - /Users/almurat/KiKo/system-journal/owner-map/chat-usage-quota.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-free-premium-chat-usage-quota-rework.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
+
+export type BillingCategory = 'free' | 'premium' | 'other';
 
 export function getUtcDateString(date: Date = new Date()): string {
     const year = date.getUTCFullYear();
@@ -20,17 +57,22 @@ export function normalizeModelForPricing(model: string): string {
 export function getBillingCategory(model: string): BillingCategory {
     const normalized = normalizeModelForPricing(model);
 
-    if (env.billing.grokModels.includes(normalized)) return 'grok';
-    if (normalized.includes('grok')) return 'grok';
-    if (env.billing.deepseekModels.includes(normalized)) return 'deepseek';
-    if (normalized.includes('deepseek')) return 'deepseek';
+    if (env.billing.freeModels.includes(normalized)) return 'free';
+    if (normalized.includes('kimi') || normalized.includes('glm') || normalized.includes('moonshotai/') || normalized.includes('z-ai/')) return 'free';
+    if (env.billing.premiumModels.includes(normalized)) return 'premium';
+    if (normalized.includes('grok')) return 'premium';
+    if (normalized.startsWith('gpt') || normalized.startsWith('o1') || normalized.startsWith('o3') || normalized.startsWith('o4')) return 'premium';
     return 'other';
 }
 
 export function getDailyFreeQuota(category: BillingCategory): number {
-    if (category === 'deepseek') return env.billing.dailyFreeDeepseek;
-    if (category === 'grok') return env.billing.dailyFreeGrok;
+    if (category === 'free') return env.billing.dailyFreeModelLimit;
+    if (category === 'premium') return env.billing.dailyFreePremium;
     return 0;
+}
+
+export function getDailyFreeQuotaForModel(model: string): number {
+    return getDailyFreeQuota(getBillingCategory(model));
 }
 
 type ToolCallLike = string | { name?: string | null } | null | undefined;

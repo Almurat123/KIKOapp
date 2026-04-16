@@ -2,8 +2,33 @@ import type { ChatContextSnapshot } from './contracts.js';
 import type { ActionClass } from './controlPolicy.js';
 import type { IntentEnvelope, SkillResolution, ToolPhase } from './nodeSkillResolver.js';
 
+// CONTEXT MEMORY
+// Updated: 2026-04-16
+// Author: Rowan
+// Reason: KiKo replaced the legacy DeepSeek provider family with NVIDIA-hosted
+//         GLM/Kimi models, but the orchestration layer still depends on one
+//         canonical provider-capability map.
+// Goal: keep provider-family resolution deterministic from model id so tool
+//       policy, previous-response support, and native-search capability remain stable.
+// Owns: Node-side provider-family classification and provider option assembly.
+// Does Not Own: Python gateway request shaping, billing, or frontend model labels.
+// Design Language:
+// - Provider families are capability buckets, not vendor names sprinkled in callers.
+// - Kimi and GLM are NVIDIA-family models with no native search or previous-response support.
+// - Unknown non-Grok, non-OpenAI model ids must not fall back to removed DeepSeek behavior.
+// Document Provenance:
+// - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
+// - Kind: official API doc
+// - Retrieved: 2026-04-16
+// - Applied To: provider-family routing for Kimi/GLM model ids
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
+
 export interface ProviderInfo {
-    provider: 'openai' | 'deepseek' | 'grok';
+    provider: 'openai' | 'nvidia' | 'grok';
     model: string;
     supportsNativeSearch: boolean;
     supportsPreviousResponse: boolean;
@@ -42,6 +67,15 @@ export interface ProviderOptions {
     previous_response_id?: string;
 }
 
+function isNvidiaModel(model: string): boolean {
+    const normalized = String(model || '').trim().toLowerCase();
+    if (!normalized) return false;
+    return normalized.includes('kimi')
+        || normalized.includes('glm')
+        || normalized.includes('moonshotai/')
+        || normalized.includes('z-ai/');
+}
+
 export function resolveProviderInfo(model: string): ProviderInfo {
     const normalized = String(model || '').toLowerCase();
     if (normalized.includes('grok')) {
@@ -60,8 +94,16 @@ export function resolveProviderInfo(model: string): ProviderInfo {
             supportsPreviousResponse: false,
         };
     }
+    if (isNvidiaModel(normalized)) {
+        return {
+            provider: 'nvidia',
+            model,
+            supportsNativeSearch: false,
+            supportsPreviousResponse: false,
+        };
+    }
     return {
-        provider: 'deepseek',
+        provider: 'nvidia',
         model,
         supportsNativeSearch: false,
         supportsPreviousResponse: false,

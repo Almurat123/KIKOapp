@@ -11,7 +11,7 @@ import { chatWS } from '../services/chatWebSocket.js';
 import { chatWorker } from '../jobs/chatWorker.js';
 import prisma from '../db/prisma.js';
 import { sanitizedErrorResponse } from '../utils/securityUtils.js';
-import { evaluateUsageAccess, isCurrentRequestFree } from '../services/usageAccess.js';
+import { evaluateUsageAccess, getUsageLimitMessage, isCurrentRequestFree } from '../services/usageAccess.js';
 import { getWalletBalance } from '../services/alchemy.js';
 import { ethers } from 'ethers';
 import cacheClient from '../cache/cacheClient.js';
@@ -268,7 +268,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     return reply.code(403).send({ error: 'Access denied' });
                 }
 
-                const taskModel = normalizeTaskModel(model || session.model || 'deepseek-chat');
+                const taskModel = normalizeTaskModel(model || session.model);
 
                 // Create user message first to ensure it's persisted even if checks fail
                 const userMessage = await chatRepo.createMessage(sessionId, 'user', content.trim());
@@ -308,15 +308,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     }
 
                     if (!usageDecision.allowed) {
-                        // Create persistent limit notification as an assistant message
-                        let limitContent = 'Daily limit reached.';
-                        if (usageDecision.reason === 'DAILY_TOTAL_LIMIT_REACHED') {
-                            limitContent = `You have reached your daily total usage limit (${usageDecision.totalLimit} messages). Please check back tomorrow or increase your token balance to raise your limit.`;
-                        } else if (usageDecision.reason === 'DAILY_ADVANCED_LIMIT_REACHED') {
-                            limitContent = 'You have reached your daily limit for Advanced models. You can continue using Normal models or wait until tomorrow.';
-                        } else if (usageDecision.reason === 'DAILY_NORMAL_LIMIT_REACHED') {
-                            limitContent = 'You have reached your daily limit for Normal models. Please check back tomorrow.';
-                        }
+                        const limitContent = getUsageLimitMessage(usageDecision);
 
                         const assistantMessage = await chatRepo.createMessage(sessionId, 'assistant', limitContent, {
                             status: 'complete',
@@ -515,10 +507,11 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 if (billingContext?.modelCategory && usageDateUtc) {
                     try {
                         await recordUsage({
-                        userId,
-                        dateUtc: usageDateUtc,
-                        modelCategory: billingContext.modelCategory,
-                        assistantMessageId: assistantMessage.id,
+                            userId,
+                            dateUtc: usageDateUtc,
+                            modelCategory: billingContext.modelCategory,
+                            model: taskModel,
+                            assistantMessageId: assistantMessage.id,
                         });
                     } catch (usageError) {
                         fastify.log.warn({ err: usageError, sessionId, assistantMessageId: assistantMessage.id }, 'Failed to eagerly record usage count');

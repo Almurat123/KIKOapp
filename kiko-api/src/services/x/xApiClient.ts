@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-13
+// Updated: 2026-04-16
 // Author: Almurat
 // Reason: X outbound requests must resolve the current official bot token at
 //         runtime, not assume a single static env-only credential, and must
@@ -16,11 +16,15 @@
 //         `/users/:id/mentions`?" confirmation helper. Later runtime checks also
 //         showed blue-check users can be misreported as `verified=false` unless
 //         `verified_type` is explicitly requested, so mention author verification
-//         must be derived from both `verified` and `verified_type`.
+//         must be derived from both `verified` and `verified_type`. Social-agent
+//         mention replies now also need hydrated thread/media context so the
+//         model can reason over parent posts and attached images instead of only
+//         the webhook's short text snapshot.
 // Goal: keep all X API calls using the same credential source and filtering
-//       rules that the webhook and auth layers rely on.
-// Owns: authenticated X REST access for bot replies, mention confirmation, and
-//       outbound DM sends.
+//       rules that the webhook and auth layers rely on while exposing one
+//       normalized tweet/thread hydration path for social-agent turns.
+// Owns: authenticated X REST access for bot replies, mention confirmation,
+//       tweet hydration, and outbound DM sends.
 // Does Not Own: OAuth exchange, webhook subscription setup, or chat orchestration.
 // Design Language:
 // - Resolve bot credentials through the shared credential service first.
@@ -36,6 +40,8 @@
 //   confirm replyable mention candidates against the bot's mentions feed.
 // - Treat blue/business/government `verified_type` as verified mention authors;
 //   do not rely on legacy `verified` alone.
+// - Hydrate X thread/media context through REST lookups after webhook intake;
+//   do not pretend webhook payloads already contain model-ready context.
 // Document Provenance:
 // - Source: X Direct Messages API docs (Send DM / lookup docs)
 // - Kind: official API doc
@@ -61,8 +67,15 @@
 // - Applied To: requesting `verified_type` and using it as the canonical blue
 //   verification signal for mention filtering
 // - Verification: verified in runtime
+// - Source: X expansions/media docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-16
+// - Applied To: tweet hydration with `attachments.media_keys`,
+//   `referenced_tweets.id`, and `referenced_tweets.id.attachments.media_keys`
+// - Verification: verified in docs
 // See also:
 // - system-journal/INDEX.md
+// - system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
 // - system-journal/fix-log/2026-04-10-x-oauth2-refresh-runtime.md
 // - system-journal/fix-log/2026-04-10-x-expired-bot-token-hard-fail.md
@@ -75,7 +88,7 @@ import { env } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { getXBotAccessToken, getXBotUserId, refreshXBotAccessToken } from './xCredentialsService.js';
-import type { XMentionEvent, XSendResult } from './types.js';
+import type { XMediaAttachment, XMentionEvent, XSendResult, XTweetContext } from './types.js';
 
 function normalizeVerifiedType(value: unknown): string | null {
   const normalized = String(value || '').trim().toLowerCase();
@@ -128,6 +141,84 @@ function parseMention(item: any, usersById: Map<string, any>): XMentionEvent | n
     authorVerifiedType: normalizeVerifiedType(user?.verified_type),
     conversationId: item?.conversation_id ? String(item.conversation_id) : null,
     createdAt: item?.created_at ? String(item.created_at) : null,
+  };
+}
+
+function parseMediaAttachment(media: any, sourceTweetId: string): XMediaAttachment | null {
+  const mediaKey = String(media?.media_key || '').trim();
+  const url = String(media?.url || media?.preview_image_url || '').trim();
+  if (!mediaKey || !url) return null;
+  return {
+    mediaKey,
+    type: String(media?.type || '').trim() || 'unknown',
+    url,
+    previewImageUrl: media?.preview_image_url ? String(media.preview_image_url).trim() : null,
+    altText: media?.alt_text ? String(media.alt_text).trim() : null,
+    width: Number.isFinite(media?.width) ? Number(media.width) : null,
+    height: Number.isFinite(media?.height) ? Number(media.height) : null,
+    sourceTweetId,
+  };
+}
+
+function parseTweetContext(params: {
+  item: any;
+  usersById: Map<string, any>;
+  mediaByKey: Map<string, any>;
+  tweetsById: Map<string, any>;
+}): XTweetContext | null {
+  const item = params.item;
+  const authorId = String(item?.author_id || '').trim();
+  const id = String(item?.id || '').trim();
+  const text = String(item?.text || '').trim();
+  if (!id || !authorId || !text) return null;
+
+  const author = params.usersById.get(authorId);
+  const mediaKeys = Array.isArray(item?.attachments?.media_keys) ? item.attachments.media_keys : [];
+  const media = mediaKeys
+    .map((mediaKey: unknown) => parseMediaAttachment(params.mediaByKey.get(String(mediaKey || '').trim()), id))
+    .filter((value: XMediaAttachment | null): value is XMediaAttachment => Boolean(value));
+
+  const referencedTweets = Array.isArray(item?.referenced_tweets) ? item.referenced_tweets : [];
+  const references = referencedTweets.map((reference: any) => {
+    const referencedId = String(reference?.id || '').trim();
+    const referencedItem = params.tweetsById.get(referencedId);
+    const referencedAuthorId = String(referencedItem?.author_id || '').trim();
+    const referencedAuthor = referencedAuthorId ? params.usersById.get(referencedAuthorId) : null;
+    const referencedMediaKeys = Array.isArray(referencedItem?.attachments?.media_keys)
+      ? referencedItem.attachments.media_keys
+      : [];
+    return {
+      id: referencedId,
+      text: String(referencedItem?.text || '').trim(),
+      authorId: referencedAuthorId || null,
+      authorUsername: referencedAuthor?.username ? String(referencedAuthor.username).trim() : null,
+      relationship: String(reference?.type || '').trim() as XTweetContext['referencedTweets'][number]['relationship'],
+      media: referencedMediaKeys
+        .map((mediaKey: unknown) => parseMediaAttachment(params.mediaByKey.get(String(mediaKey || '').trim()), referencedId))
+        .filter((value: XMediaAttachment | null): value is XMediaAttachment => Boolean(value)),
+    };
+  }).filter((reference: { id: string }) => reference.id);
+
+  const parent = references.find((reference: { relationship: string }) => reference.relationship === 'replied_to') || null;
+
+  return {
+    id,
+    text,
+    authorId,
+    authorUsername: author?.username ? String(author.username).trim() : null,
+    conversationId: item?.conversation_id ? String(item.conversation_id).trim() : null,
+    createdAt: item?.created_at ? String(item.created_at).trim() : null,
+    parentTweetId: parent?.id || null,
+    parentAuthorId: parent?.authorId || null,
+    media,
+    referencedTweets: references.map((reference: any) => ({
+      ...reference,
+      relationship: reference.relationship === 'replied_to'
+        || reference.relationship === 'quoted'
+        || reference.relationship === 'retweeted'
+        ? reference.relationship
+        : 'unknown',
+    })),
   };
 }
 
@@ -200,6 +291,34 @@ export class XApiClient {
     const sinceId = decrementSnowflake(id);
     const mentions = await this.fetchMentions({ sinceId });
     return mentions.find((item) => item.id === id) || null;
+  }
+
+  async fetchTweetContextByTweetId(tweetId: string): Promise<XTweetContext | null> {
+    const id = String(tweetId || '').trim();
+    if (!id || !this.isConfigured()) return null;
+
+    const url = baseUrl(
+      `/tweets/${id}${toSearchParams([
+        ['tweet.fields', 'author_id,conversation_id,created_at,referenced_tweets,in_reply_to_user_id'],
+        ['expansions', 'author_id,attachments.media_keys,referenced_tweets.id,referenced_tweets.id.author_id,referenced_tweets.id.attachments.media_keys'],
+        ['user.fields', 'username'],
+        ['media.fields', 'media_key,type,url,preview_image_url,alt_text,width,height'],
+      ])}`,
+    );
+    const payload = await requestJson<any>(url, (accessToken) => ({
+      headers: authHeaders(accessToken),
+    }));
+
+    const usersById = new Map<string, any>((payload?.includes?.users || []).map((user: any) => [String(user.id), user]));
+    const mediaByKey = new Map<string, any>((payload?.includes?.media || []).map((media: any) => [String(media.media_key), media]));
+    const tweetsById = new Map<string, any>((payload?.includes?.tweets || []).map((tweet: any) => [String(tweet.id), tweet]));
+
+    return parseTweetContext({
+      item: payload?.data || null,
+      usersById,
+      mediaByKey,
+      tweetsById,
+    });
   }
 
   async replyToMention(params: { tweetId: string; text: string }): Promise<XSendResult> {

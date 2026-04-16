@@ -1,33 +1,53 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-16
+// Author: Linh Tran
+// Reason: X social-agent ingress now has to preserve more than plain text. The
+//         shared chat worker still expects a persisted user message string, but
+//         the current turn also needs structured social context/image metadata
+//         so vision-capable providers can see the original post attachments.
+// Goal: enqueue X-originated chat work with stable text history plus explicit
+//       structured social-agent multimodal input for the current turn.
+// Owns: X-to-chat task creation and social-agent context handoff.
+// Does Not Own: X thread fetching, prompt assembly, or reply publication.
+// Design Language:
+// - Persist the plain text transport message for audit/history.
+// - Carry social multimodal context separately in message data and toolContext.
+// - Do not let bridge-layer metadata replace the canonical stored user content.
+// Document Provenance:
+// - Source: X expansions/media docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-16
+// - Applied To: preserving X mention thread/media context for model-visible input
+// - Verification: verified in docs and code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
+
 import prisma from '../../db/prisma.js';
 import * as chatRepo from '../../repositories/chatRepository.js';
 import { trackChatMessage } from '../userActivityService.js';
-import { evaluateUsageAccess, isCurrentRequestFree } from '../usageAccess.js';
+import { evaluateUsageAccess, getUsageLimitMessage, isCurrentRequestFree } from '../usageAccess.js';
 import { recordUsage } from '../usageCounter.js';
 import { getEmbeddedWalletAddress, getSolanaEmbeddedWalletAddress } from '../privyWallet.js';
 import { chatWorker } from '../../jobs/chatWorker.js';
 import { normalizeSupportedChatModel } from '../../config/chatModels.js';
+import type { SocialAgentInput } from '../socialAgentInput.js';
 
 function normalizeTaskModel(model?: string): string {
   return normalizeSupportedChatModel(model);
 }
 
 function buildUsageLimitMessage(usageDecision: any): string {
-  if (usageDecision.reason === 'DAILY_TOTAL_LIMIT_REACHED') {
-    return `You have reached your daily total usage limit (${usageDecision.totalLimit} messages). Please check back tomorrow or increase your token balance to raise your limit.`;
-  }
-  if (usageDecision.reason === 'DAILY_ADVANCED_LIMIT_REACHED') {
-    return 'You have reached your daily limit for Advanced models. You can continue using Normal models or wait until tomorrow.';
-  }
-  if (usageDecision.reason === 'DAILY_NORMAL_LIMIT_REACHED') {
-    return 'You have reached your daily limit for Normal models. Please check back tomorrow.';
-  }
-  return 'Daily limit reached.';
+  return getUsageLimitMessage(usageDecision);
 }
 
 export async function enqueueXAgentMessage(params: {
   userId: string;
   sessionId: string;
   content: string;
+  socialInput?: SocialAgentInput | null;
   channel: 'mention' | 'dm';
   xUserId: string;
   xUsername?: string | null;
@@ -44,7 +64,15 @@ export async function enqueueXAgentMessage(params: {
   }
 
   const taskModel = normalizeTaskModel(session.model);
-  const userMessage = await chatRepo.createMessage(params.sessionId, 'user', params.content.trim());
+  const trimmedContent = params.content.trim();
+  const socialInput = params.socialInput || null;
+  const userMessage = await chatRepo.createMessage(params.sessionId, 'user', trimmedContent, {
+    data: socialInput ? {
+      source: 'social_agent',
+      platform: socialInput.platform,
+      socialInput,
+    } : undefined,
+  });
   trackChatMessage(params.userId);
 
   const usageDecision = await evaluateUsageAccess({
@@ -102,6 +130,7 @@ export async function enqueueXAgentMessage(params: {
       rootTweetId: params.rootTweetId || null,
       xDmConversationId: params.xDmConversationId || null,
     },
+    socialInput: socialInput || undefined,
   };
 
   const task = await chatRepo.createTask(
@@ -117,6 +146,7 @@ export async function enqueueXAgentMessage(params: {
       userId: params.userId,
       dateUtc: usageDecision.dateUtc,
       modelCategory: usageDecision.modelCategory,
+      model: taskModel,
       assistantMessageId: assistantMessage.id,
     });
   } catch {

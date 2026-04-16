@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseHubMentionEvents } from './farcasterApiClient.js';
+import { parseHubMentionEvents, shouldUseNeynarMentionPolling } from './farcasterApiClient.js';
 
 test('parseHubMentionEvents extracts Hub cast mentions into internal mention events', () => {
   const events = parseHubMentionEvents({
@@ -111,4 +111,9 @@ test('parseHubMentionEvents passes through normalized mention events', () => {
       occurredAt: '2026-04-15T06:00:00.000Z',
     },
   ]);
+});
+
+test('shouldUseNeynarMentionPolling disables Neynar reads when webhook is enabled', () => {
+  assert.equal(shouldUseNeynarMentionPolling(true), false);
+  assert.equal(shouldUseNeynarMentionPolling(false), true);
 });

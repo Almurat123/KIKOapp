@@ -4,7 +4,7 @@ import test from 'node:test';
 import { promptOrchestrator } from '../ai/PromptOrchestrator.js';
 
 test('shared system prompt no longer forces conclusion-evidence-next-step formatting', () => {
-  const prompt = promptOrchestrator.getSystemPrompt('deepseek', 'TRADING', { routingMode: 'execution' });
+  const prompt = promptOrchestrator.getSystemPrompt('nvidia', 'TRADING', { routingMode: 'execution' });
 
   assert.ok(!prompt.includes('Structure output as: conclusion, evidence, next step.'));
   assert.match(prompt, /Do NOT force a fixed template such as "Conclusion \/ Evidence \/ Next step"/);

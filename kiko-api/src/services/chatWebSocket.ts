@@ -1,3 +1,26 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-16
+// Author: Rowan
+// Reason: chat streaming diagnostics need to distinguish broker emission from
+//         WebSocket delivery because a message can be chunked in the broker but
+//         still coalesced or missed by clients.
+// Goal: log session sequence numbers, payload sizes, connection counts, and
+//       chunk lengths at the WebSocket broadcast boundary.
+// Owns: user WebSocket fanout, per-session sequencing, buffering, and sync.
+// Does Not Own: chat generation, broker chunk creation, or frontend rendering.
+// Design Language:
+// - every diagnostic WS stream event should include the sequence number that clients see
+// - diagnostics must log metadata only, not raw assistant text
+// - high-frequency stream logs stay gated by CHAT_STREAM_DEBUG
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/test.txt
+// - Kind: runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: correlating backend chunk broadcasts with frontend receive logs
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-stream-diagnostics.md
 import { FastifyInstance } from 'fastify';
 import { WebSocket } from 'ws';
 import { randomUUID } from 'node:crypto';
@@ -5,6 +28,7 @@ import { verifyPrivyToken } from '../middleware/auth.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import * as chatRepo from '../repositories/chatRepository.js';
+import { logChatStreamDebug } from './chatStreamDebug.js';
 
 export interface ChatEvent {
     type: 'chunk' | 'task_status' | 'message_complete' | 'message_start' | 'error' | 'usage' | 'citations' | 'content_block' | 'client_action' | 'transaction_update' | 'transaction_confirmed' | 'transaction_complete' | 'latency_metrics' | 'agent_runtime';
@@ -230,6 +254,22 @@ export class ChatWebSocketService {
                 const seq = this.getNextSequence(normalizedEvent.sessionId);
                 const sequencedEvent: SequencedChatEvent = { ...normalizedEvent, seq };
                 payload = JSON.stringify(sequencedEvent);
+                const eventData = normalizedEvent.data || {};
+                const deltaText = eventData.content ?? eventData.delta ?? eventData.reasoning_content ?? '';
+                logChatStreamDebug(LogCode.WS_MESSAGE_SENT, 'ChatWS: stream event broadcast', {
+                    userId,
+                    eventType: normalizedEvent.type,
+                    sessionId: normalizedEvent.sessionId,
+                    seq,
+                    messageId: eventData.messageId || eventData.message_id || null,
+                    chunkType: normalizedEvent.type === 'chunk'
+                        ? (eventData.type === 'reasoning' ? 'reasoning' : 'content')
+                        : undefined,
+                    deltaLength: normalizedEvent.type === 'chunk' ? String(deltaText || '').length : undefined,
+                    payloadBytes: Buffer.byteLength(payload),
+                    connectionCount: userClients.size,
+                    bufferedCount: this.messageBuffer.get(normalizedEvent.sessionId)?.length || 0,
+                });
 
                 // Buffer for potential retransmission
                 this.bufferMessage(normalizedEvent.sessionId, sequencedEvent);

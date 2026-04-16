@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowDown, ChevronDown, Settings } from 'lucide-react';
+import { ArrowDown, ChevronDown, Plus, Settings } from 'lucide-react';
 import { motion } from 'framer-motion';
 import clsx from 'clsx';
 import styles from './Chat.module.css';
@@ -7,6 +7,35 @@ import { LiquidGlassEffect } from '../Effects/LiquidGlassEffect';
 import { ChatInputSuggestions, type SuggestionGroup, type SuggestionItem } from './ChatInputSuggestions';
 import { agentAttrs } from '../../agent/attrs';
 import { MODEL_OPTIONS, type ChatModelOption } from './chatConstants';
+import { ChatAttachmentTray } from './ChatAttachmentTray';
+import { COMPOSER_IMAGE_ACCEPT, type ComposerImageDraft } from './chatImageDrafts';
+
+// CONTEXT MEMORY
+// Updated: 2026-04-16
+// Author: Rowan
+// Reason: the live chat composer now owns local image-selection affordances in
+//         addition to text entry, and its button row must stay visually aligned
+//         with the existing model/settings/send controls.
+// Goal: keep the live chat composer as the single owner of in-chat prompt
+//       entry, including GPT-style local image previews ahead of eventual
+//       backend upload wiring.
+// Owns: live composer control layout, local draft preview placement, and file-picker entry affordance.
+// Does Not Own: draft validation policy, upload transport, or persisted message rendering.
+// Design Language:
+// - upload affordance should match the settings button material and footprint
+// - local image previews live above the textarea inside the same glass composer
+// - draft previews may be removed before send without affecting chat history
+// Document Provenance:
+// - Source: user-provided local UI requirement and screenshot review on 2026-04-16
+// - Kind: product doc
+// - Retrieved: 2026-04-16
+// - Applied To: `+` button placement left of settings and GPT-style preview strip
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
+// - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-local-image-composer-base.md
 
 interface ChatComposerProps {
     chatStarted: boolean;
@@ -19,6 +48,7 @@ interface ChatComposerProps {
     isModelDropdownOpen: boolean;
     isBusy: boolean;
     isStopping: boolean;
+    selectedImageDrafts: ComposerImageDraft[];
     inputTop: number | null;
     isKeyboardVisible: boolean;
     textareaRef: React.RefObject<HTMLTextAreaElement | null>;
@@ -34,6 +64,8 @@ interface ChatComposerProps {
     onCompositionEnd: () => void;
     onToggleModelDropdown: () => void;
     onSelectModel: (model: ChatModelOption) => void;
+    onSelectImages: (files: File[]) => void;
+    onRemoveImage: (attachmentId: string) => void;
     onOpenSettings: () => void;
     onPrimaryAction: () => void;
 }
@@ -49,6 +81,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
     isModelDropdownOpen,
     isBusy,
     isStopping,
+    selectedImageDrafts,
     inputTop,
     isKeyboardVisible,
     textareaRef,
@@ -64,9 +97,13 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
     onCompositionEnd,
     onToggleModelDropdown,
     onSelectModel,
+    onSelectImages,
+    onRemoveImage,
     onOpenSettings,
     onPrimaryAction,
 }) => {
+    const imageInputRef = React.useRef<HTMLInputElement>(null);
+
     if (!chatStarted) return null;
 
     return (
@@ -99,6 +136,24 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
                     onSelect={onSelectSuggestion}
                 />
                 <div className={styles.textareaContainer}>
+                    <input
+                        ref={imageInputRef}
+                        type="file"
+                        accept={COMPOSER_IMAGE_ACCEPT}
+                        multiple
+                        className={styles.hiddenImageInput}
+                        onChange={(event) => {
+                            const nextFiles = Array.from(event.target.files || []);
+                            if (nextFiles.length > 0) {
+                                onSelectImages(nextFiles);
+                            }
+                            event.target.value = '';
+                        }}
+                    />
+                    <ChatAttachmentTray
+                        attachments={selectedImageDrafts}
+                        onRemove={onRemoveImage}
+                    />
                     <textarea
                         ref={textareaRef}
                         className={styles.textArea}
@@ -145,6 +200,15 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
                             )}
                         </div>
 
+                        <button
+                            type="button"
+                            className={styles.uploadButton}
+                            {...agentAttrs({ id: 'chat.image.upload', role: 'button', action: 'open', page: 'chat' })}
+                            onClick={() => imageInputRef.current?.click()}
+                            title="Add image"
+                        >
+                            <Plus size={18} />
+                        </button>
                         <button
                             className={styles.settingsButton}
                             {...agentAttrs({ id: 'chat.settings.open', role: 'button', action: 'open', page: 'chat' })}

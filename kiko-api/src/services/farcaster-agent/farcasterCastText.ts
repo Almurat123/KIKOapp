@@ -5,17 +5,21 @@
 //         tests can validate cast-safe wrapping without importing the whole
 //         ingress worker and its runtime dependencies.
 // Goal: format assistant output into a short, readable public cast reply that
-//       stays byte-safe and only inserts line-break opportunities for
-//       continuous text runs that would otherwise render as a single overflow
-//       token.
+//       stays byte-safe, strips markdown-only decoration that Farcaster renders
+//       literally, reflows long sentence-heavy replies into short social
+//       paragraphs, and only inserts line-break opportunities for continuous
+//       text runs that would otherwise render as a single overflow token.
 // Owns: whitespace normalization, display-line wrapping, and UTF-8 byte
 //       truncation for public Farcaster replies.
 // Does Not Own: reply publication, mention ingress, model generation, or
 //               provider webhook delivery.
 // Design Language:
 // - Preserve meaningful paragraph boundaries instead of flattening replies.
-// - Leave normal space-delimited sentences intact; only chunk continuous text
-//   runs that lack natural break points.
+// - Strip markdown-only emphasis so public casts read like plain social text.
+// - Reflow long sentence-heavy replies into short paragraph groups before
+//   publication so the cast reads like a natural in-thread reply.
+// - Leave normal space-delimited sentences intact inside each paragraph; only
+//   chunk continuous text runs that lack natural break points.
 // - Keep truncation UTF-8 safe.
 // - Do not decide whether a reply should be sent; callers own that policy.
 // Document Provenance:
@@ -25,8 +29,22 @@
 // - Applied To: short public replies with explicit wrap opportunities only for
 //   continuous text
 // - Verification: verified in docs and code
+// - Source: runtime screenshot showing markdown emphasis markers rendered
+//   literally in a published Farcaster reply
+// - Kind: runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: markdown decoration stripping before cast publication
+// - Verification: verified in runtime observation and targeted tests
+// - Source: runtime comparison against other Farcaster bots that format replies
+//   as short conversational paragraphs instead of one dense block
+// - Kind: runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: sentence-aware paragraph reflow before cast publication
+// - Verification: verified in targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-reply-plain-text-sanitizer.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-reply-sentence-reflow.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-reply-natural-wrap.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-reply-text-wrapping.md
 // - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
@@ -34,16 +52,98 @@
 
 const DEFAULT_CAST_REPLY_MAX_BYTES = 320;
 const MAX_CAST_REPLY_LINE_CHARS = 42;
+const MAX_SOCIAL_PARAGRAPH_CHARS = 110;
+const MAX_SOCIAL_PARAGRAPH_SENTENCES = 2;
+
+function stripCastMarkdownDecorators(text: string): string {
+  return String(text || '')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '$1')
+    .replace(/\*\*([^*\n]+)\*\*/g, '$1')
+    .replace(/__([^_\n]+)__/g, '$1')
+    .replace(/`([^`\n]+)`/g, '$1');
+}
 
 function normalizeCastReplyWhitespace(text: string): string {
-  return String(text || '')
+  return stripCastMarkdownDecorators(text)
     .replace(/\r\n?/g, '\n')
     .replace(/[ \t\f\v]+/g, ' ')
-    .split('\n')
-    .map((line) => line.trim())
+    .replace(/\n{3,}/g, '\n\n')
+    .split('\n\n')
+    .map((paragraph) => paragraph
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .join(' ')
+      .trim())
     .filter(Boolean)
-    .join('\n')
+    .join('\n\n')
     .trim();
+}
+
+function splitIntoSentences(line: string): string[] {
+  const text = String(line || '').trim();
+  if (!text) return [];
+  const sentences: string[] = [];
+  let current = '';
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const prev = index > 0 ? text[index - 1] : '';
+    const next = index + 1 < text.length ? text[index + 1] : '';
+    current += char;
+
+    const isDecimalPoint = char == '.' && /\d/.test(prev) && /\d/.test(next);
+    const isBoundaryPunctuation = /[.!?。！？]/.test(char) && !isDecimalPoint;
+    const nextStartsNewSentence = !next || /\s/.test(next);
+
+    if (isBoundaryPunctuation && nextStartsNewSentence) {
+      const sentence = current.trim();
+      if (sentence) sentences.push(sentence);
+      current = '';
+    }
+  }
+
+  const tail = current.trim();
+  if (tail) sentences.push(tail);
+  return sentences;
+}
+
+function isListLike(line: string): boolean {
+  return /^([-*•]|\d+\.)\s+/.test(String(line || '').trim());
+}
+
+function reflowSocialParagraph(line: string): string[] {
+  const text = String(line || '').trim();
+  if (!text) return [];
+  if (isListLike(text) || !/\s/.test(text)) return [text];
+
+  const sentences = splitIntoSentences(text);
+  if (sentences.length <= 1 && text.length <= MAX_SOCIAL_PARAGRAPH_CHARS) {
+    return [text];
+  }
+
+  const groups: string[] = [];
+  let current = '';
+  let sentenceCount = 0;
+
+  for (const sentence of sentences.length > 0 ? sentences : [text]) {
+    const candidate = current ? `${current} ${sentence}` : sentence;
+    const shouldFlush = Boolean(current) && (
+      candidate.length > MAX_SOCIAL_PARAGRAPH_CHARS
+      || sentenceCount >= MAX_SOCIAL_PARAGRAPH_SENTENCES
+    );
+    if (shouldFlush) {
+      groups.push(current);
+      current = sentence;
+      sentenceCount = 1;
+    } else {
+      current = candidate;
+      sentenceCount += 1;
+    }
+  }
+
+  if (current) groups.push(current);
+  return groups;
 }
 
 function chunkContinuousText(value: string, maxChars: number): string[] {
@@ -63,10 +163,17 @@ function wrapCastReplyLine(line: string, maxChars: number): string[] {
 }
 
 function wrapCastReplyText(text: string, maxChars: number = MAX_CAST_REPLY_LINE_CHARS): string {
-  return text
-    .split('\n')
-    .flatMap((line) => wrapCastReplyLine(line, maxChars))
-    .join('\n')
+  const paragraphs = text
+    .split('\n\n')
+    .flatMap((paragraph) =>
+      reflowSocialParagraph(paragraph).map((line) =>
+        wrapCastReplyLine(line, maxChars).join('\n')
+      )
+    )
+    .filter(Boolean);
+
+  return paragraphs
+    .join('\n\n')
     .trim();
 }
 

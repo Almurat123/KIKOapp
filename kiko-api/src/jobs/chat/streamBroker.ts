@@ -1,8 +1,33 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-16
+// Author: Rowan
+// Reason: live chat output can appear non-streaming even when model generation
+//         is streaming if the broker emits only one visible chunk or if chunks
+//         are coalesced later in WebSocket/frontend handling.
+// Goal: make broker-level content, reasoning, start, and complete emissions
+//       observable with per-message chunk counts and timing.
+// Owns: assistant message streaming state, chunk broadcasts, runtime cards,
+//       and final persistence for chat worker output.
+// Does Not Own: provider delta parsing, WebSocket client rendering, or frontend animation.
+// Design Language:
+// - each visible broker chunk should have a monotonic per-message index
+// - diagnostics should log lengths and timing, not raw text
+// - broker diagnostics must line up with ChatWS sequence diagnostics
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/test.txt
+// - Kind: runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: proving direct fast-path output was sent as one broker chunk
+// - Verification: verified in runtime log
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-stream-diagnostics.md
 import { randomUUID } from 'node:crypto';
 import * as chatRepo from '../../repositories/chatRepository.js';
 import { chatWS } from '../../services/chatWebSocket.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { logger } from '../../utils/logger.js';
+import { getTextMetrics, logChatStreamDebug } from '../../services/chatStreamDebug.js';
 import {
     createLeadingInternalScaffoldSuppressor,
     sanitizeReasoningForDisplay,
@@ -38,6 +63,9 @@ export class ChatStreamBroker {
     private planCard: PlanCard | null = null;
     private assistantData: Record<string, any> = {};
     private readonly contentSuppressor = createLeadingInternalScaffoldSuppressor();
+    private readonly startedAt = Date.now();
+    private contentChunkSeq = 0;
+    private reasoningChunkSeq = 0;
 
     constructor(
         private readonly params: {
@@ -51,6 +79,13 @@ export class ChatStreamBroker {
 
     start() {
         if (!this.params.userId) return;
+        logChatStreamDebug(LogCode.AI_ORCHESTRATOR, 'ChatStreamBroker: message_start broadcast', {
+            sessionId: this.params.sessionId,
+            taskId: this.params.taskId,
+            assistantMessageId: this.params.assistantMessageId,
+            model: this.params.model,
+            elapsedMs: Date.now() - this.startedAt,
+        });
         chatWS.broadcastToUser(this.params.userId, {
             type: 'message_start',
             sessionId: this.params.sessionId,
@@ -68,6 +103,17 @@ export class ChatStreamBroker {
         const visibleText = this.contentSuppressor.push(text);
         if (!visibleText) return;
         this.content += visibleText;
+        const chunkIndex = ++this.contentChunkSeq;
+        const metrics = getTextMetrics(visibleText);
+        logChatStreamDebug(LogCode.AI_ORCHESTRATOR, 'ChatStreamBroker: content chunk emitted', {
+            sessionId: this.params.sessionId,
+            taskId: this.params.taskId,
+            assistantMessageId: this.params.assistantMessageId,
+            chunkIndex,
+            deltaLength: metrics.length,
+            cumulativeContentLength: this.content.length,
+            elapsedMs: Date.now() - this.startedAt,
+        });
         if (this.params.userId) {
             chatWS.broadcastToUser(this.params.userId, {
                 type: 'chunk',
@@ -87,6 +133,17 @@ export class ChatStreamBroker {
             : sanitized;
         this.reasoning = sanitized;
         if (!visibleReasoning) return;
+        const chunkIndex = ++this.reasoningChunkSeq;
+        const metrics = getTextMetrics(visibleReasoning);
+        logChatStreamDebug(LogCode.AI_ORCHESTRATOR, 'ChatStreamBroker: reasoning chunk emitted', {
+            sessionId: this.params.sessionId,
+            taskId: this.params.taskId,
+            assistantMessageId: this.params.assistantMessageId,
+            chunkIndex,
+            deltaLength: metrics.length,
+            cumulativeReasoningLength: this.reasoning.length,
+            elapsedMs: Date.now() - this.startedAt,
+        });
         if (this.params.userId) {
             chatWS.broadcastToUser(this.params.userId, {
                 type: 'chunk',
@@ -502,6 +559,16 @@ export class ChatStreamBroker {
             const bufferedTail = this.contentSuppressor.flush();
             if (bufferedTail) {
                 this.content += bufferedTail;
+                const chunkIndex = ++this.contentChunkSeq;
+                logChatStreamDebug(LogCode.AI_ORCHESTRATOR, 'ChatStreamBroker: content suppressor tail emitted', {
+                    sessionId: this.params.sessionId,
+                    taskId: this.params.taskId,
+                    assistantMessageId: this.params.assistantMessageId,
+                    chunkIndex,
+                    deltaLength: bufferedTail.length,
+                    cumulativeContentLength: this.content.length,
+                    elapsedMs: Date.now() - this.startedAt,
+                });
                 if (this.params.userId) {
                     chatWS.broadcastToUser(this.params.userId, {
                         type: 'chunk',
@@ -521,6 +588,16 @@ export class ChatStreamBroker {
             status: 'complete',
         });
         if (this.params.userId) {
+            logChatStreamDebug(LogCode.AI_ORCHESTRATOR, 'ChatStreamBroker: message_complete broadcast', {
+                sessionId: this.params.sessionId,
+                taskId: this.params.taskId,
+                assistantMessageId: this.params.assistantMessageId,
+                contentChunks: this.contentChunkSeq,
+                reasoningChunks: this.reasoningChunkSeq,
+                contentLength: this.content.length,
+                reasoningLength: this.reasoning.length,
+                elapsedMs: Date.now() - this.startedAt,
+            });
             chatWS.broadcastToUser(this.params.userId, {
                 type: 'message_complete',
                 sessionId: this.params.sessionId,

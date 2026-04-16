@@ -3,9 +3,13 @@
 // Author: Rowan
 // Reason: chat runtime contracts now also carry Farcaster-specific reply style
 //         directives so public cast responses stay short and natural instead of
-//         drifting into report-style answers.
+//         drifting into report-style answers. Social-agent ingress now also
+//         needs a stable structured field for current-turn thread/image context
+//         so prompt assembly can create multimodal user messages without
+//         overloading plain history strings.
 // Goal: keep funds-sensitive confirmation state explicit and serializable while
-//       preserving turn-level runtime directives as a stable orchestration contract.
+//       preserving turn-level runtime directives and social-agent multimodal
+//       context as stable orchestration contracts.
 // Owns: TypeScript contracts shared across chat orchestration owners.
 // Does Not Own: wallet extraction, confirmation policy, or persistence writes.
 // Design Language:
@@ -14,6 +18,8 @@
 // - public executable args and audit metadata remain separate concepts
 // - runtime directives are part of the orchestration contract and may carry
 //   public-reply style rules for specific surfaces like Farcaster
+// - current-turn social multimodal context is runtime metadata, not replayed
+//   history
 // - literal address classification should be explicit context, not hidden model inference
 // Document Provenance:
 // - Source: runtime screenshot of awkward Farcaster public reply formatting
@@ -21,6 +27,12 @@
 // - Retrieved: 2026-04-16
 // - Applied To: RuntimeDirective extension for Farcaster reply style
 // - Verification: verified in code and targeted tests
+// - Source: X expansions/media docs + Neynar cast lookup docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-16
+// - Applied To: ChatContextSnapshot.runtime.socialInput for current-turn
+//   thread/image context
+// - Verification: verified in docs and code
 // - Source: Farcaster/runtime address-routing incidents where token contracts
 //           were interpreted as wallet-analysis targets
 // - Kind: runtime observation
@@ -34,6 +46,7 @@
 // - Verification: verified in TypeScript and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-reply-style-directive.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-address-preclassification-for-chat.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-wallet-audit-provenance.md
@@ -300,6 +313,7 @@ export interface ChatContextSnapshot {
         currentPage?: string;
         pageContext?: string;
         farcaster?: Record<string, any> | null;
+        socialInput?: Record<string, any> | null;
         userSettings?: Record<string, any> | null;
         toolContext?: Record<string, any> | null;
         tokenSnapshot?: Record<string, any> | null;

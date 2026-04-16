@@ -46,7 +46,6 @@ interface PlanCardData {
 
 interface PlanCardProps {
   plan: PlanCardData;
-  reasoningText?: string;
   isStreaming?: boolean;
   messageStatus?: string;
 }
@@ -56,11 +55,10 @@ type DetailEntry = {
   value: string;
 };
 
-export const PlanCard: React.FC<PlanCardProps> = ({ plan, reasoningText, isStreaming = false, messageStatus }) => {
+export const PlanCard: React.FC<PlanCardProps> = ({ plan, isStreaming = false, messageStatus }) => {
   const resolvedPlan = useMemo(() => normalizePlanForMessageStatus(plan, messageStatus), [plan, messageStatus]);
   const uiText = resolvedPlan.uiText || plan.uiText || {};
   const steps = Array.isArray(resolvedPlan.steps) ? resolvedPlan.steps : [];
-  const liveReasoning = normalizeReasoning(reasoningText || '');
   const visualStatus: PlanStepStatus = isStreaming && (resolvedPlan.status === 'pending' || resolvedPlan.status === 'in_progress')
     ? 'in_progress'
     : (resolvedPlan.status || 'pending');
@@ -100,16 +98,6 @@ export const PlanCard: React.FC<PlanCardProps> = ({ plan, reasoningText, isStrea
           </div>
         ) : null}
       </div>
-
-      {liveReasoning ? (
-        <div className={planStyles.reasoningBlock}>
-          {uiText.reasoningLabel ? <div className={planStyles.reasoningLabel}>{uiText.reasoningLabel}</div> : null}
-          <div className={planStyles.reasoningText}>
-            {liveReasoning}
-            {isStreaming ? <span className={planStyles.reasoningCaret} aria-hidden="true" /> : null}
-          </div>
-        </div>
-      ) : null}
 
       <div className={planStyles.timeline}>
         {steps.map((step, index) => {
@@ -210,10 +198,6 @@ function labelForStatus(
 
 function compactSentence(value: string): string {
   return String(value || '').replace(/\s+/g, ' ').trim();
-}
-
-function normalizeReasoning(value: string): string {
-  return String(value || '').replace(/\r\n/g, '\n').trim();
 }
 
 function normalizePlanForMessageStatus(

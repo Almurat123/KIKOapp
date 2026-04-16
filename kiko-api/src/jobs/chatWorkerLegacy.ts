@@ -4263,6 +4263,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 userId: params.userId,
                 dateUtc,
                 modelCategory,
+                model: params.model,
                 assistantMessageId: params.assistantMessageId,
             });
         } catch (error: any) {

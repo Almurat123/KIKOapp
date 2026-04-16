@@ -1,5 +1,31 @@
 from __future__ import annotations
 
+# CONTEXT MEMORY
+# Updated: 2026-04-16
+# Author: Rowan
+# Reason: the generation SSE owner has to survive partial provider tool-call
+#         deltas where arguments arrive but the function name is blank, because
+#         dropping those calls creates noisy false negatives in downstream chat
+#         orchestration logs.
+# Goal: preserve a clean generation stream contract that can repair strongly
+#       identifiable empty-name tool calls before emitting final SSE events.
+# Owns: conversion from provider streaming events into generation SSE events.
+# Does Not Own: provider routing, tool execution, or chat business policy.
+# Design Language:
+# - emit provider deltas faithfully unless a deterministic repair is available
+# - repair empty tool names only from declared tool schemas and parsed arguments
+# - unresolved empty tool calls may be dropped, but only after explicit logging
+# Document Provenance:
+# - Source: production/runtime log showing an empty-name wallet PnL tool call
+# - Kind: runtime observation
+# - Retrieved: 2026-04-16
+# - Applied To: generation empty tool-call repair before SSE emission
+# - Verification: verified in runtime logs, code, and targeted tests
+# See also:
+# - /Users/almurat/KiKo/system-journal/INDEX.md
+# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-generation-empty-tool-call-repair.md
+# - /Users/almurat/KiKo/system-journal/conflicts.md
+
 import json
 import logging
 from typing import Any
@@ -9,6 +35,7 @@ from fastapi.responses import StreamingResponse
 
 from service_auth import require_internal_service
 from orchestration.llm_client import stream_llm_with_options
+from generation.tool_call_repair import infer_tool_name_from_arguments
 
 from .schemas import GenerationRequest
 
@@ -118,20 +145,31 @@ async def stream_generation(body: GenerationRequest):
                     yield encode_event("provider_state", {"finish_reason": finish_reason})
                 salvage_tool_call_arguments(tool_deltas)
                 for tool_call in tool_deltas.values():
-                    tool_name = str(((tool_call.get("function") or {}).get("name")) or "").strip()
-                    if not tool_name:
-                        logger.warning(
-                            "generation.ignoring_empty_tool_call session_id=%s task_id=%s payload=%s",
-                            body.metadata.get("session_id"),
-                            body.metadata.get("task_id"),
-                            tool_call,
-                        )
-                        continue
                     arguments = ((tool_call.get("function") or {}).get("arguments")) or "{}"
                     try:
                         parsed_arguments = json.loads(arguments)
                     except Exception:
                         parsed_arguments = {}
+                    tool_name = str(((tool_call.get("function") or {}).get("name")) or "").strip()
+                    if not tool_name:
+                        inferred_name = infer_tool_name_from_arguments(body.tools, parsed_arguments)
+                        if inferred_name:
+                            tool_name = inferred_name
+                            logger.warning(
+                                "generation.repaired_empty_tool_call session_id=%s task_id=%s inferred_name=%s payload=%s",
+                                body.metadata.get("session_id"),
+                                body.metadata.get("task_id"),
+                                inferred_name,
+                                tool_call,
+                            )
+                        else:
+                            logger.warning(
+                                "generation.ignoring_empty_tool_call session_id=%s task_id=%s payload=%s",
+                                body.metadata.get("session_id"),
+                                body.metadata.get("task_id"),
+                                tool_call,
+                            )
+                            continue
                     yield encode_event("tool_call", {
                         "id": str(tool_call.get("id") or ""),
                         "name": tool_name,

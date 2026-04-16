@@ -1,5 +1,31 @@
 from __future__ import annotations
 
+# CONTEXT MEMORY
+# Updated: 2026-04-16
+# Author: Rowan
+# Reason: orchestration can also receive merged tool deltas with a blank
+#         function name even though the argument shape clearly maps to one
+#         allowed tool; dropping those calls creates avoidable routing noise.
+# Goal: keep orchestration rounds stable by repairing empty tool names whenever
+#       the allowed tool schema makes the match deterministic.
+# Owns: orchestration-round assembly, provider event adaptation, and tool-call
+#       forwarding inside the Python orchestration service.
+# Does Not Own: final chat rendering, provider SDK behavior, or external tool handlers.
+# Design Language:
+# - tool-call repair should be deterministic and schema-based
+# - unresolved empty names must stay visible in logs instead of being guessed
+# - orchestration should preserve the same repair behavior as generation SSE
+# Document Provenance:
+# - Source: production/runtime log showing an empty-name wallet PnL tool call
+# - Kind: runtime observation
+# - Retrieved: 2026-04-16
+# - Applied To: orchestration empty tool-call repair
+# - Verification: verified in runtime logs and code
+# See also:
+# - /Users/almurat/KiKo/system-journal/INDEX.md
+# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-generation-empty-tool-call-repair.md
+# - /Users/almurat/KiKo/system-journal/conflicts.md
+
 import asyncio
 from datetime import datetime, timedelta, timezone
 import logging
@@ -12,6 +38,7 @@ from .prompt_assembler import assemble_messages
 from .provider_router import resolve_provider
 from .schemas import ChatContextSnapshotModel, OrchestrationEvent, ToolResultModel
 from .skill_resolver import resolve_skills
+from generation.tool_call_repair import infer_tool_name_from_arguments
 
 logger = logging.getLogger(__name__)
 
@@ -186,7 +213,7 @@ class OrchestrationService:
     async def _run(self, state: RunState):
         try:
             snapshot = state.snapshot.model_dump()
-            provider_info = resolve_provider(snapshot.get("model") or "deepseek-chat")
+            provider_info = resolve_provider(snapshot.get("model") or "glm-5")
             trading_intent = None
             skill_resolution = resolve_skills(snapshot, trading_intent)
             logger.info(
@@ -303,13 +330,24 @@ class OrchestrationService:
                         parsed_arguments = {}
                     tool_name = str(merged["function"]["name"] or "").strip()
                     if not tool_name:
-                        logger.warning(
-                            "orchestration.ignoring_empty_tool_call run_id=%s round=%s payload=%s",
-                            state.run_id,
-                            round_index,
-                            merged,
-                        )
-                        continue
+                        inferred_name = infer_tool_name_from_arguments(tools, parsed_arguments)
+                        if inferred_name:
+                            tool_name = inferred_name
+                            logger.warning(
+                                "orchestration.repaired_empty_tool_call run_id=%s round=%s inferred_name=%s payload=%s",
+                                state.run_id,
+                                round_index,
+                                inferred_name,
+                                merged,
+                            )
+                        else:
+                            logger.warning(
+                                "orchestration.ignoring_empty_tool_call run_id=%s round=%s payload=%s",
+                                state.run_id,
+                                round_index,
+                                merged,
+                            )
+                            continue
                     if provider_info.get("provider") == "grok" and tool_name in PROVIDER_MANAGED_NATIVE_TOOLS:
                         provider_managed_calls.append({
                             "id": merged["id"],

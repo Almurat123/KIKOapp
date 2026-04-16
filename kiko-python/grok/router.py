@@ -2,6 +2,40 @@
 Grok API Service - FastAPI proxy for xAI Grok API
 Supports streaming responses and tool use (web_search, x_search, custom tools)
 """
+# CONTEXT MEMORY
+# Updated: 2026-04-16
+# Author: Rowan
+# Reason: Grok social-agent requests now carry current-turn X/Farcaster post
+#         images as structured content from Node. xAI's official image
+#         understanding path requires image inputs to be passed as image content
+#         objects rather than text-only URLs, and advises not to store
+#         request/response history for image requests.
+# Goal: convert structured social image content into xAI SDK image inputs while
+#       keeping the existing streaming/tool protocol stable.
+# Owns: xAI SDK request construction, native search/tool attachment, stream
+#       normalization, and Grok-specific provider safety gates.
+# Does Not Own: Node-side provider selection, social webhook hydration, or
+#               NVIDIA/OpenAI multimodal request shaping.
+# Design Language:
+# - Grok receives the same upstream `text` + `image_url` shape as other
+#   OpenAI-compatible providers, then adapts it at the xAI boundary.
+# - Image URLs are provider inputs, not prompt-text evidence.
+# - xAI image requests must not rely on server-stored prior messages.
+# - Tool streaming and citation events must remain compatible with existing
+#   chat-completion consumers.
+# Document Provenance:
+# - Source: xAI Image Understanding docs
+# - Kind: official API doc
+# - Retrieved: 2026-04-16
+# - Applied To: converting structured image content to xAI SDK image inputs and
+#   disabling server-side history storage for image requests
+# - Verification: verified in docs and code
+# See also:
+# - /Users/almurat/KiKo/system-journal/INDEX.md
+# - /Users/almurat/KiKo/system-journal/design-language/social-agent-multimodal-input.md
+# - /Users/almurat/KiKo/system-journal/owner-map/social-agent-multimodal-input.md
+# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-kimi-grok-social-image-input.md
+# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
 import os
 import json
 import grpc
@@ -17,7 +51,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from xai_sdk.chat import user, system, tool, tool_result
+from xai_sdk.chat import user, system, tool, tool_result, image as chat_image
 from xai_sdk.tools import (
     web_search,
     x_search,
@@ -32,6 +66,12 @@ from grok.tool_bridge import normalize_tool_request
 from grok.tool_events import build_stream_chunk_id, build_tool_status_chunk, summarize_tool_names
 from grok.tool_policy import resolve_requested_tool_policy
 from grok.tool_scheduler import PlannedToolCall, execute_planned_custom_tools
+from grok.message_content import (
+    append_text_content,
+    extract_image_urls,
+    extract_text_content,
+    messages_have_image_content,
+)
 
 # Load environment variables
 load_dotenv()
@@ -1410,7 +1450,7 @@ async def execute_custom_tool(tool_name: str, arguments: dict, auth_token: str =
 
 class Message(BaseModel):
     role: str  # 'system', 'user', or 'assistant'
-    content: str
+    content: Any = None
 
 
 def normalize_model_name(model: str) -> str:
@@ -1515,6 +1555,25 @@ class ChatResponse(BaseModel):
     usage: Optional[dict] = None
 
 
+def message_text_content(message: Message) -> str:
+    return extract_text_content(getattr(message, "content", None)).strip()
+
+
+def append_user_content_to_chat(chat, content: Any) -> bool:
+    text = extract_text_content(content).strip()
+    image_urls = extract_image_urls(content)
+    if not text and not image_urls:
+        return False
+
+    args: list[Any] = []
+    if text:
+        args.append(text)
+    for image_url in image_urls:
+        args.append(chat_image(image_url=image_url, detail="high"))
+    chat.append(user(*args))
+    return True
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
@@ -1591,7 +1650,7 @@ async def chat_completions(
         
         # Optional RAG integration: disabled unless ENABLE_RAG_SERVICE is turned on.
         # Extract raw user query from the USER_QUERY block when available to avoid context pollution.
-        last_user_msg = next((m.content for m in reversed(request.messages) if m.role == "user"), "")
+        last_user_msg = next((message_text_content(m) for m in reversed(request.messages) if m.role == "user"), "")
         raw_user_query = last_user_msg
         match = re.search(r"USER_QUERY_START\\n([\\s\\S]*?)\\nUSER_QUERY_END", last_user_msg)
         if match:
@@ -1602,7 +1661,10 @@ async def chat_completions(
                 # Inject into the last user message content (consistent with Node.js approach)
                 for m in reversed(request.messages):
                     if m.role == "user":
-                        m.content += f"\n\n[RELEVANT DOCUMENTATION CONTEXT]:\n{rag_context}\n\n(Use the above context to answer if relevant/needed)"
+                        m.content = append_text_content(
+                            m.content,
+                            f"\n\n[RELEVANT DOCUMENTATION CONTEXT]:\n{rag_context}\n\n(Use the above context to answer if relevant/needed)",
+                        )
                         break
         
         # Add tools if enabled
@@ -1824,6 +1886,10 @@ async def chat_completions(
                     return 1
                 tools = sorted(tools, key=tool_priority)
 
+        has_image_input = messages_have_image_content(request.messages)
+        store_messages = not has_image_input
+        previous_response_id = request.previous_response_id if not has_image_input else None
+
         # Create chat instance with tools
         log_tools(f"[Chat] Creating chat with model: {normalized_model} (original: {request.model})")
         if tools:
@@ -1839,16 +1905,16 @@ async def chat_completions(
                 tools=tools,
                 tool_choice=tool_choice,
                 include=include_options,
-                store_messages=True,
-                previous_response_id=request.previous_response_id,
+                store_messages=store_messages,
+                previous_response_id=previous_response_id,
             )
             log_tools(f"[Chat] Chat created")
         else:
             chat = client.chat.create(
                 model=normalized_model,
                 include=include_options,
-                store_messages=True,
-                previous_response_id=request.previous_response_id,
+                store_messages=store_messages,
+                previous_response_id=previous_response_id,
             )
             log_tools(f"[Chat] Chat created without tools")
         
@@ -1882,7 +1948,7 @@ async def chat_completions(
         added_user_messages = 0
         for i, msg in enumerate(messages_to_add):
             if msg.role == "system":
-                sys_content = (msg.content or "").strip()
+                sys_content = message_text_content(msg)
                 if not sys_content:
                     continue
                 # CRITICAL: Use the system prompt from Node.js (kiko-api)
@@ -1891,10 +1957,9 @@ async def chat_completions(
                 chat.append(system(sys_content))
                 log_tools(f"[Messages] [{i+1}] System prompt from Node.js (length={len(sys_content)} chars)")
             elif msg.role == "user":
-                user_content = (msg.content or "").strip()
-                if not user_content:
+                if not append_user_content_to_chat(chat, msg.content):
                     continue
-                chat.append(user(user_content))
+                user_content = message_text_content(msg)
                 added_user_messages += 1
                 log_tools(f"[Messages] [{i+1}] User: {user_content[:50]}...")
             elif msg.role == "assistant":
@@ -2000,13 +2065,13 @@ async def chat_completions(
                     )
 
                     for msg in messages_to_add:
-                        content = (msg.content or "").strip() if hasattr(msg, "content") else ""
-                        if not content:
-                            continue
                         if msg.role == "system":
+                            content = message_text_content(msg) if hasattr(msg, "content") else ""
+                            if not content:
+                                continue
                             finalizer_chat.append(system(content))
                         elif msg.role == "user":
-                            finalizer_chat.append(user(content))
+                            append_user_content_to_chat(finalizer_chat, msg.content)
 
                     finalizer_chat.append(system(
                         "FINALIZATION MODE: You have already completed all tool usage. "

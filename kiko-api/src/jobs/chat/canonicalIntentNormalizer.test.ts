@@ -410,9 +410,153 @@ test('normalizeCanonicalIntent forwards requested address classifications to the
     assert.equal(result.snapshot.normalizedIntent?.intent, 'token_analysis');
 });
 
-test('resolveNormalizationModel follows the selected model unless an override is configured', () => {
-    assert.equal(resolveNormalizationModel('grok-4-1-fast-reasoning'), 'grok-4-1-fast-reasoning');
+test('resolveNormalizationModel prefers fast non-reasoning variants unless an override is configured', () => {
+    assert.equal(resolveNormalizationModel('grok-4-1-fast-reasoning'), 'grok-4-1-fast-non-reasoning');
     assert.equal(resolveNormalizationModel('grok-4-1-fast-non-reasoning'), 'grok-4-1-fast-non-reasoning');
+    assert.equal(resolveNormalizationModel('kimi-k2-5-reasoning'), 'kimi-k2-5');
+    assert.equal(resolveNormalizationModel('moonshotai/kimi-k2.5-reasoning'), 'moonshotai/kimi-k2.5');
+    assert.equal(resolveNormalizationModel('glm-5'), 'kimi-k2-5-instant');
+    assert.equal(resolveNormalizationModel('glm-5-reasoning'), 'kimi-k2-5-instant');
+    assert.equal(resolveNormalizationModel('deepseek-reasoner'), 'deepseek-chat');
     assert.equal(resolveNormalizationModel('deepseek-chat'), 'deepseek-chat');
     assert.equal(resolveNormalizationModel('gpt-5-mini'), 'gpt-5-mini');
+});
+
+test('normalizeCanonicalIntent fast-paths deterministic assistant intro without calling the model', async () => {
+    let called = false;
+    const snapshot = makeSnapshot('Hi, who are you?');
+    snapshot.model = 'glm-5';
+
+    const result = await normalizeCanonicalIntent({
+        snapshot,
+        generationClient: {
+            async generate() {
+                called = true;
+                throw new Error('model should not be called for deterministic assistant intro');
+            },
+        } as any,
+    });
+
+    assert.equal(called, false);
+    assert.equal(result.state.status, 'ok');
+    assert.equal(result.snapshot.normalizedIntent?.domain, 'assistant_meta');
+    assert.equal(result.snapshot.normalizedIntent?.intent, 'assistant_meta');
+    assert.equal(result.snapshot.normalizedIntent?.searchMode, 'forbidden');
+});
+
+test('normalizeCanonicalIntent bypasses obvious non-chain questions without calling the model', async () => {
+    let called = false;
+
+    const result = await normalizeCanonicalIntent({
+        snapshot: makeSnapshot('你好，量子纠缠是什么？'),
+        generationClient: {
+            async generate() {
+                called = true;
+                throw new Error('model should not be called for obvious non-chain bypass');
+            },
+        } as any,
+    });
+
+    assert.equal(called, false);
+    assert.equal(result.snapshot.normalizedIntent, null);
+    assert.equal(result.state.status, 'ok');
+    assert.equal(result.state.source, 'deterministic');
+    assert.equal(result.state.bypassKind, 'general_non_chain');
+});
+
+test('normalizeCanonicalIntent still calls the model for token-domain queries', async () => {
+    let called = false;
+
+    const result = await normalizeCanonicalIntent({
+        snapshot: makeSnapshot('what is PEPE token?'),
+        generationClient: {
+            async generate() {
+                called = true;
+                return {
+                    text: JSON.stringify({
+                        domain: 'token',
+                        intent: 'token_analysis',
+                        task_mode: 'analyze',
+                        output_mode: 'narrative',
+                        search_mode: 'forbidden',
+                        search_target: 'none',
+                        confidence: 0.88,
+                        explanation: 'Token-domain question.',
+                        entities: {
+                            token_addresses: [],
+                            token_symbols: ['PEPE'],
+                            wallet_addresses: [],
+                            market_identifiers: [],
+                        },
+                        requested_chain: null,
+                        requested_time_window: null,
+                        evidence_requirements: ['onchain_token_evidence'],
+                        requires_realtime: false,
+                        requires_onchain_evidence: true,
+                        execution_candidate: false,
+                        row_count: null,
+                        locale: 'en',
+                        needs_clarification: false,
+                        clarification_question: null,
+                    }),
+                    reasoning: '',
+                    toolCalls: [],
+                };
+            },
+        } as any,
+    });
+
+    assert.equal(called, true);
+    assert.equal(result.state.status, 'ok');
+    assert.equal(result.snapshot.normalizedIntent?.intent, 'token_analysis');
+});
+
+test('normalizeCanonicalIntent preserves normalization reasoning for optional debug exposure', async () => {
+    const reasoningDeltas: string[] = [];
+    const result = await normalizeCanonicalIntent({
+        snapshot: makeSnapshot('analyze this token'),
+        generationClient: {
+            async generate(args: any) {
+                await args.onReasoningDelta?.('step one. ');
+                await args.onReasoningDelta?.('step two.');
+                return {
+                    text: JSON.stringify({
+                        domain: 'token',
+                        intent: 'token_analysis',
+                        task_mode: 'analyze',
+                        output_mode: 'narrative',
+                        search_mode: 'forbidden',
+                        search_target: 'none',
+                        confidence: 0.9,
+                        explanation: 'Token analysis request.',
+                        entities: {
+                            token_addresses: [],
+                            token_symbols: [],
+                            wallet_addresses: [],
+                            market_identifiers: [],
+                        },
+                        requested_chain: null,
+                        requested_time_window: null,
+                        evidence_requirements: ['onchain_token_evidence'],
+                        requires_realtime: false,
+                        requires_onchain_evidence: true,
+                        execution_candidate: false,
+                        row_count: null,
+                        locale: 'en',
+                        needs_clarification: false,
+                        clarification_question: null,
+                    }),
+                    reasoning: 'step one. step two.',
+                    toolCalls: [],
+                };
+            },
+        } as any,
+        onReasoningDelta: async (text) => {
+            reasoningDeltas.push(text);
+        },
+    });
+
+    assert.deepEqual(reasoningDeltas, ['step one. ', 'step two.']);
+    assert.equal(result.state.reasoningText, 'step one. step two.');
+    assert.equal(result.snapshot.normalizedIntent?.intent, 'token_analysis');
 });

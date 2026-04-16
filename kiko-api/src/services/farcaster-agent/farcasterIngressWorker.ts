@@ -1,20 +1,24 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-15
+// Updated: 2026-04-16
 // Author: Linh Tran
 // Reason: Farcaster mention automation now consumes normalized events from the
-//         webhook ingress when enabled, while still keeping low-frequency
-//         notification polling as a safety net because Neynar webhook delivery
-//         can be delayed or absent for reply-thread mention tests. Public cast
-//         replies also need client-safe formatting: collapsing all whitespace
-//         into one long line can make Farcaster clients visually truncate
-//         otherwise valid text.
+//         webhook ingress when enabled, while webhook-enabled polling falls
+//         back to Hub instead of burning Neynar notification quota. Public
+//         cast replies also need client-safe formatting: collapsing all
+//         whitespace into one long line can make Farcaster clients visually
+//         truncate otherwise valid text. Farcaster social-agent replies now
+//         also need hydrated cast images so the model can see embedded media
+//         instead of only parent-thread text.
 // Goal: preserve deterministic Farcaster mention handling while keeping polling
-//       cheap, idempotent, and aligned with linked-user chat sessions.
+//       cheap, idempotent, and aligned with linked-user chat sessions, while
+//       handing real thread/media context to the model.
 // Owns: inbound Farcaster mention polling fallback, webhook-fed dedupe, session
 //       routing, and reply dispatch.
 // Does Not Own: Farcaster account provisioning, frontend linking UI, or generic chat logic.
 // Design Language:
 // - Never process the same inbound event twice.
+// - Duplicate inbound events should resolve as quiet idempotence, not database
+//   error noise.
 // - Bootstrap the polling watermark without replaying old backlog on first start.
 // - Keep polling cadence env-driven with a 10-second default so ops can later
 //   raise it to 15 minutes or 1 hour without code changes.
@@ -25,8 +29,10 @@
 // - Insert newlines into long continuous text runs so Farcaster clients can wrap
 //   the reply instead of visually clipping it.
 // - Prefer webhook-fed mention ingress when the webhook is enabled, but keep
-//   notification polling as a low-frequency safety net instead of disabling it
-//   completely.
+//   notifications polling only for webhook-disabled recovery; webhook-enabled
+//   polling should fall back to Hub to avoid Neynar read spend.
+// - Hydrate current/parent cast context before model execution so image-bearing
+//   embeds remain visible to vision-capable providers.
 // Document Provenance:
 // - Source: Neynar webhook documentation and notifications/cast lookup APIs
 // - Kind: official API doc
@@ -45,11 +51,25 @@
 // - Applied To: keeping normal public replies short and formatted with
 //   line-break opportunities for client rendering
 // - Verification: verified in docs and code
+// - Source: runtime logs showing repeated webhook/polling delivery for the same
+//   Farcaster cast hash causing unique-key error noise on event_id
+// - Kind: runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: quiet idempotent inbound event persistence
+// - Verification: verified in runtime logs and code
+// - Source: Neynar cast lookup and notifications docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-16
+// - Applied To: fetching Farcaster thread text and image embeds before
+//   social-agent model execution
+// - Verification: verified in docs
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
 // - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-webhook-ingress.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-notifications-ingress.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-neynar-notifications-standdown.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-inbound-event-idempotence.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import prisma from '../../db/prisma.js';
@@ -73,6 +93,7 @@ import {
 } from './farcasterChatBridge.js';
 import { farcasterReplyService } from './farcasterReplyService.js';
 import { trimCastText } from './farcasterCastText.js';
+import { dedupeSocialImages, type SocialAgentInput } from '../socialAgentInput.js';
 
 const NOTIFICATION_WATERMARK_KEY = 'farcaster:ingress:mentions:last_seen_at';
 const RECOVERY_BATCH_SIZE = Math.max(1, Number(process.env.FARCASTER_AGENT_RECOVERY_BATCH_SIZE || '20'));
@@ -180,21 +201,63 @@ async function buildThreadContext(mention: FarcasterMentionEvent, maxDepth: numb
   return chain.reverse();
 }
 
-async function buildMentionPromptContent(mention: FarcasterMentionEvent): Promise<string> {
-  const context = await buildThreadContext(mention);
-  const lines = [
+function formatFarcasterHandle(username?: string | null, fid?: number | null): string {
+  const normalized = String(username || '').trim().replace(/^@/, '');
+  if (normalized) return `@${normalized}`;
+  return `fid:${fid ?? 'unknown'}`;
+}
+
+function buildFarcasterThreadContextText(params: {
+  parents: FarcasterCastContext[];
+}): string | null {
+  const lines = params.parents.map((cast) => `Parent ${formatFarcasterHandle(cast.authorUsername, cast.authorFid)}: ${cast.text}`);
+  return lines.length > 0 ? lines.join('\n') : null;
+}
+
+async function buildMentionPromptContent(mention: FarcasterMentionEvent): Promise<{
+  content: string;
+  socialInput: SocialAgentInput;
+}> {
+  const parents = await buildThreadContext(mention);
+  const current = await farcasterApiClient.fetchCastByHash({
+    fid: mention.authorFid,
+    hash: mention.castHash,
+  }).catch(() => null);
+  const threadContextText = buildFarcasterThreadContextText({ parents });
+  const currentText = String(current?.text || mention.text || '').trim();
+  const currentHandle = formatFarcasterHandle(current?.authorUsername || mention.authorUsername, current?.authorFid || mention.authorFid);
+  const content = [
     'Farcaster inbound mention context:',
-  ];
+    threadContextText,
+    `Current ${currentHandle}: ${currentText}`,
+  ].filter(Boolean).join('\n');
 
-  for (const cast of context) {
-    const handle = cast.authorUsername ? `@${cast.authorUsername}` : `fid:${cast.authorFid ?? 'unknown'}`;
-    lines.push(`Parent ${handle}: ${cast.text}`);
-  }
+  const images = dedupeSocialImages([
+    ...(current?.images || []).map((image) => ({
+      url: image.url,
+      altText: image.altText || null,
+      mimeType: image.mimeType || null,
+      sourceId: current?.hash || mention.castHash,
+      sourceLabel: image.sourceLabel || `current Farcaster cast by ${currentHandle}`,
+    })),
+    ...(parents.flatMap((parent) => (parent.images || []).map((image) => ({
+      url: image.url,
+      altText: image.altText || null,
+      mimeType: image.mimeType || null,
+      sourceId: parent.hash,
+      sourceLabel: image.sourceLabel || `parent Farcaster cast by ${formatFarcasterHandle(parent.authorUsername, parent.authorFid)}`,
+    })))),
+  ]);
 
-  const currentHandle = mention.authorUsername ? `@${mention.authorUsername}` : `fid:${mention.authorFid}`;
-  lines.push(`Current ${currentHandle}: ${mention.text}`);
-
-  return lines.join('\n');
+  return {
+    content,
+    socialInput: {
+      platform: 'farcaster',
+      currentText,
+      threadContextText,
+      images,
+    },
+  };
 }
 
 export async function createFarcasterInboundEventLog(params: {
@@ -205,9 +268,9 @@ export async function createFarcasterInboundEventLog(params: {
   payload: unknown;
   userId?: string | null;
 }) {
-  try {
-    const record = await prisma.farcasterEventLog.create({
-      data: {
+  const inserted = await prisma.farcasterEventLog.createMany({
+    data: [
+      {
         eventId: params.eventId,
         userId: params.userId || null,
         farcasterFid: params.farcasterFid,
@@ -217,12 +280,10 @@ export async function createFarcasterInboundEventLog(params: {
         payload: params.payload as any,
         status: 'received',
       },
-    });
-    return { accepted: true, record };
-  } catch (error: any) {
-    if (error?.code === 'P2002') return { accepted: false, record: null };
-    throw error;
-  }
+    ],
+    skipDuplicates: true,
+  });
+  return { accepted: inserted.count > 0, record: null };
 }
 
 async function claimInboundEvent(eventId: string): Promise<boolean> {
@@ -476,10 +537,13 @@ export class FarcasterIngressWorker {
       username: mention.authorUsername || user.farcasterUsername || null,
     });
 
+    const inboundPrompt = await buildMentionPromptContent(mention);
+
     const queued = await enqueueFarcasterAgentMessage({
       userId: user.privyDid,
       sessionId: mapping.chatSessionId,
-      content: await buildMentionPromptContent(mention),
+      content: inboundPrompt.content,
+      socialInput: inboundPrompt.socialInput,
       farcasterFid: mention.authorFid,
       farcasterUsername: mention.authorUsername || user.farcasterUsername || null,
       sourceMessageId: mention.castHash,
