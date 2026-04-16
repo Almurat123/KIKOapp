@@ -1,6 +1,6 @@
 // CONTEXT MEMORY
 // Updated: 2026-04-17
-// Author: Linh Tran
+// Author: Linh Tran / Almurat
 // Reason: Farcaster mention automation now consumes normalized events from the
 //         webhook ingress when enabled, while webhook-enabled polling falls
 //         back to Hub instead of burning Neynar notification quota. Public
@@ -116,6 +116,21 @@ const REPLY_CONTINUATION_LOOKBACK_MS = Math.max(
   Number(process.env.FARCASTER_AGENT_REPLY_CONTINUATION_LOOKBACK_MS || String(7 * 24 * 60 * 60 * 1000)),
 );
 
+// Maximum round-trips per conversation thread before the bot stops responding.
+// Prevents infinite bot-to-bot loops and excessive self-conversation.
+const MAX_CONVERSATION_ROUND_TRIPS = Math.max(
+  1,
+  Number(process.env.FARCASTER_AGENT_MAX_ROUND_TRIPS || '10'),
+);
+
+// Comma-separated list of FIDs that should be treated as bots and ignored.
+const BLOCKED_BOT_FIDS: Set<number> = new Set(
+  String(process.env.FARCASTER_AGENT_BLOCKED_BOT_FIDS || '')
+    .split(',')
+    .map((v) => Number(v.trim()))
+    .filter((v) => Number.isFinite(v) && v > 0),
+);
+
 function compareIsoTimestamps(a?: string | null, b?: string | null): number {
   const left = a || '';
   const right = b || '';
@@ -191,8 +206,13 @@ function normalizeMentionPayload(payload: unknown): FarcasterMentionEvent | null
   const text = String(item?.text || '').trim();
   const authorFid = Number(item?.authorFid || item?.author_fid);
   if (!castHash || !text || !Number.isFinite(authorFid) || authorFid <= 0) return null;
+  // CRITICAL FIX: Always derive eventId from castHash so that the same cast
+  // can never be processed twice regardless of source (webhook vs polling vs
+  // recovery). External eventId values (e.g. Neynar notification IDs) are
+  // intentionally ignored because the same cast produces different Neynar IDs
+  // across webhook deliveries and notification page fetches.
   return {
-    eventId: String(item?.eventId || item?.event_id || `farcaster:mention:${castHash}`).trim(),
+    eventId: `farcaster:mention:${castHash}`,
     notificationType: item?.notificationType === 'replies' ? 'replies' : 'mentions',
     castHash,
     text,
@@ -478,6 +498,7 @@ export class FarcasterIngressWorker {
   private filterAdmissibleFreshEvents(events: FarcasterMentionEvent[]): FarcasterMentionEvent[] {
     return events
       .filter((event) => event.authorFid !== env.farcasterAgent.botFid)
+      .filter((event) => !BLOCKED_BOT_FIDS.has(event.authorFid))
       .filter((event) => event.castHash && event.text && event.occurredAt);
   }
 
@@ -559,8 +580,23 @@ export class FarcasterIngressWorker {
   }
 
   private async handleMentionBusiness(mention: FarcasterMentionEvent): Promise<void> {
+    // CRITICAL: Never interact with self.
+    if (mention.authorFid === env.farcasterAgent.botFid) {
+      return;
+    }
+
     const user = await getUserByFarcasterFid(mention.authorFid);
     if (!user?.privyDid) {
+      // Rate-limit bind replies: only reply once per cast (idempotency key
+      // ensures this) and skip if this looks like a continuation turn that
+      // would just spam more "link your account" messages.
+      if (mention.notificationType === 'replies') {
+        logger.info(LogCode.SYS_INFO, '[Farcaster] skipping bind reply for continuation turn from unlinked user', {
+          castHash: mention.castHash,
+          authorFid: mention.authorFid,
+        });
+        return;
+      }
       await farcasterReplyService.replyToMention({
         farcasterFid: mention.authorFid,
         parentHash: mention.castHash,
@@ -595,6 +631,21 @@ export class FarcasterIngressWorker {
       parentCastHash: mention.parentHash || null,
       preferredModel,
     });
+
+    // Guard: stop responding in conversations that have exceeded the round-trip
+    // limit. This prevents infinite loops between the bot and automated accounts
+    // that keep replying.
+    if ((mapping as any).roundTripCount >= MAX_CONVERSATION_ROUND_TRIPS) {
+      logger.info(LogCode.SYS_INFO, '[Farcaster] conversation round-trip limit reached, skipping reply', {
+        mappingId: mapping.id,
+        roundTripCount: (mapping as any).roundTripCount,
+        maxRoundTrips: MAX_CONVERSATION_ROUND_TRIPS,
+        castHash: mention.castHash,
+        authorFid: mention.authorFid,
+      });
+      return;
+    }
+
     await syncFarcasterConversationModel({
       chatSessionId: mapping.chatSessionId,
       preferredModel,

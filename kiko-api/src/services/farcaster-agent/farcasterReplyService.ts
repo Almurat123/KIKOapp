@@ -1,6 +1,6 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-12
-// Author: Linh Tran
+// Updated: 2026-04-17
+// Author: Linh Tran / Almurat
 // Reason: Snapchain-based Farcaster mention replies still need the same
 //         delivery idempotency and retry accounting as other social surfaces,
 //         but with cast hashes and parent reply semantics instead of tweet IDs.
@@ -42,10 +42,14 @@ async function createOrReuseDelivery(params: {
   const existing = await prisma.farcasterMessageDelivery.findUnique({
     where: { idempotencyKey: params.idempotencyKey },
   });
-  if (existing && existing.status === 'sent') {
+  // CRITICAL FIX: treat both 'sent' AND 'pending' as already-handled.
+  // Without this, two concurrent calls can both pass the check before either
+  // creates the record, causing duplicate outbound replies.
+  if (existing && (existing.status === 'sent' || existing.status === 'pending')) {
     return { record: existing, alreadySent: true };
   }
   if (existing) {
+    // Only retry previously failed deliveries.
     const record = await prisma.farcasterMessageDelivery.update({
       where: { id: existing.id },
       data: {
