@@ -27,7 +27,7 @@ import { getStoredSlippageBps } from '@/config/slippageConfig';
 import { getUserSettings, saveUserSettings } from '../../services/userSettingsApi';
 import { ChatMessageList } from './ChatMessageList';
 import { ChatComposer } from './ChatComposer';
-import { ACTION_CARD_TYPE_MAP, COMMON_TOKENS, MODEL_OPTIONS, findChatModelOption, getDefaultChatModelOption } from './chatConstants';
+import { ACTION_CARD_TYPE_MAP, COMMON_TOKENS, MODEL_OPTIONS, findChatModelOption, getDefaultChatModelOption, supportsVisionChatModel } from './chatConstants';
 import {
     createComposerImageDraft,
     MAX_COMPOSER_IMAGE_COUNT,
@@ -50,15 +50,20 @@ const LazyChatStrategyRuntime = React.lazy(() => import('./ChatStrategyRuntime')
 //         events arrive out of order. The same owner now also has to preserve
 //         local image-draft state across the welcome shell -> live chat
 //         transition so first-send attachment previews do not disappear before
-//         the upload pipeline is wired.
+//         the upload pipeline runs, and it now owns selection-time image upload
+//         plus upload-phase interaction locking before the backend task starts.
+//         Operator testing then corrected the interaction: selected images must
+//         upload immediately and become ready before the send button starts a
+//         model task.
 // Goal: keep `ChatInterface` as the stable owner for welcome -> send ->
 //       conversation creation and live card presentation, rendering the chat
 //       surface immediately and attaching assistant cards even if their client
 //       actions arrive before the text placeholder, while carrying local image
-//       drafts through the same single-owner flow.
+//       drafts through the same single-owner flow, exposing upload progress in
+    //       the composer, and turning drafts into backend-prepared upload ids before send.
 // Owns: chat runtime bootstrapping, first-send/session behavior, local image
-//       draft lifecycle, and live assistant card attachment in the active
-//       conversation view.
+//       draft lifecycle, selection-time image upload orchestration, and live
+//       assistant card attachment in the active conversation view.
 // Does Not Own: route-level shell experiments or external page wrappers.
 // Design Language:
 // - first-send flow should stay inside one chat owner
@@ -69,7 +74,11 @@ const LazyChatStrategyRuntime = React.lazy(() => import('./ChatStrategyRuntime')
 // - prompt prefills may populate input, but should not introduce a second boot path
 // - rich assistant client actions must survive websocket event reordering inside
 //   the active conversation view
-// - local image drafts belong to the chat owner until backend upload exists
+// - local image drafts belong to the chat owner until backend upload starts
+// - image uploads should start when the user selects files, not when the model task starts
+    // - prepared upload ids are local draft state until send and must be discarded if never sent
+    // - refreshed image history must come from backend-signed attachments, not local object URLs
+// - text-only models must not silently accept image turns
 // - forbidden local patch patterns: route-wrapper handoff logic that auto-submits through remount
 // Document Provenance:
 // - Source: Runtime observation of repeated loading and streaming UI churn after first send
@@ -92,6 +101,16 @@ const LazyChatStrategyRuntime = React.lazy(() => import('./ChatStrategyRuntime')
 // - Retrieved: 2026-04-16
 // - Applied To: preserving local image draft previews across welcome -> chat transition and optimistic user messages
 // - Verification: verified in code
+    // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
+    // - Kind: repo doc
+    // - Retrieved: 2026-04-16
+    // - Applied To: selection-time image upload before send and image-capable model gating
+    // - Verification: verified in code
+    // - Source: operator correction that refreshed chat history must preserve image bubbles
+    // - Kind: product doc
+    // - Retrieved: 2026-04-16
+    // - Applied To: separating optimistic local image previews from durable backend-signed history attachments
+    // - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
@@ -100,6 +119,7 @@ const LazyChatStrategyRuntime = React.lazy(() => import('./ChatStrategyRuntime')
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-first-send-no-loading-chat-entry.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-copytrade-card-live-hydration.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-local-image-composer-base.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
 
 interface TaskState {
     id: string;
@@ -186,6 +206,28 @@ const isLocalUiTestEnvironment = () =>
     window.location.hostname === '127.0.0.1';
 
 const isLocalTxCardTestCommand = (text: string) => LOCAL_TX_CARD_TEST_COMMANDS.has(text.trim().toLowerCase());
+
+type PreparedDraftUpload = {
+    draftId: string;
+    uploadId: string;
+    expiresAt?: string;
+    contentType?: string;
+    size?: number;
+    width?: number | null;
+    height?: number | null;
+};
+
+function discardPreparedUploadIdsQuietly(uploadIds: string[], reason: string): void {
+    const uniqueUploadIds = Array.from(new Set(uploadIds.map((uploadId) => String(uploadId || '').trim()).filter(Boolean)));
+    if (uniqueUploadIds.length === 0) return;
+    chatApi.discardImageUploads(uniqueUploadIds).catch((error) => {
+        logger.warn('[chat.image] failed to discard prepared image uploads', {
+            reason,
+            uploadCount: uniqueUploadIds.length,
+            error,
+        });
+    });
+}
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     initialMessages = [],
@@ -280,13 +322,20 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const [selectedImageDrafts, setSelectedImageDrafts] = useState<ComposerImageDraft[]>([]);
     const selectedImageDraftsRef = useRef<ComposerImageDraft[]>([]);
     const retainedPreviewUrlsRef = useRef<Set<string>>(new Set());
+    const imageDraftOwnerMountedRef = useRef(true);
+    const isUploadingImages = selectedImageDrafts.some((draft) => draft.uploadState === 'uploading');
+    const hasImageDraftErrors = selectedImageDrafts.some((draft) => draft.uploadState === 'error');
+    const hasUnpreparedImageDrafts = selectedImageDrafts.some((draft) => draft.uploadState !== 'error' && !draft.uploadId);
+    const isImageSendBlocked = selectedImageDrafts.length > 0 && (isUploadingImages || hasImageDraftErrors || hasUnpreparedImageDrafts);
 
     useEffect(() => {
         selectedImageDraftsRef.current = selectedImageDrafts;
     }, [selectedImageDrafts]);
 
     useEffect(() => {
+        imageDraftOwnerMountedRef.current = true;
         return () => {
+            imageDraftOwnerMountedRef.current = false;
             for (const previewUrl of retainedPreviewUrlsRef.current) {
                 try {
                     URL.revokeObjectURL(previewUrl);
@@ -295,6 +344,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 }
             }
             retainedPreviewUrlsRef.current.clear();
+            discardPreparedUploadIdsQuietly(
+                selectedImageDraftsRef.current
+                    .map((draft) => draft.uploadId)
+                    .filter((uploadId): uploadId is string => Boolean(uploadId)),
+                'chat_interface_unmount',
+            );
         };
     }, []);
     const [isLoadingConversation, setIsLoadingConversation] = useState(false);
@@ -1684,51 +1739,216 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         retainedPreviewUrlsRef.current.delete(previewUrl);
     }, []);
 
-    const handleSelectImages = useCallback((files: File[]) => {
-        if (!files.length) return;
-
-        setSelectedImageDrafts((current) => {
-            if (current.length >= MAX_COMPOSER_IMAGE_COUNT) {
-                toast.error(`You can attach up to ${MAX_COMPOSER_IMAGE_COUNT} images.`);
-                return current;
-            }
-
-            const nextDrafts = [...current];
-            const rejectedMessages: string[] = [];
-            const remainingSlots = Math.max(0, MAX_COMPOSER_IMAGE_COUNT - current.length);
-
-            files.slice(0, remainingSlots).forEach((file) => {
-                const validationError = validateComposerImageFile(file);
-                if (validationError) {
-                    rejectedMessages.push(validationError);
-                    return;
-                }
-                const draft = createComposerImageDraft(file);
-                retainedPreviewUrlsRef.current.add(draft.previewUrl);
-                nextDrafts.push(draft);
-            });
-
-            if (files.length > remainingSlots) {
-                rejectedMessages.push(`Only ${MAX_COMPOSER_IMAGE_COUNT} images can be attached at once.`);
-            }
-
-            if (rejectedMessages.length > 0) {
-                toast.error(rejectedMessages[0]);
-            }
-
-            return nextDrafts;
-        });
+    const updateSelectedImageDrafts = useCallback((updater: (current: ComposerImageDraft[]) => ComposerImageDraft[]) => {
+        const nextDrafts = updater(selectedImageDraftsRef.current);
+        selectedImageDraftsRef.current = nextDrafts;
+        setSelectedImageDrafts(nextDrafts);
+        return nextDrafts;
     }, []);
 
     const handleRemoveSelectedImage = useCallback((draftId: string) => {
-        setSelectedImageDrafts((current) => {
+        if (isUploadingImages) return;
+        updateSelectedImageDrafts((current) => {
             const draft = current.find((item) => item.id === draftId);
             if (draft) {
                 revokeRetainedPreviewUrl(draft.previewUrl);
+                if (draft.uploadId) {
+                    discardPreparedUploadIdsQuietly([draft.uploadId], 'draft_removed');
+                }
             }
             return current.filter((item) => item.id !== draftId);
         });
-    }, [revokeRetainedPreviewUrl]);
+    }, [isUploadingImages, revokeRetainedPreviewUrl, updateSelectedImageDrafts]);
+
+    const uploadDraftsForSend = useCallback(async (drafts: ComposerImageDraft[]): Promise<PreparedDraftUpload[]> => {
+        if (drafts.length === 0) return [];
+
+        logger.debug('[chat.image] preparing image uploads', {
+            count: drafts.length,
+            files: drafts.map((draft) => ({
+                id: draft.id,
+                name: draft.name,
+                size: draft.size,
+                type: draft.type,
+            })),
+        });
+
+        let preparedUploadIds: string[] = [];
+        try {
+            const prepared = await chatApi.prepareImageUploads(
+                drafts.map((draft) => ({
+                    fileName: draft.name,
+                    contentType: draft.type,
+                    size: draft.size,
+                }))
+            );
+
+            const intents = Array.isArray(prepared?.uploads) ? prepared.uploads : [];
+            if (intents.length !== drafts.length) {
+                throw new Error('Image upload preparation returned an unexpected response.');
+            }
+            preparedUploadIds = intents.map((intent) => intent.uploadId);
+
+            logger.debug('[chat.image] upload intents ready', {
+                count: intents.length,
+                uploadIds: preparedUploadIds,
+            });
+
+            await Promise.all(intents.map(async (intent, index) => {
+                const draft = drafts[index];
+                logger.debug('[chat.image] browser upload start', {
+                    draftId: draft.id,
+                    uploadId: intent.uploadId,
+                    fileName: draft.name,
+                    size: draft.size,
+                    type: draft.type,
+                });
+                const response = await fetch(intent.uploadUrl, {
+                    method: intent.method || 'PUT',
+                    headers: {
+                        ...intent.headers,
+                        'Content-Type': draft.type,
+                    },
+                    body: draft.file,
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Image upload failed with HTTP ${response.status}.`);
+                }
+
+                logger.debug('[chat.image] browser upload complete', {
+                    draftId: draft.id,
+                    uploadId: intent.uploadId,
+                    fileName: draft.name,
+                });
+            }));
+
+            logger.debug('[chat.image] finalizing image uploads', {
+                count: preparedUploadIds.length,
+                uploadIds: preparedUploadIds,
+            });
+            const finalized = await chatApi.finalizeImageUploads(preparedUploadIds);
+            const finalizedUploads = Array.isArray(finalized?.uploads) ? finalized.uploads : [];
+            if (finalizedUploads.length !== intents.length) {
+                throw new Error('Image upload finalization returned an unexpected response.');
+            }
+            const finalizedByUploadId = new Map(finalizedUploads.map((upload) => [upload.uploadId, upload]));
+
+            return intents.map((intent, index) => {
+                const finalizedUpload = finalizedByUploadId.get(intent.uploadId);
+                return {
+                    draftId: drafts[index].id,
+                    uploadId: intent.uploadId,
+                    expiresAt: intent.expiresAt,
+                    contentType: finalizedUpload?.contentType,
+                    size: finalizedUpload?.size,
+                    width: finalizedUpload?.width,
+                    height: finalizedUpload?.height,
+                };
+            });
+        } catch (error) {
+            discardPreparedUploadIdsQuietly(preparedUploadIds, 'browser_upload_failed');
+            throw error;
+        }
+    }, []);
+
+    const uploadSelectedImageDrafts = useCallback((drafts: ComposerImageDraft[]) => {
+        void (async () => {
+            try {
+                const preparedDraftUploads = await uploadDraftsForSend(drafts);
+                if (!imageDraftOwnerMountedRef.current) {
+                    discardPreparedUploadIdsQuietly(
+                        preparedDraftUploads.map((upload) => upload.uploadId),
+                        'draft_owner_unmounted_before_upload_complete',
+                    );
+                    return;
+                }
+                const uploadByDraftId = new Map(preparedDraftUploads.map((upload) => [upload.draftId, upload]));
+                const nextDrafts = updateSelectedImageDrafts((current) => current.map((draft) => {
+                    const upload = uploadByDraftId.get(draft.id);
+                    if (!upload) return draft;
+                    return {
+                        ...draft,
+                        uploadState: 'idle' as const,
+                        uploadId: upload.uploadId,
+                        uploadExpiresAt: upload.expiresAt,
+                        type: upload.contentType || draft.type,
+                        size: upload.size || draft.size,
+                        width: upload.width,
+                        height: upload.height,
+                    };
+                }));
+                const retainedDraftIds = new Set(nextDrafts.map((draft) => draft.id));
+                const orphanUploadIds = preparedDraftUploads
+                    .filter((upload) => !retainedDraftIds.has(upload.draftId))
+                    .map((upload) => upload.uploadId);
+                discardPreparedUploadIdsQuietly(orphanUploadIds, 'draft_removed_before_upload_complete');
+            } catch (error) {
+                if (!imageDraftOwnerMountedRef.current) return;
+                logger.error('Image upload failed after selection:', error);
+                const failedDraftIds = new Set(drafts.map((draft) => draft.id));
+                updateSelectedImageDrafts((current) => current.map((draft) => (
+                    failedDraftIds.has(draft.id)
+                        ? { ...draft, uploadState: 'error' as const, uploadId: undefined, uploadExpiresAt: undefined }
+                        : draft
+                )));
+                toast.error('Image upload failed. Please remove it and try again.');
+            }
+        })();
+    }, [updateSelectedImageDrafts, uploadDraftsForSend]);
+
+    const handleSelectImages = useCallback((files: File[]) => {
+        if (!files.length) return;
+        if (!authenticated) {
+            try {
+                login();
+            } catch (error) {
+                logger.warn('Failed to trigger login before image upload:', error);
+            }
+            return;
+        }
+        if (!supportsVisionChatModel(selectedModel?.id)) {
+            toast.error('The selected model does not support image input yet.');
+            return;
+        }
+
+        const current = selectedImageDraftsRef.current;
+        if (current.length >= MAX_COMPOSER_IMAGE_COUNT) {
+            toast.error(`You can attach up to ${MAX_COMPOSER_IMAGE_COUNT} images.`);
+            return;
+        }
+
+        const rejectedMessages: string[] = [];
+        const remainingSlots = Math.max(0, MAX_COMPOSER_IMAGE_COUNT - current.length);
+        const draftsToUpload: ComposerImageDraft[] = [];
+
+        files.slice(0, remainingSlots).forEach((file) => {
+            const validationError = validateComposerImageFile(file);
+            if (validationError) {
+                rejectedMessages.push(validationError);
+                return;
+            }
+            const draft = {
+                ...createComposerImageDraft(file),
+                uploadState: 'uploading' as const,
+            };
+            retainedPreviewUrlsRef.current.add(draft.previewUrl);
+            draftsToUpload.push(draft);
+        });
+
+        if (files.length > remainingSlots) {
+            rejectedMessages.push(`Only ${MAX_COMPOSER_IMAGE_COUNT} images can be attached at once.`);
+        }
+
+        if (rejectedMessages.length > 0) {
+            toast.error(rejectedMessages[0]);
+        }
+
+        if (draftsToUpload.length === 0) return;
+
+        updateSelectedImageDrafts((latest) => [...latest, ...draftsToUpload]);
+        uploadSelectedImageDrafts(draftsToUpload);
+    }, [authenticated, login, selectedModel?.id, updateSelectedImageDrafts, uploadSelectedImageDrafts]);
 
     // Always-fresh ref so event listeners can call handleSend without stale closure
     const handleSendRef = useRef<(text: string) => void>(() => { });
@@ -1828,119 +2048,41 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             return;
         }
         if (isSubmittingRef.current) return;
-        if (!text.trim()) return;
         const draftSnapshot = selectedImageDraftsRef.current;
+        const trimmedText = text.trim();
+        const hasImageDrafts = draftSnapshot.length > 0;
+        if (!trimmedText && !hasImageDrafts) return;
+        if (hasImageDrafts && !supportsVisionChatModel(selectedModel?.id)) {
+            toast.error('The selected model does not support image input yet.');
+            return;
+        }
+        if (hasImageDrafts) {
+            const blockedDraft = draftSnapshot.find((draft) => draft.uploadState === 'uploading' || draft.uploadState === 'error' || !draft.uploadId);
+            if (blockedDraft) {
+                toast.error(blockedDraft.uploadState === 'error'
+                    ? 'Image upload failed. Please remove it and try again.'
+                    : 'Image is still uploading. Please wait.');
+                return;
+            }
+        }
         const attachmentSnapshot = draftSnapshot.map(toComposerImageAttachment);
-        if (customSettings?.fastSwapMode && requiresContractAddressInFastMode(text, chainId)) {
+        if (trimmedText && customSettings?.fastSwapMode && requiresContractAddressInFastMode(trimmedText, chainId)) {
             toast.error('Fast Swap Mode requires a contract address for non-whitelisted tokens.');
             return;
         }
+        const preparedImageUploadIds = draftSnapshot
+            .map((draft) => draft.uploadId)
+            .filter((uploadId): uploadId is string => Boolean(uploadId));
 
         isSubmittingRef.current = true;
-        if (!conversationId) {
-            setFirstSendPending(true);
-        }
-
-        // ============================================
-        // OPTIMISTIC UI: Update visual state IMMEDIATELY before any API calls
-        // This eliminates perceived delay when sending first message from WelcomeScreen
-        // ============================================
-
-        // 1. Switch to chat view immediately
-        sidebar?.setChatStarted(true);
-
-        // 2. Prepare and show user message immediately
-        const now = new Date();
-        const userMsg: Message = {
-            id: existingMessageId || Date.now().toString(),
-            role: 'user',
-            content: text,
-            clientCreatedAt: now.toISOString(),
-            timestamp: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            date: now.toISOString().split('T')[0],
-            type: 'text',
-            data: attachmentSnapshot.length > 0 ? { attachments: attachmentSnapshot } : undefined,
-        };
-
-        // CRITICAL: Immediately mark this message ID as processed to block the auto-send useEffect
-        processedMessagesRef.current.add(userMsg.id);
-
-        if (!existingMessageId && conversationId) {
-            // Replace placeholder message (from pendingAIPrompt) if it exists, otherwise append
-            const placeholderIdx = messages.findIndex(m => m.id.startsWith('pending-user-'));
-            let updated: Message[];
-            if (placeholderIdx >= 0) {
-                updated = messages.map((m, idx) => idx === placeholderIdx ? userMsg : m);
-            } else {
-                updated = [...messages, userMsg];
-            }
-            messagesRef.current = updated;
-            updateConversation(conversationId, {
-                messages: updated,
-                activeTask: { id: `task-${Date.now()}`, status: 'pending' }
-            });
-            registerPendingLocalUserMessage(conversationId, userMsg);
-        } else if (!existingMessageId && !conversationId) {
-            setWelcomePendingMessages(prev => [...prev.filter(m => m.id !== userMsg.id), userMsg]);
-        }
-
-        // 4. Clear input immediately
-        setInput('');
-        setSelectedImageDrafts([]);
-
-        // CRITICAL: Stop any previous generation BEFORE showing new thinking
-        if (isThinking || isStreaming || !!currentConv?.activeTask || !!sendAbortControllerRef.current) {
-            await stopGeneration(true);
-        }
-
-        // Context handles thinking state based on activeTask
-        setThinkingText('Thinking');
-        setThinkingStartTime(Date.now());
-
-        // 5. Optimistically set activeTask IMMEDIATELY for existing conversations
-        if (conversationId) {
-            updateConversation(conversationId, {
-                activeTask: { id: `task-${Date.now()}`, status: 'pending' }
-            });
-        }
-        // [Logic]: Explicitly close suggestions to prevent the box from persisting after message is sent.
-        // [Ref]: useSmartSuggestions defines closeSuggestions to set showSuggestions to false.
-        // [Risk]: If closeSuggestions is not available due to hook initialization race, this might fail silently.
-        suppressSuggestions();
-
-        if (textareaRef.current) {
-            textareaRef.current.style.height = 'auto';
-        }
-
-        // Scroll after the optimistic UI and thinking placeholder have painted.
-        userScrolledUpRef.current = false;
-        isAtBottomRef.current = true;
-        requestAnimationFrame(() => {
-            requestAnimationFrame(() => scrollToBottom(false));
-        });
-
         let currentConvId = conversationId;
+        let optimisticUserMsg: Message | null = null;
 
         try {
-            const sendAbortController = new AbortController();
-            sendAbortControllerRef.current = sendAbortController;
-            stopRequestedRef.current = false;
-
             // Perform client-side moderation check
-            const moderationResult = await moderationService.checkInput(text, conversationId, selectedModel?.id);
+            const moderationResult = await moderationService.checkInput(trimmedText, conversationId, selectedModel?.id);
             if (!moderationResult.safe) {
                 toast.error(moderationResult.reason || 'Message blocked by safety policy');
-                // Revert optimistic UI on moderation failure
-                if (conversationId) {
-                    updateConversation(conversationId, {
-                        messages: messages.filter(m => m.id !== userMsg.id),
-                        activeTask: null
-                    });
-                }
-                if (!conversationId) sidebar?.setChatStarted(false);
-                if (!conversationId) setWelcomePendingMessages(prev => prev.filter(m => m.id !== userMsg.id));
-                setSelectedImageDrafts(draftSnapshot);
-                setFirstSendPending(false);
                 return;
             }
 
@@ -1954,69 +2096,104 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             if (isStopping) {
                 logger.debug('Blocked send - currently stopping');
                 if (conversationId) clearActiveTask(conversationId, updateConversation, 'user_stop');
-                // If stopping a new conversation (no ID yet), just reset local state
-                if (!conversationId) sidebar?.setChatStarted(false);
-                if (!conversationId) setWelcomePendingMessages(prev => prev.filter(m => m.id !== userMsg.id));
-                setSelectedImageDrafts(draftSnapshot);
-                setFirstSendPending(false);
                 return;
             }
 
             // Use the live UI selection as the send source of truth.
             const modelToUse = selectedModel;
 
-            // Create conversation in background (after UI is already updated)
+            // Uploads already completed during image selection; sending only
+            // creates the session/task and passes prepared upload ids.
             if (!currentConvId) {
-                const newId = await createConversation(text, modelToUse.id);
+                const newId = await createConversation(trimmedText || 'Image upload', modelToUse.id);
                 if (newId) {
                     currentConvId = newId;
-                    // Update ref immediately
                     currentConversationIdRef.current = newId;
-
-                    // CRITICAL: Persist user message to the new conversation immediately
-                    messagesRef.current = [userMsg];
-                    updateConversation(newId, { messages: [userMsg] });
-                    registerPendingLocalUserMessage(newId, userMsg);
-                    setWelcomePendingMessages([]);
-
-                    // Navigate to new URL
-                    navigate(`/chat/${newId}`);
                 }
             }
 
             if (!currentConvId) {
-                // Revert optimistic UI on session creation failure
-                // Use conversationId if available (existing chat), otherwise just reset local state
-                if (conversationId) {
-                    updateConversation(conversationId, {
-                        messages: messages.filter(m => m.id !== userMsg.id),
-                        activeTask: null
-                    });
-                } else {
-                    sidebar?.setChatStarted(false);
-                    setWelcomePendingMessages(prev => prev.filter(m => m.id !== userMsg.id));
-                }
-                if (conversationId && messages.length > 0) {
-                    updateConversation(conversationId, { messages: [] });
-                    sidebar?.setChatStarted(false);
-                }
                 if (!authenticated) {
                     toast.error('Session expired. Login to KIKO to create chat session.');
                 } else {
                     toast.error('Unable to create chat session. Please refresh and try again.');
                 }
-                setSelectedImageDrafts(draftSnapshot);
-                setFirstSendPending(false);
                 return;
             }
 
-            if (currentConvId && currentConvId !== conversationId) {
-                // Set optimistic activeTask to show "Thinking" immediately for NEW conversations
+            if (!conversationId) {
+                setFirstSendPending(true);
+            }
+
+            sidebar?.setChatStarted(true);
+
+            const now = new Date();
+            const optimisticTask = { id: `task-${Date.now()}`, status: 'pending' as const };
+            const userMsg: Message = {
+                id: existingMessageId || Date.now().toString(),
+                role: 'user',
+                content: trimmedText,
+                clientCreatedAt: now.toISOString(),
+                timestamp: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                date: now.toISOString().split('T')[0],
+                type: 'text',
+                data: attachmentSnapshot.length > 0 ? { attachments: attachmentSnapshot } : undefined,
+            };
+            optimisticUserMsg = userMsg;
+
+            processedMessagesRef.current.add(userMsg.id);
+
+            if (!existingMessageId) {
+                if (conversationId) {
+                    const currentMessages = messagesRef.current;
+                    const placeholderIdx = currentMessages.findIndex((message) => message.id.startsWith('pending-user-'));
+                    const nextMessages = placeholderIdx >= 0
+                        ? currentMessages.map((message, index) => index === placeholderIdx ? userMsg : message)
+                        : [...currentMessages, userMsg];
+                    messagesRef.current = nextMessages;
+                    updateConversation(currentConvId, {
+                        messages: nextMessages,
+                        activeTask: optimisticTask,
+                    });
+                    registerPendingLocalUserMessage(currentConvId, userMsg);
+                } else {
+                    messagesRef.current = [userMsg];
+                    updateConversation(currentConvId, {
+                        messages: [userMsg],
+                        activeTask: optimisticTask,
+                        pendingAIPrompt: undefined,
+                    });
+                    registerPendingLocalUserMessage(currentConvId, userMsg);
+                    setWelcomePendingMessages([userMsg]);
+                    navigate(`/chat/${currentConvId}`);
+                }
+            } else {
                 updateConversation(currentConvId, {
-                    activeTask: { id: `task-${Date.now()}`, status: 'pending' },
-                    pendingAIPrompt: undefined
+                    activeTask: optimisticTask,
+                    pendingAIPrompt: undefined,
                 });
             }
+
+            setInput('');
+            updateSelectedImageDrafts(() => []);
+
+            setThinkingText('Thinking');
+            setThinkingStartTime(Date.now());
+            suppressSuggestions();
+
+            if (textareaRef.current) {
+                textareaRef.current.style.height = 'auto';
+            }
+
+            userScrolledUpRef.current = false;
+            isAtBottomRef.current = true;
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => scrollToBottom(false));
+            });
+
+            const sendAbortController = new AbortController();
+            sendAbortControllerRef.current = sendAbortController;
+            stopRequestedRef.current = false;
 
             // 3. WebSocket is already connected globally in App.tsx
             // checks are handled by handleGlobalChatEvent
@@ -2051,7 +2228,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     profileUrl: farcasterContext.profileUrl,
                 },
             };
-            const resp = await chatApi.sendMessage(currentConvId, text, {
+            const resp = await chatApi.sendMessage(currentConvId, trimmedText, {
                 model: modelToUse.id,
                 walletAddress: walletAddress,
                 chainId: chainId,
@@ -2063,6 +2240,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 balance: userBalances,
                 farcaster: contextPayload.farcaster,
                 context: contextPayload,
+                imageUploadIds: preparedImageUploadIds,
                 signal: sendAbortController.signal,
             });
 
@@ -2089,6 +2267,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 const currentMessages = messagesRef.current;
                 const exists = currentMessages.some(m => m.id === assistantMessage.id);
                 const nextMessages = exists ? currentMessages : [...currentMessages, aiMsg];
+                messagesRef.current = nextMessages;
 
                 updateConversation(currentConvId, {
                     messages: nextMessages,
@@ -2111,13 +2290,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             setFirstSendPending(false);
 
             const wasStoppedByUser = err.name === 'AbortError' || stopRequestedRef.current;
+            if (hasImageDrafts) {
+                discardPreparedUploadIdsQuietly(preparedImageUploadIds, wasStoppedByUser ? 'send_aborted' : 'send_failed');
+            }
             if (wasStoppedByUser) {
                 if (currentConvId) {
                     clearActiveTask(currentConvId, updateConversation, 'send_aborted');
                 } else if (conversationId) {
                     clearActiveTask(conversationId, updateConversation, 'send_aborted');
                 }
-                setSelectedImageDrafts(draftSnapshot);
                 return;
             }
 
@@ -2130,17 +2311,30 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 timestamp: new Date().toLocaleTimeString(),
             };
             if (currentConvId) {
+                const currentMessages = messagesRef.current;
+                const nextMessages = [...currentMessages, errorMsg];
+                messagesRef.current = nextMessages;
                 updateConversation(currentConvId, {
-                    messages: [...messages, errorMsg],
+                    messages: nextMessages,
                     activeTask: null
                 });
             } else if (conversationId) {
+                const currentMessages = messagesRef.current;
+                const nextMessages = [...currentMessages, errorMsg];
+                messagesRef.current = nextMessages;
                 updateConversation(conversationId, {
-                    messages: [...messages, errorMsg],
+                    messages: nextMessages,
                     activeTask: null
                 });
             }
-            setSelectedImageDrafts(draftSnapshot);
+            if (hasImageDrafts && optimisticUserMsg) {
+                updateSelectedImageDrafts(() => draftSnapshot.map((draft) => ({
+                    ...draft,
+                    uploadState: 'error' as const,
+                    uploadId: undefined,
+                    uploadExpiresAt: undefined,
+                })));
+            }
         } finally {
             sendAbortControllerRef.current = null;
             // Clear sending flag
@@ -2340,6 +2534,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     >
                         <WelcomeScreen
                             onSuggestionClick={handleSend}
+                            isUploadingImages={isUploadingImages}
+                            isImageSendBlocked={isImageSendBlocked}
                             selectedImageDrafts={selectedImageDrafts}
                             onSelectImages={handleSelectImages}
                             onRemoveImage={handleRemoveSelectedImage}
@@ -2429,6 +2625,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 isModelDropdownOpen={isModelDropdownOpen}
                 isBusy={isBusy}
                 isStopping={isStopping}
+                isUploadingImages={isUploadingImages}
+                isImageSendBlocked={isImageSendBlocked}
                 selectedImageDrafts={selectedImageDrafts}
                 inputTop={safariKeyboard.inputTop}
                 isKeyboardVisible={safariKeyboard.isKeyboardVisible}

@@ -15,8 +15,12 @@ from __future__ import annotations
 #         visible output surfaces. Runtime inspection also showed that GLM
 #         welcome/meta turns were returning plain assistant text without any
 #         preserved reasoning trace, so the gateway now has to request
-#         preserved thinking explicitly for NVIDIA-hosted GLM aliases. Kimi and
-#         Grok social-agent image turns also need provider-specific handling:
+#         preserved thinking explicitly for NVIDIA-hosted GLM aliases. Later
+#         product tuning also showed KiKo does not benefit from provider-default
+#         hot temperatures or always-on long reasoning for routine agent turns,
+#         so NVIDIA GLM/Kimi defaults now need a colder, lighter profile unless
+#         the caller explicitly chooses a reasoning alias. Kimi and Grok
+#         social-agent image turns also need provider-specific handling:
 #         NVIDIA Kimi can receive OpenAI-style `image_url` content arrays
 #         directly, while xAI image turns must be routed through the Grok SDK
 #         adapter that converts those arrays to xAI image inputs.
@@ -33,6 +37,8 @@ from __future__ import annotations
 # - Official NVIDIA-hosted API conventions take precedence over self-hosted examples.
 # - GLM preserved thinking should be requested explicitly instead of relying on
 #   hosted-runtime defaults.
+# - Everyday agent defaults should prefer colder temperatures and lighter
+#   thinking than provider showcase examples.
 # - Removed DeepSeek fallbacks must not silently remain the default provider path.
 # - Kimi image arrays may pass through NVIDIA chat/completions unchanged.
 # - xAI image turns must use the SDK gateway, not unverified direct chat-completions.
@@ -58,6 +64,13 @@ from __future__ import annotations
 # - Applied To: forwarding structured Kimi `image_url` message content through
 #   the NVIDIA chat/completions request body
 # - Verification: verified in docs and code
+# - Source: operator request to make GLM/Kimi faster and less exploratory for
+#   routine KiKo tasks
+# - Kind: product doc
+# - Retrieved: 2026-04-16
+# - Applied To: lowering NVIDIA GLM/Kimi default temperatures and disabling GLM
+#   thinking for the standard alias
+# - Verification: verified in code
 # - Source: xAI Image Understanding docs
 # - Kind: official API doc
 # - Retrieved: 2026-04-16
@@ -69,6 +82,7 @@ from __future__ import annotations
 # - /Users/almurat/KiKo/system-journal/design-language/social-agent-multimodal-input.md
 # - /Users/almurat/KiKo/system-journal/owner-map/social-agent-multimodal-input.md
 # - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-kimi-grok-social-image-input.md
+# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-lite-defaults.md
 # - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
 # - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-glm-preserved-thinking-on-nvidia.md
 # - /Users/almurat/KiKo/system-journal/conflicts.md
@@ -103,12 +117,23 @@ def _normalized_model(model: str) -> str:
     return str(model or "").strip().lower()
 
 
-def _resolve_nvidia_model(model: str) -> tuple[str, dict[str, Any] | None]:
+NVIDIA_KIMI_REASONING_TEMPERATURE = 0.6
+NVIDIA_KIMI_INSTANT_TEMPERATURE = 0.4
+NVIDIA_GLM_REASONING_TEMPERATURE = 0.6
+NVIDIA_GLM_FAST_TEMPERATURE = 0.3
+
+
+def _resolve_nvidia_request_profile(model: str) -> tuple[str, float | None, dict[str, Any] | None]:
     normalized = _normalized_model(model)
     glm_preserved_thinking = {
         "chat_template_kwargs": {
             "enable_thinking": True,
             "clear_thinking": False,
+        }
+    }
+    glm_fast_thinking = {
+        "chat_template_kwargs": {
+            "enable_thinking": False,
         }
     }
 
@@ -136,24 +161,33 @@ def _resolve_nvidia_model(model: str) -> tuple[str, dict[str, Any] | None]:
         "moonshotai/kimi-k2.5-fast",
         "moonshotai/kimi-k2.5-instant",
     }
-    glm_aliases = {
+    glm_fast_aliases = {
         "glm-5",
         "glm5",
-        "glm-5-reasoning",
-        "glm5-reasoning",
         "z-ai/glm5",
         "z-ai/glm-5",
+    }
+    glm_reasoning_aliases = {
+        "glm-5-reasoning",
+        "glm5-reasoning",
         "z-ai/glm5-reasoning",
         "z-ai/glm-5-reasoning",
     }
 
     if normalized in kimi_reasoning_aliases:
-        return "moonshotai/kimi-k2.5", None
+        return "moonshotai/kimi-k2.5", NVIDIA_KIMI_REASONING_TEMPERATURE, None
     if normalized in kimi_instant_aliases:
-        return "moonshotai/kimi-k2.5", {"thinking": {"type": "disabled"}}
-    if normalized in glm_aliases:
-        return "z-ai/glm5", glm_preserved_thinking
-    return model, None
+        return "moonshotai/kimi-k2.5", NVIDIA_KIMI_INSTANT_TEMPERATURE, {"thinking": {"type": "disabled"}}
+    if normalized in glm_fast_aliases:
+        return "z-ai/glm5", NVIDIA_GLM_FAST_TEMPERATURE, glm_fast_thinking
+    if normalized in glm_reasoning_aliases:
+        return "z-ai/glm5", NVIDIA_GLM_REASONING_TEMPERATURE, glm_preserved_thinking
+    return model, None, None
+
+
+def _resolve_nvidia_model(model: str) -> tuple[str, dict[str, Any] | None]:
+    resolved_model, _, extra_body = _resolve_nvidia_request_profile(model)
+    return resolved_model, extra_body
 
 
 def _coerce_text_content(value: Any) -> str:
@@ -304,12 +338,14 @@ async def _stream_nvidia(req: GenerateRequest, provider: str):
         yield GatewayEvent(event_type="error", provider="nvidia", payload={"message": "NVIDIA_API_KEY missing"})
         return
 
-    resolved_model, extra_body = _resolve_nvidia_model(req.model)
+    resolved_model, resolved_temperature, extra_body = _resolve_nvidia_request_profile(req.model)
     body: dict[str, Any] = {
         "model": resolved_model,
         "messages": [m.model_dump(exclude_none=True) for m in req.messages],
         "stream": True,
     }
+    if resolved_temperature is not None:
+        body["temperature"] = resolved_temperature
     if req.tools:
         body["tools"] = req.tools
         body["tool_choice"] = "auto"

@@ -15,16 +15,19 @@ import { COMPOSER_IMAGE_ACCEPT, type ComposerImageDraft } from './chatImageDraft
 // Author: Rowan
 // Reason: the live chat composer now owns local image-selection affordances in
 //         addition to text entry, and its button row must stay visually aligned
-//         with the existing model/settings/send controls.
+//         with the existing model/settings/send controls while allowing image-
+//         only sends into the upload pipeline.
 // Goal: keep the live chat composer as the single owner of in-chat prompt
-//       entry, including GPT-style local image previews ahead of eventual
-//       backend upload wiring.
+//       entry, including GPT-style local image previews and image-only send
+//       eligibility for upload-backed turns.
 // Owns: live composer control layout, local draft preview placement, and file-picker entry affordance.
 // Does Not Own: draft validation policy, upload transport, or persisted message rendering.
 // Design Language:
 // - upload affordance should match the settings button material and footprint
 // - local image previews live above the textarea inside the same glass composer
 // - draft previews may be removed before send without affecting chat history
+// - send affordance should activate when text or at least one image is present
+// - send must stay disabled while selected images are still uploading or failed
 // Document Provenance:
 // - Source: user-provided local UI requirement and screenshot review on 2026-04-16
 // - Kind: product doc
@@ -48,6 +51,8 @@ interface ChatComposerProps {
     isModelDropdownOpen: boolean;
     isBusy: boolean;
     isStopping: boolean;
+    isUploadingImages: boolean;
+    isImageSendBlocked: boolean;
     selectedImageDrafts: ComposerImageDraft[];
     inputTop: number | null;
     isKeyboardVisible: boolean;
@@ -81,6 +86,8 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
     isModelDropdownOpen,
     isBusy,
     isStopping,
+    isUploadingImages,
+    isImageSendBlocked,
     selectedImageDrafts,
     inputTop,
     isKeyboardVisible,
@@ -103,6 +110,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
     onPrimaryAction,
 }) => {
     const imageInputRef = React.useRef<HTMLInputElement>(null);
+    const canSend = Boolean(input.trim() || selectedImageDrafts.length > 0);
 
     if (!chatStarted) return null;
 
@@ -153,6 +161,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
                     <ChatAttachmentTray
                         attachments={selectedImageDrafts}
                         onRemove={onRemoveImage}
+                        disableRemove={isUploadingImages}
                     />
                     <textarea
                         ref={textareaRef}
@@ -167,6 +176,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
                         onBlur={() => closeSuggestions()}
                         onCompositionStart={onCompositionStart}
                         onCompositionEnd={onCompositionEnd}
+                        disabled={isUploadingImages}
                     />
 
                     <div className={styles.inputActions}>
@@ -206,6 +216,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
                             {...agentAttrs({ id: 'chat.image.upload', role: 'button', action: 'open', page: 'chat' })}
                             onClick={() => imageInputRef.current?.click()}
                             title="Add image"
+                            disabled={isUploadingImages}
                         >
                             <Plus size={18} />
                         </button>
@@ -221,12 +232,12 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
                             className={clsx(
                                 styles.sendBtn,
                                 isBusy && styles.stopMode,
-                                !isBusy && input.trim() && styles.activeMode,
+                                !isBusy && canSend && styles.activeMode,
                                 isStopping && styles.stoppingMode
                             )}
                             onClick={onPrimaryAction}
-                            disabled={(!input.trim() && !isBusy) || isStopping}
-                            title={isBusy ? 'Stop generation' : 'Send message'}
+                            disabled={isStopping || (!isBusy && (!canSend || isImageSendBlocked))}
+                            title={isImageSendBlocked ? 'Images are not ready yet' : (isBusy ? 'Stop generation' : 'Send message')}
                             {...agentAttrs({ id: 'chat.action.send', role: 'button', action: 'submit', page: 'chat' })}
                         >
                             {isBusy && <div className={styles.auroraLayer} />}

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseHubMentionEvents, shouldUseNeynarMentionPolling } from './farcasterApiClient.js';
+import { parseHubMentionEvents, parseHubReplyContinuationEvents, shouldUseNeynarMentionPolling } from './farcasterApiClient.js';
 
 test('parseHubMentionEvents extracts Hub cast mentions into internal mention events', () => {
   const events = parseHubMentionEvents({
@@ -109,6 +109,86 @@ test('parseHubMentionEvents passes through normalized mention events', () => {
       parentAuthorFid: null,
       rootCastHash: '0x1234',
       occurredAt: '2026-04-15T06:00:00.000Z',
+    },
+  ]);
+});
+
+test('parseHubReplyContinuationEvents extracts no-mention replies to a bot parent cast', () => {
+  const events = parseHubReplyContinuationEvents({
+    messages: [
+      {
+        data: {
+          type: 1,
+          fid: 123,
+          timestamp: 166530105,
+          network: 1,
+          castAddBody: {
+            embedsDeprecated: [],
+            mentions: [],
+            parentCastId: {
+              fid: 1576616,
+              hash: Uint8Array.from(Buffer.from('dddddddddddddddddddddddddddddddddddddddd', 'hex')),
+            },
+            parentUrl: undefined,
+            text: 'yes, continue this without another mention',
+            mentionsPositions: [],
+            embeds: [],
+            type: 0,
+          },
+        },
+        hash: Uint8Array.from(Buffer.from('eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', 'hex')),
+        hashScheme: 1,
+        signature: Uint8Array.from(Buffer.alloc(64, 1)),
+        signatureScheme: 1,
+        signer: Uint8Array.from(Buffer.alloc(32, 2)),
+        dataBytes: Uint8Array.from(Buffer.alloc(0)),
+      },
+      {
+        data: {
+          type: 1,
+          fid: 456,
+          timestamp: 166530106,
+          network: 1,
+          castAddBody: {
+            embedsDeprecated: [],
+            mentions: [],
+            parentCastId: {
+              fid: 999,
+              hash: Uint8Array.from(Buffer.from('ffffffffffffffffffffffffffffffffffffffff', 'hex')),
+            },
+            parentUrl: undefined,
+            text: 'unrelated parent should not be admitted',
+            mentionsPositions: [],
+            embeds: [],
+            type: 0,
+          },
+        },
+        hash: Uint8Array.from(Buffer.from('abababababababababababababababababababab', 'hex')),
+        hashScheme: 1,
+        signature: Uint8Array.from(Buffer.alloc(64, 1)),
+        signatureScheme: 1,
+        signer: Uint8Array.from(Buffer.alloc(32, 2)),
+        dataBytes: Uint8Array.from(Buffer.alloc(0)),
+      },
+    ] as any,
+  } as any, {
+    parentHash: '0xdddddddddddddddddddddddddddddddddddddddd',
+    parentAuthorFid: 1576616,
+    rootCastHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  });
+
+  assert.deepEqual(events, [
+    {
+      eventId: 'farcaster:mention:0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+      notificationType: 'replies',
+      castHash: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+      text: 'yes, continue this without another mention',
+      authorFid: 123,
+      authorUsername: null,
+      parentHash: '0xdddddddddddddddddddddddddddddddddddddddd',
+      parentAuthorFid: 1576616,
+      rootCastHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      occurredAt: '2026-04-12T10:21:45.000Z',
     },
   ]);
 });

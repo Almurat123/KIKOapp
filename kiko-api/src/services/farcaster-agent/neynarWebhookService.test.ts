@@ -81,7 +81,7 @@ test('normalizeNeynarWebhookMention maps mention and reply casts into the worker
       parent_hash: '0xparent',
       parent_author: { fid: 1576616 },
       author: { fid: 234506, username: 'balzgolf' },
-      text: '@kikoapp thanks',
+      text: 'thanks, can you break that down?',
       timestamp: '2024-02-15T19:23:22.000Z',
       mentioned_profiles: [],
     },

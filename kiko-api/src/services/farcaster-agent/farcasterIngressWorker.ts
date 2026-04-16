@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-17
 // Author: Linh Tran
 // Reason: Farcaster mention automation now consumes normalized events from the
 //         webhook ingress when enabled, while webhook-enabled polling falls
@@ -8,10 +8,13 @@
 //         whitespace into one long line can make Farcaster clients visually
 //         truncate otherwise valid text. Farcaster social-agent replies now
 //         also need hydrated cast images so the model can see embedded media
-//         instead of only parent-thread text.
+//         instead of only parent-thread text. Follow-up turns on Farcaster should
+//         continue when a user directly replies to a bot-authored cast, even if
+//         the follow-up does not mention the bot again.
 // Goal: preserve deterministic Farcaster mention handling while keeping polling
 //       cheap, idempotent, and aligned with linked-user chat sessions, while
-//       handing real thread/media context to the model.
+//       handing real thread/media context to the model and preserving direct
+//       reply continuation semantics.
 // Owns: inbound Farcaster mention polling fallback, webhook-fed dedupe, session
 //       routing, and reply dispatch.
 // Does Not Own: Farcaster account provisioning, frontend linking UI, or generic chat logic.
@@ -33,6 +36,8 @@
 //   polling should fall back to Hub to avoid Neynar read spend.
 // - Hydrate current/parent cast context before model execution so image-bearing
 //   embeds remain visible to vision-capable providers.
+// - Accept no-mention follow-ups only when they are direct replies to a tracked
+//   bot-authored outbound cast; do not watch arbitrary root-thread comments.
 // Document Provenance:
 // - Source: Neynar webhook documentation and notifications/cast lookup APIs
 // - Kind: official API doc
@@ -63,12 +68,19 @@
 // - Applied To: fetching Farcaster thread text and image embeds before
 //   social-agent model execution
 // - Verification: verified in docs
+// - Source: Farcaster direct-reply runtime policy review
+// - Kind: product/runtime observation
+// - Retrieved: 2026-04-17
+// - Applied To: treating direct replies to tracked bot casts as continuation
+//   turns without requiring another @mention
+// - Verification: verified in code and tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
 // - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-webhook-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-neynar-notifications-standdown.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-farcaster-direct-reply-continuation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-inbound-event-idempotence.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
@@ -84,6 +96,7 @@ import { getUserByFarcasterFid, buildFarcasterLinkUrl } from './farcasterIdentit
 import { recordFarcasterQuotaMetric } from './farcasterQuotaService.js';
 import {
   findOrCreateFarcasterConversation,
+  listFarcasterReplyContinuationTargets,
   markFarcasterConversationInbound,
   syncFarcasterConversationModel,
 } from './farcasterConversationService.js';
@@ -97,6 +110,11 @@ import { dedupeSocialImages, type SocialAgentInput } from '../socialAgentInput.j
 
 const NOTIFICATION_WATERMARK_KEY = 'farcaster:ingress:mentions:last_seen_at';
 const RECOVERY_BATCH_SIZE = Math.max(1, Number(process.env.FARCASTER_AGENT_RECOVERY_BATCH_SIZE || '20'));
+const REPLY_CONTINUATION_PARENT_BATCH_SIZE = Math.max(0, Number(process.env.FARCASTER_AGENT_REPLY_CONTINUATION_PARENT_BATCH_SIZE || '25'));
+const REPLY_CONTINUATION_LOOKBACK_MS = Math.max(
+  60_000,
+  Number(process.env.FARCASTER_AGENT_REPLY_CONTINUATION_LOOKBACK_MS || String(7 * 24 * 60 * 60 * 1000)),
+);
 
 function compareIsoTimestamps(a?: string | null, b?: string | null): number {
   const left = a || '';
@@ -113,6 +131,18 @@ function sortByOccurredAt(events: FarcasterMentionEvent[]): FarcasterMentionEven
     if (byTime !== 0) return byTime;
     return String(a.castHash || '').localeCompare(String(b.castHash || ''));
   });
+}
+
+function dedupeMentionEvents(events: FarcasterMentionEvent[]): FarcasterMentionEvent[] {
+  const seen = new Set<string>();
+  const deduped: FarcasterMentionEvent[] = [];
+  for (const event of events) {
+    const key = String(event.eventId || event.castHash || '').trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(event);
+  }
+  return deduped;
 }
 
 interface MentionWatermark {
@@ -423,9 +453,7 @@ export class FarcasterIngressWorker {
 
     while (pageCount < env.farcasterAgent.pollMaxPages) {
       const page = await farcasterApiClient.fetchMentionPage({ pageToken, pageSize: env.farcasterAgent.pollPageSize });
-      const parsed = parseHubMentionEvents(page)
-        .filter((event) => event.authorFid !== env.farcasterAgent.botFid)
-        .filter((event) => event.castHash && event.text && event.occurredAt);
+      const parsed = this.filterAdmissibleFreshEvents(parseHubMentionEvents(page));
 
       events.push(...parsed);
 
@@ -434,7 +462,9 @@ export class FarcasterIngressWorker {
       if (!pageToken) break;
     }
 
-    const sorted = sortByOccurredAt(events);
+    events.push(...await this.fetchDirectReplyContinuationEvents());
+
+    const sorted = sortByOccurredAt(dedupeMentionEvents(this.filterAdmissibleFreshEvents(events)));
     if (!watermark) {
       return sorted;
     }
@@ -443,6 +473,45 @@ export class FarcasterIngressWorker {
       const current = eventToMentionWatermark(event);
       return Boolean(current && compareMentionWatermarks(current, watermark) > 0);
     });
+  }
+
+  private filterAdmissibleFreshEvents(events: FarcasterMentionEvent[]): FarcasterMentionEvent[] {
+    return events
+      .filter((event) => event.authorFid !== env.farcasterAgent.botFid)
+      .filter((event) => event.castHash && event.text && event.occurredAt);
+  }
+
+  private async fetchDirectReplyContinuationEvents(): Promise<FarcasterMentionEvent[]> {
+    if (REPLY_CONTINUATION_PARENT_BATCH_SIZE <= 0) {
+      return [];
+    }
+
+    const since = new Date(Date.now() - REPLY_CONTINUATION_LOOKBACK_MS);
+    const targets = await listFarcasterReplyContinuationTargets({
+      limit: REPLY_CONTINUATION_PARENT_BATCH_SIZE,
+      since,
+    });
+    const events: FarcasterMentionEvent[] = [];
+
+    for (const target of targets) {
+      try {
+        const replies = await farcasterApiClient.fetchReplyContinuationEvents({
+          parentHash: target.lastOutboundCastHash,
+          parentAuthorFid: env.farcasterAgent.botFid,
+          rootCastHash: target.rootCastHash,
+          pageSize: env.farcasterAgent.pollPageSize,
+        });
+        events.push(...replies);
+      } catch (error) {
+        logger.warn(LogCode.API_NOTIFY_FAILED, '[Farcaster] reply continuation poll failed', {
+          mappingId: target.id,
+          parentHash: target.lastOutboundCastHash,
+          error: String((error as any)?.message || error || 'unknown_error'),
+        });
+      }
+    }
+
+    return events;
   }
 
   private scheduleMentions(delayMs: number): void {

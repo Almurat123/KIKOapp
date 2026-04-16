@@ -78,13 +78,15 @@ model WalletExport {
 }
 
 // CONTEXT MEMORY
-// Updated: 2026-04-15
+// Updated: 2026-04-17
 // Author: Almurat
-// Reason: the canonical product default model moved from Grok to GPT, but
-//         persisted user settings still own the per-user override used by web,
-//         X mention replies, and Farcaster mention replies.
+// Reason: the canonical product default model moved from GPT to the free Kimi
+//         2.5 Instant/Fast model, but persisted user settings still own the
+//         per-user override used by web, X mention replies, and Farcaster
+//         mention replies.
 // Goal: preserve one source of truth for the user's default chat model and
-//       ensure new accounts start on the same GPT default as the frontend.
+//       ensure new accounts start on the same Kimi Instant default as the
+//       frontend.
 // Owns: the persisted per-user default chat model value.
 // Does Not Own: agent execution, billing, or per-channel reply policy.
 // Design Language:
@@ -92,16 +94,16 @@ model WalletExport {
 // - Never infer a per-user model preference from session history alone.
 // - Do not change explicit user-selected models during unrelated migrations.
 // Document Provenance:
-// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-default-chat-model-switch-to-gpt.md
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
 // - Kind: repo doc
-// - Retrieved: 2026-04-15
+// - Retrieved: 2026-04-17
 // - Applied To: persisted default chat model for new and existing users who
-//   have not explicitly changed away from the previous Grok default
+//   have not explicitly changed away from the previous GPT default
 // - Verification: verified in code
 model UserSettings {
   id                            String   @id @default(cuid())
   userId                        String   @unique
-  defaultChatModel              String   @default("gpt-5.4-mini-2026-03-17")
+  defaultChatModel              String   @default("kimi-k2-5-instant")
   defaultSwapAmount             Float    @default(100)
   defaultSwapUnit               String   @default("native")
   checkTokenBeforeSwap          Boolean  @default(true)
@@ -697,13 +699,13 @@ model DirectSwapFeeExecution {
   @@map("direct_swap_fee_execution")
 }
 
-// ChatSession keeps the same GPT default so brand-new sessions created without
-// an explicit model stay aligned with the persisted user default above.
+// ChatSession keeps the same Kimi Instant default so brand-new sessions created
+// without an explicit model stay aligned with the persisted user default above.
 model ChatSession {
   id                       String        @id @default(cuid())
   userId                   String
   title                    String
-  model                    String        @default("gpt-5.4-mini-2026-03-17")
+  model                    String        @default("kimi-k2-5-instant")
   status                   String        @default("active")
   createdAt                DateTime      @default(now())
   updatedAt                DateTime      @updatedAt

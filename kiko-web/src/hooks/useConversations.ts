@@ -5,16 +5,26 @@ import { mergeTransactionCardData } from '../utils/transactionCardState';
 import { chatWSClient } from '../utils/chatWebSocket';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-12
+// Updated: 2026-04-16
 // Author: Rowan Hale
-// Reason: Conversation hydration must not erase live-rendered assistant cards while the database row is still catching up.
-// Goal: Preserve richer local chat rendering during websocket -> DB eventual consistency, especially for copy-trade and transaction confirmations.
+// Reason: Conversation hydration must not erase live-rendered assistant cards
+//         while the database row is still catching up. The chat-image upload
+//         path now persists private message attachment references, but hydration
+//         can still race the backend update, so DB hydration must merge local
+//         previews into matching user rows only when the DB row has not yet
+//         received signed preview attachments.
+// Goal: Preserve richer local chat rendering during websocket -> DB eventual
+//       consistency, including copy-trade cards, transaction confirmations, and
+//       current-turn user image previews while the durable signed attachment row
+//       is catching up.
 // Owns: Merging local conversation state with freshly loaded session messages from the backend.
 // Does Not Own: Emitting websocket client actions, card component rendering, or backend message persistence order.
 // Design Language:
 // - Prefer the richer local assistant presentation when the database row is temporarily behind.
+// - Prefer local user attachment previews only when the matching DB user row has no attachments yet.
 // - Only merge by message ID inside this owner; transport/runtime event ordering belongs elsewhere.
 // - Forbidden local patch pattern: replacing live non-text assistant cards with stale plain-text DB rows.
+// - Forbidden local patch pattern: dropping image preview attachments during the send-time DB update race.
 // Document Provenance:
 // - Source: Copy-trade live card regression logs (`/Users/almurat/Downloads/logs.1775995828927.json`) and runtime screenshot (`/Users/almurat/Downloads/IMG_4739.PNG`)
 // - Kind: runtime observation
@@ -26,10 +36,21 @@ import { chatWSClient } from '../utils/chatWebSocket';
 // - Retrieved: 2026-04-12
 // - Applied To: Confirming the live websocket path already mutates messages to `strategy-card` on `show_strategy_card`.
 // - Verification: verified in code
+// - Source: /Users/almurat/KiKo/test.txt
+// - Kind: runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: preserving local chat-image attachments across `loadConversation` hydration.
+// - Verification: verified in runtime log and code
+// - Source: operator correction that refreshed chat history must preserve image bubbles
+// - Kind: product doc
+// - Retrieved: 2026-04-16
+// - Applied To: local attachment merge remains only a race fallback for durable backend attachments
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-copytrade-card-live-hydration.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-first-send-no-loading-chat-entry.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
 
 export interface Message {
   id: string;
@@ -181,6 +202,58 @@ function mergeAssistantMessageFromLocal(dbMessage: any, localMessage: any) {
   }
 
   return dbMessage;
+}
+
+function getLocalAttachmentPreviews(message: any): any[] {
+  const attachments = message?.data?.attachments;
+  return Array.isArray(attachments) ? attachments : [];
+}
+
+function mergeUserMessageFromLocal(dbMessage: any, localMessage: any) {
+  if (dbMessage?.role !== 'user' || localMessage?.role !== 'user') {
+    return dbMessage;
+  }
+
+  const localAttachments = getLocalAttachmentPreviews(localMessage);
+  const dbAttachments = getLocalAttachmentPreviews(dbMessage);
+  if (localAttachments.length === 0 || dbAttachments.length > 0) {
+    return dbMessage;
+  }
+
+  return {
+    ...dbMessage,
+    data: {
+      ...(localMessage.data ?? {}),
+      ...(dbMessage.data ?? {}),
+      attachments: localAttachments,
+    },
+  };
+}
+
+function findMatchingUserMessageIndex(dbMessages: any[], localMessage: Message): number {
+  const localContent = (localMessage.content || '').trim();
+  const localTime = toMillis(localMessage.clientCreatedAt || localMessage.timestamp);
+  let fallbackIndex = -1;
+  let bestIndex = -1;
+  let bestDelta = Number.POSITIVE_INFINITY;
+
+  for (let index = 0; index < dbMessages.length; index += 1) {
+    const dbMessage = dbMessages[index];
+    if (dbMessage?.role !== 'user') continue;
+    if ((dbMessage.content || '').trim() !== localContent) continue;
+    if (fallbackIndex < 0) fallbackIndex = index;
+
+    const dbTime = toMillis(dbMessage.timestamp);
+    if (localTime === null || dbTime === null) continue;
+
+    const delta = Math.abs(dbTime - localTime);
+    if (delta < bestDelta) {
+      bestDelta = delta;
+      bestIndex = index;
+    }
+  }
+
+  return bestIndex >= 0 ? bestIndex : fallbackIndex;
 }
 
 export const useConversations = () => {
@@ -368,7 +441,9 @@ export const useConversations = () => {
           const dbMsg = dbMessages[i] as any;
           const localMsg = localById.get(dbMsg.id) as any;
           if (!localMsg) continue;
-          const mergedLocalPresentation = mergeAssistantMessageFromLocal(dbMsg, localMsg);
+          const mergedLocalPresentation = dbMsg.role === 'user'
+            ? mergeUserMessageFromLocal(dbMsg, localMsg)
+            : mergeAssistantMessageFromLocal(dbMsg, localMsg);
           if (mergedLocalPresentation !== dbMsg) {
             dbMessages[i] = mergedLocalPresentation;
             continue;
@@ -399,10 +474,16 @@ export const useConversations = () => {
 
           // Check if same content exists (for user messages with different IDs)
           // This prevents duplicates when local temp ID differs from DB ID
-          const existsByContent = localMsg.role === 'user' && dbMessages.find(
-            (m: any) => m.role === 'user' && (m.content || '').trim() === (localMsg.content || '').trim()
-          );
-          if (existsByContent) {
+          const existsByContentIndex = localMsg.role === 'user'
+            ? findMatchingUserMessageIndex(dbMessages, localMsg)
+            : -1;
+          if (existsByContentIndex >= 0) {
+            const existingByContent = dbMessages[existsByContentIndex];
+            const mergedLocalPresentation = mergeUserMessageFromLocal(existingByContent, localMsg);
+            if (mergedLocalPresentation !== existingByContent) {
+              dbMessages[existsByContentIndex] = mergedLocalPresentation;
+              mergedMessages[existsByContentIndex] = mergedLocalPresentation;
+            }
             console.log('[useConversations] Skipping duplicate user message (content match):', localMsg.id);
             continue;
           }

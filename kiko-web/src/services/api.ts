@@ -944,6 +944,35 @@ export interface FeedItem {
  * Chat System API
  * Note: Chat routes return custom response format (e.g., { success, sessions } instead of { success, data })
  */
+// CONTEXT MEMORY
+// Updated: 2026-04-16
+// Author: Rowan
+// Reason: the authenticated chat client now has to coordinate browser-side
+//         image uploads before the send-message call starts the backend task,
+//         including finalize/discard calls for prepared uploads.
+// Goal: keep chat session/message mutations, image-upload preparation,
+//       server-side finalization, and prepared-upload cleanup under one
+//       authenticated client boundary so the UI does not duplicate bearer token
+//       and timeout handling.
+// Owns: browser-facing chat HTTP request assembly, including image upload
+//       preparation/finalize/discard and send-message payload shaping.
+// Does Not Own: direct browser PUT uploads, local draft previews, or websocket
+//               chunk rendering.
+// Design Language:
+// - Chat mutations should share one auth/timeout path.
+// - Image upload preparation/finalize/discard belongs to the chat API owner,
+//   not ad hoc fetches scattered across components.
+// - Do not leak storage credentials or signed upload internals into callers.
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-16
+// - Applied To: authenticated chat image upload preparation, finalize, and discard calls
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
 function resolveChatApiBase(): string {
     const explicit = getRuntimeConfigUrl('CHAT_API_URL') || getEnvUrl('VITE_CHAT_API_URL');
     if (explicit) {
@@ -978,6 +1007,25 @@ function resolveChatApiBase(): string {
 }
 
 const CHAT_API_BASE = resolveChatApiBase();
+
+export interface ChatPreparedImageUploadIntent {
+    uploadId: string;
+    uploadUrl: string;
+    method: 'PUT';
+    headers: {
+        'Content-Type': string;
+    };
+    expiresAt: string;
+    maxBytes: number;
+}
+
+export interface ChatFinalizedImageUpload {
+    uploadId: string;
+    contentType: string;
+    size: number;
+    width: number | null;
+    height: number | null;
+}
 
 async function chatFetch<T>(endpoint: string, options?: RequestInit): Promise<T> {
     const doRequest = async (token: string | null) => {
@@ -1034,6 +1082,29 @@ async function chatFetch<T>(endpoint: string, options?: RequestInit): Promise<T>
 }
 
 export const chatApi = {
+    async prepareImageUploads(
+        files: Array<{ fileName: string; contentType: string; size: number }>
+    ): Promise<{ success: boolean; uploads: ChatPreparedImageUploadIntent[] }> {
+        return chatFetch<{ success: boolean; uploads: ChatPreparedImageUploadIntent[] }>('/api/chat/uploads/images/prepare', {
+            method: 'POST',
+            body: JSON.stringify({ files }),
+        });
+    },
+
+    async discardImageUploads(uploadIds: string[]): Promise<{ success: boolean }> {
+        return chatFetch<{ success: boolean }>('/api/chat/uploads/images/discard', {
+            method: 'POST',
+            body: JSON.stringify({ uploadIds }),
+        });
+    },
+
+    async finalizeImageUploads(uploadIds: string[]): Promise<{ success: boolean; uploads: ChatFinalizedImageUpload[] }> {
+        return chatFetch<{ success: boolean; uploads: ChatFinalizedImageUpload[] }>('/api/chat/uploads/images/finalize', {
+            method: 'POST',
+            body: JSON.stringify({ uploadIds }),
+        });
+    },
+
     /**
      * Create a new chat session
      */
@@ -1094,7 +1165,7 @@ export const chatApi = {
     async sendMessage(
         sessionId: string,
         content: string,
-        options: Record<string, unknown> & { signal?: AbortSignal } = {}
+        options: Record<string, unknown> & { imageUploadIds?: string[]; signal?: AbortSignal } = {}
     ): Promise<{ success: boolean; userMessage: ChatMessage; assistantMessage: ChatMessage; task: ChatTask }> {
         const { signal, ...payload } = options;
         const startedAt = performance.now();

@@ -11,13 +11,19 @@
 //         actively thinking. Another runtime review then showed obvious
 //         non-chain turns still entering the canonical-intent JSON router,
 //         which turned simple off-topic questions into long hidden reasoning.
+//         The worker now also has to load current-turn uploaded chat images from
+//         private storage, merge them into runtime multimodal context, and clear
+//         the Redis task binding once the task finishes without deleting sent
+//         history images.
 // Goal: keep the full agent loop for real work, but let deterministic
 //       assistant-introduction and greeting turns complete without invoking a
 //       slow provider model, while surfacing normalization reasoning through the
 //       normal assistant reasoning area so users get live runtime feedback, and
-//       let obvious non-chain turns bypass canonical normalization entirely.
+//       let obvious non-chain turns bypass canonical normalization entirely,
+//       while treating uploaded chat images as one-turn model inputs whose
+//       private objects can still back refreshed chat history.
 // Owns: worker-level task lifecycle, moderation gates, direct fast-lane
-//       completion decisions, and orchestration handoff.
+//       completion decisions, orchestration handoff, and task-time image binding cleanup.
 // Does Not Own: provider streaming transport, frontend chunk animation, or skill prompt content.
 // Design Language:
 // - direct assistant-intro turns should finish through the same broker/completion lifecycle
@@ -27,6 +33,9 @@
 // - normalization reasoning should stream into the same reasoning surface as the
 //   assistant when available, with a short label that makes the phase obvious
 // - obvious non-chain turns must bypass canonical normalization before any JSON routing prompt is built
+// - uploaded chat images belong only to the current model turn, but sent image
+//   objects must remain available for refreshed chat-history previews
+// - worker cleanup removes task bindings, not durable sent image objects
 // Document Provenance:
 // - Source: local runtime log trace 5be7a239-eda6-4ef7-a8ea-7fb4b1160de3
 // - Kind: runtime observation
@@ -48,6 +57,16 @@
 // - Retrieved: 2026-04-16
 // - Applied To: bypassing canonical normalization for obvious non-chain turns
 // - Verification: verified in runtime and applied in code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-16
+// - Applied To: loading uploaded task images into runtime socialInput and clearing task bindings after completion
+// - Verification: verified in code
+// - Source: operator correction that refreshed chat history must preserve image bubbles
+// - Kind: product doc
+// - Retrieved: 2026-04-16
+// - Applied To: retaining sent image objects while still cleaning worker task bindings
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-direct-welcome-fast-path.md
@@ -55,6 +74,7 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-normalization-reasoning-runtime-surface.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-direct-answer-tool-pruning.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-non-chain-normalization-bypass.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import * as chatRepo from '../repositories/chatRepository.js';
 import { chatWS } from '../services/chatWebSocket.js';
@@ -91,6 +111,7 @@ import { walletService } from '../services/walletService.js';
 import { ethers } from 'ethers';
 import { isExplicitChainSwitchRequest } from './chat/chainIntent.js';
 import { logChatStreamDebug } from '../services/chatStreamDebug.js';
+import { cleanupTaskChatImageUploads, loadTaskChatImageInputs } from '../services/chatImageUploads.js';
 
 type AITask = Awaited<ReturnType<typeof chatRepo.getTask>>;
 
@@ -122,6 +143,23 @@ function buildNormalizationReasoningPreamble(query: string): string {
     return isZh
         ? '请求分析中:\n'
         : 'Analyzing the request:\n';
+}
+
+function mergeRuntimeSocialInput(
+    existing: Record<string, any> | null | undefined,
+    uploadedImages: Array<{ url: string; sourceLabel: string }>,
+): Record<string, any> | null {
+    if (!Array.isArray(uploadedImages) || uploadedImages.length === 0) {
+        return existing || null;
+    }
+
+    const prior = existing && typeof existing === 'object' ? existing : {};
+    const priorImages = Array.isArray(prior.images) ? prior.images : [];
+
+    return {
+        ...prior,
+        images: [...priorImages, ...uploadedImages],
+    };
 }
 
 export class ChatWorker {
@@ -209,6 +247,20 @@ export class ChatWorker {
             broker.start();
             const messages = await messagesPromise;
             const lastUserMessage = [...messages].reverse().find((msg) => msg.role === 'user')?.content || '';
+            const uploadedTaskImages = await loadTaskChatImageInputs(task.id).catch((error) => {
+                logger.warn(LogCode.SYS_INFO, 'ChatWorker: failed to load uploaded task images', {
+                    taskId: task.id,
+                    sessionId: task.sessionId,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+                return [];
+            });
+            if (uploadedTaskImages.length > 0) {
+                task.toolContext = {
+                    ...(task.toolContext || {}),
+                    socialInput: mergeRuntimeSocialInput(task.toolContext?.socialInput, uploadedTaskImages),
+                };
+            }
             await broker.bootstrapRuntime(buildWarmupPlan(lastUserMessage));
             this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'running', message: 'Loading wallet and context' });
 
@@ -525,6 +577,14 @@ export class ChatWorker {
             }
             await this.repo.updateTaskStatus(task.id, 'error', userFacingError);
             this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'error', error: userFacingError });
+        } finally {
+            await cleanupTaskChatImageUploads(task.id).catch((cleanupError) => {
+                logger.warn(LogCode.SYS_INFO, 'ChatWorker: failed to cleanup task image uploads', {
+                    taskId: task.id,
+                    sessionId: task.sessionId,
+                    error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+                });
+            });
         }
     }
 

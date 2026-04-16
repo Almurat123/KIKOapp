@@ -28,10 +28,12 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 //         homepage, so its optional settings surface must not pin the heavier
 //         modal runtime into the default bundle. It now also needs to expose
 //         the same local image-draft affordance as the live chat composer so
-//         first-send prompt composition does not split into a second UI path.
+//         first-send prompt composition does not split into a second UI path,
+//         including image-only sends.
 // Goal: preserve a responsive welcome shell that can collect the first prompt
 //       immediately while deferring optional settings UI until the user opens
-//       it, while sharing the same local image-preview affordance as live chat.
+//       it, while sharing the same local image-preview affordance and image-
+//       only send eligibility as live chat.
 // Owns: welcome-screen prompt collection, model selection persistence, local
 //       draft preview placement, and the local settings-modal entry point for
 //       the welcome shell.
@@ -41,6 +43,8 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 // - optional modal surfaces must load on demand
 // - welcome and live chat must share one image-draft affordance language
 // - forbidden local patch patterns: static imports of optional settings UI in the welcome shell
+// - send affordance should activate when text or at least one image is present
+// - send must stay disabled while selected images are still uploading or failed
 // Document Provenance:
 // - Source: Vite production build output warning about static import preventing chunk split
 // - Kind: build evidence
@@ -61,6 +65,8 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 
 interface WelcomeScreenProps {
   onSuggestionClick: (text: string) => void;
+  isUploadingImages: boolean;
+  isImageSendBlocked: boolean;
   selectedImageDrafts: ComposerImageDraft[];
   onSelectImages: (files: File[]) => void;
   onRemoveImage: (attachmentId: string) => void;
@@ -68,6 +74,8 @@ interface WelcomeScreenProps {
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   onSuggestionClick,
+  isUploadingImages,
+  isImageSendBlocked,
   selectedImageDrafts,
   onSelectImages,
   onRemoveImage,
@@ -258,7 +266,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   }, [inputValue]);
 
   const handleSend = () => {
-    if (inputValue.trim()) {
+    if (inputValue.trim() || selectedImageDrafts.length > 0) {
       onSuggestionClick(inputValue.trim());
       setInputValue('');
     }
@@ -346,6 +354,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
               <ChatAttachmentTray
                 attachments={selectedImageDrafts}
                 onRemove={onRemoveImage}
+                disableRemove={isUploadingImages}
               />
               <textarea
                 ref={textareaRef}
@@ -363,6 +372,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                 placeholder="Ask anything..."
                 rows={1}
                 className={styles.textarea}
+                disabled={isUploadingImages}
               />
 
               <div className={styles.inputActions}>
@@ -404,6 +414,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                   {...agentAttrs({ id: 'welcome.image.upload', role: 'button', action: 'open', page: 'welcome' })}
                   onClick={() => imageInputRef.current?.click()}
                   title="Add image"
+                  disabled={isUploadingImages}
                 >
                   <Plus size={18} />
                 </button>
@@ -417,9 +428,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                 </button>
                 <button
                   onClick={handleSend}
-                  disabled={!inputValue.trim()}
-                  className={`${styles.sendButton} ${inputValue.trim() ? styles.sendButtonActive : ''}`}
-                  title={inputValue.trim() ? '发送' : '输入内容后可发送'}
+                  disabled={(!inputValue.trim() && selectedImageDrafts.length === 0) || isImageSendBlocked}
+                  className={`${styles.sendButton} ${(inputValue.trim() || selectedImageDrafts.length > 0) ? styles.sendButtonActive : ''}`}
+                  title={isImageSendBlocked ? '图片还没准备好' : ((inputValue.trim() || selectedImageDrafts.length > 0) ? '发送' : '输入内容或添加图片后可发送')}
                   {...agentAttrs({ id: 'welcome.action.send', role: 'button', action: 'submit', page: 'welcome' })}
                 >
                   <ArrowUp size={20} strokeWidth={2.5} />

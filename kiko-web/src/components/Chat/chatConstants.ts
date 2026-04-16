@@ -1,34 +1,47 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-17
 // Author: Almurat
 // Reason: web chat, X mentions, and Farcaster mentions still share one canonical
-//         default model, but the product default moved from Grok to GPT. The UI
-//         must expose the same canonical default that the backend now uses for
-//         new sessions and persisted defaults. The selectable normal-model
-//         family has also moved from DeepSeek ids to NVIDIA-hosted GLM/Kimi ids.
+//         default model. The product default moved from GPT to the free Kimi
+//         2.5 Instant/Fast model, and the UI must expose the same canonical
+//         default that the backend now uses for new sessions and persisted
+//         defaults. The selectable normal-model family has also moved from
+//         DeepSeek ids to NVIDIA-hosted GLM/Kimi ids. The same catalog now also
+//         needs a first-party vision capability flag so image-upload turns do
+//         not silently route into text-only models.
 // Goal: keep one stable frontend default model id that matches backend session
-//       creation and persisted per-user reply policy.
-// Owns: frontend-visible model catalog and canonical default selection helper.
+//       creation and persisted per-user reply policy, while exposing whether a
+//       chat model can accept current-turn image input.
+// Owns: frontend-visible model catalog, canonical default selection helper, and
+//       first-party image-capability checks.
 // Does Not Own: backend persistence, pricing, or agent execution.
 // Design Language:
 // - Do not rely on list order for the default model.
 // - Keep UI model ids aligned with backend-supported model ids.
 // - Prefer explicit helpers over duplicated literal ids in components.
+// - Image upload UI must not imply vision support on text-only models.
 // Document Provenance:
-// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-default-chat-model-switch-to-gpt.md
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
 // - Kind: repo doc
-// - Retrieved: 2026-04-15
-// - Applied To: setting `gpt-5.4-mini-2026-03-17` as canonical frontend default
+// - Retrieved: 2026-04-17
+// - Applied To: setting `kimi-k2-5-instant` as canonical frontend default
 // - Verification: verified in code
 // - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
 // - Kind: official API doc
 // - Retrieved: 2026-04-16
 // - Applied To: frontend-visible GLM/Kimi model ids and mode labels
 // - Verification: verified in code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-16
+// - Applied To: exposing image-capable model checks in the frontend send flow
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-default-chat-model-switch-to-gpt.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 export interface ChatModelOption {
     id: string;
@@ -45,7 +58,7 @@ export const MODEL_OPTIONS: ChatModelOption[] = [
     { id: 'grok-4-1-fast-non-reasoning', name: 'Grok-4.1-Fast', mode: 'fast' },
 ];
 
-export const DEFAULT_CHAT_MODEL_ID = 'gpt-5.4-mini-2026-03-17';
+export const DEFAULT_CHAT_MODEL_ID = 'kimi-k2-5-instant';
 
 export function findChatModelOption(modelId?: string | null): ChatModelOption | undefined {
     const normalized = String(modelId || '').trim().toLowerCase();
@@ -54,6 +67,14 @@ export function findChatModelOption(modelId?: string | null): ChatModelOption | 
 
 export function getDefaultChatModelOption(): ChatModelOption {
     return findChatModelOption(DEFAULT_CHAT_MODEL_ID) || MODEL_OPTIONS[0];
+}
+
+export function supportsVisionChatModel(modelId?: string | null): boolean {
+    const normalized = String(modelId || '').trim().toLowerCase();
+    if (!normalized) return false;
+    if (normalized.startsWith('gpt') || normalized.startsWith('o')) return true;
+    if (normalized.includes('grok')) return true;
+    return normalized.includes('kimi');
 }
 
 export const COMMON_TOKENS: Record<number, Array<{ address: string; symbol: string; decimals: number }>> = {

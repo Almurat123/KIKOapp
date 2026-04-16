@@ -15,7 +15,10 @@
 //         surfaces usage-limit decisions, so its 429 shape must follow the
 //         current free/premium quota contract instead of legacy token-tier fields.
 //         Free-model traffic can now have one optional shared daily cap, so 429
-//         payloads must include both free and premium quota state.
+//         payloads must include both free and premium quota state. Later product
+//         tuning also required colder, lighter NVIDIA defaults so routine KiKo
+//         agent turns do not inherit provider showcase temperatures or long
+//         reasoning by default.
 // Goal: keep the fallback/direct AI route aligned with the same NVIDIA hosted
 //       API contract used by the main generation gateway so local tests behave
 //       the same across both paths.
@@ -28,6 +31,7 @@
 // - Reasoning extraction must accept NVIDIA typed content parts as well as flat fields.
 // - Plain assistant content must never be mirrored into reasoning output.
 // - Usage-limit errors expose free/premium quota state, not legacy token-tier caps.
+// - Direct-route NVIDIA defaults must stay colder and lighter for routine agent turns.
 // Document Provenance:
 // - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
 // - Kind: official API doc
@@ -49,9 +53,16 @@
 // - Retrieved: 2026-04-16
 // - Applied To: direct-route 429 payload for shared GLM/Kimi free quota
 // - Verification: verified in code
+// - Source: operator request to make GLM/Kimi faster and less exploratory for
+//           routine KiKo tasks
+// - Kind: product doc
+// - Retrieved: 2026-04-16
+// - Applied To: direct-route NVIDIA default temperature and thinking profiles
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-free-premium-chat-usage-quota-rework.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-lite-defaults.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
@@ -114,6 +125,10 @@ interface ChatRequest {
 
 const NVIDIA_API_URL = process.env.NVIDIA_API_URL || 'https://integrate.api.nvidia.com/v1/chat/completions';
 const OPENAI_API_URL = process.env.OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions';
+const NVIDIA_KIMI_REASONING_TEMPERATURE = 0.6;
+const NVIDIA_KIMI_INSTANT_TEMPERATURE = 0.4;
+const NVIDIA_GLM_REASONING_TEMPERATURE = 0.6;
+const NVIDIA_GLM_FAST_TEMPERATURE = 0.3;
 
 function normalizeModel(model?: string): string {
     const normalized = (model || '').toLowerCase().trim();
@@ -121,7 +136,11 @@ function normalizeModel(model?: string): string {
     return normalized;
 }
 
-function resolveNvidiaUpstreamModel(model: string): { model: string; extraBody?: Record<string, any> } {
+function resolveNvidiaUpstreamModel(model: string): {
+    model: string;
+    extraBody?: Record<string, any>;
+    defaultTemperature?: number;
+} {
     const normalized = normalizeModel(model);
     if (
         normalized === 'kimi-k2-5-reasoning'
@@ -129,7 +148,7 @@ function resolveNvidiaUpstreamModel(model: string): { model: string; extraBody?:
         || normalized === 'kimi-k2.5-reasoning'
         || normalized === 'kimi-k2.5-thinking'
     ) {
-        return { model: 'moonshotai/kimi-k2.5' };
+        return { model: 'moonshotai/kimi-k2.5', defaultTemperature: NVIDIA_KIMI_REASONING_TEMPERATURE };
     }
     if (
         normalized === 'kimi-k2-5-instant'
@@ -137,10 +156,39 @@ function resolveNvidiaUpstreamModel(model: string): { model: string; extraBody?:
         || normalized === 'kimi-k2.5-instant'
         || normalized === 'kimi-k2.5-fast'
     ) {
-        return { model: 'moonshotai/kimi-k2.5', extraBody: { thinking: { type: 'disabled' } } };
+        return {
+            model: 'moonshotai/kimi-k2.5',
+            extraBody: { thinking: { type: 'disabled' } },
+            defaultTemperature: NVIDIA_KIMI_INSTANT_TEMPERATURE,
+        };
     }
-    if (normalized === 'glm-5') {
-        return { model: 'z-ai/glm5' };
+    if (
+        normalized === 'glm-5-reasoning'
+        || normalized === 'glm5-reasoning'
+        || normalized === 'z-ai/glm5-reasoning'
+        || normalized === 'z-ai/glm-5-reasoning'
+    ) {
+        return {
+            model: 'z-ai/glm5',
+            extraBody: {
+                chat_template_kwargs: {
+                    enable_thinking: true,
+                    clear_thinking: false,
+                },
+            },
+            defaultTemperature: NVIDIA_GLM_REASONING_TEMPERATURE,
+        };
+    }
+    if (normalized === 'glm-5' || normalized === 'glm5' || normalized === 'z-ai/glm5' || normalized === 'z-ai/glm-5') {
+        return {
+            model: 'z-ai/glm5',
+            extraBody: {
+                chat_template_kwargs: {
+                    enable_thinking: false,
+                },
+            },
+            defaultTemperature: NVIDIA_GLM_FAST_TEMPERATURE,
+        };
     }
     return { model: normalized };
 }
@@ -535,7 +583,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                 const {
                     messages,
                     model = 'glm-5',
-                    temperature = 0.8,
+                    temperature: requestedTemperature,
                     max_tokens,
                     stream = false,
                     enable_search = true
@@ -927,10 +975,13 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     const upstreamModel = normalizedModel.startsWith('gpt')
                         ? { model: normalizedModel }
                         : resolveNvidiaUpstreamModel(normalizedModel);
+                    const resolvedTemperature = requestedTemperature
+                        ?? upstreamModel.defaultTemperature
+                        ?? (normalizedModel.startsWith('gpt') ? 0.8 : 0.5);
                     const requestBody: any = {
                         model: upstreamModel.model,
                         messages: conversationMessages,
-                        temperature,
+                        temperature: resolvedTemperature,
                         max_tokens,
                         stream: true, // Always use streaming for real-time output
                     };

@@ -71,6 +71,8 @@
     "export:remotion:trending-tokens": "node scripts/export-remotion-trending-token-snapshot.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1030.0",
+    "@aws-sdk/s3-request-presigner": "^3.1030.0",
     "@coinbase/cdp-sdk": "^1.40.0",
     "@duneanalytics/client-sdk": "^0.3.4",
     "@farcaster/hub-nodejs": "^0.15.9",

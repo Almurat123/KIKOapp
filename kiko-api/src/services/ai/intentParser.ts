@@ -1,3 +1,29 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-17
+// Author: Almurat
+// Reason: the backend intent parser has its own model fallback for
+//         model-routed parsing. That fallback must follow the product's free
+//         Kimi 2.5 Instant/Fast default when INTENT_MODEL and DEFAULT_MODEL are
+//         not configured.
+// Goal: keep model-routed intent parsing on the current default family without
+//       overriding explicit environment configuration.
+// Owns: backend intent-parser fallback model selection.
+// Does Not Own: chat session model persistence, frontend dropdown state, or
+//               provider-specific request shaping.
+// Design Language:
+// - Explicit INTENT_MODEL wins over DEFAULT_MODEL.
+// - DEFAULT_MODEL wins over the hardcoded product fallback.
+// - The hardcoded fallback must match kiko-api/src/config/chatModels.ts.
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: backend intent model fallback
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
+
 import type { UserContext } from './types.js';
 import { v4 as uuidv4 } from 'uuid';
 import { fetchJson } from '../../config/unifiedApiService.js';
@@ -90,6 +116,8 @@ type IntentModelOutput = {
     };
 };
 
+const DEFAULT_INTENT_MODEL = 'kimi-k2-5-instant';
+
 const ALLOWED_HIGH_LEVELS = new Set<HighLevelIntentType>([
     'TRADING',
     'COPY_TRADING',
@@ -111,7 +139,7 @@ function getIntentModelRouterEnabled(): boolean {
 }
 
 function getIntentModelName(): string {
-    return String(process.env.INTENT_MODEL || process.env.DEFAULT_MODEL || 'gpt-5.4-mini-2026-03-17').trim() || 'gpt-5.4-mini-2026-03-17';
+    return String(process.env.INTENT_MODEL || process.env.DEFAULT_MODEL || DEFAULT_INTENT_MODEL).trim() || DEFAULT_INTENT_MODEL;
 }
 
 function getIntentGatewayUrl(): string {

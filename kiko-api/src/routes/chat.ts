@@ -3,6 +3,58 @@
  * Replaces frontend-driven AI calls with backend worker + WebSocket streaming
  */
 
+// CONTEXT MEMORY
+// Updated: 2026-04-16
+// Author: Rowan
+// Reason: chat message creation now also has to accept image uploads and keep
+//         sent image bubbles visible after refresh. This owner coordinates upload
+//         preparation, task binding, private message attachment persistence, and
+//         model eligibility checks at the request boundary.
+// Goal: preserve the existing task-based chat flow while allowing image inputs
+//       to be uploaded, validated, bound to one task, read by the worker, and
+//       rehydrated into refreshed chat history without persisting image binaries
+//       or public image URLs in the database.
+// Owns: authenticated chat upload preparation endpoints, send-message request
+//       validation, usage/task gating, task-time image binding, and client-safe
+//       history attachment hydration.
+// Does Not Own: object storage internals, UI upload state, or provider-specific
+//               multimodal prompt assembly.
+// Design Language:
+// - Chat images are private durable message assets after a successful send.
+// - Reject image turns for models that are not wired for image understanding.
+// - Discard prepared uploads when the request is blocked before task execution.
+// - Finalize prepared uploads as soon as browser PUT completes, before send.
+// - Let the frontend discard prepared uploads that were selected but never sent.
+// - Keep image-bearing tasks non-claimable until upload binding has completed.
+// - Store private object references in ChatMessage.data, not signed/public URLs.
+// - Hydrate signed preview URLs at response time and never expose R2 object keys.
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-16
+// - Applied To: request-bound upload preparation and task binding flow
+// - Verification: verified in code
+// - Source: Cloudflare R2 Presigned URLs / Configure CORS docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-16
+// - Applied To: browser upload preparation route and signed URL usage
+// - Verification: verified in docs and code
+// - Source: /Users/almurat/KiKo/test.txt
+// - Kind: runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: task queue handoff after image upload binding completes
+// - Verification: verified in runtime log and code
+// - Source: operator correction that refreshed chat history must preserve image bubbles
+// - Kind: product doc
+// - Retrieved: 2026-04-16
+// - Applied To: private message attachment persistence and client-safe signed preview hydration
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-local-image-composer-base.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
+
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { requireAuth } from '../middleware/auth.js';
 import * as chatRepo from '../repositories/chatRepository.js';
@@ -20,6 +72,18 @@ import { LogCode } from '../config/logRegistry.js';
 import { normalizeSupportedChatModel } from '../config/chatModels.js';
 import { resolveToolContextChainSwitchAck } from '../jobs/chat/toolContextChainState.js';
 import { recordUsage } from '../services/usageCounter.js';
+import {
+    bindPreparedChatImageUploadsToTask,
+    buildChatImageMessageAttachments,
+    cleanupTaskChatImageUploads,
+    discardPreparedChatImageUploads,
+    finalizePreparedChatImageUploads,
+    hydrateChatImageAttachmentsForClient,
+    isChatImageUploadError,
+    prepareChatImageUploads,
+    supportsChatImageModel,
+    type ChatImageUploadRequest,
+} from '../services/chatImageUploads.js';
 
 // Request body types
 interface CreateSessionBody {
@@ -27,9 +91,22 @@ interface CreateSessionBody {
     model?: string;
 }
 
+interface PrepareImageUploadsBody {
+    files: ChatImageUploadRequest[];
+}
+
+interface DiscardImageUploadsBody {
+    uploadIds: string[];
+}
+
+interface FinalizeImageUploadsBody {
+    uploadIds: string[];
+}
+
 interface SendMessageBody {
     content: string;
     model?: string;
+    imageUploadIds?: string[];
     walletAddress?: string;
     chainId?: number;
     farcaster?: {
@@ -65,7 +142,147 @@ function normalizeTaskModel(model?: string): string {
     return normalizeSupportedChatModel(model);
 }
 
+async function discardPreparedUploadsSafely(
+    fastify: FastifyInstance,
+    userId: string | undefined,
+    uploadIds: string[],
+): Promise<void> {
+    if (!userId || uploadIds.length === 0) return;
+    try {
+        await discardPreparedChatImageUploads({ userId, uploadIds });
+    } catch (error) {
+        fastify.log.warn({ err: error, userId, uploadCount: uploadIds.length }, 'Failed to discard prepared chat image uploads');
+    }
+}
+
+async function hydrateChatMessageForClient(message: any): Promise<any> {
+    if (!message?.data?.attachments) return message;
+    const hydratedData = await hydrateChatImageAttachmentsForClient(message.data);
+    return {
+        ...message,
+        data: hydratedData,
+    };
+}
+
+async function hydrateChatMessagesForClient(messages: any[]): Promise<any[]> {
+    return Promise.all(messages.map((message) => hydrateChatMessageForClient(message)));
+}
+
 export async function chatRoutes(fastify: FastifyInstance) {
+    // =============================================
+    // Upload Endpoints
+    // =============================================
+
+    fastify.post<{ Body: PrepareImageUploadsBody }>(
+        '/uploads/images/prepare',
+        { preHandler: requireAuth },
+        async (request: FastifyRequest<{ Body: PrepareImageUploadsBody }>, reply: FastifyReply) => {
+            try {
+                const userId = (request as any).user?.sub;
+                if (!userId) {
+                    return reply.code(401).send({ error: 'Unauthorized' });
+                }
+
+                const files = Array.isArray(request.body?.files) ? request.body.files : [];
+                logger.info(LogCode.AI_API_CALL, 'Chat route: prepareImageUploads received', {
+                    userId,
+                    fileCount: files.length,
+                });
+                const uploads = await prepareChatImageUploads({
+                    userId,
+                    files,
+                });
+
+                logger.info(LogCode.AI_API_CALL, 'Chat route: prepareImageUploads complete', {
+                    userId,
+                    fileCount: uploads.length,
+                    uploadIds: uploads.map((upload) => upload.uploadId),
+                });
+
+                return reply.send({
+                    success: true,
+                    uploads,
+                });
+            } catch (error: any) {
+                if (isChatImageUploadError(error)) {
+                    return reply.code(error.statusCode || 400).send({ error: error.message });
+                }
+                fastify.log.error('Error preparing chat image uploads:', error);
+                return reply.code(500).send(sanitizedErrorResponse(error, 'prepareChatImageUploads'));
+            }
+        }
+    );
+
+    fastify.post<{ Body: DiscardImageUploadsBody }>(
+        '/uploads/images/discard',
+        { preHandler: requireAuth },
+        async (request: FastifyRequest<{ Body: DiscardImageUploadsBody }>, reply: FastifyReply) => {
+            try {
+                const userId = (request as any).user?.sub;
+                if (!userId) {
+                    return reply.code(401).send({ error: 'Unauthorized' });
+                }
+
+                const uploadIds = Array.from(
+                    new Set((Array.isArray(request.body?.uploadIds) ? request.body.uploadIds : [])
+                        .map((value) => String(value || '').trim())
+                        .filter(Boolean))
+                );
+
+                logger.info(LogCode.AI_API_CALL, 'Chat route: discardImageUploads received', {
+                    userId,
+                    uploadCount: uploadIds.length,
+                });
+
+                await discardPreparedChatImageUploads({ userId, uploadIds });
+
+                return reply.send({
+                    success: true,
+                });
+            } catch (error: any) {
+                fastify.log.error('Error discarding chat image uploads:', error);
+                return reply.code(500).send(sanitizedErrorResponse(error, 'discardChatImageUploads'));
+            }
+        }
+    );
+
+    fastify.post<{ Body: FinalizeImageUploadsBody }>(
+        '/uploads/images/finalize',
+        { preHandler: requireAuth },
+        async (request: FastifyRequest<{ Body: FinalizeImageUploadsBody }>, reply: FastifyReply) => {
+            try {
+                const userId = (request as any).user?.sub;
+                if (!userId) {
+                    return reply.code(401).send({ error: 'Unauthorized' });
+                }
+
+                const uploadIds = Array.from(
+                    new Set((Array.isArray(request.body?.uploadIds) ? request.body.uploadIds : [])
+                        .map((value) => String(value || '').trim())
+                        .filter(Boolean))
+                );
+
+                logger.info(LogCode.AI_API_CALL, 'Chat route: finalizeImageUploads received', {
+                    userId,
+                    uploadCount: uploadIds.length,
+                });
+
+                const uploads = await finalizePreparedChatImageUploads({ userId, uploadIds });
+
+                return reply.send({
+                    success: true,
+                    uploads,
+                });
+            } catch (error: any) {
+                if (isChatImageUploadError(error)) {
+                    return reply.code(error.statusCode || 400).send({ error: error.message });
+                }
+                fastify.log.error('Error finalizing chat image uploads:', error);
+                return reply.code(500).send(sanitizedErrorResponse(error, 'finalizeChatImageUploads'));
+            }
+        }
+    );
+
     // =============================================
     // Session Endpoints
     // =============================================
@@ -141,10 +358,11 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     return reply.code(403).send({ error: 'Access denied' });
                 }
 
-                const [messages, activeTask] = await Promise.all([
+                const [rawMessages, activeTask] = await Promise.all([
                     chatRepo.getSessionMessages(sessionId),
                     chatRepo.getSessionActiveTask(sessionId)
                 ]);
+                const messages = await hydrateChatMessagesForClient(rawMessages);
 
                 return reply.send({
                     success: true,
@@ -230,6 +448,10 @@ export async function chatRoutes(fastify: FastifyInstance) {
         '/sessions/:sessionId/messages',
         { preHandler: requireAuth },
         async (request: FastifyRequest<{ Params: { sessionId: string }; Body: SendMessageBody }>, reply: FastifyReply) => {
+            let createdTaskId: string | null = null;
+            let createdAssistantMessageId: string | null = null;
+            let createdTaskReleasedToWorker = false;
+            let createdImageAttachmentsPersisted = false;
             try {
                 const requestStartedAt = Date.now();
                 const userId = (request as any).user?.sub;
@@ -237,6 +459,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 const {
                     content,
                     model,
+                    imageUploadIds,
                     walletAddress,
                     chainId,
                     farcaster,
@@ -247,31 +470,42 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     pageContext,
                     context,
                 } = request.body;
+                const normalizedImageUploadIds = Array.from(
+                    new Set((Array.isArray(imageUploadIds) ? imageUploadIds : []).map((value) => String(value || '').trim()).filter(Boolean))
+                );
+                const trimmedContent = typeof content === 'string' ? content.trim() : '';
                 logger.info(LogCode.AI_API_CALL, 'Chat route: sendMessage received', {
                     userId,
                     sessionId,
                     model: model || null,
                     chainId: chainId ?? undefined,
-                    contentLength: content?.trim()?.length || 0,
+                    contentLength: trimmedContent.length,
+                    imageCount: normalizedImageUploadIds.length,
                 });
 
-                if (!content?.trim()) {
-                    return reply.code(400).send({ error: 'Message content is required' });
+                if (!trimmedContent && normalizedImageUploadIds.length === 0) {
+                    return reply.code(400).send({ error: 'Message content or image input is required' });
                 }
 
                 // Verify session ownership
                 const session = await chatRepo.getSession(sessionId);
                 if (!session) {
+                    await discardPreparedUploadsSafely(fastify, userId, normalizedImageUploadIds);
                     return reply.code(404).send({ error: 'Session not found' });
                 }
                 if (session.userId !== userId) {
+                    await discardPreparedUploadsSafely(fastify, userId, normalizedImageUploadIds);
                     return reply.code(403).send({ error: 'Access denied' });
                 }
 
                 const taskModel = normalizeTaskModel(model || session.model);
+                if (normalizedImageUploadIds.length > 0 && !supportsChatImageModel(taskModel)) {
+                    await discardPreparedUploadsSafely(fastify, userId, normalizedImageUploadIds);
+                    return reply.code(400).send({ error: 'The selected model does not support image input.' });
+                }
 
                 // Create user message first to ensure it's persisted even if checks fail
-                const userMessage = await chatRepo.createMessage(sessionId, 'user', content.trim());
+                let userMessage = await chatRepo.createMessage(sessionId, 'user', trimmedContent);
                 logger.info(LogCode.AI_API_CALL, 'Chat route: user message persisted', {
                     userId,
                     sessionId,
@@ -299,6 +533,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     ]);
 
                     if (activeTask) {
+                        await discardPreparedUploadsSafely(fastify, userId, normalizedImageUploadIds);
                         return reply.code(409).send({
                             error: 'An AI task is already running for this session',
                             taskId: activeTask.id,
@@ -308,6 +543,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     }
 
                     if (!usageDecision.allowed) {
+                        await discardPreparedUploadsSafely(fastify, userId, normalizedImageUploadIds);
                         const limitContent = getUsageLimitMessage(usageDecision);
 
                         const assistantMessage = await chatRepo.createMessage(sessionId, 'assistant', limitContent, {
@@ -346,6 +582,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 const assistantMessage = await chatRepo.createMessage(sessionId, 'assistant', '', {
                     status: 'streaming',
                 });
+                createdAssistantMessageId = assistantMessage.id;
 
                 // Create AI task
                 // Extract allowanceMode from toolConfig if not provided explicitly
@@ -477,7 +714,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     }
                     : null;
 
-                const task = await chatRepo.createTask(
+                let task = await chatRepo.createTask(
                     sessionId,
                     taskModel,
                     userMessage.id,
@@ -502,8 +739,30 @@ export async function chatRoutes(fastify: FastifyInstance) {
                         currentPage,
                         pageContext: normalizedPageContext,
                         billing: billingContext,
+                    },
+                    {
+                        status: normalizedImageUploadIds.length > 0 ? 'pending' : 'queued',
                     }
                 );
+                createdTaskId = task.id;
+                if (normalizedImageUploadIds.length > 0) {
+                    const boundImages = await bindPreparedChatImageUploadsToTask({
+                        userId,
+                        taskId: task.id,
+                        uploadIds: normalizedImageUploadIds,
+                    });
+                    if (boundImages.length > 0) {
+                        userMessage = await chatRepo.updateMessage(userMessage.id, {
+                            data: {
+                                ...(userMessage.data || {}),
+                                attachments: buildChatImageMessageAttachments(boundImages),
+                            },
+                        });
+                        createdImageAttachmentsPersisted = true;
+                    }
+                    task = await chatRepo.updateTaskStatus(task.id, 'queued');
+                }
+                createdTaskReleasedToWorker = true;
                 if (billingContext?.modelCategory && usageDateUtc) {
                     try {
                         await recordUsage({
@@ -524,6 +783,8 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     assistantMessageId: assistantMessage.id,
                     userMessageId: userMessage.id,
                     model: taskModel,
+                    imageCount: normalizedImageUploadIds.length,
+                    taskStatus: task.status,
                     routeStageMs: Date.now() - requestStartedAt,
                     walletHydrationMs,
                     walletHydrationAttempted: shouldHydrateWalletSnapshot,
@@ -573,17 +834,46 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 const messages = await chatRepo.getSessionMessages(sessionId);
                 if (messages.length <= 2) { // user + assistant
                     // Generate title from first user message (truncate to 50 chars)
-                    const title = content.trim().slice(0, 50) + (content.length > 50 ? '...' : '');
+                    const titleSource = trimmedContent || 'Image upload';
+                    const title = titleSource.slice(0, 50) + (titleSource.length > 50 ? '...' : '');
                     await chatRepo.updateSession(sessionId, { title });
                 }
 
+                const [clientUserMessage, clientAssistantMessage] = await Promise.all([
+                    hydrateChatMessageForClient(userMessage),
+                    hydrateChatMessageForClient(assistantMessage),
+                ]);
+
                 return reply.send({
                     success: true,
-                    userMessage,
-                    assistantMessage,
+                    userMessage: clientUserMessage,
+                    assistantMessage: clientAssistantMessage,
                     task,
                 });
             } catch (error: any) {
+                const userId = (request as any).user?.sub;
+                const uploadIds = Array.from(
+                    new Set((Array.isArray(request.body?.imageUploadIds) ? request.body.imageUploadIds : []).map((value) => String(value || '').trim()).filter(Boolean))
+                );
+                await discardPreparedUploadsSafely(fastify, userId, uploadIds);
+                if (createdTaskId && !createdTaskReleasedToWorker) {
+                    try {
+                        await chatRepo.updateTaskStatus(createdTaskId, 'cancelled');
+                        await cleanupTaskChatImageUploads(createdTaskId, { deleteObjects: !createdImageAttachmentsPersisted });
+                    } catch (cleanupError) {
+                        fastify.log.warn({ err: cleanupError, taskId: createdTaskId }, 'Failed to cleanup task-bound chat images after sendMessage error');
+                    }
+                }
+                if (createdAssistantMessageId && !createdTaskReleasedToWorker) {
+                    try {
+                        await chatRepo.updateMessage(createdAssistantMessageId, { status: 'error' });
+                    } catch (messageError) {
+                        fastify.log.warn({ err: messageError, messageId: createdAssistantMessageId }, 'Failed to mark assistant message errored after sendMessage error');
+                    }
+                }
+                if (isChatImageUploadError(error)) {
+                    return reply.code(error.statusCode || 400).send({ error: error.message });
+                }
                 fastify.log.error('Error sending message:', error);
                 return reply.code(500).send(sanitizedErrorResponse(error, 'sendMessage'));
             }
@@ -645,10 +935,11 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     return reply.code(403).send({ error: 'Access denied' });
                 }
 
-                const messages = await chatRepo.getSessionMessages(
+                const rawMessages = await chatRepo.getSessionMessages(
                     sessionId,
                     afterIndex !== undefined ? parseInt(afterIndex, 10) : undefined
                 );
+                const messages = await hydrateChatMessagesForClient(rawMessages);
 
                 return reply.send({
                     success: true,
@@ -723,7 +1014,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     return reply.code(403).send({ error: 'Access denied' });
                 }
 
-                if (task.status !== 'queued' && task.status !== 'running') {
+                if (task.status !== 'pending' && task.status !== 'queued' && task.status !== 'running') {
                     return reply.code(400).send({
                         error: 'Task is not active',
                         status: task.status,

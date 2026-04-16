@@ -1,6 +1,32 @@
 import { getAuthToken } from '../utils/authToken';
 import { type AIStreamChunk } from './aiTypes';
 
+// CONTEXT MEMORY
+// Updated: 2026-04-17
+// Author: Almurat
+// Reason: fallback frontend calls into the OpenAI-compatible backend proxy must
+//         use the same free Kimi 2.5 Instant/Fast default as the chat selector
+//         and backend session normalizer.
+// Goal: keep model-omitted frontend API calls from drifting to GPT, GLM, or
+//       historical DeepSeek defaults.
+// Owns: frontend proxy request fallback model and model-id passthrough helpers.
+// Does Not Own: backend provider credentials, billing categories, or chat UI
+//               selection persistence.
+// Design Language:
+// - Prefer an explicit Kimi Instant fallback over list-order inference.
+// - Keep the fallback aligned with chatConstants.DEFAULT_CHAT_MODEL_ID.
+// - Do not remap a caller-provided model id.
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: frontend model-omitted proxy requests
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-lite-defaults.md
+
 /**
  * Model API Service
  * Handles communication with the backend chat proxy for OpenAI-compatible models.
@@ -65,7 +91,7 @@ export interface DeepSeekStreamChunk {
   }>;
 }
 
-const DEFAULT_MODEL = 'glm-5';
+const DEFAULT_MODEL = 'kimi-k2-5-instant';
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 second
 

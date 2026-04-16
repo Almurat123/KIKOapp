@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-15
+// Updated: 2026-04-17
 // Author: Linh Tran
 // Reason: Neynar webhook ingress needs a dedicated owner for webhook CRUD,
 //         signature verification, and mention normalization so the Farcaster
@@ -9,7 +9,9 @@
 //         may expose mention identity as profiles, numeric fids, or mention
 //         arrays. The subscription itself must follow Neynar's documented bot
 //         pattern: `mentioned_fids` for direct @mentions plus
-//         `parent_author_fids` for replies to the bot.
+//         `parent_author_fids` for replies to the bot. A reply to a bot-authored
+//         parent cast is a continuation turn even when the text no longer
+//         contains the bot handle.
 // Goal: create or update the single callback-bound webhook, verify signed
 //       deliveries, and normalize cast.created mention/reply payloads into the
 //       same FarcasterMentionEvent shape used by the worker.
@@ -32,6 +34,8 @@
 //   second guard.
 // - Only cast.created deliveries that actually mention or reply to the bot
 //   should be admitted.
+// - Do not require an @mention for a direct reply whose parent_author fid is the
+//   bot; do not admit ambient root-thread comments without either condition.
 // Document Provenance:
 // - Source: Neynar Documentation, Webhooks in Dashboard
 // - Kind: official API doc
@@ -48,6 +52,11 @@
 // - Retrieved: 2026-04-15
 // - Applied To: `mentioned_fids` + `parent_author_fids` subscription filters
 // - Verification: verified in docs
+// - Source: Farcaster direct-reply runtime policy review
+// - Kind: product/runtime observation
+// - Retrieved: 2026-04-17
+// - Applied To: no-mention direct replies under bot-authored parent casts
+// - Verification: verified in code and tests
 // - Source: Neynar Documentation, Verify Webhooks with HMAC Signatures
 // - Kind: official API doc
 // - Retrieved: 2026-04-15
@@ -57,6 +66,7 @@
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-webhook-ingress.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-farcaster-direct-reply-continuation.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import crypto from 'node:crypto';
 import { safeSecretEquals } from '../../routes/webhookHelpers.js';

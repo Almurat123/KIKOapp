@@ -1,10 +1,14 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-17
 // Author: Linh Tran
 // Reason: Farcaster mention replies need deterministic session reuse keyed by
 //         thread/root cast instead of reusing X-specific conversation storage.
+//         Direct reply continuation also needs a bounded list of bot-authored
+//         outbound casts so Hub fallback can watch only casts the bot actually
+//         wrote, not whole public threads.
 // Goal: keep Farcaster conversation mapping and session model selection tied to
-//       the linked user's persisted chat preference.
+//       the linked user's persisted chat preference, while exposing a narrow
+//       continuation target list for no-mention replies to the bot.
 // Owns: Farcaster conversation mapping creation/reuse and model sync for the
 //       underlying shared chat session.
 // Does Not Own: polling, user linking writes, or outbound cast publication.
@@ -12,20 +16,36 @@
 // - Reuse one active session per linked user and root cast thread.
 // - New Farcaster sessions must get an explicit normalized model.
 // - Reused sessions may be realigned to the latest saved user model.
+// - Reply-continuation polling may read recent `lastOutboundCastHash` values, but
+//   it must not decide provider fetch policy or broaden admission beyond direct
+//   replies to bot-authored casts.
 // Document Provenance:
 // - Source: repo code review of X conversation/session flow
 // - Kind: repo doc
 // - Retrieved: 2026-04-10
 // - Applied To: mirroring thread-keyed mapping and model sync for Farcaster
 // - Verification: verified in code
+// - Source: repo runtime policy review for Farcaster direct reply continuation
+// - Kind: product/runtime observation
+// - Retrieved: 2026-04-17
+// - Applied To: exposing recent bot outbound cast hashes as bounded continuation targets
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-farcaster-direct-reply-continuation.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import prisma from '../../db/prisma.js';
 import * as chatRepo from '../../repositories/chatRepository.js';
 import { normalizeSupportedChatModel } from '../../config/chatModels.js';
 import type { FarcasterChannel } from './types.js';
+
+export interface FarcasterReplyContinuationTarget {
+  id: string;
+  farcasterFid: number;
+  rootCastHash: string | null;
+  lastOutboundCastHash: string;
+}
 
 export function buildFarcasterSessionTitle(params: { username?: string | null }): string {
   const handle = params.username ? `@${String(params.username).replace(/^@/, '')}` : '@unknown';
@@ -109,6 +129,40 @@ export async function findOrCreateFarcasterConversation(params: {
   }
 
   return existing;
+}
+
+export async function listFarcasterReplyContinuationTargets(params?: {
+  limit?: number;
+  since?: Date | null;
+}): Promise<FarcasterReplyContinuationTarget[]> {
+  const limit = Math.min(Math.max(Math.trunc(Number(params?.limit || 25)), 1), 100);
+  const rows = await prisma.farcasterConversationMapping.findMany({
+    where: {
+      channel: 'mention',
+      status: 'active',
+      lastOutboundCastHash: { not: null },
+      lastOutboundAt: params?.since ? { gte: params.since } : { not: null },
+    },
+    select: {
+      id: true,
+      farcasterFid: true,
+      rootCastHash: true,
+      lastOutboundCastHash: true,
+    },
+    orderBy: { lastOutboundAt: 'desc' },
+    take: limit,
+  });
+
+  return rows.flatMap((row) => {
+    const lastOutboundCastHash = String(row.lastOutboundCastHash || '').trim();
+    if (!lastOutboundCastHash) return [];
+    return [{
+      id: row.id,
+      farcasterFid: row.farcasterFid,
+      rootCastHash: row.rootCastHash || null,
+      lastOutboundCastHash,
+    }];
+  });
 }
 
 export async function syncFarcasterConversationModel(params: {

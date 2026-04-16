@@ -3,6 +3,30 @@
  * Main service for AI interactions (backend-orchestrated)
  */
 
+// CONTEXT MEMORY
+// Updated: 2026-04-17
+// Author: Almurat
+// Reason: the legacy one-shot AI helper can omit a model and then relies on the
+//         OpenAI-compatible proxy fallback. That fallback now needs to read as
+//         Kimi 2.5 Instant/Fast instead of GPT in logs and inline docs.
+// Goal: prevent debugging output from suggesting GPT is still the product
+//       default after the canonical default moved to Kimi Instant.
+// Owns: frontend AI helper logging and fallback-call documentation.
+// Does Not Own: model catalog selection, backend normalization, or provider
+//               request construction.
+// Design Language:
+// - Log the actual fallback family used by the proxy helper.
+// - Do not duplicate default model ids here; deepseek.ts owns that literal.
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: frontend AI fallback logging/documentation
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
+
 import { chatCompletion, streamChatCompletion, getModelName, type DeepSeekMessage } from './deepseek';
 import { streamChatCompletion as xaiStreamChatCompletion, getXaiModelName, getRecommendedMaxTokens as getXaiRecommendedMaxTokens, type XaiMessage } from './xai';
 import type { Intent, IntentType } from './intentTypes';
@@ -59,8 +83,8 @@ export async function generateAIResponse(
     // Generate response
     // Note: generateAIResponse doesn't currently accept model params
     // If needed, add modelId and mode parameters to this function
-    // Using default model (gpt-5.4-mini-2026-03-17) with recommended settings for chat
-    logger.ai('request', 'GPT', { temperature: 0.8 });
+    // Uses the proxy fallback model from deepseek.ts with chat-oriented settings.
+    logger.ai('request', 'Kimi Instant', { temperature: 0.8 });
     const response = await chatCompletion(messages, {
       temperature: 0.8, // Better for conversational chat
       enable_search: true, // Enable tools (gas_price, token_info, etc.)
@@ -69,7 +93,7 @@ export async function generateAIResponse(
         chainName: userContext.chainName
       } : undefined
     });
-    logger.ai('response', 'GPT', { tokens: response.usage?.total_tokens });
+    logger.ai('response', 'Kimi Instant', { tokens: response.usage?.total_tokens });
 
     const content = response.choices[0]?.message?.content || 'I apologize, but I encountered an error processing your request.';
 

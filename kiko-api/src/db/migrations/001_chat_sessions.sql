@@ -2,6 +2,28 @@
 -- Migration: 001_chat_sessions
 -- Created: 2024-12-21
 
+-- CONTEXT MEMORY
+-- Updated: 2026-04-17
+-- Author: Almurat
+-- Reason: fresh SQL bootstrap files must follow the current product default,
+--         which moved from GPT to free Kimi 2.5 Instant/Fast.
+-- Goal: keep newly bootstrapped chat_sessions rows aligned with the canonical
+--       frontend/backend default.
+-- Owns: legacy SQL bootstrap defaults for chat session persistence.
+-- Does Not Own: Prisma-managed production migrations or per-user overrides.
+-- Design Language:
+-- - Bootstrap defaults must not drift from kiko-api/src/config/chatModels.ts.
+-- - Do not use historical migration literals as the product default source.
+-- Document Provenance:
+-- - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
+-- - Kind: repo doc
+-- - Retrieved: 2026-04-17
+-- - Applied To: legacy chat session bootstrap default
+-- - Verification: verified in code
+-- See also:
+-- - /Users/almurat/KiKo/system-journal/INDEX.md
+-- - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
+
 -- =============================================
 -- Chat Sessions (Conversations)
 -- =============================================
@@ -9,7 +31,7 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id VARCHAR(100) NOT NULL,  -- Privy user ID (DID)
   title VARCHAR(500) DEFAULT 'New Chat',
-  model VARCHAR(50) DEFAULT 'gpt-5.4-mini-2026-03-17',
+  model VARCHAR(50) DEFAULT 'kimi-k2-5-instant',
   status VARCHAR(20) DEFAULT 'active',  -- active, archived
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()

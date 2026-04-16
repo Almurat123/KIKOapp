@@ -4,28 +4,48 @@
  */
 
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-17
 // Author: Almurat
 // Reason: session creation previously defaulted to `deepseek-chat`, which
 //         drifted from the website default selector and from X mention reply
-//         expectations. New sessions now need one canonical default model.
+//         expectations. New sessions now need one canonical default model,
+//         currently free Kimi 2.5 Instant/Fast. The chat-image upload flow also
+//         exposed a task-claim race: tasks were inserted as `queued`, so the
+//         worker could claim them before upload binding finished and then
+//         generate without images.
 // Goal: ensure every newly created chat session gets a normalized supported
-//       model that matches the product-default model policy.
-// Owns: chat session persistence defaults and model normalization at write time.
+//       model that matches the product-default model policy, and let chat
+//       tasks remain non-claimable until request-time prerequisites finish.
+// Owns: chat session persistence defaults, task persistence defaults, and
+//       model normalization at write time.
 // Does Not Own: frontend dropdown state, model pricing, or X mention routing.
 // Design Language:
 // - Normalize model ids before persisting them into ChatSession.
 // - Use one canonical default model across all new session creation paths.
 // - Do not let empty model inputs silently fall back to a legacy model.
+// - Chat tasks that still depend on upload binding must not enter the queued
+//   worker pool.
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-10
 // - Applied To: aligning new ChatSession defaults with website and X mention model policy
 // - Verification: verified in code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: preserving repository session defaults through backend model normalization
+// - Verification: verified in code
+// - Source: /Users/almurat/KiKo/test.txt
+// - Kind: runtime observation
+// - Retrieved: 2026-04-16
+// - Applied To: preventing worker claim before chat-image task binding completes
+// - Verification: verified in runtime log and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 import prisma, { withRetry } from '../db/prisma.js';
@@ -76,7 +96,7 @@ export interface AITask {
     userMessageId?: string;
     assistantMessageId?: string;
     model: string;
-    status: 'queued' | 'running' | 'done' | 'error' | 'cancelled';
+    status: 'pending' | 'queued' | 'running' | 'done' | 'error' | 'cancelled';
     errorMessage?: string;
     toolContext?: any;
     startedAt?: Date;
@@ -296,7 +316,10 @@ export async function createTask(
     model: string,
     userMessageId: string,
     assistantMessageId: string,
-    toolContext?: any
+    toolContext?: any,
+    options: {
+        status?: AITask['status'];
+    } = {},
 ): Promise<any> {
     const task = await prisma.aITask.create({
         data: {
@@ -305,7 +328,7 @@ export async function createTask(
             userMessageId,
             assistantMessageId,
             toolContext: toolContext ? JSON.stringify(toolContext) : null,
-            status: 'queued'
+            status: options.status || 'queued',
         }
     });
     return mapPrismaTask(task);
@@ -390,7 +413,7 @@ export async function getSessionActiveTask(sessionId: string): Promise<any> {
     const task = await prisma.aITask.findFirst({
         where: {
             sessionId,
-            status: { in: ['queued', 'running'] }
+            status: { in: ['pending', 'queued', 'running'] }
         },
         orderBy: { createdAt: 'desc' }
     });

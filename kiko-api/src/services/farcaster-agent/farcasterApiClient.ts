@@ -1,11 +1,13 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-17
 // Author: Linh Tran
 // Reason: Farcaster mention ingress now prefers the dedicated Neynar webhook
 //         route when enabled, while this module still owns webhook-disabled
 //         polling fallback, Hub fallback, and reply publication semantics.
 //         Reply publication now prefers Neynar signer publishing when
-//         configured, then falls back to Hub.
+//         configured, then falls back to Hub. Hub fallback also needs direct
+//         reply continuation under bot-authored parent casts so Farcaster users
+//         do not have to mention the bot on every follow-up turn.
 // Goal: keep mention retrieval, cast parsing, and reply publication
 //       centralized while preserving deterministic source selection,
 //       transient-error recovery, a webhook-first ingress split, and
@@ -23,6 +25,9 @@
 // - Transient RPC cancellation must invalidate the current endpoint so the
 //   next request can advance to a different Hub.
 // - Mention events should be normalized before the worker sees them.
+// - Direct reply continuation must use `getCastsByParent` only for tracked
+//   bot-authored parent casts; do not scan entire public threads for ambient
+//   comments.
 // - Reply publication should prefer Neynar signer publishing when configured
 //   but keep parent-cast semantics explicit.
 // - Avoid leaking provider-specific payload shapes into the worker.
@@ -42,6 +47,11 @@
 // - Kind: local SDK source
 // - Retrieved: 2026-04-15
 // - Applied To: getCastsByMention, getCast, makeCastAdd, and submitMessage usage
+// - Verification: verified in code
+// - Source: @farcaster/hub-nodejs dist typings
+// - Kind: local SDK source
+// - Retrieved: 2026-04-17
+// - Applied To: getCastsByParent continuation polling for replies to bot casts
 // - Verification: verified in code
 // - Source: Neynar SDK `publishCast` typing
 // - Kind: local SDK source
@@ -71,11 +81,13 @@
 // - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-webhook-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-neynar-notifications-standdown.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-farcaster-direct-reply-continuation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-mention-hub-fallback.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-mention-hub-request-failover.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import {
   CastId,
+  CastsByParentRequest,
   CastType,
   FarcasterNetwork,
   FidRequest,
@@ -427,6 +439,42 @@ export function parseHubMentionEvents(payload: HubMentionPage): FarcasterMention
   return events;
 }
 
+export function parseHubReplyContinuationEvents(
+  payload: HubMentionPage,
+  params: {
+    parentHash: string;
+    parentAuthorFid: number;
+    rootCastHash?: string | null;
+  },
+): FarcasterMentionEvent[] {
+  const parentHash = String(params.parentHash || '').trim();
+  const parentAuthorFid = Number(params.parentAuthorFid || 0);
+  if (!parentHash || !Number.isFinite(parentAuthorFid) || parentAuthorFid <= 0) {
+    return [];
+  }
+
+  return (payload.messages || []).flatMap((message) => {
+    const context = messageToCastContext(message);
+    if (!context) return [];
+    const authorFid = Number(context.authorFid || 0);
+    if (!Number.isFinite(authorFid) || authorFid <= 0) return [];
+    if (context.parentHash !== parentHash || context.parentAuthorFid !== parentAuthorFid) return [];
+
+    return [{
+      eventId: `farcaster:mention:${context.hash}`,
+      notificationType: 'replies' as const,
+      castHash: context.hash,
+      text: context.text,
+      authorFid,
+      authorUsername: context.authorUsername || null,
+      parentHash: context.parentHash || null,
+      parentAuthorFid: context.parentAuthorFid || null,
+      rootCastHash: params.rootCastHash || context.parentHash || context.hash,
+      occurredAt: context.timestamp || null,
+    }];
+  });
+}
+
 export class FarcasterApiClient {
   isConfigured(): boolean {
     return Boolean(
@@ -469,6 +517,42 @@ export class FarcasterApiClient {
       }
 
       return response.value;
+    });
+  }
+
+  async fetchReplyContinuationEvents(params: {
+    parentHash: string;
+    parentAuthorFid: number;
+    rootCastHash?: string | null;
+    pageSize?: number;
+  }): Promise<FarcasterMentionEvent[]> {
+    const parentHash = asBytes(params.parentHash);
+    const parentAuthorFid = Number(params.parentAuthorFid || 0);
+    if (!parentHash || !Number.isFinite(parentAuthorFid) || parentAuthorFid <= 0) {
+      return [];
+    }
+
+    return runHubRequestWithFailover('reply continuation fetch', async (client) => {
+      const response = await client.getCastsByParent(
+        CastsByParentRequest.create({
+          parentCastId: {
+            fid: parentAuthorFid,
+            hash: parentHash,
+          },
+          pageSize: clampPageSize(params.pageSize ?? env.farcasterAgent.pollPageSize),
+          reverse: true,
+        }),
+      );
+
+      if (response.isErr()) {
+        throw response.error;
+      }
+
+      return parseHubReplyContinuationEvents(response.value, {
+        parentHash: params.parentHash,
+        parentAuthorFid,
+        rootCastHash: params.rootCastHash || null,
+      });
     });
   }
 
