@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { getLaunchpadDisplayName, LAUNCHPAD_LOGOS, normalizeLaunchpadTag } from '../../utils/launchpadLogos';
 import styles from './LaunchpadCapsule.module.css';
 import icon from '../../assets/images/icon.png';
-import { useThemeContext } from '../../contexts/ThemeContext';
+
 
 interface LaunchpadCapsuleProps {
     address: string;
@@ -17,8 +17,6 @@ export const LaunchpadCapsule: React.FC<LaunchpadCapsuleProps> = ({
     launchpad: backendLaunchpad,
     onAskAI
 }) => {
-    const { resolvedTheme } = useThemeContext();
-
     const detectedLaunchpad = useMemo(() => {
         const normalizedBackend = normalizeLaunchpadTag(backendLaunchpad);
         return normalizedBackend;
