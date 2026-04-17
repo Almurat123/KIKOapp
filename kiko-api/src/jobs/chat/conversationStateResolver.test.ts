@@ -316,6 +316,48 @@ test('resolveTradeConfirmationState extracts order confirmation from a prepared 
     assert.equal(state?.order?.actionClass, 'ORDER_MUTATION');
 });
 
+test('resolveTradeConfirmationState preserves token deploy mutation action class', () => {
+    const state = resolveTradeConfirmationState([
+        {
+            role: 'assistant',
+            id: 'a-clanker',
+            message_index: 1,
+            data: {
+                toolTrace: {
+                    toolCalls: [
+                        {
+                            tool: 'deploy_clanker_token',
+                            status: 'success',
+                            result: {
+                                requires_confirmation: true,
+                                confirmation_payload: {
+                                    tool_name: 'deploy_clanker_token',
+                                    args: {
+                                        name: 'Demo Token',
+                                        symbol: 'DEMO',
+                                        confirmDeploy: true,
+                                    },
+                                    confirmation_token: 'deploy123',
+                                    action_class: 'TOKEN_DEPLOY_MUTATION',
+                                },
+                            },
+                        },
+                    ],
+                },
+            },
+        },
+    ], 'confirm', {
+        domain: 'token',
+        intent: 'clanker_deploy',
+        taskMode: 'confirm',
+    } as any);
+
+    assert.equal(state?.kind, 'order_confirmation');
+    assert.equal(state?.order?.toolName, 'deploy_clanker_token');
+    assert.equal(state?.order?.confirmationToken, 'deploy123');
+    assert.equal(state?.order?.actionClass, 'TOKEN_DEPLOY_MUTATION');
+});
+
 test('resolveTradeConfirmationState preserves copy-trade wallet binding provenance', () => {
     const walletBinding = {
         rawUserMessage: 'Copy Trade 0xbd708164137146ac234aceb75d3981cd3599e21a with $8',

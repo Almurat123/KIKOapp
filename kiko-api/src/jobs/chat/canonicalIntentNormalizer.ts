@@ -1,6 +1,6 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-16
-// Author: Rowan
+// Updated: 2026-04-17
+// Author: Renata
 // Reason: canonical intent normalization was consuming Farcaster transport
 //         wrapper text and misclassifying literal token-address queries as
 //         Farcaster social discovery because the latest user message still
@@ -12,7 +12,9 @@
 //         normalizer and GLM aliases default to a fast NVIDIA Kimi instant
 //         normalizer when no explicit override is configured. A later runtime
 //         review showed obvious non-chain questions like "量子纠缠是什么" should
-//         not enter canonical normalization at all.
+//         not enter canonical normalization at all. Clanker token launches now
+//         require a canonical deploy intent so routing, policy, and confirmation
+//         gates agree that a launch is a mutation workflow.
 // Goal: feed normalization with the effective user query, sanitized recent
 //       user history, explicit address-type hints, and a fast normalization
 //       model so routing decisions reflect user intent instead of transport
@@ -33,6 +35,8 @@
 // - normalization reasoning must remain distinguishable from final answer text
 //   when the runtime surfaces it to users
 // - obvious non-chain turns should bypass normalization before any JSON routing prompt is built
+// - deploy/launch/create token requests through Clanker normalize as `clanker_deploy`
+//   with task_mode=execute or confirm instead of generic token analysis
 // Document Provenance:
 // - Source: Farcaster mention runtime logs for trace dd7b79f7-41fb-4147-8e38-44a3c4bfeff0
 // - Kind: runtime observation
@@ -65,6 +69,11 @@
 // - Retrieved: 2026-04-16
 // - Applied To: bypassing canonical normalization for obvious non-chain turns
 // - Verification: verified in runtime and applied in code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: Clanker launch canonical intent prompt rules
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
@@ -73,6 +82,7 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-canonical-intent-fast-normalizer.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-normalization-reasoning-runtime-surface.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-non-chain-normalization-bypass.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
@@ -392,7 +402,7 @@ function buildNormalizationMessages(snapshot: ChatContextSnapshot): GenerationMe
                 'If the request is ambiguous, set needs_clarification=true and provide a short clarification_question.',
                 'Use these exact enums only:',
                 'domain: assistant_meta | general | token | wallet | polymarket | x | farcaster | zora | market',
-                'intent: assistant_meta | swap | cross_chain_swap | copy_trade | token_analysis | early_buyers | creator_analysis | token_risk | wallet_analysis | wallet_pnl | social_discovery | market_macro | polymarket_discovery | polymarket_order | polymarket_short_window | zora_discovery | token_alerts',
+                'intent: assistant_meta | swap | cross_chain_swap | copy_trade | token_analysis | early_buyers | creator_analysis | token_risk | wallet_analysis | wallet_pnl | social_discovery | market_macro | polymarket_discovery | polymarket_order | polymarket_short_window | zora_discovery | token_alerts | clanker_deploy',
                 'task_mode: discover | analyze | execute | confirm',
                 'output_mode: narrative | full_table | shortlist | execution_ready | confirmation_required',
                 'search_mode: forbidden | fallback | required',
@@ -403,6 +413,7 @@ function buildNormalizationMessages(snapshot: ChatContextSnapshot): GenerationMe
                 'For early-buyer queries with a literal user-specified time such as "today 11:48", "at 9:30", or an explicit start/end range, preserve that requested_time_window as the literal query window in the user\'s timezone. Do not reinterpret it as the token launch window, listing window, or announcement window unless the user explicitly asked for that event timestamp.',
                 'For explicit numeric export requests like "for 30", set row_count accordingly.',
                 'Use domain=assistant_meta with intent=assistant_meta for Kiko intro/capabilities questions and for meta/debug questions about the assistant, the system, the previous reply, fallback behavior, plan/runtime behavior, or why the assistant responded a certain way.',
+                'Use domain=token with intent=clanker_deploy for requests to deploy, launch, create, mint, 发币, 发行代币, 上线代币, or 创建代币 through Clanker or as a generic token launch. Prefer task_mode=execute for launch preparation and task_mode=confirm only when the latest user turn explicitly confirms a previously prepared deploy payload. Do not ask for supply or decimals for Clanker launches.',
                 'For onboarding/capabilities questions, prefer task_mode=discover. For debugging or explaining the previous assistant/system behavior, prefer task_mode=analyze.',
                 'Set inherit_entities_from_context=true only when the current turn is genuinely continuing the same token, wallet, market, or on-chain subject from prior turns. Set it to false when the current turn is about Kiko itself, the assistant, the system, plan/runtime behavior, or any meta/debug question.',
                 'When recent history already contains an early-buyer list and the latest turn asks what those/these wallets earned, their profit/PnL, ROI, buy/sell summary, or收益/利润/利益/获利 on that same token, classify it as wallet_pnl instead of early_buyers and inherit the token/wallet set from context.',

@@ -46,8 +46,10 @@ model-side conversation semantics.
 ## Boundary Rule
 
 The webhook route is the preferred Farcaster ingress when enabled. It may hand
-off accepted events to the existing worker, but it must not become a second
-durable truth owner for mentions or replies.
+off normalized events to the existing worker, but it must not become a second
+durable truth owner for mentions or replies. Worker admission is separate from
+webhook normalization because valid provider payloads can still be rejected for
+self/bot-loop safety.
 
 If the webhook is disabled or unconfigured, the system may fall back to
 notification polling, but the webhook owner itself still owns the callback
@@ -63,6 +65,11 @@ Once a user has directly addressed the bot, Farcaster continuation can proceed
 without another `@` only when the next inbound cast is a direct reply to a
 bot-authored parent cast. Comments elsewhere in the same root thread still need
 an explicit mention.
+
+Self-authored casts and casts from `FARCASTER_AGENT_BLOCKED_BOT_FIDS` must be
+rejected before durable event-log persistence regardless of whether they arrive
+through Neynar webhook, Hub polling, or recovery replay. Public bind-link prompts
+must be scoped conservatively by author, not only by cast hash.
 
 ## Document Provenance
 
@@ -98,6 +105,11 @@ an explicit mention.
   - Retrieved: 2026-04-17
   - Applied To: no-mention continuation rule after the bot has replied
   - Verification: verified in code and tests
+- Source: `/Users/almurat/Downloads/logs.1776362968247.json`
+  - Kind: runtime observation
+  - Retrieved: 2026-04-17
+  - Applied To: self/bot-loop rejection and bind-link anti-spam cooldown
+  - Verification: verified in runtime logs, code, and targeted tests
 
 ## See Also
 
@@ -105,3 +117,4 @@ an explicit mention.
 - system-journal/design-language/farcaster-miniapp-shell.md
 - system-journal/fix-log/2026-04-15-farcaster-neynar-webhook-ingress.md
 - system-journal/fix-log/2026-04-17-farcaster-direct-reply-continuation.md
+- system-journal/fix-log/2026-04-17-farcaster-self-loop-bind-spam-guard.md

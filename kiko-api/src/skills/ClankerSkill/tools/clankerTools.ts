@@ -1,8 +1,10 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-15
+// Updated: 2026-04-17
 // Author: Renata
-// Reason: KiKo agents now need tool-level access to Clanker v4 token launches,
-//         deploy/admin history, claimed fees, reward recipients, and claim prep.
+// Reason: KiKo agents need a visible Clanker launch skill that exposes the
+//         correct deploy semantics in the tool schema itself, including the
+//         wrapped-native pair default, the Clanker `maxLpFee` field, simple
+//         creator buy support, and the token page URL returned after deploy.
 // Goal: expose Clanker actions as small, auditable tools while keeping HTTP,
 //       chain, and SDK details centralized in `clankerService`.
 // Owns: agent-facing tool names, argument schemas, result shaping, and safety
@@ -10,32 +12,56 @@
 // Does Not Own: Clanker API authentication, user wallet signing, image creation,
 //               or persistence of deployed token records.
 // Design Language:
-// - Real token deployment requires `confirmDeploy=true`; otherwise return dry-run payload.
+// - Real token deployment requires `confirmDeploy=true`; otherwise return a dry-run payload.
 // - Query tools may inspect arbitrary addresses, but deploy tools should use explicit user-supplied admins/recipients.
-// - Default launch UX should prefer one recipient at 100%, standard pool, chain wrapped native pair, and fixed fees.
+// - Default launch UX should prefer one recipient at 100%, a chain wrapped-native pair asset, and fixed fees.
+// - Dynamic fee payloads should expose `maxLpFee`; `maxFee` is only a compatibility alias.
+// - Creator buy / dev buy should expose the SDK `devBuy` shape with an
+//   ethAmount-first default, and optional poolKey, amountOutMin, and recipient
+//   overrides only when the user explicitly asks for them.
+// - `context` remains a chain-neutral provenance envelope owned by the service.
 // - Claimed-fee results must carry the beta/indexed-data caveat from the service.
 // - Claim rewards prepares a wallet transaction and must not submit it.
 // Document Provenance:
 // - Source: Clanker Documentation, Deploy Token (v4.0.0)
 // - Kind: official API doc
-// - Retrieved: 2026-04-15
-// - Applied To: deploy tool schema and safety copy
+// - Retrieved: 2026-04-17
+// - Applied To: deploy tool schema, pair defaults, dynamic fee naming, and
+//   deploy-success token URL surfacing
+// - Verification: verified in docs
+// - Source: Clanker Documentation, Token Deployments
+// - Kind: official API doc
+// - Retrieved: 2026-04-17
+// - Applied To: creator buy / dev buy extension support
+// - Verification: verified in docs
+// - Source: Clanker Documentation, Get Token by Address
+// - Kind: official API doc
+// - Retrieved: 2026-04-17
+// - Applied To: token page URL shape
 // - Verification: verified in docs
 // - Source: Clanker Documentation, Get Tokens by Admin / Get Tokens Deployed by Address / Get Claimed Fees [beta]
 // - Kind: official API docs
-// - Retrieved: 2026-04-15
+// - Retrieved: 2026-04-17
 // - Applied To: read-only lookup tool schemas
 // - Verification: verified in docs
-// - Source: clanker-sdk examples/v4/getTokenRewards.ts
-// - Kind: official SDK source
-// - Retrieved: 2026-04-15
-// - Applied To: reward index/admin/recipient tool semantics
-// - Verification: partially verified in local SDK exports
+// - Source: clanker-sdk README and v4 schema
+// - Kind: local dependency evidence
+// - Retrieved: 2026-04-17
+// - Applied To: `devBuy.ethAmount` input shape, defaults, and optional
+//   poolKey / amountOutMin / recipient overrides
+// - Verification: verified in local dependency exports
+// - Source: clanker-sdk package exports and v4 ABI d.ts
+// - Kind: local dependency evidence
+// - Retrieved: 2026-04-17
+// - Applied To: reward index/admin/recipient tool semantics and `maxLpFee` naming
+// - Verification: verified in local dependency exports
 // See also:
-// - system-journal/INDEX.md
-// - system-journal/design-language/clanker-token-deploy-skill.md
-// - system-journal/owner-map/clanker-skill.md
-// - system-journal/adr/2026-04-15-clanker-token-deploy-skill.md
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/clanker-token-deploy-skill.md
+// - /Users/almurat/KiKo/system-journal/owner-map/clanker-skill.md
+// - /Users/almurat/KiKo/system-journal/adr/2026-04-15-clanker-token-deploy-skill.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-devbuy-and-token-url.md
 import { Tool } from '../../../tooling/registry.js';
 import {
     deployClankerToken,
@@ -56,7 +82,7 @@ function toolError(error: unknown) {
 export const DeployClankerTokenTool: Tool = {
     definition: {
         name: 'deploy_clanker_token',
-        description: 'Prepare or execute a Clanker v4 token deployment. Defaults are: token admin from the tagged user wallet when available, one reward recipient that receives 100%, standard pool with the chain native wrapped asset, initial market cap 10, and fixed fees at 1% / 1%. Only set confirmDeploy=true after the user explicitly confirms the launch.',
+        description: 'Prepare or execute a Clanker v4 token deployment. Defaults are: token admin from the tagged user wallet when available, one reward recipient that receives 100%, standard pool with the chain native wrapped asset address, initial market cap 10, fixed fees at 1% / 1%, and simple creator buy support via devBuy. Treat phrases like "buy me 0.1 ETH/BNB" as devBuy.ethAmount = 0.1. Only ask for poolKey, amountOutMin, and recipient when the user explicitly wants a non-ETH route, slippage control, or custom settlement. Successful deploys should return the Clanker token page URL when the API provides a token address. Only set confirmDeploy=true after the user explicitly confirms the launch.',
         parameters: {
             type: 'object',
             properties: {
@@ -93,11 +119,33 @@ export const DeployClankerTokenTool: Tool = {
                     },
                 },
                 auditUrls: { type: 'array', items: { type: 'string' } },
+                devBuy: {
+                    type: 'object',
+                    description: 'Optional creator buy / dev buy. Omit this object to skip buying tokens during deployment. ethAmount is the common path; poolKey, amountOutMin, and recipient are advanced overrides only when the user explicitly asks for them.',
+                    properties: {
+                        ethAmount: { type: 'number', description: 'Creator-buy amount. Set this for simple requests like "buy me 0.1 ETH/BNB".' },
+                        poolKey: {
+                            type: 'object',
+                            description: 'Optional pool key for an explicit non-ETH pair route.',
+                            properties: {
+                                currency0: { type: 'string', description: 'Pool currency0 address.' },
+                                currency1: { type: 'string', description: 'Pool currency1 address.' },
+                                fee: { type: 'number', description: 'Pool fee tier.' },
+                                tickSpacing: { type: 'number', description: 'Pool tick spacing.' },
+                                hooks: { type: 'string', description: 'Pool hook address.' },
+                            },
+                            required: ['currency0', 'currency1', 'fee', 'tickSpacing', 'hooks'],
+                        },
+                        amountOutMin: { type: 'number', description: 'Optional minimum output for the ETH -> pair swap, in paired-token units.' },
+                        recipient: { type: 'string', description: 'Optional recipient for the purchased tokens. Defaults to the token admin.' },
+                    },
+                    required: ['ethAmount'],
+                },
                 pool: {
                     type: 'object',
                     properties: {
                         type: { type: 'string', enum: ['standard', 'project'], description: 'Standard is the simple default launch pattern. Project is the advanced multi-range pattern.' },
-                        pairedToken: { type: 'string', description: 'Pair asset for the pool. Leave blank to use the chain native wrapped asset such as WETH; or pass another token address if the user wants a different pair.' },
+                        pairedToken: { type: 'string', description: 'Pair asset for the pool. Leave blank to use the chain native wrapped asset address; or pass another token address if the user wants a different pair.' },
                         initialMarketCap: { type: 'number', description: 'Starting market cap in the paired asset. If omitted, KiKo uses 10 as the default launch size.' },
                     },
                 },
@@ -108,7 +156,8 @@ export const DeployClankerTokenTool: Tool = {
                         clankerFee: { type: 'number', description: 'Fixed fee on the token side, in basis points. 100 = 1%.' },
                         pairedFee: { type: 'number', description: 'Fixed fee on the paired-asset side, in basis points. 100 = 1%.' },
                         baseFee: { type: 'number', description: 'Dynamic fee minimum, in basis points. 100 = 1%.' },
-                        maxFee: { type: 'number', description: 'Dynamic fee maximum, in basis points.' },
+                        maxLpFee: { type: 'number', description: 'Preferred Clanker dynamic fee maximum, in basis points. This is the payload field the service sends to Clanker.' },
+                        maxFee: { type: 'number', description: 'Legacy alias for maxLpFee. KiKo maps it to the Clanker payload field for compatibility.' },
                         referenceTickFilterPeriod: { type: 'number', description: 'Dynamic fee smoothing window in seconds.' },
                         resetPeriod: { type: 'number', description: 'Dynamic fee reset window in seconds.' },
                         resetTickFilter: { type: 'number', description: 'Price movement threshold, in ticks, that can trigger a reset.' },
@@ -119,7 +168,7 @@ export const DeployClankerTokenTool: Tool = {
                 feePreset: {
                     type: 'string',
                     enum: ['static-basic', 'dynamic-basic', 'dynamic-3'],
-                    description: 'Recommended fee template. Static basic = fixed 1% / 1%. Dynamic basic = 1% to 5%. Dynamic 3 = 1% to 3%.',
+                    description: 'Recommended fee template. Static basic = fixed 1% / 1%. Dynamic basic = 1% to 5% (maxLpFee 500). Dynamic 3 = 1% to 3% (maxLpFee 300).',
                 },
                 confirmDeploy: {
                     type: 'boolean',

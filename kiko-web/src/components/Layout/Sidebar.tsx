@@ -5,8 +5,7 @@ import { usePrivy } from '@privy-io/react-auth';
 import type { WalletWithMetadata } from '@privy-io/react-auth';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import clsx from 'clsx';
-import kikoLogoDark from '../../assets/images/KIKOdark.png';
-import kikoLogoLight from '../../assets/images/KIKOlight.png';
+import icon from '../../assets/images/icon.png';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import { ThemeToggle } from '../ThemeToggle/ThemeToggle';
 import { getUserInfo } from '../../utils/privyUtils';
@@ -304,7 +303,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }}
             style={{ cursor: 'pointer' }}
           >
-            <img src={resolvedTheme === 'dark' ? kikoLogoDark : kikoLogoLight} alt="KIKO" className={styles.logoImage} />
+            <img src={icon} alt="KIKO" className={styles.logoImage} />
             <span className={styles.logoText}>KIKO</span>
             <ThemeToggle />
           </div>

@@ -4,22 +4,35 @@
 // Reason: Snapchain-based Farcaster mention replies still need the same
 //         delivery idempotency and retry accounting as other social surfaces,
 //         but with cast hashes and parent reply semantics instead of tweet IDs.
-// Goal: keep outbound Farcaster reply publication deterministic and persisted.
+//         Public link/bot-loop prevention also depends on idempotency surviving
+//         concurrent attempts without throwing duplicate-key errors.
+// Goal: keep outbound Farcaster reply publication deterministic and persisted,
+//       including concurrent idempotency races.
 // Owns: Farcaster outbound delivery rows and cast-reply publication.
 // Does Not Own: mention polling, AI generation, or user linking.
 // Design Language:
 // - Never publish the same reply twice for the same idempotency key.
 // - Persist outbound attempts before making the external API call.
 // - Update conversation mapping after a successful provider write.
+// - Treat a concurrent unique-key collision as "already reserved" and do not
+//   publish a second cast.
 // Document Provenance:
 // - Source: @farcaster/hub-nodejs README and dist typings
 // - Kind: local SDK source
 // - Retrieved: 2026-04-12
 // - Applied To: reply publication through `makeCastAdd` and `submitMessage`
 // - Verification: verified in runtime
+// - Source: production runtime logs in
+//   /Users/almurat/Downloads/logs.1776362968247.json showing public bind-reply
+//   recursion risk
+// - Kind: runtime observation
+// - Retrieved: 2026-04-17
+// - Applied To: preserving delivery idempotency under concurrent bind attempts
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-farcaster-self-loop-bind-spam-guard.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import prisma from '../../db/prisma.js';
 import { logger } from '../../utils/logger.js';
@@ -69,21 +82,38 @@ async function createOrReuseDelivery(params: {
     });
     return { record, alreadySent: false };
   }
+  const createPayload = {
+    userId: params.userId || null,
+    farcasterFid: params.farcasterFid,
+    conversationMappingId: params.conversationMappingId || null,
+    channel: params.channel,
+    direction: 'outbound',
+    messageType: params.messageType,
+    sourceMessageId: params.sourceMessageId || null,
+    idempotencyKey: params.idempotencyKey,
+    payload: params.payload as any,
+    attemptCount: 1,
+    status: 'pending',
+  };
+  let wasCreated = true;
   const record = await prisma.farcasterMessageDelivery.create({
-    data: {
-      userId: params.userId || null,
-      farcasterFid: params.farcasterFid,
-      conversationMappingId: params.conversationMappingId || null,
-      channel: params.channel,
-      direction: 'outbound',
-      messageType: params.messageType,
-      sourceMessageId: params.sourceMessageId || null,
-      idempotencyKey: params.idempotencyKey,
-      payload: params.payload as any,
-      attemptCount: 1,
-      status: 'pending',
-    },
+    data: createPayload,
+  }).catch(async (error: any) => {
+    if (error?.code !== 'P2002') {
+      throw error;
+    }
+    wasCreated = false;
+    const raced = await prisma.farcasterMessageDelivery.findUnique({
+      where: { idempotencyKey: params.idempotencyKey },
+    });
+    if (!raced) {
+      throw error;
+    }
+    return raced;
   });
+  if (!wasCreated) {
+    return { record, alreadySent: true };
+  }
   return { record, alreadySent: false };
 }
 

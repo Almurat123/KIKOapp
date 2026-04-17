@@ -3,17 +3,20 @@ Grok API Service - FastAPI proxy for xAI Grok API
 Supports streaming responses and tool use (web_search, x_search, custom tools)
 """
 # CONTEXT MEMORY
-# Updated: 2026-04-16
-# Author: Rowan
+# Updated: 2026-04-17
+# Author: Renata
 # Reason: Grok social-agent requests now carry current-turn X/Farcaster post
 #         images as structured content from Node. xAI's official image
 #         understanding path requires image inputs to be passed as image content
 #         objects rather than text-only URLs, and advises not to store
-#         request/response history for image requests.
+#         request/response history for image requests. Clanker deploys now use a
+#         TOKEN_DEPLOY_MUTATION action class that must be treated as a hard
+#         node-controlled mutation by the Grok gateway.
 # Goal: convert structured social image content into xAI SDK image inputs while
 #       keeping the existing streaming/tool protocol stable.
 # Owns: xAI SDK request construction, native search/tool attachment, stream
-#       normalization, and Grok-specific provider safety gates.
+#       normalization, and Grok-specific provider safety gates, including
+#       hard mutation policy passthrough.
 # Does Not Own: Node-side provider selection, social webhook hydration, or
 #               NVIDIA/OpenAI multimodal request shaping.
 # Design Language:
@@ -23,6 +26,8 @@ Supports streaming responses and tool use (web_search, x_search, custom tools)
 # - xAI image requests must not rely on server-stored prior messages.
 # - Tool streaming and citation events must remain compatible with existing
 #   chat-completion consumers.
+# - TOKEN_DEPLOY_MUTATION must disable Python-side tool execution and extra SDK
+#   tools the same way swap/order mutation classes do.
 # Document Provenance:
 # - Source: xAI Image Understanding docs
 # - Kind: official API doc
@@ -30,12 +35,18 @@ Supports streaming responses and tool use (web_search, x_search, custom tools)
 # - Applied To: converting structured image content to xAI SDK image inputs and
 #   disabling server-side history storage for image requests
 # - Verification: verified in docs and code
+# - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
+# - Kind: repo doc
+# - Retrieved: 2026-04-17
+# - Applied To: TOKEN_DEPLOY_MUTATION Grok gateway policy handling
+# - Verification: verified in code
 # See also:
 # - /Users/almurat/KiKo/system-journal/INDEX.md
 # - /Users/almurat/KiKo/system-journal/design-language/social-agent-multimodal-input.md
 # - /Users/almurat/KiKo/system-journal/owner-map/social-agent-multimodal-input.md
 # - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-kimi-grok-social-image-input.md
 # - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
+# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
 import os
 import json
 import grpc
@@ -1739,7 +1750,8 @@ async def chat_completions(
         )
         native_tool_policy = tool_policy["native_tools"]
         execution_policy = tool_policy["execution"]
-        if requested_enforcement_level == "hard" and requested_action_class in {"TRADE_MUTATION", "ORDER_MUTATION"}:
+        hard_node_mutation_classes = {"TRADE_MUTATION", "ORDER_MUTATION", "TOKEN_DEPLOY_MUTATION"}
+        if requested_enforcement_level == "hard" and requested_action_class in hard_node_mutation_classes:
             if requested_control_plane and requested_control_plane != "node":
                 raise HTTPException(
                     status_code=400,
@@ -1751,7 +1763,7 @@ async def chat_completions(
                 status_code=400,
                 detail="Invalid tool policy: control_plane=node requires native_tools.allow_extra_sdk_tools=false",
             )
-        if requested_enforcement_level == "hard" and requested_action_class in {"TRADE_MUTATION", "ORDER_MUTATION"} and native_tool_policy.get("allow_extra_sdk_tools"):
+        if requested_enforcement_level == "hard" and requested_action_class in hard_node_mutation_classes and native_tool_policy.get("allow_extra_sdk_tools"):
             raise HTTPException(
                 status_code=400,
                 detail="Invalid tool policy: mutation action class requires native_tools.allow_extra_sdk_tools=false",

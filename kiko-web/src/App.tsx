@@ -1,6 +1,6 @@
 import React, { Suspense, useEffect, useState } from 'react';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
-import KIKOdark from './assets/images/KIKOdark.png';
+import icon from './assets/images/icon.png';
 import { RootLayout } from './layouts/RootLayout';
 import { ErrorPage } from './pages/ErrorPage';
 import { ChatInterface } from './components/Chat/ChatInterface';
@@ -88,9 +88,9 @@ function RouteFallback() {
           animation: 'pulse-gentle 2s ease-in-out infinite',
         }}
       >
-        <div 
-          style={{ 
-            width: '64px', 
+        <div
+          style={{
+            width: '64px',
             height: '64px',
             borderRadius: '16px',
             overflow: 'hidden',
@@ -101,9 +101,9 @@ function RouteFallback() {
             justifyContent: 'center'
           }}
         >
-          <img 
-            src={KIKOdark} 
-            alt="KiKo" 
+          <img
+            src={icon}
+            alt="KiKo"
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             onError={(e) => {
               // Fallback to a simple text logo if image fails
@@ -113,10 +113,10 @@ function RouteFallback() {
             }}
           />
         </div>
-        
-        <div style={{ 
-          fontSize: '15px', 
-          fontWeight: 500, 
+
+        <div style={{
+          fontSize: '15px',
+          fontWeight: 500,
           letterSpacing: '0.02em',
           opacity: 0.6,
           color: 'var(--text-primary, #f5f5f5)'
@@ -126,8 +126,8 @@ function RouteFallback() {
       </div>
 
       {showRecovery && (
-        <div 
-          style={{ 
+        <div
+          style={{
             position: 'absolute',
             bottom: '10vh',
             display: 'flex',
@@ -137,9 +137,9 @@ function RouteFallback() {
             animation: 'fadeIn 0.5s ease-out forwards'
           }}
         >
-          <p style={{ 
-            fontSize: '13px', 
-            opacity: 0.4, 
+          <p style={{
+            fontSize: '13px',
+            opacity: 0.4,
             textAlign: 'center',
             maxWidth: '280px',
             lineHeight: 1.5

@@ -258,7 +258,7 @@ export const KikoTokenOrbitOutro: React.FC = () => {
                         }}
                     >
                         <Img
-                            src={staticFile('KIKOlight.png')}
+                            src={staticFile('icon.png')}
                             style={{
                                 width: '100%',
                                 height: '100%',

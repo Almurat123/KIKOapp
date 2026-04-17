@@ -1,3 +1,33 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-17
+// Author: Renata
+// Reason: Clanker launches are real write actions. The previous policy only
+//         modeled swap and order mutations, so `deploy_clanker_token` could be
+//         exposed as a normal skill tool without a central mutation class.
+// Goal: classify confirmed token deployment as a hard-gated mutation while
+//       still allowing Clanker dry-run previews and read/history tools inside
+//       the Clanker skill.
+// Owns: chat action-class classification, mutation tool allowlists, and
+//       policy-time cross-class blocking.
+// Does Not Own: individual tool payload shaping, user wallet signing, or model
+//               prompt wording.
+// Design Language:
+// - mutation classes are runtime policy, not prompt-only advice
+// - Clanker dry-runs may prepare payloads, but real deploy attempts belong to TOKEN_DEPLOY_MUTATION
+// - swap, order/copytrade, and token deploy mutation tools must not be mixed across classes
+// - provider-native search stays blocked for hard mutation turns
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: Clanker deploy mutation classification and allowlist
+// - Verification: verified in code and targeted tests
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/clanker-token-deploy-skill.md
+// - /Users/almurat/KiKo/system-journal/owner-map/clanker-skill.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
 import { randomUUID } from 'node:crypto';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
@@ -5,7 +35,7 @@ import type { ChatContextSnapshot, OrchestratorToolCall } from './contracts.js';
 import type { SkillResolution } from './nodeSkillResolver.js';
 import type { TradingIntent } from './tradingIntentResolver.js';
 
-export type ActionClass = 'READ_ONLY' | 'TRADE_MUTATION' | 'ORDER_MUTATION';
+export type ActionClass = 'READ_ONLY' | 'TRADE_MUTATION' | 'ORDER_MUTATION' | 'TOKEN_DEPLOY_MUTATION';
 export type EnforcementLevel = 'hard' | 'soft';
 
 export type PolicyReasonCode =
@@ -69,6 +99,10 @@ const ORDER_MUTATION_TOOLS = [
     'delete_polymarket_copy_config',
 ];
 
+const TOKEN_DEPLOY_MUTATION_TOOLS = [
+    'deploy_clanker_token',
+];
+
 const POLICY_COUNTERS = new Map<string, number>();
 
 export function buildControlPolicySnapshot(params: {
@@ -76,13 +110,18 @@ export function buildControlPolicySnapshot(params: {
     tradingIntent: TradingIntent | null;
     skillResolution: SkillResolution;
 }): ControlPolicySnapshot {
-    const actionClass = resolveActionClass(params.snapshot, params.tradingIntent);
+    const resolvedActionClass = resolveActionClass(params.snapshot, params.tradingIntent);
+    const actionClass = resolvedActionClass === 'READ_ONLY' && isTokenDeploySkillResolution(params.skillResolution)
+        ? 'TOKEN_DEPLOY_MUTATION'
+        : resolvedActionClass;
     const mutationToolAllowlist =
         actionClass === 'TRADE_MUTATION'
             ? TRADE_MUTATION_TOOLS
             : actionClass === 'ORDER_MUTATION'
                 ? ORDER_MUTATION_TOOLS
-                : [];
+                : actionClass === 'TOKEN_DEPLOY_MUTATION'
+                    ? TOKEN_DEPLOY_MUTATION_TOOLS
+                    : [];
     const allowedSet = new Set(params.skillResolution.allowedTools || []);
     for (const toolName of mutationToolAllowlist) {
         allowedSet.add(toolName);
@@ -114,7 +153,7 @@ export function resolveActionClass(snapshot: ChatContextSnapshot, tradingIntent:
     const actionState = snapshot.conversationActionState || null;
     if (confirmationKind === 'order_confirmation') {
         const confirmationActionClass = snapshot.confirmationState?.order?.actionClass;
-        return confirmationActionClass === 'TRADE_MUTATION' ? 'TRADE_MUTATION' : 'ORDER_MUTATION';
+        return normalizeActionClass(confirmationActionClass, 'ORDER_MUTATION');
     }
     if (actionState?.pendingAction === 'order' || actionState?.pendingAction === 'copy_trade') {
         return 'ORDER_MUTATION';
@@ -123,6 +162,9 @@ export function resolveActionClass(snapshot: ChatContextSnapshot, tradingIntent:
         return 'TRADE_MUTATION';
     }
     if (canonicalIntent?.taskMode === 'confirm' || canonicalIntent?.taskMode === 'execute') {
+        if (canonicalIntent.intent === 'clanker_deploy') {
+            return 'TOKEN_DEPLOY_MUTATION';
+        }
         if (canonicalIntent.intent === 'swap' || canonicalIntent.intent === 'cross_chain_swap') {
             return 'TRADE_MUTATION';
         }
@@ -147,8 +189,12 @@ export function isOrderMutationTool(toolName: string): boolean {
     return ORDER_MUTATION_TOOLS.includes(String(toolName || ''));
 }
 
+export function isTokenDeployMutationTool(toolName: string): boolean {
+    return TOKEN_DEPLOY_MUTATION_TOOLS.includes(String(toolName || ''));
+}
+
 export function isMutationTool(toolName: string): boolean {
-    return isTradeMutationTool(toolName) || isOrderMutationTool(toolName);
+    return isTradeMutationTool(toolName) || isOrderMutationTool(toolName) || isTokenDeployMutationTool(toolName);
 }
 
 export function isProviderNativeTool(toolName: string, policy: ControlPolicySnapshot | null | undefined): boolean {
@@ -225,17 +271,24 @@ export function checkToolAgainstPolicy(params: {
             policy,
         );
     }
-    if (policy.actionClass === 'TRADE_MUTATION' && isOrderMutationTool(toolName)) {
+    if (policy.actionClass === 'TRADE_MUTATION' && (isOrderMutationTool(toolName) || isTokenDeployMutationTool(toolName))) {
         return createPolicyError(
             'POLICY_UNAUTHORIZED_TOOL',
-            `Order mutation tool "${toolName}" is blocked in TRADE_MUTATION action class`,
+            `Non-trade mutation tool "${toolName}" is blocked in TRADE_MUTATION action class`,
             policy,
         );
     }
-    if (policy.actionClass === 'ORDER_MUTATION' && isTradeMutationTool(toolName)) {
+    if (policy.actionClass === 'ORDER_MUTATION' && (isTradeMutationTool(toolName) || isTokenDeployMutationTool(toolName))) {
         return createPolicyError(
             'POLICY_UNAUTHORIZED_TOOL',
-            `Trade mutation tool "${toolName}" is blocked in ORDER_MUTATION action class`,
+            `Non-order mutation tool "${toolName}" is blocked in ORDER_MUTATION action class`,
+            policy,
+        );
+    }
+    if (policy.actionClass === 'TOKEN_DEPLOY_MUTATION' && (isTradeMutationTool(toolName) || isOrderMutationTool(toolName))) {
+        return createPolicyError(
+            'POLICY_UNAUTHORIZED_TOOL',
+            `Non-token-deploy mutation tool "${toolName}" is blocked in TOKEN_DEPLOY_MUTATION action class`,
             policy,
         );
     }
@@ -256,6 +309,19 @@ function incrementPolicyCounterForCode(code: PolicyReasonCode) {
 
 function incrementCounter(key: string) {
     POLICY_COUNTERS.set(key, (POLICY_COUNTERS.get(key) || 0) + 1);
+}
+
+function isTokenDeploySkillResolution(skillResolution: SkillResolution): boolean {
+    return skillResolution.intentEnvelope.primary_intent === 'token_deploy'
+        && skillResolution.intentEnvelope.execution_risk === 'mutation';
+}
+
+function normalizeActionClass(value: unknown, fallback: ActionClass): ActionClass {
+    const actionClass = String(value || '').trim() as ActionClass;
+    if (actionClass === 'TRADE_MUTATION' || actionClass === 'ORDER_MUTATION' || actionClass === 'TOKEN_DEPLOY_MUTATION' || actionClass === 'READ_ONLY') {
+        return actionClass;
+    }
+    return fallback;
 }
 
 function matchesProviderNativeToolName(toolName: string, nativeTools: string[]): boolean {

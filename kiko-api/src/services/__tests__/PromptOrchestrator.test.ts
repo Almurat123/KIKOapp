@@ -17,3 +17,11 @@ test('grok system prompt inherits the same adaptive output-style guidance', () =
   assert.ok(!prompt.includes('Structure output as: conclusion, evidence, next step.'));
   assert.match(prompt, /Avoid repetitive self-similar wording across turns/);
 });
+
+test('trading system prompt includes the Clanker deploy skill prompt', () => {
+  const prompt = promptOrchestrator.getSystemPrompt('nvidia', 'TRADING', { routingMode: 'execution' });
+
+  assert.match(prompt, /Deploy Token via Clanker/);
+  assert.match(prompt, /confirmDeploy=true/);
+  assert.match(prompt, /buy me 0\.1 ETH\/BNB/);
+});

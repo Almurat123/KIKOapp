@@ -1,19 +1,22 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-16
-// Author: Rowan
-// Reason: soft-policy chat turns were still expanding tool exposure to the
-//         full runtime registry, which made trivial onboarding and assistant
-//         meta/debug questions carry dozens of unrelated tool schemas into the
-//         main generation prompt and slowed visible streaming significantly.
-// Goal: keep skill resolution aligned with the actual direct-answer scope so
-//       onboarding and assistant-meta turns answer directly without bloating
-//       the model prompt with unrelated tools.
+// Updated: 2026-04-17
+// Author: Renata
+// Reason: Clanker launch turns now need a first-class skill note so the model
+//         sees the deploy prompt, collects missing launch fields, and keeps
+//         real deploys dry-run first instead of drifting into generic trading.
+//         Canonical deploy intent and control policy now also need the resolver
+//         to expose token_deploy as a mutation envelope instead of general_answer.
+// Goal: keep skill resolution aligned with the actual user task so Clanker
+//       launch requests surface the deploy skill, while onboarding/meta turns
+//       still stay lean.
 // Owns: skill-to-tool exposure, preferred tool ranking, and query-shape-driven
 //       tool gating for Node orchestration.
 // Does Not Own: provider request transport, websocket rendering, or message persistence.
 // Design Language:
 // - Direct onboarding/meta turns should default to zero tool exposure.
 // - Tool exposure should follow the matched skill boundary, not a soft-policy fallback to all tools.
+// - Clanker launch flows should surface explicit dry-run and confirmation guidance before a real deploy.
+// - Clanker deploy intent envelopes are mutation workflows, even when the first tool call is a dry-run preview.
 // - Session tool history may inform follow-up analysis, but must not reopen tool access for direct meta turns.
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/test.txt
@@ -21,14 +24,22 @@
 // - Retrieved: 2026-04-16
 // - Applied To: removing 64-tool prompt bloat from trivial `你好` / onboarding turns
 // - Verification: verified in runtime logs and code
-// - Source: NVIDIA GLM-5 and Kimi runtime logs in local development
-// - Kind: runtime observation
-// - Retrieved: 2026-04-16
-// - Applied To: reducing time-to-first-token for direct-answer turns
-// - Verification: verified in logs, applied in code
+// - Source: Clanker Documentation, Deploy Token (v4.0.0)
+// - Kind: official API doc
+// - Retrieved: 2026-04-17
+// - Applied To: surfacing the Clanker launch skill before deployment
+// - Verification: verified in docs and code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: Clanker launch routing note, dry-run confirmation guidance, and token_deploy envelope
+// - Verification: inferred from code and tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-direct-answer-tool-pruning.md
+// - /Users/almurat/KiKo/system-journal/design-language/clanker-token-deploy-skill.md
+// - /Users/almurat/KiKo/system-journal/owner-map/clanker-skill.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 import { LogCode } from '../../config/logRegistry.js';
@@ -57,6 +68,7 @@ export type IntentPrimaryIntent =
     | 'polymarket_order'
     | 'swap_execution'
     | 'copytrade_execution'
+    | 'token_deploy'
     | 'general_answer';
 
 export type IntentTaskMode = 'discover' | 'analyze' | 'execute' | 'confirm';
@@ -149,6 +161,9 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const asksWalletPnl = querySignals.pnl;
     const hasRequestedToken = querySignals.hasRequestedToken;
     const requiresSocialChainEvidence = querySignals.socialChainEvidence;
+    if (querySignals.clankerDeploy) {
+        strategyNotes.push('This is a Clanker launch or Clanker history request. Use the Clanker skill prompt, ask only for hard missing launch requirements, use defaults for optional fields, keep launches in dry-run mode first, and only set confirmDeploy=true after the user confirms the exact launch details.');
+    }
     const requestedChain = resolveCanonicalChainRef({
         canonicalIntent: normalizedIntent,
         requestedTokenAddresses: effectiveRequestedTokenAddresses,
@@ -581,6 +596,8 @@ function buildIntentEnvelope(params: {
                         : 'general_answer' as const;
                 case 'copy_trade':
                     return 'copytrade_execution' as const;
+                case 'clanker_deploy':
+                    return 'token_deploy' as const;
                 case 'swap':
                 case 'cross_chain_swap':
                     return 'swap_execution' as const;
@@ -644,6 +661,17 @@ function buildIntentEnvelope(params: {
             search_mode: searchMode,
             search_target: 'none',
             domain: hasRequestedToken ? 'token' : 'general',
+            execution_risk: 'mutation',
+            required_evidence: [],
+        };
+    }
+    if (querySignals.clankerDeploy) {
+        return {
+            primary_intent: 'token_deploy',
+            task_mode: 'execute',
+            search_mode: searchMode,
+            search_target: 'none',
+            domain: 'token',
             execution_risk: 'mutation',
             required_evidence: [],
         };

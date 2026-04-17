@@ -18,7 +18,7 @@ const DEFAULT_PROFILE: FarcasterProfile = {
     fid: 0,
     username: 'kikoapp',
     displayName: 'KIKO',
-    pfp: '/KIKOlight.png',
+    pfp: '/icon.png',
     bio: 'Follow to get real-time trade alerts and deep-dive insights directly in your notifications.',
     followers: 0,
     verifications: []
@@ -94,7 +94,7 @@ export const FarcasterFollowModal: React.FC<FarcasterFollowModalProps> = ({ onDi
                     <div className={styles.modalHeader}>
                         <div className={styles.avatarWrapper}>
                             <img
-                                src="/KIKOlight.png"
+                                src="/icon.png"
                                 alt="KIKO"
                                 className={styles.avatar}
                             />

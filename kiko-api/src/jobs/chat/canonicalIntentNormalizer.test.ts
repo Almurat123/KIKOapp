@@ -200,6 +200,56 @@ test('normalizeCanonicalIntent accepts assistant_meta domain and clears stale to
     assert.deepEqual(result.snapshot.requestedTokenSymbols, []);
 });
 
+test('normalizeCanonicalIntent accepts Clanker deploy as a first-class execution intent', async () => {
+    const result = await normalizeCanonicalIntent({
+        snapshot: makeSnapshot('Deploy a token on Base name testbymybot symbol TBB'),
+        generationClient: {
+            async generate() {
+                return {
+                    text: JSON.stringify({
+                        domain: 'token',
+                        intent: 'clanker_deploy',
+                        task_mode: 'execute',
+                        output_mode: 'execution_ready',
+                        search_mode: 'forbidden',
+                        search_target: 'none',
+                        confidence: 0.94,
+                        explanation: 'The user wants to prepare a Clanker token launch.',
+                        entities: {
+                            token_addresses: [],
+                            token_symbols: ['TBB'],
+                            wallet_addresses: [],
+                            market_identifiers: [],
+                        },
+                        requested_chain: {
+                            chain_id: 8453,
+                            chain_name: 'Base',
+                        },
+                        requested_time_window: null,
+                        evidence_requirements: [],
+                        requires_realtime: false,
+                        requires_onchain_evidence: false,
+                        execution_candidate: true,
+                        inherit_entities_from_context: false,
+                        row_count: null,
+                        locale: 'en',
+                        needs_clarification: false,
+                        clarification_question: null,
+                    }),
+                    reasoning: '',
+                    toolCalls: [],
+                };
+            },
+        } as any,
+    });
+
+    assert.equal(result.state.status, 'ok');
+    assert.equal(result.snapshot.normalizedIntent?.domain, 'token');
+    assert.equal(result.snapshot.normalizedIntent?.intent, 'clanker_deploy');
+    assert.equal(result.snapshot.normalizedIntent?.taskMode, 'execute');
+    assert.equal(result.snapshot.normalizedIntent?.requestedChain?.chainId, 8453);
+});
+
 test('normalizeCanonicalIntent accepts multilingual requests as long as the canonical schema is valid', async () => {
     const messages = [
         '查这个代币前30个早期买家',

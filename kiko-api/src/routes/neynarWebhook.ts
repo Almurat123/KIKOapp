@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-15
+// Updated: 2026-04-17
 // Author: Linh Tran
 // Reason: Neynar webhook deliveries need a dedicated server entrypoint so the
 //         Farcaster agent can receive cast.created mention/reply events without
@@ -7,8 +7,8 @@
 //         ingress log so operators can tell the difference between "no request
 //         arrived" and "request arrived but failed auth/validation."
 // Goal: verify inbound Neynar webhook signatures, normalize mention/reply
-//       payloads, and hand off accepted events to the existing Farcaster
-//       ingress worker with no extra business logic in the route.
+//       payloads, and hand off normalized events to the existing Farcaster
+//       ingress worker while logging worker admission separately.
 // Owns: Neynar webhook signature checks, payload admission, and reply/mention
 //       event enqueueing.
 // Does Not Own: webhook creation, worker cadence, reply publication, or cast
@@ -21,6 +21,9 @@
 // - Only admit cast.created payloads that actually mention or reply to the bot.
 // - Keep the route payload-neutral; downstream worker logic owns conversation
 //   setup and reply behavior.
+// - Log normalization separately from worker admission because self/bot-loop
+//   events can be valid webhook payloads but intentionally rejected before
+//   durable enqueue.
 // Document Provenance:
 // - Source: Neynar Documentation, Webhooks in Dashboard
 // - Kind: official API doc
@@ -33,10 +36,19 @@
 // - Retrieved: 2026-04-15
 // - Applied To: X-Neynar-Signature validation on raw request bodies
 // - Verification: verified in docs
+// - Source: production runtime logs in
+//   /Users/almurat/Downloads/logs.1776362968247.json showing self-authored
+//   Farcaster replies re-entering webhook ingress
+// - Kind: runtime observation
+// - Retrieved: 2026-04-17
+// - Applied To: separating normalized webhook payloads from accepted worker
+//   admission in route logs
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-webhook-ingress.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-farcaster-self-loop-bind-spam-guard.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { env } from '../config/env.js';
@@ -108,19 +120,29 @@ export default async function neynarWebhookRoutes(fastify: FastifyInstance): Pro
     }
 
     const mention = normalizeNeynarWebhookMention(payload, env.farcasterAgent.botFid);
-    logger.info(LogCode.SYS_INFO, '[Farcaster][Neynar] webhook ingress received', {
-      type: String(payload?.type || '').trim(),
-      botFid: env.farcasterAgent.botFid,
-      accepted: Boolean(mention),
-      castHash: mention?.castHash || null,
-      notificationType: mention?.notificationType || null,
-    });
-
     if (!mention) {
+      logger.info(LogCode.SYS_INFO, '[Farcaster][Neynar] webhook ingress received', {
+        type: String(payload?.type || '').trim(),
+        botFid: env.farcasterAgent.botFid,
+        normalized: false,
+        accepted: false,
+        castHash: null,
+        notificationType: null,
+      });
       return reply.send({ ok: true, accepted: 0 });
     }
 
     const accepted = await farcasterIngressWorker.enqueueMention(mention);
+    logger.info(LogCode.SYS_INFO, '[Farcaster][Neynar] webhook ingress received', {
+      type: String(payload?.type || '').trim(),
+      botFid: env.farcasterAgent.botFid,
+      normalized: true,
+      accepted,
+      castHash: mention.castHash,
+      authorFid: mention.authorFid,
+      parentAuthorFid: mention.parentAuthorFid || null,
+      notificationType: mention.notificationType,
+    });
     return reply.send({
       ok: true,
       accepted: accepted ? 1 : 0,

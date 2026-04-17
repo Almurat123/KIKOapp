@@ -120,6 +120,41 @@ test('tool registry self-initializes even when imported directly', () => {
     assert.ok(definitions.some((item) => item.name === 'get_token_info'));
 });
 
+test('routes Clanker deploy queries to the dedicated Clanker skill first', () => {
+    const resolution = resolveNodeSkills(makeSnapshot('Deploy a token via Clanker'), null);
+    assert.equal(resolution.selectedSkills[0], 'clanker_deploy_token');
+    assert.ok(resolution.allowedTools.includes('deploy_clanker_token'));
+    assert.ok(resolution.preferredTools.includes('deploy_clanker_token'));
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('Clanker launch')));
+    assert.equal(resolution.intentEnvelope.primary_intent, 'token_deploy');
+    assert.equal(resolution.intentEnvelope.execution_risk, 'mutation');
+});
+
+test('canonical Clanker deploy intent routes to token deploy mutation envelope', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'token',
+        intent: 'clanker_deploy',
+        taskMode: 'execute',
+        outputMode: 'execution_ready',
+        requestedChain: {
+            chainId: 8453,
+            chainName: 'Base',
+            source: 'llm',
+        },
+        executionCandidate: true,
+    });
+    const resolution = resolveNodeSkills(makeSnapshot('Deploy a token on Base named testbymybot symbol TBB', {
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
+
+    assert.equal(resolution.selectedSkills[0], 'clanker_deploy_token');
+    assert.ok(resolution.allowedTools.includes('deploy_clanker_token'));
+    assert.equal(resolution.intentEnvelope.primary_intent, 'token_deploy');
+    assert.equal(resolution.intentEnvelope.task_mode, 'execute');
+    assert.equal(resolution.intentEnvelope.domain, 'token');
+    assert.equal(resolution.intentEnvelope.execution_risk, 'mutation');
+});
+
 test('routes Zora trend queries to Zora skill first', () => {
     const canonicalIntent = makeCanonicalIntent({
         domain: 'zora',

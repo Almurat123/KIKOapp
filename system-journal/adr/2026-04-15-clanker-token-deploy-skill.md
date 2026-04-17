@@ -2,6 +2,7 @@
 
 Date: 2026-04-15  
 Author: Renata
+Updated: 2026-04-17
 
 ## Decision
 
@@ -15,12 +16,18 @@ deployment tool:
 - `get_clanker_token_rewards`
 - `prepare_clanker_claim_rewards`
 
+Add a visible `skills_exec/ClankerSkill` prompt entry so the model can read a
+dedicated deploy overview before it touches the write tool. Add explicit
+Clanker deploy query scoring in `skillIntentMatcher.ts` so launch, deploy, and
+history requests route to the Clanker skill deterministically.
+
 The write-capable deploy tool dry-runs by default. Real Clanker API submission
 requires `confirmDeploy=true`.
 
 The default deploy UX collapses to one recipient at 100%, a standard pool
-paired with the wrapped native asset for the selected chain, and fixed fees at
-1% / 1%. Dynamic fee presets remain available for explicit requests.
+paired with the wrapped native asset address for the selected chain, and fixed
+fees at 1% / 1%. Dynamic fee presets remain available for explicit requests,
+and the outgoing payload now uses `maxLpFee` for dynamic fee ceilings.
 
 ## Rationale
 
@@ -37,32 +44,46 @@ supporting a launch flow when the user explicitly confirms.
 - Claiming rewards is not executed server-side. The tool returns an unsigned
   transaction configuration for wallet signing.
 - Claimed-fee analytics must be shown with the Clanker beta/indexing caveat.
+- The Clanker skill is visible in both skill-scoring and prompt injection
+  paths, so launch queries can surface the deploy overview before execution.
 
 ## Document Provenance
 
 - Source: Clanker Documentation, Deploy Token (v4.0.0)
 - Kind: official API doc
-- Retrieved: 2026-04-15
-- Applied To: deployment endpoint, reward allocation, admin/recipient fields
-- Verification: verified in docs
+- Retrieved: 2026-04-17
+- Applied To: deployment endpoint, reward allocation, admin/recipient fields, and `maxLpFee`
+- Verification: verified in docs and code
 
 - Source: Clanker Documentation, Get Tokens by Admin
 - Kind: official API doc
-- Retrieved: 2026-04-15
+- Retrieved: 2026-04-17
 - Applied To: admin-history tool
 - Verification: verified in docs
 
 - Source: Clanker Documentation, Get Tokens Deployed by Address
 - Kind: official API doc
-- Retrieved: 2026-04-15
+- Retrieved: 2026-04-17
 - Applied To: deployer-history tool
 - Verification: verified in docs
 
 - Source: Clanker Documentation, Get Claimed Fees [beta]
 - Kind: official API doc
-- Retrieved: 2026-04-15
+- Retrieved: 2026-04-17
 - Applied To: claimed-fee history tool and caveat
 - Verification: verified in docs
+
+- Source: /Users/almurat/KiKo/kiko-api/src/skills_exec/ClankerSkill/prompt.exec.md
+- Kind: repo doc
+- Retrieved: 2026-04-17
+- Applied To: visible deploy overview and confirmation wording
+- Verification: verified in code
+
+- Source: /Users/almurat/KiKo/kiko-api/src/jobs/chat/skillIntentMatcher.ts
+- Kind: repo doc
+- Retrieved: 2026-04-17
+- Applied To: first-class Clanker deploy routing
+- Verification: verified in code and tests
 
 - Source: clanker-sdk README and examples/v4/getTokenRewards.ts
 - Kind: official SDK source
@@ -75,3 +96,4 @@ supporting a launch flow when the user explicitly confirms.
 - system-journal/INDEX.md
 - system-journal/design-language/clanker-token-deploy-skill.md
 - system-journal/owner-map/clanker-skill.md
+- system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md

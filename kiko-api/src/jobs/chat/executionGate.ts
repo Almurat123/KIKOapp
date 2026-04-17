@@ -1,8 +1,37 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-17
+// Author: Renata
+// Reason: Clanker token deployment now has a dedicated mutation action class.
+//         The execution gate must distinguish harmless dry-runs from real
+//         `confirmDeploy=true` deploy attempts and require a confirmation token
+//         for the latter.
+// Goal: keep all write actions centrally gated by deterministic confirmation
+//       tokens, including token deploys that are not swaps or orders.
+// Owns: mutation execution confirmation checks and confirmation payload shape.
+// Does Not Own: action-class routing, model prompting, or individual tool HTTP behavior.
+// Design Language:
+// - dry-run payload preparation is not execution
+// - `deploy_clanker_token` becomes executable only when `confirmDeploy=true`
+// - real token deploy attempts require phase=execute and a matching confirmation token
+// - confirmation payload args bind exactly to the future execution args
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: Clanker deploy confirmation gate
+// - Verification: verified in code and targeted tests
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/clanker-token-deploy-skill.md
+// - /Users/almurat/KiKo/system-journal/owner-map/clanker-skill.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
 import { createHash } from 'node:crypto';
 import type { ChatContextSnapshot } from './contracts.js';
 import {
     createPolicyError,
     isOrderMutationTool,
+    isTokenDeployMutationTool,
     isTradeMutationTool,
     type ControlPolicySnapshot,
     type PolicyCheckError,
@@ -34,11 +63,12 @@ export function checkMutationExecutionGate(params: {
 }): MutationGuardResult {
     const { toolName, args, policy, gate, snapshot } = params;
     if (!policy || policy.enforcementLevel !== 'hard') return { allow: true };
-    if (policy.actionClass === 'READ_ONLY') return { allow: true };
 
     const isTradeMutation = isTradeMutationTool(toolName) && isTradeExecutionAttempt(toolName, args);
     const isOrderMutation = isOrderMutationTool(toolName);
-    if (!isTradeMutation && !isOrderMutation) {
+    const isTokenDeployMutation = isTokenDeployMutationTool(toolName) && isTokenDeployExecutionAttempt(args);
+    if (policy.actionClass === 'READ_ONLY' && !isTokenDeployMutation) return { allow: true };
+    if (!isTradeMutation && !isOrderMutation && !isTokenDeployMutation) {
         return { allow: true };
     }
 
@@ -105,7 +135,7 @@ export function checkMutationExecutionGate(params: {
         return { allow: true };
     }
 
-    // Order mutation
+    // Order and token-deploy mutations use the same explicit confirmation token contract.
     if (gatePhase !== 'execute') {
         const error = createPolicyError(
             'CONFIRMATION_REQUIRED',
@@ -124,7 +154,9 @@ export function checkMutationExecutionGate(params: {
                     tool_name: toolName,
                     args,
                     confirmation_token: expectedToken,
-                    action_class: policy.actionClass,
+                    action_class: isTokenDeployMutation && policy.actionClass === 'READ_ONLY'
+                        ? 'TOKEN_DEPLOY_MUTATION'
+                        : policy.actionClass,
                 },
             },
         };
@@ -154,6 +186,10 @@ function isTradeExecutionAttempt(toolName: string, args: Record<string, any>): b
     }
     if (toolName === 'prepare_cross_chain_tx') return true;
     return false;
+}
+
+function isTokenDeployExecutionAttempt(args: Record<string, any>): boolean {
+    return args.confirmDeploy === true;
 }
 
 function hasTradePrecheckEvidence(

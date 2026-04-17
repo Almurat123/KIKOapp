@@ -1,3 +1,39 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-17
+// Author: Renata
+// Reason: Clanker token-launch queries were still being treated as generic
+//         trading traffic, which meant the dedicated launch prompt could be
+//         skipped even when the user explicitly asked for a Clanker deploy.
+//         Canonical normalization now also exposes `clanker_deploy`, so the
+//         matcher must route both raw and normalized deploy turns to the same
+//         Clanker skill.
+// Goal: keep Clanker launch, history, and reward queries routed to the
+//       dedicated Clanker skill so the model sees the launch prompt before it
+//       attempts deployment.
+// Owns: query-signal detection and skill scoring for chat skill selection.
+// Does Not Own: Clanker API payload normalization, tool execution, or provider routing.
+// Design Language:
+// - Dedicated launch/deploy queries should outscore generic trading skills.
+// - Clanker mentions should be recognized on both canonical-normalized and raw-query paths.
+// - Skill routing should stay deterministic instead of depending on hidden prompt memory.
+// - `clanker_deploy` canonical intent must select the Clanker skill before generic token analysis.
+// Document Provenance:
+// - Source: Clanker Documentation, Deploy Token (v4.0.0)
+// - Kind: official API doc
+// - Retrieved: 2026-04-17
+// - Applied To: choosing a dedicated Clanker deploy skill for launch queries
+// - Verification: verified in docs and code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: routing change that exposes the Clanker skill prompt and canonical deploy route
+// - Verification: inferred from code and tests
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/clanker-token-deploy-skill.md
+// - /Users/almurat/KiKo/system-journal/owner-map/clanker-skill.md
+// - /Users/almurat/KiKo/system-journal/adr/2026-04-15-clanker-token-deploy-skill.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
 import { skillRegistryExec } from '../../skills/registry.js';
 import type { Skill } from '../../skills/types.js';
 import type { ChatContextSnapshot } from './contracts.js';
@@ -19,7 +55,8 @@ export type NormalizedIntent =
     | 'PREDICTION_MARKETS'
     | 'ZORA_DISCOVERY'
     | 'TOKEN_ALERTS'
-    | 'MARKET_MACRO';
+    | 'MARKET_MACRO'
+    | 'CLANKER_DEPLOY';
 
 export interface QuerySignals {
     welcome: boolean;
@@ -41,6 +78,7 @@ export interface QuerySignals {
     tokenAnalysis: boolean;
     social: boolean;
     market: boolean;
+    clankerDeploy: boolean;
     hasRequestedToken: boolean;
     socialChainEvidence: boolean;
 }
@@ -81,6 +119,7 @@ const SKILL_INTENT_MAP: Record<string, NormalizedIntent[]> = {
     zora_nfts: ['ZORA_DISCOVERY'],
     token_alert: ['TOKEN_ALERTS'],
     market_macro: ['MARKET_MACRO'],
+    clanker_deploy_token: ['CLANKER_DEPLOY'],
 };
 
 const INTENT_SIGNAL_MAP: Record<NormalizedIntent, keyof QuerySignals> = {
@@ -97,7 +136,10 @@ const INTENT_SIGNAL_MAP: Record<NormalizedIntent, keyof QuerySignals> = {
     ZORA_DISCOVERY: 'zora',
     TOKEN_ALERTS: 'alerts',
     MARKET_MACRO: 'market',
+    CLANKER_DEPLOY: 'clankerDeploy',
 };
+
+const CLANKER_DEPLOY_QUERY_RE = /\bclanker\b|\b(?:deploy|launch|create|mint)\s+(?:a\s+)?(?:token|coin|memecoin)\b|\btoken\s+(?:deploy|launch|launchpad)\b|部署代币|上线代币|创建代币|发币|发行代币/i;
 
 export function matchSkillsForQuery(params: {
     snapshot: ChatContextSnapshot;
@@ -264,8 +306,9 @@ function scoreTradingIntentBoost(
 }
 
 export function detectQuerySignals(query: string, snapshot: ChatContextSnapshot, tradingIntent: TradingIntent | null, canonicalIntent?: CanonicalIntent | null): QuerySignals {
+    const clankerDeploy = detectClankerDeploySignal(query);
     if (canonicalIntent) {
-        return deriveQuerySignalsFromCanonicalIntent(snapshot, tradingIntent, canonicalIntent);
+        return deriveQuerySignalsFromCanonicalIntent(snapshot, tradingIntent, canonicalIntent, clankerDeploy);
     }
     const hasRequestedToken = (snapshot.requestedTokenAddresses || []).length > 0 || (snapshot.requestedTokenSymbols || []).length > 0;
     const welcomeQuery = !tradingIntent
@@ -293,6 +336,7 @@ export function detectQuerySignals(query: string, snapshot: ChatContextSnapshot,
         tokenAnalysis: hasRequestedToken,
         social: false,
         market: false,
+        clankerDeploy,
         hasRequestedToken,
         socialChainEvidence: false,
     };
@@ -302,6 +346,7 @@ function deriveQuerySignalsFromCanonicalIntent(
     snapshot: ChatContextSnapshot,
     tradingIntent: TradingIntent | null,
     canonicalIntent: CanonicalIntent,
+    clankerDeploy: boolean,
 ): QuerySignals {
     const inheritsEntitiesFromContext = canonicalIntent.inheritEntitiesFromContext ?? true;
     const isAssistantMeta = canonicalIntent.intent === 'assistant_meta' || canonicalIntent.domain === 'assistant_meta';
@@ -339,6 +384,7 @@ function deriveQuerySignalsFromCanonicalIntent(
             || ['token_analysis', 'early_buyers', 'creator_analysis', 'token_risk'].includes(canonicalIntent.intent),
         social: canonicalIntent.domain === 'x' || canonicalIntent.domain === 'farcaster' || canonicalIntent.intent === 'social_discovery',
         market: canonicalIntent.domain === 'market' || canonicalIntent.intent === 'market_macro',
+        clankerDeploy: clankerDeploy || canonicalIntent.intent === 'clanker_deploy',
         hasRequestedToken,
         socialChainEvidence: requiredEvidence.has('native_search_results')
             && (
@@ -381,6 +427,9 @@ function scoreCanonicalIntentBoost(
     if (skillId === 'copy_trade' && intent === 'copy_trade') {
         return boost(140, 'canonical:intent=copy_trade', 'COPY_TRADE');
     }
+    if (skillId === 'clanker_deploy_token' && intent === 'clanker_deploy') {
+        return boost(160, 'canonical:intent=clanker_deploy', 'CLANKER_DEPLOY');
+    }
     if (skillId === 'token_analysis' && (domain === 'token' || ['token_analysis', 'early_buyers', 'creator_analysis'].includes(intent))) {
         return boost(130, `canonical:intent=${intent}`, 'TOKEN_ANALYSIS');
     }
@@ -406,6 +455,10 @@ function scoreCanonicalIntentBoost(
         return boost(95, `canonical:intent=${intent}`, 'MARKET_MACRO');
     }
     return 0;
+}
+
+function detectClankerDeploySignal(query: string): boolean {
+    return CLANKER_DEPLOY_QUERY_RE.test(String(query || ''));
 }
 
 function unique(values: string[]): string[] {

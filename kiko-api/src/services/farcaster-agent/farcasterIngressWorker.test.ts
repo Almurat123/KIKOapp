@@ -1,8 +1,16 @@
 import assert from 'node:assert/strict';
 import test, { after } from 'node:test';
 import { trimCastText } from './farcasterCastText.js';
+import { env } from '../../config/env.js';
 import prisma from '../../db/prisma.js';
-import { createFarcasterInboundEventLog } from './farcasterIngressWorker.js';
+import { farcasterApiClient } from './farcasterApiClient.js';
+import { farcasterReplyService } from './farcasterReplyService.js';
+import {
+  buildBindReplyIdempotencyKey,
+  createFarcasterInboundEventLog,
+  FarcasterIngressWorker,
+  getFarcasterInboundIgnoreReason,
+} from './farcasterIngressWorker.js';
 
 after(async () => {
   await prisma.$disconnect().catch(() => {});
@@ -92,5 +100,106 @@ test('createFarcasterInboundEventLog accepts first insert and quietly rejects du
     assert.equal(calls[0]?.data?.[0]?.eventId, 'farcaster:mention:test-hash');
   } finally {
     eventLog.createMany = originalCreateMany;
+  }
+});
+
+test('getFarcasterInboundIgnoreReason rejects self and configured bot authors', () => {
+  assert.equal(getFarcasterInboundIgnoreReason(1576616, { botFid: 1576616 }), 'self_author');
+  assert.equal(getFarcasterInboundIgnoreReason(4242, { botFid: 1576616, blockedBotFids: [4242] }), 'blocked_bot_author');
+  assert.equal(getFarcasterInboundIgnoreReason(877398, { botFid: 1576616, blockedBotFids: [4242] }), null);
+});
+
+test('FarcasterIngressWorker drops self-authored webhook events before persistence', async () => {
+  const eventLog = prisma.farcasterEventLog as any;
+  const originalCreateMany = eventLog.createMany;
+  const originalBotFid = env.farcasterAgent.botFid;
+  let createManyCalls = 0;
+
+  eventLog.createMany = async () => {
+    createManyCalls += 1;
+    return { count: 1 } as any;
+  };
+  env.farcasterAgent.botFid = 1576616;
+
+  try {
+    const accepted = await new FarcasterIngressWorker().enqueueMention({
+      eventId: 'farcaster:mention:self-loop',
+      notificationType: 'replies',
+      castHash: '0xselfloop',
+      text: 'Link your Farcaster account in KIKO first.',
+      authorFid: 1576616,
+      authorUsername: 'kikoapp',
+      parentHash: '0xparent',
+      parentAuthorFid: 1576616,
+      rootCastHash: '0xroot',
+      occurredAt: '2026-04-16T17:29:06.000Z',
+    });
+
+    assert.equal(accepted, false);
+    assert.equal(createManyCalls, 0);
+  } finally {
+    env.farcasterAgent.botFid = originalBotFid;
+    eventLog.createMany = originalCreateMany;
+  }
+});
+
+test('buildBindReplyIdempotencyKey scopes public bind prompts by author and day', () => {
+  assert.equal(
+    buildBindReplyIdempotencyKey(877398, '2026-04-16T17:29:06.000Z'),
+    'farcaster:reply:bind:877398:2026-04-16',
+  );
+  assert.equal(
+    buildBindReplyIdempotencyKey(877398, '2026-04-16T23:59:59.000Z'),
+    'farcaster:reply:bind:877398:2026-04-16',
+  );
+  assert.equal(
+    buildBindReplyIdempotencyKey(877398, '2026-04-17T00:00:00.000Z'),
+    'farcaster:reply:bind:877398:2026-04-17',
+  );
+});
+
+test('farcasterReplyService treats concurrent idempotency insert races as already reserved', async () => {
+  const delivery = prisma.farcasterMessageDelivery as any;
+  const originalFindUnique = delivery.findUnique;
+  const originalCreate = delivery.create;
+  const originalIsConfigured = (farcasterApiClient as any).isConfigured;
+  const originalPublishCastReply = (farcasterApiClient as any).publishCastReply;
+  let publishCalls = 0;
+
+  delivery.findUnique = async () => null;
+  delivery.create = async (args: any) => {
+    const error: any = new Error('unique constraint');
+    error.code = 'P2002';
+    delivery.findUnique = async () => ({
+      id: 'delivery-raced',
+      idempotencyKey: args.data.idempotencyKey,
+      status: 'pending',
+      attemptCount: 1,
+      updatedAt: new Date(),
+    });
+    throw error;
+  };
+  (farcasterApiClient as any).isConfigured = () => true;
+  (farcasterApiClient as any).publishCastReply = async () => {
+    publishCalls += 1;
+    return { hash: '0xshould-not-publish', raw: null };
+  };
+
+  try {
+    const result = await farcasterReplyService.replyToMention({
+      farcasterFid: 877398,
+      parentHash: '0xparent',
+      parentAuthorFid: 877398,
+      text: 'Link your Farcaster account in KIKO first.',
+      idempotencyKey: 'farcaster:reply:bind:877398:2026-04-16',
+    });
+
+    assert.equal(result, true);
+    assert.equal(publishCalls, 0);
+  } finally {
+    delivery.findUnique = originalFindUnique;
+    delivery.create = originalCreate;
+    (farcasterApiClient as any).isConfigured = originalIsConfigured;
+    (farcasterApiClient as any).publishCastReply = originalPublishCastReply;
   }
 });

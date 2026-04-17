@@ -1,13 +1,15 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-15
-// Author: Rowan
+// Updated: 2026-04-17
+// Author: Renata
 // Reason: Farcaster inbound mentions are persisted with transport wrapper text
 //         that can pollute token-symbol extraction and canonical intent
 //         normalization if the owner layer does not recover the literal user
 //         query before downstream routing.
 // Goal: keep execution confirmation state deterministic while recovering the
 //       effective user query from wrapped transport text before entity
-//       extraction or later orchestration stages consume it.
+//       extraction or later orchestration stages consume it, and preserve
+//       non-order mutation action classes when the generic confirmation carrier
+//       stores prepared tool execution.
 // Owns: reconstructing conversation confirmation state from recent tool traces
 //       and recovering literal user query text from wrapped chat ingress.
 // Does Not Own: webhook ingress formatting, tool execution, or copy-trade persistence.
@@ -17,6 +19,8 @@
 // - stale confirmation protections stay separate from audit provenance
 // - transport wrapper labels must never become token symbols or search terms
 // - downstream intent routing should see the literal user query, not ingress scaffolding
+// - generic order_confirmation payloads must preserve TOKEN_DEPLOY_MUTATION
+//   instead of collapsing every non-trade mutation back to ORDER_MUTATION
 // Document Provenance:
 // - Source: Farcaster mention runtime logs showing "FARCASTER" and "CURRENT"
 //           leaking into requested token symbols and forcing social_discovery routing
@@ -29,11 +33,17 @@
 // - Retrieved: 2026-04-14
 // - Applied To: preserving copy-trade wallet_binding through confirmation state
 // - Verification: verified in targeted tests
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: preserving TOKEN_DEPLOY_MUTATION confirmation action class
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-wallet-audit-provenance.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-query-unwrapping-and-wallet-guard.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
 import type {
     ChatContextSnapshot,
     ChatHistoryMessage,
@@ -325,7 +335,7 @@ function resolveOrderConfirmationFromToolTrace(trace: RecentToolTrace | null): T
             toolName,
             args: (payload.args && typeof payload.args === 'object') ? payload.args : {},
             confirmationToken,
-            actionClass: (actionClass === 'TRADE_MUTATION' ? 'TRADE_MUTATION' : 'ORDER_MUTATION') as ActionClass,
+            actionClass: normalizeConfirmationActionClass(actionClass),
         };
 
         if (toolName === 'create_copy_trade_config' || toolName === 'create_polymarket_copy_config') {
@@ -351,6 +361,13 @@ function resolveOrderConfirmationFromToolTrace(trace: RecentToolTrace | null): T
         };
     }
     return null;
+}
+
+function normalizeConfirmationActionClass(actionClass: ActionClass): ActionClass {
+    if (actionClass === 'TRADE_MUTATION' || actionClass === 'ORDER_MUTATION' || actionClass === 'TOKEN_DEPLOY_MUTATION') {
+        return actionClass;
+    }
+    return 'ORDER_MUTATION';
 }
 
 function compareMessagesChronologically(a: any, b: any): number {

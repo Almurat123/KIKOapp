@@ -1,8 +1,7 @@
 import React, { useMemo } from 'react';
 import { getLaunchpadDisplayName, LAUNCHPAD_LOGOS, normalizeLaunchpadTag } from '../../utils/launchpadLogos';
 import styles from './LaunchpadCapsule.module.css';
-import kikoLogoDark from '../../assets/images/KIKOdark.png';
-import kikoLogoLight from '../../assets/images/KIKOlight.png';
+import icon from '../../assets/images/icon.png';
 import { useThemeContext } from '../../contexts/ThemeContext';
 
 interface LaunchpadCapsuleProps {
@@ -83,7 +82,7 @@ export const LaunchpadCapsule: React.FC<LaunchpadCapsuleProps> = ({
 
     // 4. Render Launchpad Capsule
     const providerKey = detectedLaunchpad.toLowerCase().replace('.', ''); // e.g. pumpfun
-    const logo = LAUNCHPAD_LOGOS[detectedLaunchpad.toLowerCase()] || (resolvedTheme === 'dark' ? kikoLogoDark : kikoLogoLight);
+    const logo = LAUNCHPAD_LOGOS[detectedLaunchpad.toLowerCase()] || icon;
     const displayName = getLaunchpadDisplayName(detectedLaunchpad.toLowerCase());
     const logoClassName = `${styles.logo} ${providerKey === 'flaunch' ? styles.logoFlaunch : ''}`;
 

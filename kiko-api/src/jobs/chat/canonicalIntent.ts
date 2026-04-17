@@ -1,15 +1,18 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-16
-// Author: Rowan
+// Updated: 2026-04-17
+// Author: Renata
 // Reason: LLM canonical-intent wallet entities can drift from the user's
 //         literal wallet string and must not be treated as authoritative when
 //         malformed. A later runtime review showed that obvious non-chain turns
 //         must be able to bypass canonical normalization without losing an
-//         explicit owner-visible state marker.
+//         explicit owner-visible state marker. Clanker launch requests now need
+//         a first-class canonical intent so deploy turns do not collapse back
+//         into generic token analysis or free-form clarification.
 // Goal: keep canonical intent normalization usable while filtering malformed
 //       wallet entities out of downstream execution paths, and preserve
 //       deterministic bypass state for non-chain turns that must not re-enter
-//       the JSON normalizer.
+//       the JSON normalizer, while carrying token-deploy execution intent as
+//       structured runtime state.
 // Owns: canonical intent schema validation and entity normalization for chat.
 // Does Not Own: exact wallet extraction from the user's literal message or
 //               final copy-trade tool argument repair.
@@ -18,6 +21,7 @@
 // - canonical intent may enrich context, but must not invent wallet identity
 // - do not let invalid wallet entities outrank exact addresses extracted elsewhere
 // - deterministic normalization bypass must be explicit state, not hidden worker memory
+// - Clanker launch/deploy turns are canonical `clanker_deploy`, not generic token analysis
 // Document Provenance:
 // - Source: chat transcript + runtime logs + production database inspection for BSC copy-trade target wallets
 // - Kind: runtime observation
@@ -29,12 +33,18 @@
 // - Retrieved: 2026-04-16
 // - Applied To: representing deterministic non-chain normalization bypass state
 // - Verification: verified in runtime and applied in code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: first-class `clanker_deploy` canonical intent
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
 // - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-wallet-entity-hardening.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-non-chain-normalization-bypass.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import type { ChatContextSnapshot } from './contracts.js';
 import { resolveBinaryLocale } from './runtimeLocale.js';
@@ -68,7 +78,8 @@ export type CanonicalIntentName =
     | 'polymarket_order'
     | 'polymarket_short_window'
     | 'zora_discovery'
-    | 'token_alerts';
+    | 'token_alerts'
+    | 'clanker_deploy';
 
 export type CanonicalTaskMode = 'discover' | 'analyze' | 'execute' | 'confirm';
 export type CanonicalOutputMode = 'narrative' | 'full_table' | 'shortlist' | 'execution_ready' | 'confirmation_required';
@@ -171,6 +182,7 @@ const INTENT_VALUES = new Set<CanonicalIntentName>([
     'polymarket_short_window',
     'zora_discovery',
     'token_alerts',
+    'clanker_deploy',
 ]);
 
 const TASK_MODE_VALUES = new Set<CanonicalTaskMode>(['discover', 'analyze', 'execute', 'confirm']);

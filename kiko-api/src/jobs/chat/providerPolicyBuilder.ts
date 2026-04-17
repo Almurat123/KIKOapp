@@ -3,11 +3,13 @@ import type { ActionClass } from './controlPolicy.js';
 import type { IntentEnvelope, SkillResolution, ToolPhase } from './nodeSkillResolver.js';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-16
-// Author: Rowan
+// Updated: 2026-04-17
+// Author: Renata
 // Reason: KiKo replaced the legacy DeepSeek provider family with NVIDIA-hosted
 //         GLM/Kimi models, but the orchestration layer still depends on one
-//         canonical provider-capability map.
+//         canonical provider-capability map. Clanker deploys now add a
+//         TOKEN_DEPLOY_MUTATION action class that provider policy must pass
+//         through without reopening provider-native tools.
 // Goal: keep provider-family resolution deterministic from model id so tool
 //       policy, previous-response support, and native-search capability remain stable.
 // Owns: Node-side provider-family classification and provider option assembly.
@@ -16,15 +18,23 @@ import type { IntentEnvelope, SkillResolution, ToolPhase } from './nodeSkillReso
 // - Provider families are capability buckets, not vendor names sprinkled in callers.
 // - Kimi and GLM are NVIDIA-family models with no native search or previous-response support.
 // - Unknown non-Grok, non-OpenAI model ids must not fall back to removed DeepSeek behavior.
+// - TOKEN_DEPLOY_MUTATION is a hard node-controlled mutation class and must
+//   keep provider-native search disabled like swap/order mutations.
 // Document Provenance:
 // - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
 // - Kind: official API doc
 // - Retrieved: 2026-04-16
 // - Applied To: provider-family routing for Kimi/GLM model ids
 // - Verification: verified in code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: TOKEN_DEPLOY_MUTATION provider policy validation
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 export interface ProviderInfo {
@@ -270,10 +280,10 @@ function assertNodeControlledGrokPolicy(options: Record<string, any>) {
     if (controlPlane === 'node' && allowExtraSdkTools) {
         throw new Error('Invalid Grok tool policy: control_plane=node requires native_tools.allow_extra_sdk_tools=false');
     }
-    if (enforcementLevel === 'hard' && mutationAllowed && actionClass !== 'TRADE_MUTATION' && actionClass !== 'ORDER_MUTATION' && actionClass !== 'READ_ONLY') {
+    if (enforcementLevel === 'hard' && mutationAllowed && actionClass !== 'TRADE_MUTATION' && actionClass !== 'ORDER_MUTATION' && actionClass !== 'TOKEN_DEPLOY_MUTATION' && actionClass !== 'READ_ONLY') {
         throw new Error(`Invalid Grok tool policy: unsupported action_class=${actionClass}`);
     }
-    if (enforcementLevel === 'hard' && (actionClass === 'TRADE_MUTATION' || actionClass === 'ORDER_MUTATION')) {
+    if (enforcementLevel === 'hard' && (actionClass === 'TRADE_MUTATION' || actionClass === 'ORDER_MUTATION' || actionClass === 'TOKEN_DEPLOY_MUTATION')) {
         if (controlPlane !== 'node') {
             throw new Error('Invalid Grok tool policy: mutation action class requires control_plane=node');
         }

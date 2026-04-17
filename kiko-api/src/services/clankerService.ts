@@ -1,49 +1,75 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-15
+// Updated: 2026-04-17
 // Author: Renata
-// Reason: KiKo needs a single Clanker integration boundary for agent-driven
-//         token deployment, deployer/admin history lookup, claimed-fee history,
-//         reward-recipient inspection, and claim transaction preparation.
+// Reason: Clanker deploys needed the wrapped-native pair fix, the correct
+//         dynamic-fee field name, full creator-buy support, and a surfaced
+//         token page URL after a successful deploy.
 // Goal: keep Clanker API authentication, chain support, payload normalization,
-//       and SDK/on-chain read assumptions out of individual agent tools.
+//       result shaping, and SDK/on-chain read assumptions out of individual
+//       agent tools while matching the documented deploy payload shape.
 // Owns: Clanker API base URL, `x-api-key` request construction, deploy payload
-//       validation, documented chain allowlists, and read-only reward metadata.
+//       validation, documented chain allowlists, token page URL synthesis, and
+//       read-only reward metadata.
 // Does Not Own: user wallet signing, token image generation, frontend launch UI,
 //               or post-deployment trading execution.
 // Design Language:
 // - Deployments must be dry-run by default; a tool must opt into real deploys.
-// - Default launches should collapse to one recipient at 100% unless the user
-//   explicitly asks for a team split.
-// - Standard pool launches should use the chain's wrapped native asset by default.
-// - Fixed fees are the default; dynamic fees only apply when the user asks for them.
-// - Clanker reward percentages are stored as API `allocation` percentages, not
-//   local basis-point math, for HTTP deploy requests.
+// - Default launches should collapse to one recipient at 100% unless the user explicitly asks for a team split.
+// - Standard pool launches should use the chain wrapped-native address, not the literal `WETH` string.
+// - Dynamic fee payloads must use `maxLpFee`; `maxFee` is only an input alias.
+// - Creator buy / dev buy launches should use the SDK `devBuy` extension and
+//   may carry optional poolKey, amountOutMin, and recipient overrides when the
+//   user needs a non-ETH route or custom recipient.
+// - `context` is provenance metadata only; it must stay chain-neutral and pass
+//   through unchanged across supported deploy chains.
+// - Successful deployments should surface the Clanker token page URL from the
+//   returned token address when the API provides one.
+// - Clanker reward percentages are stored as API `allocation` percentages, not local basis-point math, for HTTP deploy requests.
 // - Claimed-fee history is an indexed analytics view, not proof of total lifetime fees.
 // - Claiming rewards is prepared as a transaction object; KiKo must not sign it here.
 // - Do not silently map deploy-chain support onto fee-history support.
 // Document Provenance:
 // - Source: Clanker Documentation, Deploy Token (v4.0.0)
 // - Kind: official API doc
-// - Retrieved: 2026-04-15
-// - Applied To: deploy endpoint, `x-api-key`, token/rewards/pool/fees payload fields
+// - Retrieved: 2026-04-17
+// - Applied To: deploy endpoint, wrapped-native pair default, dynamic fee field names,
+//   and expectedAddress response handling
+// - Verification: verified in docs and code
+// - Source: Clanker Documentation, Token Deployments
+// - Kind: official API doc
+// - Retrieved: 2026-04-17
+// - Applied To: creator buy / dev buy extension availability
+// - Verification: verified in docs
+// - Source: Clanker Documentation, Get Token by Address
+// - Kind: official API doc
+// - Retrieved: 2026-04-17
+// - Applied To: token page URL shape for deployed tokens
 // - Verification: verified in docs
 // - Source: Clanker Documentation, Get Claimed Fees [beta]
 // - Kind: official API doc
-// - Retrieved: 2026-04-15
+// - Retrieved: 2026-04-17
 // - Applied To: claimed-fees endpoint and beta/indexed-data caveat
 // - Verification: verified in docs
-// - Source: clanker-sdk README and examples/v4/getTokenRewards.ts
-// - Kind: official SDK source
-// - Retrieved: 2026-04-15
-// - Applied To: v4 reward-recipient interpretation and claim transaction boundary
-// - Verification: partially verified in local SDK exports
+// - Source: clanker-sdk README and v4 schema
+// - Kind: local dependency evidence
+// - Retrieved: 2026-04-17
+// - Applied To: `devBuy.ethAmount` input shape, default handling, and optional
+//   poolKey / amountOutMin / recipient overrides
+// - Verification: verified in local dependency exports
+// - Source: clanker-sdk package exports and v4 ABI d.ts
+// - Kind: local dependency evidence
+// - Retrieved: 2026-04-17
+// - Applied To: wrapped-native pair defaults and `maxLpFee` compatibility mapping
+// - Verification: verified in local dependency exports
 // See also:
-// - system-journal/INDEX.md
-// - system-journal/design-language/clanker-token-deploy-skill.md
-// - system-journal/owner-map/clanker-skill.md
-// - system-journal/adr/2026-04-15-clanker-token-deploy-skill.md
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/clanker-token-deploy-skill.md
+// - /Users/almurat/KiKo/system-journal/owner-map/clanker-skill.md
+// - /Users/almurat/KiKo/system-journal/adr/2026-04-15-clanker-token-deploy-skill.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-devbuy-and-token-url.md
 import { randomBytes } from 'node:crypto';
-import { CLANKERS } from 'clanker-sdk';
+import { CLANKERS, WETH_ADDRESSES } from 'clanker-sdk';
 import { Clanker } from 'clanker-sdk/v4';
 import { createPublicClient, http, isAddress } from 'viem';
 import type { Chain } from 'viem';
@@ -79,6 +105,18 @@ export interface DeployClankerTokenInput {
     requestKey?: string;
     socialMediaUrls?: Array<{ platform: string; url: string }>;
     auditUrls?: string[];
+    devBuy?: {
+        ethAmount: number;
+        poolKey?: {
+            currency0: string;
+            currency1: string;
+            fee: number;
+            tickSpacing: number;
+            hooks: string;
+        };
+        amountOutMin?: number;
+        recipient?: string;
+    };
     rewards?: ClankerRewardInput[];
     pool?: {
         type?: 'standard' | 'project';
@@ -90,6 +128,7 @@ export interface DeployClankerTokenInput {
         clankerFee?: number;
         pairedFee?: number;
         baseFee?: number;
+        maxLpFee?: number;
         maxFee?: number;
         referenceTickFilterPeriod?: number;
         resetPeriod?: number;
@@ -106,6 +145,9 @@ export interface DeployClankerTokenInput {
     };
 }
 
+type DeployClankerTokenDevBuyInput = NonNullable<DeployClankerTokenInput['devBuy']>;
+type DeployClankerTokenDevBuyPoolKeyInput = NonNullable<DeployClankerTokenDevBuyInput['poolKey']>;
+
 export interface DeployClankerTokenOptions {
     confirmDeploy?: boolean;
 }
@@ -121,8 +163,10 @@ export interface ClankerPaginationInput {
 }
 
 const DEFAULT_CLANKER_API_BASE_URL = 'https://www.clanker.world';
+const CLANKER_TOKEN_PAGE_BASE_URL = 'https://www.clanker.world/clanker';
 const DEPLOY_SUPPORTED_CHAIN_IDS = new Set([8453, 130, 42161, 1, 84532, 10143, 143, 2741]);
 const CLAIMED_FEES_SUPPORTED_CHAIN_IDS = new Set([8453, 84532, 42161, 10143]);
+const WETH_ADDRESS_BY_CHAIN_ID = WETH_ADDRESSES as Record<number, string | undefined>;
 
 const VIEM_CHAINS: Record<number, Chain> = {
     [base.id]: base,
@@ -198,6 +242,29 @@ function assertFiniteNumber(value: unknown, field: string): asserts value is num
     }
 }
 
+function pickFiniteNumber(...values: unknown[]): number | undefined {
+    for (const value of values) {
+        if (typeof value === 'number' && Number.isFinite(value)) {
+            return value;
+        }
+    }
+    return undefined;
+}
+
+function resolvePairedTokenAddress(chainId: number, pairedToken?: string): Address {
+    const candidate = String(pairedToken || '').trim();
+    if (!candidate || /^(?:weth|native|wrapped[-_ ]?native)$/i.test(candidate)) {
+        const defaultAddress = String(WETH_ADDRESS_BY_CHAIN_ID[chainId] || '').trim();
+        if (!defaultAddress) {
+            throw new Error(`No wrapped-native pair address configured for chainId ${chainId}`);
+        }
+        assertAddress(defaultAddress, `WETH_ADDRESSES[${chainId}]`);
+        return defaultAddress;
+    }
+    assertAddress(candidate, 'pool.pairedToken');
+    return candidate;
+}
+
 function requestKey(value?: string): string {
     const trimmed = String(value || '').trim();
     if (trimmed) {
@@ -207,6 +274,100 @@ function requestKey(value?: string): string {
         return trimmed;
     }
     return randomBytes(16).toString('hex');
+}
+
+function normalizeDevBuyPoolKey(poolKey?: DeployClankerTokenDevBuyPoolKeyInput) {
+    if (!poolKey) return undefined;
+    const currency0 = String(poolKey.currency0 || '').trim();
+    const currency1 = String(poolKey.currency1 || '').trim();
+    const hooks = String(poolKey.hooks || '').trim();
+    assertAddress(currency0, 'devBuy.poolKey.currency0');
+    assertAddress(currency1, 'devBuy.poolKey.currency1');
+    assertAddress(hooks, 'devBuy.poolKey.hooks');
+    assertFiniteNumber(poolKey.fee, 'devBuy.poolKey.fee');
+    assertFiniteNumber(poolKey.tickSpacing, 'devBuy.poolKey.tickSpacing');
+    return {
+        currency0,
+        currency1,
+        fee: poolKey.fee,
+        tickSpacing: poolKey.tickSpacing,
+        hooks,
+    };
+}
+
+function normalizeDevBuyInput(devBuy?: DeployClankerTokenDevBuyInput) {
+    if (!devBuy) return undefined;
+    const ethAmount = pickFiniteNumber(devBuy.ethAmount);
+    if (ethAmount === undefined) {
+        throw new Error('devBuy.ethAmount must be a finite number');
+    }
+    if (ethAmount <= 0) {
+        return undefined;
+    }
+
+    const normalized: Record<string, unknown> = {
+        ethAmount,
+    };
+    const poolKey = normalizeDevBuyPoolKey(devBuy.poolKey);
+    if (poolKey) {
+        normalized.poolKey = poolKey;
+    }
+    const amountOutMin = pickFiniteNumber(devBuy.amountOutMin);
+    if (typeof amountOutMin === 'number') {
+        if (amountOutMin < 0) {
+            throw new Error('devBuy.amountOutMin must be greater than or equal to 0');
+        }
+        normalized.amountOutMin = amountOutMin;
+    }
+    const recipient = String(devBuy.recipient || '').trim();
+    if (recipient) {
+        assertAddress(recipient, 'devBuy.recipient');
+        normalized.recipient = recipient;
+    }
+
+    return normalized;
+}
+
+function buildClankerTokenPageUrl(tokenAddress: string): string {
+    return `${CLANKER_TOKEN_PAGE_BASE_URL}/${tokenAddress}`;
+}
+
+function extractClankerTokenAddress(value: unknown): string | undefined {
+    if (!value) return undefined;
+    if (typeof value === 'string') {
+        return isAddress(value) ? value : undefined;
+    }
+    if (typeof value !== 'object') return undefined;
+
+    const record = value as Record<string, unknown>;
+    const directCandidates = [
+        record.expectedAddress,
+        record.tokenAddress,
+        record.contract_address,
+        record.contractAddress,
+        record.address,
+    ];
+    for (const candidate of directCandidates) {
+        if (typeof candidate === 'string' && isAddress(candidate)) {
+            return candidate;
+        }
+    }
+
+    const message = record.message;
+    if (typeof message === 'string') {
+        const match = message.match(/0x[a-fA-F0-9]{40}/);
+        if (match?.[0] && isAddress(match[0])) {
+            return match[0];
+        }
+    }
+
+    for (const nestedKey of ['data', 'result', 'payload']) {
+        const nested = record[nestedKey];
+        const nestedAddress = extractClankerTokenAddress(nested);
+        if (nestedAddress) return nestedAddress;
+    }
+
+    return undefined;
 }
 
 function normalizeDeployPayload(input: DeployClankerTokenInput) {
@@ -262,7 +423,7 @@ function normalizeDeployPayload(input: DeployClankerTokenInput) {
     const dynamicBasicFees = {
         type: 'dynamic' as const,
         baseFee: 100,
-        maxFee: 500,
+        maxLpFee: 500,
         referenceTickFilterPeriod: 30,
         resetPeriod: 120,
         resetTickFilter: 200,
@@ -272,7 +433,7 @@ function normalizeDeployPayload(input: DeployClankerTokenInput) {
     const dynamic3Fees = {
         type: 'dynamic' as const,
         baseFee: 100,
-        maxFee: 300,
+        maxLpFee: 300,
         referenceTickFilterPeriod: 30,
         resetPeriod: 120,
         resetTickFilter: 200,
@@ -282,7 +443,7 @@ function normalizeDeployPayload(input: DeployClankerTokenInput) {
     const mergeDynamicFees = (base: typeof dynamicBasicFees, override?: DeployClankerTokenInput['fees']) => ({
         type: 'dynamic' as const,
         baseFee: Number.isFinite(override?.baseFee as number) ? Number(override?.baseFee) : base.baseFee,
-        maxFee: Number.isFinite(override?.maxFee as number) ? Number(override?.maxFee) : base.maxFee,
+        maxLpFee: pickFiniteNumber(override?.maxLpFee, override?.maxFee) ?? base.maxLpFee,
         referenceTickFilterPeriod: Number.isFinite(override?.referenceTickFilterPeriod as number)
             ? Number(override?.referenceTickFilterPeriod)
             : base.referenceTickFilterPeriod,
@@ -298,7 +459,7 @@ function normalizeDeployPayload(input: DeployClankerTokenInput) {
     const resolvedInitialMarketCap = Number(input.pool?.initialMarketCap);
     const pool = {
         type: selectedPoolType,
-        pairedToken: String(input.pool?.pairedToken || 'WETH'),
+        pairedToken: resolvePairedTokenAddress(chainId, input.pool?.pairedToken),
         initialMarketCap: Number.isFinite(resolvedInitialMarketCap) ? resolvedInitialMarketCap : 10,
     };
 
@@ -339,6 +500,10 @@ function normalizeDeployPayload(input: DeployClankerTokenInput) {
         rewards: normalizedRewards,
         chainId,
     };
+    const devBuy = normalizeDevBuyInput(input.devBuy);
+    if (devBuy) {
+        payload.devBuy = devBuy;
+    }
     payload.pool = pool;
     payload.fees = fees;
     payload.context = {
@@ -433,10 +598,13 @@ export async function deployClankerToken(
         method: 'POST',
         body: JSON.stringify(payload),
     });
+    const tokenAddress = extractClankerTokenAddress(result);
     return {
         success: true,
         dryRun: false,
         result,
+        tokenAddress,
+        tokenUrl: tokenAddress ? buildClankerTokenPageUrl(tokenAddress) : undefined,
     };
 }
 

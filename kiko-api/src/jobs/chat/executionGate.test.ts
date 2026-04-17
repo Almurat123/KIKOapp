@@ -62,3 +62,71 @@ test('prepare_swap_transaction can use a prior prepare_swap_transaction success 
 
     assert.equal(result.allow, true);
 });
+
+test('deploy_clanker_token dry run does not require execution confirmation', () => {
+    const result = checkMutationExecutionGate({
+        toolName: 'deploy_clanker_token',
+        args: {
+            name: 'Demo Token',
+            symbol: 'DEMO',
+            confirmDeploy: false,
+        },
+        policy: {
+            enforcementLevel: 'hard',
+            actionClass: 'TOKEN_DEPLOY_MUTATION',
+            policyDecisionId: 'policy-1',
+        } as any,
+        gate: null,
+    });
+
+    assert.equal(result.allow, true);
+});
+
+test('deploy_clanker_token real deploy requires an execution confirmation token', () => {
+    const args = {
+        name: 'Demo Token',
+        symbol: 'DEMO',
+        confirmDeploy: true,
+    };
+
+    const result = checkMutationExecutionGate({
+        toolName: 'deploy_clanker_token',
+        args,
+        policy: {
+            enforcementLevel: 'hard',
+            actionClass: 'TOKEN_DEPLOY_MUTATION',
+            policyDecisionId: 'policy-1',
+        } as any,
+        gate: null,
+    });
+
+    assert.equal(result.allow, false);
+    assert.equal(result.responsePayload?.requires_confirmation, true);
+    assert.equal(result.responsePayload?.confirmation_payload?.tool_name, 'deploy_clanker_token');
+    assert.equal(result.responsePayload?.confirmation_payload?.action_class, 'TOKEN_DEPLOY_MUTATION');
+});
+
+test('deploy_clanker_token real deploy executes only with the matching confirmation token', () => {
+    const args = {
+        name: 'Demo Token',
+        symbol: 'DEMO',
+        confirmDeploy: true,
+    };
+    const confirmationToken = computeConfirmationToken('deploy_clanker_token', args, 'policy-1');
+
+    const result = checkMutationExecutionGate({
+        toolName: 'deploy_clanker_token',
+        args,
+        policy: {
+            enforcementLevel: 'hard',
+            actionClass: 'TOKEN_DEPLOY_MUTATION',
+            policyDecisionId: 'policy-1',
+        } as any,
+        gate: {
+            phase: 'execute',
+            confirmationToken,
+        },
+    });
+
+    assert.equal(result.allow, true);
+});

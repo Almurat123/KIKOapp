@@ -10,11 +10,14 @@
 //         also need hydrated cast images so the model can see embedded media
 //         instead of only parent-thread text. Follow-up turns on Farcaster should
 //         continue when a user directly replies to a bot-authored cast, even if
-//         the follow-up does not mention the bot again.
+//         the follow-up does not mention the bot again. Webhook, polling, and
+//         recovery ingress must all share one self/bot-loop admission guard so a
+//         bot-authored reply cannot recursively trigger more public link replies.
 // Goal: preserve deterministic Farcaster mention handling while keeping polling
 //       cheap, idempotent, and aligned with linked-user chat sessions, while
 //       handing real thread/media context to the model and preserving direct
-//       reply continuation semantics.
+//       reply continuation semantics, while fail-closing self/bot loops before
+//       durable enqueue.
 // Owns: inbound Farcaster mention polling fallback, webhook-fed dedupe, session
 //       routing, and reply dispatch.
 // Does Not Own: Farcaster account provisioning, frontend linking UI, or generic chat logic.
@@ -38,6 +41,10 @@
 //   embeds remain visible to vision-capable providers.
 // - Accept no-mention follow-ups only when they are direct replies to a tracked
 //   bot-authored outbound cast; do not watch arbitrary root-thread comments.
+// - Reject self-authored and blocked-bot-authored inbound casts before event-log
+//   persistence on every ingress path.
+// - Treat any recent bind-link attempt as cooldown evidence; do not require a
+//   successful send before suppressing another public link reply.
 // Document Provenance:
 // - Source: Neynar webhook documentation and notifications/cast lookup APIs
 // - Kind: official API doc
@@ -74,6 +81,13 @@
 // - Applied To: treating direct replies to tracked bot casts as continuation
 //   turns without requiring another @mention
 // - Verification: verified in code and tests
+// - Source: production runtime logs in
+//   /Users/almurat/Downloads/logs.1776362968247.json showing bot-authored bind
+//   replies re-entering as `parent_author_fids` webhook replies
+// - Kind: runtime observation
+// - Retrieved: 2026-04-17
+// - Applied To: unified self/bot ingress guard and bind-link anti-spam cooldown
+// - Verification: verified in runtime logs, code, and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
@@ -81,6 +95,7 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-webhook-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-neynar-notifications-standdown.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-farcaster-direct-reply-continuation.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-farcaster-self-loop-bind-spam-guard.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-inbound-event-idempotence.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
@@ -122,6 +137,7 @@ const MAX_CONVERSATION_ROUND_TRIPS = Math.max(
   1,
   Number(process.env.FARCASTER_AGENT_MAX_ROUND_TRIPS || '10'),
 );
+const BIND_REPLY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 // Comma-separated list of FIDs that should be treated as bots and ignored.
 const BLOCKED_BOT_FIDS: Set<number> = new Set(
@@ -130,6 +146,41 @@ const BLOCKED_BOT_FIDS: Set<number> = new Set(
     .map((v) => Number(v.trim()))
     .filter((v) => Number.isFinite(v) && v > 0),
 );
+
+export type FarcasterInboundIgnoreReason = 'self_author' | 'blocked_bot_author';
+
+export function getFarcasterInboundIgnoreReason(
+  authorFid: number | null | undefined,
+  options?: {
+    botFid?: number;
+    blockedBotFids?: Set<number> | number[];
+  },
+): FarcasterInboundIgnoreReason | null {
+  const fid = Number(authorFid || 0);
+  if (!Number.isFinite(fid) || fid <= 0) return null;
+
+  const botFid = Number(options?.botFid ?? env.farcasterAgent.botFid);
+  if (Number.isFinite(botFid) && botFid > 0 && fid === botFid) {
+    return 'self_author';
+  }
+
+  const blocked = options?.blockedBotFids instanceof Set
+    ? options.blockedBotFids
+    : Array.isArray(options?.blockedBotFids)
+      ? new Set(options.blockedBotFids)
+      : BLOCKED_BOT_FIDS;
+  if (blocked.has(fid)) {
+    return 'blocked_bot_author';
+  }
+
+  return null;
+}
+
+export function buildBindReplyIdempotencyKey(authorFid: number, occurredAt?: string | null): string {
+  const parsed = occurredAt ? Date.parse(occurredAt) : NaN;
+  const date = new Date(Number.isFinite(parsed) ? parsed : Date.now()).toISOString().slice(0, 10);
+  return `farcaster:reply:bind:${authorFid}:${date}`;
+}
 
 function compareIsoTimestamps(a?: string | null, b?: string | null): number {
   const left = a || '';
@@ -388,6 +439,19 @@ export class FarcasterIngressWorker {
   }
 
   async enqueueMention(mention: FarcasterMentionEvent): Promise<boolean> {
+    const ignoreReason = getFarcasterInboundIgnoreReason(mention.authorFid);
+    if (ignoreReason) {
+      logger.info(LogCode.SYS_INFO, '[Farcaster] dropping ignored inbound mention before enqueue', {
+        eventId: mention.eventId,
+        castHash: mention.castHash,
+        authorFid: mention.authorFid,
+        parentAuthorFid: mention.parentAuthorFid || null,
+        notificationType: mention.notificationType,
+        ignoreReason,
+      });
+      return false;
+    }
+
     const accepted = await createFarcasterInboundEventLog({
       eventId: mention.eventId,
       farcasterFid: mention.authorFid,
@@ -497,8 +561,7 @@ export class FarcasterIngressWorker {
 
   private filterAdmissibleFreshEvents(events: FarcasterMentionEvent[]): FarcasterMentionEvent[] {
     return events
-      .filter((event) => event.authorFid !== env.farcasterAgent.botFid)
-      .filter((event) => !BLOCKED_BOT_FIDS.has(event.authorFid))
+      .filter((event) => !getFarcasterInboundIgnoreReason(event.authorFid))
       .filter((event) => event.castHash && event.text && event.occurredAt);
   }
 
@@ -580,8 +643,18 @@ export class FarcasterIngressWorker {
   }
 
   private async handleMentionBusiness(mention: FarcasterMentionEvent): Promise<void> {
-    // CRITICAL: Never interact with self.
-    if (mention.authorFid === env.farcasterAgent.botFid) {
+    const ignoreReason = getFarcasterInboundIgnoreReason(mention.authorFid);
+    // CRITICAL: Never interact with self or known bot-loop sources. This also
+    // protects already-persisted events from before the enqueue guard existed.
+    if (ignoreReason) {
+      logger.info(LogCode.SYS_INFO, '[Farcaster] skipping ignored inbound mention during processing', {
+        eventId: mention.eventId,
+        castHash: mention.castHash,
+        authorFid: mention.authorFid,
+        parentAuthorFid: mention.parentAuthorFid || null,
+        notificationType: mention.notificationType,
+        ignoreReason,
+      });
       return;
     }
 
@@ -598,23 +671,24 @@ export class FarcasterIngressWorker {
         return;
       }
 
-      // Cooldown: only send one bind reply per authorFid per 24 hours to
-      // prevent spamming the same unlinked user across multiple casts.
-      const BIND_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+      // Cooldown: only allow one bind-link attempt per authorFid per 24 hours.
+      // Any recent attempt counts, including pending/failed deliveries, because
+      // anti-spam safety is more important than retrying a public link prompt.
       const recentBind = await prisma.farcasterMessageDelivery.findFirst({
         where: {
           farcasterFid: mention.authorFid,
           messageType: 'reply',
-          status: 'sent',
           idempotencyKey: { startsWith: 'farcaster:reply:bind:' },
-          createdAt: { gte: new Date(Date.now() - BIND_COOLDOWN_MS) },
+          createdAt: { gte: new Date(Date.now() - BIND_REPLY_COOLDOWN_MS) },
         },
+        orderBy: { createdAt: 'desc' },
       });
       if (recentBind) {
         logger.info(LogCode.SYS_INFO, '[Farcaster] skipping bind reply: cooldown active for authorFid', {
           castHash: mention.castHash,
           authorFid: mention.authorFid,
           lastBindAt: recentBind.createdAt,
+          lastBindStatus: recentBind.status,
         });
         return;
       }
@@ -624,7 +698,7 @@ export class FarcasterIngressWorker {
         parentHash: mention.castHash,
         parentAuthorFid: mention.authorFid,
         text: trimCastText(publicBindText(mention.authorUsername)),
-        idempotencyKey: `farcaster:reply:bind:${mention.castHash}`,
+        idempotencyKey: buildBindReplyIdempotencyKey(mention.authorFid, mention.occurredAt),
       });
       return;
     }
