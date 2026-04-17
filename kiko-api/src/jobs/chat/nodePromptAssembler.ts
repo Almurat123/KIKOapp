@@ -299,7 +299,7 @@ function buildFallbackContextContract(snapshot: ChatContextSnapshot, intentEnvel
         required.add('user_settings');
     }
 
-    if (primaryIntent === 'wallet_analysis' || primaryIntent === 'wallet_pnl') {
+    if (primaryIntent === 'wallet_analysis') {
         required.add('wallet_state');
     }
     if (primaryIntent === 'token_analysis' || primaryIntent === 'token_risk') {

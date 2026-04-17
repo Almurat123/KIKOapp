@@ -1,10 +1,13 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-18
 // Author: Rowan
 // Reason: chat context-read tools were returning mixed camelCase runtime
 //         fields and raw wallet objects. That format made the model infer
 //         operational meaning from vague summaries instead of reading a stable
-//         worker-facing contract.
+//         worker-facing contract. API build later showed the contract builder
+//         needs explicit primitive type helpers so TypeScript does not widen
+//         chain IDs, token symbols, and filtered token arrays into unsafe
+//         boolean/null unions.
 // Goal: expose session and wallet context as compact operation fields that a
 //       model worker can use directly for chain, wallet, entity, and balance decisions.
 // Owns: model-facing normalization of session context and wallet state.
@@ -15,6 +18,7 @@
 // - effective task chain must be explicit so requested chain beats connected chain
 // - raw provider/cache objects should be compacted before reaching the model
 // - summaries should be short data contracts, not prose descriptions
+// - contract fields use typed primitive helpers; do not pass generic mixed primitives into chain/string slots
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/adr/2026-04-17-chat-v2-rewrite-plan.md
 // - Kind: repo doc
@@ -26,11 +30,17 @@
 // - Retrieved: 2026-04-17
 // - Applied To: normalized read_user_context and read_wallet_state payloads
 // - Verification: verified in code and targeted tests
+// - Source: `npm run build` TypeScript diagnostics
+// - Kind: test evidence
+// - Retrieved: 2026-04-18
+// - Applied To: typed primitive helpers and token-array filters
+// - Verification: verified by api build
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/adr/2026-04-17-chat-v2-rewrite-plan.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-worker-context-contracts.md
 // - /Users/almurat/KiKo/system-journal/owner-map/chat-runtime-planning.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-model-selected-task-menu.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 import { resolveCanonicalChainRef } from './chainIntent.js';
@@ -120,10 +130,10 @@ export function buildWalletStateContract(snapshot: ChatContextSnapshot, prefetch
 }
 
 function buildChain(chainId: unknown, chainName: unknown, source?: string): CompactChain | undefined {
-    const chain = stripEmptyEntries({
-        chain_id: normalizePrimitive(chainId),
-        name: normalizePrimitive(chainName),
-        source: normalizePrimitive(source),
+    const chain: CompactChain = stripEmptyEntries({
+        chain_id: normalizeStringOrNumber(chainId),
+        name: normalizeString(chainName),
+        source: normalizeString(source),
     });
     return Object.keys(chain).length > 0 ? chain : undefined;
 }
@@ -139,7 +149,7 @@ function buildActiveChainBalance(params: {
         ?? params.prefetchedWallet?.ethBalance
         ?? params.prefetchedWallet?.nativeBalance,
     );
-    const balanceTokens = summarizeBalanceTokens(params.balance);
+    const balanceTokens = summarizeBalanceTokens(params.balance) || [];
     const prefetchedTokens = summarizeTokenArray(params.prefetchedWallet?.tokens);
     const active = stripEmptyEntries({
         native,
@@ -152,13 +162,13 @@ function summarizeAllChainBalances(allChainBalances: unknown) {
     if (!allChainBalances || typeof allChainBalances !== 'object') return undefined;
     const chains = Object.entries(allChainBalances as Record<string, any>)
         .slice(0, 8)
-        .map(([chainKey, snapshot]) => {
+        .map<Record<string, any> | null>(([chainKey, snapshot]) => {
             if (!snapshot || typeof snapshot !== 'object') return null;
             const tokens = Array.isArray(snapshot.tokens)
                 ? summarizeTokenArray(snapshot.tokens)
                 : summarizeBalanceTokens(snapshot.tokens);
             return stripEmptyEntries({
-                chain: normalizePrimitive(chainKey),
+                chain: normalizeStringOrNumber(chainKey),
                 native: normalizePrimitive(snapshot.ethBalanceFormatted ?? snapshot.ethBalance ?? snapshot.nativeBalance),
                 tokens,
             });
@@ -171,12 +181,12 @@ function summarizeTokenArray(tokens: unknown): CompactTokenBalance[] | undefined
     if (!Array.isArray(tokens)) return undefined;
     const compact = tokens
         .slice(0, 8)
-        .map((token) => {
+        .map<CompactTokenBalance | null>((token) => {
             if (!token || typeof token !== 'object') return null;
             const item = token as Record<string, any>;
             return stripEmptyEntries({
-                symbol: normalizePrimitive(item.symbol),
-                contract_address: normalizePrimitive(item.contractAddress || item.contract_address || item.address),
+                symbol: normalizeString(item.symbol),
+                contract_address: normalizeString(item.contractAddress || item.contract_address || item.address),
                 balance: normalizePrimitive(item.balance ?? item.tokenBalance ?? item.token_balance ?? item.formatted ?? item.amount),
                 decimals: normalizePrimitive(item.decimals),
             });
@@ -190,19 +200,19 @@ function summarizeBalanceTokens(balance: unknown): CompactTokenBalance[] | undef
     if (Array.isArray(balance)) return summarizeTokenArray(balance);
     const compact = Object.entries(balance as Record<string, any>)
         .slice(0, 8)
-        .map(([key, value]) => {
+        .map<CompactTokenBalance | null>(([key, value]) => {
             if (value && typeof value === 'object') {
                 const item = value as Record<string, any>;
                 return stripEmptyEntries({
-                    symbol: normalizePrimitive(item.symbol || (isLikelyAddress(key) ? undefined : key)),
-                    contract_address: normalizePrimitive(item.contractAddress || item.contract_address || item.address || (isLikelyAddress(key) ? key : undefined)),
+                    symbol: normalizeString(item.symbol || (isLikelyAddress(key) ? undefined : key)),
+                    contract_address: normalizeString(item.contractAddress || item.contract_address || item.address || (isLikelyAddress(key) ? key : undefined)),
                     balance: normalizePrimitive(item.balance ?? item.tokenBalance ?? item.token_balance ?? item.formatted ?? item.amount),
                     decimals: normalizePrimitive(item.decimals),
                 });
             }
             return stripEmptyEntries({
-                symbol: normalizePrimitive(isLikelyAddress(key) ? undefined : key),
-                contract_address: normalizePrimitive(isLikelyAddress(key) ? key : undefined),
+                symbol: normalizeString(isLikelyAddress(key) ? undefined : key),
+                contract_address: normalizeString(isLikelyAddress(key) ? key : undefined),
                 balance: normalizePrimitive(value),
             });
         })
@@ -241,6 +251,16 @@ function normalizePrimitive(value: unknown): string | number | boolean | undefin
         return value;
     }
     return undefined;
+}
+
+function normalizeString(value: unknown): string | undefined {
+    const primitive = normalizePrimitive(value);
+    return typeof primitive === 'string' ? primitive : undefined;
+}
+
+function normalizeStringOrNumber(value: unknown): string | number | undefined {
+    const primitive = normalizePrimitive(value);
+    return typeof primitive === 'string' || typeof primitive === 'number' ? primitive : undefined;
 }
 
 function limitArray(values: string[] | undefined, maxLen: number): string[] | undefined {

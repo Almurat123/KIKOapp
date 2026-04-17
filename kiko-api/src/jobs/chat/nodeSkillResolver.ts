@@ -875,7 +875,7 @@ function buildContextContract(params: {
         required.add('user_settings');
     }
 
-    if (intentEnvelope.primary_intent === 'wallet_analysis' || intentEnvelope.primary_intent === 'wallet_pnl') {
+    if (intentEnvelope.primary_intent === 'wallet_analysis') {
         required.add('wallet_state');
     }
     if (intentEnvelope.primary_intent === 'token_analysis' || intentEnvelope.primary_intent === 'token_risk') {
