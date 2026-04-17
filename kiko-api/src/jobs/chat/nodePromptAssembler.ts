@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-17
 // Author: Rowan
 // Reason: Farcaster agent replies need a surface-specific system prompt so the
 //         model recognizes the conversation as a social-agent mode instead of a
@@ -9,11 +9,15 @@
 //         provider-safe content shapes. Social-agent turns now also need
 //         current-turn multimodal user messages so X/Farcaster post images can
 //         reach vision-capable OpenAI, NVIDIA Kimi, and xAI Grok paths without
-//         contaminating replayed text history.
+//         contaminating replayed text history. Runtime plan labels were later
+//         found to leak into model-visible prompt context as user-facing
+//         phrases, encouraging "I will..." and step-name narration in answers.
 // Goal: keep generation messages explicit about surface mode, especially for
 //       Farcaster agent turns where short, direct replies are the default, keep
 //       reasoning traces out of replayed assistant history, and assemble
-//       provider-safe multimodal current-turn content for social ingress.
+//       provider-safe multimodal current-turn content for social ingress. Keep
+//       orchestration plan state model-visible only as structural metadata, not
+//       as user-facing copy the model can quote.
 // Owns: generation-message assembly, current-turn multimodal content shaping,
 //       and surface-specific prompt overlays.
 // Does Not Own: model provider selection, runtime directive derivation, or cast publication.
@@ -26,6 +30,8 @@
 // - social multimodal inputs belong only on the current user turn, not replayed history
 // - use real image parts only on provider/model paths verified to support them
 // - NVIDIA GLM stays text-only until its active endpoint documents image input
+// - runtime plan state may guide tool routing, but its titles and summaries are not answer content
+// - never expose "I will..." plan summaries or localized step labels inside generation prompt blocks
 // Document Provenance:
 // - Source: Neynar/Farcaster cast writing docs and runtime screenshots of
 //           report-style public replies
@@ -56,8 +62,17 @@
 // - Applied To: emitting structured current-turn image content for Grok so the
 //   Python xAI adapter can convert it into SDK image inputs
 // - Verification: verified in docs and code
+// - Source: operator runtime transcript showing plan-card labels rendered as if
+//           they were assistant answer content
+// - Kind: runtime observation
+// - Retrieved: 2026-04-17
+// - Applied To: replacing model-visible execution-plan prose with structural runtime state only
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/runtime-plan-visibility.md
+// - /Users/almurat/KiKo/system-journal/owner-map/chat-runtime-planning.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-runtime-plan-user-visible-hardcoding-fix.md
 // - /Users/almurat/KiKo/system-journal/design-language/social-agent-multimodal-input.md
 // - /Users/almurat/KiKo/system-journal/owner-map/social-agent-multimodal-input.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-kimi-grok-social-image-input.md
@@ -349,17 +364,15 @@ export function buildRoundToolPolicySystemMessage(guidance: {
 
 function buildExecutionPlanBlock(plan: PlanCard | null | undefined): string {
     if (!plan || !Array.isArray(plan.steps) || plan.steps.length === 0) return '';
-    const lines = ['[EXECUTION_PLAN]'];
-    if (plan.title) lines.push(`Title: ${plan.title}`);
-    if (plan.summary) lines.push(`Summary: ${plan.summary}`);
+    const lines = [
+        '[INTERNAL_RUNTIME_PLAN_STATE]',
+        '- Internal orchestration state only. Do not quote, summarize, or narrate this block to the user.',
+    ];
     for (const step of plan.steps) {
         const toolText = Array.isArray(step.preferredTools) && step.preferredTools.length > 0
-            ? `; preferred tools: ${step.preferredTools.join(', ')}`
+            ? `; preferred_tools=${step.preferredTools.join(',')}`
             : '';
-        lines.push(`- Step ${step.id}: ${step.title} (status=${step.status}${toolText})`);
-        if (step.description) {
-            lines.push(`  ${step.description}`);
-        }
+        lines.push(`- step_id=${step.id}; status=${step.status}${toolText}`);
     }
     return lines.join('\n');
 }

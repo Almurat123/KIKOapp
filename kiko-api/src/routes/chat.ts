@@ -9,14 +9,16 @@
 // Reason: chat message creation now also has to accept image uploads and keep
 //         sent image bubbles visible after refresh. This owner coordinates upload
 //         preparation, task binding, private message attachment persistence, and
-//         model eligibility checks at the request boundary.
+//         model eligibility checks at the request boundary. It now also captures
+//         the selected reasoning-effort hint so the downstream task snapshot can
+//         preserve GPT-family thinking strength across the worker and gateway chain.
 // Goal: preserve the existing task-based chat flow while allowing image inputs
 //       to be uploaded, validated, bound to one task, read by the worker, and
 //       rehydrated into refreshed chat history without persisting image binaries
 //       or public image URLs in the database.
 // Owns: authenticated chat upload preparation endpoints, send-message request
 //       validation, usage/task gating, task-time image binding, and client-safe
-//       history attachment hydration.
+//       history attachment hydration plus the persisted model/reasoning hint.
 // Does Not Own: object storage internals, UI upload state, or provider-specific
 //               multimodal prompt assembly.
 // Design Language:
@@ -28,6 +30,7 @@
 // - Keep image-bearing tasks non-claimable until upload binding has completed.
 // - Store private object references in ChatMessage.data, not signed/public URLs.
 // - Hydrate signed preview URLs at response time and never expose R2 object keys.
+// - Preserve selected GPT reasoning effort in task context instead of inferring it later.
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
 // - Kind: repo doc
@@ -106,6 +109,7 @@ interface FinalizeImageUploadsBody {
 interface SendMessageBody {
     content: string;
     model?: string;
+    reasoningEffort?: string;
     imageUploadIds?: string[];
     walletAddress?: string;
     chainId?: number;
@@ -459,6 +463,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 const {
                     content,
                     model,
+                    reasoningEffort,
                     imageUploadIds,
                     walletAddress,
                     chainId,
@@ -732,6 +737,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                         chainId,
                         farcaster: mergedFarcasterContext,
                         toolConfig,
+                        reasoningEffort,
                         allowanceMode,
                         balance: resolvedBalance,
                         nativeBalance: resolvedNativeBalance,

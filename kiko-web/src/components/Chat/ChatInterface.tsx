@@ -27,7 +27,7 @@ import { getStoredSlippageBps } from '@/config/slippageConfig';
 import { getUserSettings, saveUserSettings } from '../../services/userSettingsApi';
 import { ChatMessageList } from './ChatMessageList';
 import { ChatComposer } from './ChatComposer';
-import { ACTION_CARD_TYPE_MAP, COMMON_TOKENS, MODEL_OPTIONS, findChatModelOption, getDefaultChatModelOption, supportsVisionChatModel } from './chatConstants';
+import { ACTION_CARD_TYPE_MAP, COMMON_TOKENS, MODEL_OPTIONS, findChatModelOption, getDefaultChatModelOption, hydrateChatModelOption, supportsVisionChatModel } from './chatConstants';
 import {
     createComposerImageDraft,
     MAX_COMPOSER_IMAGE_COUNT,
@@ -43,7 +43,7 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 const LazyChatStrategyRuntime = React.lazy(() => import('./ChatStrategyRuntime').then((m) => ({ default: m.ChatStrategyRuntime })));
 
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-17
 // Author: Rowan
 // Reason: First-send interaction and live assistant-card rendering both depend
 //         on this owner preserving a single in-place chat surface while websocket
@@ -52,19 +52,23 @@ const LazyChatStrategyRuntime = React.lazy(() => import('./ChatStrategyRuntime')
 //         transition so first-send attachment previews do not disappear before
 //         the upload pipeline runs, and it now owns selection-time image upload
 //         plus upload-phase interaction locking before the backend task starts.
-//         Operator testing then corrected the interaction: selected images must
-//         upload immediately and become ready before the send button starts a
-//         model task.
+//         The borderless model/reasoning picker chrome moved into ChatComposer
+//         and WelcomeScreen; this owner now only persists the selected model and
+//         coordinates the session bootstrap around it, including reasoning
+//         strength when the selected family exposes multiple effort levels.
 // Goal: keep `ChatInterface` as the stable owner for welcome -> send ->
 //       conversation creation and live card presentation, rendering the chat
 //       surface immediately and attaching assistant cards even if their client
 //       actions arrive before the text placeholder, while carrying local image
 //       drafts through the same single-owner flow, exposing upload progress in
-    //       the composer, and turning drafts into backend-prepared upload ids before send.
+//       the composer, and turning drafts into backend-prepared upload ids before
+//       send.
 // Owns: chat runtime bootstrapping, first-send/session behavior, local image
-//       draft lifecycle, selection-time image upload orchestration, and live
-//       assistant card attachment in the active conversation view.
-// Does Not Own: route-level shell experiments or external page wrappers.
+//       draft lifecycle, selection-time image upload orchestration, persisted
+//       model/reasoning selection, and live assistant card attachment in the
+//       active conversation view.
+// Does Not Own: route-level shell experiments, external page wrappers, or the
+//       borderless picker chrome now owned by ChatComposer and WelcomeScreen.
 // Design Language:
 // - first-send flow should stay inside one chat owner
 // - the primary message list is part of the core chat surface, not a deferred
@@ -76,8 +80,8 @@ const LazyChatStrategyRuntime = React.lazy(() => import('./ChatStrategyRuntime')
 //   the active conversation view
 // - local image drafts belong to the chat owner until backend upload starts
 // - image uploads should start when the user selects files, not when the model task starts
-    // - prepared upload ids are local draft state until send and must be discarded if never sent
-    // - refreshed image history must come from backend-signed attachments, not local object URLs
+// - prepared upload ids are local draft state until send and must be discarded if never sent
+// - refreshed image history must come from backend-signed attachments, not local object URLs
 // - text-only models must not silently accept image turns
 // - forbidden local patch patterns: route-wrapper handoff logic that auto-submits through remount
 // Document Provenance:
@@ -101,16 +105,26 @@ const LazyChatStrategyRuntime = React.lazy(() => import('./ChatStrategyRuntime')
 // - Retrieved: 2026-04-16
 // - Applied To: preserving local image draft previews across welcome -> chat transition and optimistic user messages
 // - Verification: verified in code
-    // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
-    // - Kind: repo doc
-    // - Retrieved: 2026-04-16
-    // - Applied To: selection-time image upload before send and image-capable model gating
-    // - Verification: verified in code
-    // - Source: operator correction that refreshed chat history must preserve image bubbles
-    // - Kind: product doc
-    // - Retrieved: 2026-04-16
-    // - Applied To: separating optimistic local image previews from durable backend-signed history attachments
-    // - Verification: verified in code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-16
+// - Applied To: selection-time image upload before send and image-capable model gating
+// - Verification: verified in code
+// - Source: operator correction that refreshed chat history must preserve image bubbles
+// - Kind: product doc
+// - Retrieved: 2026-04-16
+// - Applied To: separating optimistic local image previews from durable backend-signed history attachments
+// - Verification: verified in code
+// - Source: user screenshot request showing borderless model and reasoning controls
+// - Kind: product doc
+// - Retrieved: 2026-04-17
+// - Applied To: moving model/reasoning picker chrome out of ChatInterface and into ChatComposer
+// - Verification: inferred
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-input-borderless-model-reasoning-selector.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: documenting that ChatInterface no longer owns the picker chrome
+// - Verification: inferred
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
@@ -120,6 +134,7 @@ const LazyChatStrategyRuntime = React.lazy(() => import('./ChatStrategyRuntime')
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-copytrade-card-live-hydration.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-local-image-composer-base.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-input-borderless-model-reasoning-selector.md
 
 interface TaskState {
     id: string;
@@ -383,7 +398,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             const saved = localStorage.getItem('kiko-selected-model');
             if (saved) {
                 const parsed = JSON.parse(saved);
-                const found = findChatModelOption(parsed.id);
+                const found = hydrateChatModelOption(parsed) || findChatModelOption(parsed.id);
                 if (found) {
                     return found;
                 }
@@ -434,7 +449,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
     );
 
-    const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [customSettings, setCustomSettings] = useState<Record<string, unknown> | null>(null);
     const [strategyRuntime, setStrategyRuntime] = useState<ChatStrategyRuntimeState>({
@@ -955,10 +969,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 const saved = localStorage.getItem('kiko-selected-model');
                 if (saved) {
                     const parsed = JSON.parse(saved);
-                    const found = findChatModelOption(parsed.id);
+                    const found = hydrateChatModelOption(parsed) || findChatModelOption(parsed.id);
                     if (found) {
                         setSelectedModel(current => {
-                            if (found.id !== current.id) {
+                            const sameSelection =
+                                found.id === current.id
+                                && found.reasoningLevel === current.reasoningLevel
+                                && found.reasoningEffort === current.reasoningEffort;
+                            if (!sameSelection) {
                                 logger.debug('Syncing model from localStorage:', found.id);
                                 return found;
                             }
@@ -977,10 +995,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         // Listen for custom event from WelcomeScreen
         const handleModelChange = (event: CustomEvent) => {
             const newModel = event.detail;
-            const found = findChatModelOption(newModel.id);
+            const found = hydrateChatModelOption(newModel) || findChatModelOption(newModel.id);
             if (found) {
                 setSelectedModel(current => {
-                    if (found.id !== current.id) {
+                    const sameSelection =
+                        found.id === current.id
+                        && found.reasoningLevel === current.reasoningLevel
+                        && found.reasoningEffort === current.reasoningEffort;
+                    if (!sameSelection) {
                         logger.debug('Model changed via event:', found.id);
                         return found;
                     }
@@ -1010,8 +1032,17 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 const settings = await getUserSettings(token);
                 const found = findChatModelOption(settings?.defaultChatModel);
                 if (!cancelled && found) {
-                    setSelectedModel(current => (current.id === found.id ? current : found));
-                    localStorage.setItem('kiko-selected-model', JSON.stringify(found));
+                    setSelectedModel(current => {
+                        if (current.id === found.id) {
+                            return current;
+                        }
+                        try {
+                            localStorage.setItem('kiko-selected-model', JSON.stringify(found));
+                        } catch (error) {
+                            logger.warn('Failed to persist model selection from saved settings:', error);
+                        }
+                        return found;
+                    });
                 }
             } catch (error) {
                 logger.warn('Failed to load saved default chat model:', error);
@@ -1055,7 +1086,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     // Start from null so first mount on /chat/:id is treated as a switch and triggers loadConversation.
     const currentConversationIdRef = useRef<string | null>(null);
     const processedMessagesRef = useRef<Set<string>>(new Set());
-    const modelSelectorRef = useRef<HTMLDivElement>(null);
     const inputAreaRef = useRef<HTMLDivElement>(null);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -1120,23 +1150,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     useEffect(() => {
         sidebar?.setChatStarted(initialMessages.length > 0 || !!conversationId || isLoading);
     }, []);
-
-    // Close model dropdown when clicking outside
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (modelSelectorRef.current && !modelSelectorRef.current.contains(event.target as Node)) {
-                setIsModelDropdownOpen(false);
-            }
-        };
-
-        if (isModelDropdownOpen) {
-            document.addEventListener('mousedown', handleClickOutside);
-        }
-
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-        };
-    }, [isModelDropdownOpen]);
 
     /** Scenario A: Sending first message, URL just navigated to new conversation — no load, no clear. */
     const handleNewConversationNavigation = useCallback((newId: string) => {
@@ -2230,6 +2243,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             };
             const resp = await chatApi.sendMessage(currentConvId, trimmedText, {
                 model: modelToUse.id,
+                reasoningEffort: modelToUse.reasoningEffort,
                 walletAddress: walletAddress,
                 chainId: chainId,
                 toolConfig: customSettings,
@@ -2622,7 +2636,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 suggestions={suggestions}
                 input={input}
                 selectedModel={selectedModel}
-                isModelDropdownOpen={isModelDropdownOpen}
                 isBusy={isBusy}
                 isStopping={isStopping}
                 isUploadingImages={isUploadingImages}
@@ -2632,7 +2645,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 isKeyboardVisible={safariKeyboard.isKeyboardVisible}
                 textareaRef={textareaRef}
                 inputAreaRef={inputAreaRef}
-                modelSelectorRef={modelSelectorRef}
                 closeSuggestions={closeSuggestions}
                 onScrollToBottom={() => scrollToBottom()}
                 onSelectSuggestion={(item: SuggestionItem) => {
@@ -2644,10 +2656,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 onInputFocus={handleInputFocus}
                 onCompositionStart={handleCompositionStart}
                 onCompositionEnd={handleCompositionEnd}
-                onToggleModelDropdown={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
                 onSelectModel={(model) => {
                     setSelectedModelAndPersist(model);
-                    setIsModelDropdownOpen(false);
                     logger.debug('Model changed to:', model.id);
                 }}
                 onSelectImages={handleSelectImages}

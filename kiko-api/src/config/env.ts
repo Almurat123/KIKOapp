@@ -41,6 +41,7 @@
 //   can raise it to 15 minutes or 1 hour without code changes.
 // - Public X share links must have an explicit base URL and must not be inferred from private session paths.
 // - NVIDIA GLM/Kimi are free-model traffic and can share one optional KIKO cap.
+// - GLM exposes both fast and thinking aliases; both must stay on the free-model path.
 // - GPT and Grok are premium-model traffic and share one daily free quota.
 // - `USAGE_LIMITS_TIERS_JSON` may define `freeModelLimit` and `premiumLimit`;
 //   legacy `dailyLimit` must still map into the premium limit for backward compatibility.
@@ -71,6 +72,11 @@
 // - Kind: official API doc
 // - Retrieved: 2026-04-16
 // - Applied To: env-driven free-model allowlist and default pricing stubs after DeepSeek removal
+// - Verification: verified in code
+// - Source: /Users/almurat/KiKo/kiko-api/src/routes/ai.ts
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: keeping both GLM fast and thinking aliases on the free-model path
 // - Verification: verified in code
 // - Source: /Users/almurat/KiKo/docker-compose.yml
 // - Kind: repo doc
@@ -105,6 +111,7 @@
 // - system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
 // - system-journal/fix-log/2026-04-11-x-reply-share-pages.md
 // - system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
+// - system-journal/fix-log/2026-04-17-chat-model-thinking-label-correction.md
 // - system-journal/conflicts.md
 import dotenv from 'dotenv';
 import path from 'node:path';
@@ -474,7 +481,7 @@ function validateEnv(): EnvConfig {
     }
     const freeModels = (
         process.env.BILLING_FREE_MODELS ||
-        'glm-5,kimi-k2-5-reasoning,kimi-k2-5-instant'
+        'glm-5,glm-5-reasoning,kimi-k2-5-reasoning,kimi-k2-5-instant'
     )
         .split(',')
         .map(v => v.trim().toLowerCase())
@@ -495,6 +502,7 @@ function validateEnv(): EnvConfig {
         // NVIDIA trial-hosted models are typically rate-limited rather than token-billed.
         // Override via BILLING_MODEL_PRICING_JSON when production pricing is known.
         'glm-5': { promptUsdPer1M: 0, completionUsdPer1M: 0 },
+        'glm-5-reasoning': { promptUsdPer1M: 0, completionUsdPer1M: 0 },
         'kimi-k2-5-reasoning': { promptUsdPer1M: 0, completionUsdPer1M: 0 },
         'kimi-k2-5-instant': { promptUsdPer1M: 0, completionUsdPer1M: 0 },
         'gpt-4.1': { promptUsdPer1M: 2.00, cachedPromptUsdPer1M: 0.50, completionUsdPer1M: 8.00 },

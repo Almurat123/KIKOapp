@@ -3,7 +3,6 @@ import {
   ArrowUp,
   Plus,
   Settings,
-  ChevronDown
 } from 'lucide-react';
 import styles from './WelcomeScreen.module.css';
 import { useThemeContext } from '../../contexts/ThemeContext';
@@ -13,31 +12,37 @@ import { logger } from '../../utils/logger';
 import { usePrivy } from '@privy-io/react-auth';
 import { getUserSettings, saveUserSettings } from '../../services/userSettingsApi';
 import { LiquidGlassEffect } from '../Effects/LiquidGlassEffect';
-import { StardustBackground } from '../Effects/StardustBackground';
 import { agentAttrs } from '../../agent/attrs';
-import { MODEL_OPTIONS, findChatModelOption, getDefaultChatModelOption } from './chatConstants';
+import { findChatModelOption, getDefaultChatModelOption, hydrateChatModelOption } from './chatConstants';
 import { ChatAttachmentTray } from './ChatAttachmentTray';
 import { COMPOSER_IMAGE_ACCEPT, type ComposerImageDraft } from './chatImageDrafts';
+import { ChatModelSelector } from './ChatModelSelector';
 
 const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsModal').then((m) => ({ default: m.CustomAISettingsModal })));
 
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-17
 // Author: Rowan
 // Reason: The welcome screen is the lightweight first-paint owner for the
 //         homepage, so its optional settings surface must not pin the heavier
 //         modal runtime into the default bundle. It now also needs to expose
 //         the same local image-draft affordance as the live chat composer so
 //         first-send prompt composition does not split into a second UI path,
-//         including image-only sends.
+//         including image-only sends. The welcome shell also stays free of the
+//         animated particle backdrop so first paint remains visually calm and
+//         does not depend on a GPU-backed background scene. It now mirrors the
+//         same borderless model/reasoning selector pair used by the live chat
+//         composer.
 // Goal: preserve a responsive welcome shell that can collect the first prompt
 //       immediately while deferring optional settings UI until the user opens
 //       it, while sharing the same local image-preview affordance and image-
-//       only send eligibility as live chat.
+//       only send eligibility as live chat, and without owning animated page
+//       backdrops or model-policy chrome.
 // Owns: welcome-screen prompt collection, model selection persistence, local
-//       draft preview placement, and the local settings-modal entry point for
-//       the welcome shell.
-// Does Not Own: full chat runtime boot, conversation creation, or chat message rendering.
+//       draft preview placement, borderless model/reasoning picker placement,
+//       and the local settings-modal entry point for the welcome shell.
+// Does Not Own: full chat runtime boot, conversation creation, chat message
+//       rendering, animated background scenes, or model catalog policy.
 // Design Language:
 // - welcome-shell controls should stay lightweight and immediately interactive
 // - optional modal surfaces must load on demand
@@ -45,6 +50,9 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 // - forbidden local patch patterns: static imports of optional settings UI in the welcome shell
 // - send affordance should activate when text or at least one image is present
 // - send must stay disabled while selected images are still uploading or failed
+// - welcome shells should not ship a persistent particle/canvas backdrop
+// - picker buttons should read as inline text actions, not boxed pills
+// - model family and reasoning strength are separate controls but one persisted model id
 // Document Provenance:
 // - Source: Vite production build output warning about static import preventing chunk split
 // - Kind: build evidence
@@ -56,11 +64,33 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 // - Retrieved: 2026-04-16
 // - Applied To: adding a GPT-style local image draft row and `+` affordance to the welcome composer
 // - Verification: verified in code
+// - Source: user screenshot request showing borderless model and reasoning controls
+// - Kind: product doc
+// - Retrieved: 2026-04-17
+// - Applied To: switching the welcome shell to a borderless dual-selector row
+// - Verification: inferred
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-input-borderless-model-reasoning-selector.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: documenting the welcome shell selector grouping
+// - Verification: inferred
+// - Source: user request to remove the welcome-page dynamic background particles
+// - Kind: product doc
+// - Retrieved: 2026-04-17
+// - Applied To: removing `StardustBackground` from the welcome shell
+// - Verification: verified in code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-homepage-welcome-stardust-background-removal.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: recording the welcome shell backdrop correction and owner boundary
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
 // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-homepage-welcome-shell-split.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-input-borderless-model-reasoning-selector.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-homepage-welcome-stardust-background-removal.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-local-image-composer-base.md
 
 interface WelcomeScreenProps {
@@ -137,7 +167,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
       const saved = localStorage.getItem('kiko-selected-model');
       if (saved) {
         const parsed = JSON.parse(saved);
-        const found = MODEL_OPTIONS.find(m => m.id === parsed.id);
+        const found = hydrateChatModelOption(parsed) || findChatModelOption(parsed.id);
         if (found) return found;
       }
     } catch (e) {
@@ -147,7 +177,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   };
 
   const [selectedModel, setSelectedModel] = useState(getInitialModel);
-  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const skipInitialRemoteModelPersistRef = useRef(true);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -203,24 +232,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
     void persist();
   }, [authenticated, getAccessToken, selectedModel.id]);
   const { resolvedTheme } = useThemeContext();
-  const modelSelectorRef = useRef<HTMLDivElement>(null);
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (modelSelectorRef.current && !modelSelectorRef.current.contains(event.target as Node)) {
-        setIsModelDropdownOpen(false);
-      }
-    };
-
-    if (isModelDropdownOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [isModelDropdownOpen]);
 
   // Smart Suggestions Hook
   const {
@@ -306,7 +317,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 
   return (
     <div className={`${styles.welcomeContainer} ${styles[resolvedTheme]}`}>
-      <StardustBackground />
       {/* Background Ambient Light */}
       <div className={styles.ambientLight}>
         <div className={styles.centerLight}></div>
@@ -376,38 +386,15 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
               />
 
               <div className={styles.inputActions}>
-                <div className={styles.modelSelector} ref={modelSelectorRef}>
-                  <button
-                    className={styles.modelButton}
-                    onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-                  >
-                    <span className={styles.modelName}>
-                      {MODEL_OPTIONS.find(m => m.id === selectedModel.id)?.name || selectedModel.name}
-                    </span>
-                    <span className={styles.modelMode}>{selectedModel.mode}</span>
-                    <ChevronDown size={12} className={`${styles.chevron} ${isModelDropdownOpen ? styles.chevronOpen : ''}`} />
-                  </button>
-
-                  {isModelDropdownOpen && (
-                    <div className={styles.modelDropdown}>
-                      {MODEL_OPTIONS.map((model) => (
-                        <button
-                          key={model.id}
-                          className={`${styles.modelOption} ${selectedModel.id === model.id ? styles.modelOptionActive : ''}`}
-                          onClick={() => {
-                            setSelectedModel(model);
-                            setIsModelDropdownOpen(false);
-                            logger.debug('[WelcomeScreen] Model changed to:', model.id);
-                          }}
-                        >
-                          <span className={styles.modelOptionName}>{model.name}</span>
-                          <span className={styles.modelOptionMode}>{model.mode}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
+                <ChatModelSelector
+                  page="welcome"
+                  selectedModel={selectedModel}
+                  onSelectModel={(model) => {
+                    setSelectedModel(model);
+                    logger.debug('[WelcomeScreen] Model changed to:', model.id);
+                  }}
+                  styles={styles}
+                />
                 <button
                   type="button"
                   className={styles.uploadButton}

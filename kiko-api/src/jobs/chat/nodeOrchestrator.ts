@@ -51,7 +51,7 @@ import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { containsPseudoToolCallOutput, stripPseudoToolCallOutput } from '../../services/ai/promptLeakSanitizer.js';
 import type { ChatContextSnapshot, ProviderNativeEvidenceSnapshot } from './contracts.js';
-import { buildProviderOptions, resolveProviderInfo } from './providerPolicyBuilder.js';
+import { buildProviderOptions, normalizeOpenAIReasoningEffort, resolveProviderInfo } from './providerPolicyBuilder.js';
 import { resolveNodeSkills } from './nodeSkillResolver.js';
 import { assembleGenerationMessages, buildRoundToolPolicySystemMessage, sanitizeProviderHistory, type GenerationMessage } from './nodePromptAssembler.js';
 import { parseTradingIntent } from './tradingIntentResolver.js';
@@ -913,6 +913,7 @@ function buildEvidenceOnlyProviderOptions(
     providerInfo: { provider: 'openai' | 'nvidia' | 'grok' | 'deepseek' },
     options?: { previousResponseId?: string | null; bufferVisibleOutput?: boolean },
 ) {
+    const reasoningEffort = normalizeOpenAIReasoningEffort(snapshot.runtime.toolContext?.reasoningEffort);
     if (providerInfo.provider !== 'grok') {
         return {
             metadata: {
@@ -920,6 +921,7 @@ function buildEvidenceOnlyProviderOptions(
                 task_id: String(snapshot.taskId || ''),
             },
             tool_context: snapshot.runtime.toolContext || {},
+            ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
             enable_search: false,
             ...(options?.bufferVisibleOutput ? { buffer_visible_output: true } : {}),
         };
@@ -931,6 +933,7 @@ function buildEvidenceOnlyProviderOptions(
             task_id: String(snapshot.taskId || ''),
         },
         tool_context: snapshot.runtime.toolContext || {},
+        ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
         enable_search: false,
         ...(options?.previousResponseId ? { previous_response_id: String(options.previousResponseId) } : {}),
         ...(options?.bufferVisibleOutput ? { buffer_visible_output: true } : {}),

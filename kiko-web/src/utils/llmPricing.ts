@@ -4,6 +4,30 @@
  * GPT pricing is configurable and can be overridden from backend billing config.
  * Grok 4.1 Fast (USD): https://x.ai/api/
  */
+// CONTEXT MEMORY
+// Updated: 2026-04-17
+// Author: Almurat
+// Reason: chat message-bubble cost display must recognize the same real model
+//         ids as the selector and backend billing layer. The selector now uses
+//         Fast/Thinking labels instead of a synthetic Extra High tier, so the
+//         pricing helper must stay keyed to those actual ids.
+// Goal: keep displayed per-message cost aligned with backend-billed model ids.
+// Owns: frontend-only cost lookup used in chat bubbles.
+// Does Not Own: quota enforcement, provider pricing policy, or backend billing.
+// Design Language:
+// - Price actual model ids, not synthetic effort labels.
+// - Free NVIDIA GLM/Kimi aliases remain zero until production pricing exists.
+// - GPT and Grok entries mirror backend billing ids exactly.
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-model-thinking-label-correction.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: keeping chat-bubble cost display aligned with the selector's fast/thinking model ids
+// - Verification: inferred
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-model-thinking-label-correction.md
+// - /Users/almurat/KiKo/kiko-api/src/config/env.ts
 
 type Currency = 'USD';
 type ToolCallLike = string | { name?: string; function?: { name?: string } } | null | undefined;
@@ -15,6 +39,7 @@ const PRICING: Record<string, { input: number; output: number; currency: Currenc
     'grok-4-1-fast-non-reasoning': { input: 0.20, output: 0.50, currency: 'USD' },
     // NVIDIA trial-hosted models default to zero here until production pricing is pinned.
     'glm-5': { input: 0, output: 0, currency: 'USD' },
+    'glm-5-reasoning': { input: 0, output: 0, currency: 'USD' },
     'kimi-k2-5-reasoning': { input: 0, output: 0, currency: 'USD' },
     'kimi-k2-5-instant': { input: 0, output: 0, currency: 'USD' },
     // GPT (USD)

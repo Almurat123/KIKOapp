@@ -1085,110 +1085,98 @@
 .inputActions {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0;
-  /* Removed horizontal padding */
+  gap: 14px;
+  padding: 0 10px;
   justify-content: flex-start;
 }
 
+/* CONTEXT MEMORY
+ * Updated: 2026-04-17
+ * Author: Rowan
+ * Reason: The welcome shell now mirrors the live composer with a borderless
+ *         inline model/reasoning selector pair and matching icon buttons.
+ * Goal: keep the first-paint prompt row visually light while preserving the
+ *       same picker behavior, button footprints, and persisted model mapping.
+ * Owns: welcome-shell input-row control spacing, borderless icon buttons,
+ *       model/reasoning selector chrome, and the dropdown surfaces attached to
+ *       the welcome prompt entry.
+ * Does Not Own: transcript rendering, streaming chunk styling, or persisted
+ *       model policy.
+ * Design Language:
+* - first-paint input-row actions should feel borderless and low-chrome
+ * - keep enough horizontal breathing room so selected pills do not hug the
+ *   row edges
+* - the add-image action stays neutral at rest and highlights only on hover
+* - model family and reasoning strength stay separate controls
+* - dropdowns may use soft depth but should avoid hard outlines
+* - do not reintroduce glass borders around routine welcome actions
+ * Document Provenance:
+ * - Source: user screenshot request showing a borderless model + reasoning row
+ * - Kind: product doc
+ * - Retrieved: 2026-04-17
+ * - Applied To: the welcome-shell input-row chrome
+ * - Verification: verified in code
+ * - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-input-borderless-model-reasoning-selector.md
+ * - Kind: repo doc
+ * - Retrieved: 2026-04-17
+ * - Applied To: documenting the borderless welcome-shell selector rewrite
+ * - Verification: verified in code
+ * See also:
+ * - /Users/almurat/KiKo/system-journal/INDEX.md
+ * - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-input-borderless-model-reasoning-selector.md
+ * - /Users/almurat/KiKo/kiko-web/src/components/Chat/ChatModelSelector.tsx
+ * - /Users/almurat/KiKo/kiko-web/src/components/Chat/WelcomeScreen.tsx
+ * - /Users/almurat/KiKo/kiko-web/src/components/Chat/ChatComposer.tsx
+ */
+
 /* Model Selector */
+.modelSelectors {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
 .modelSelector {
   position: relative;
+  flex-shrink: 0;
 }
 
 .modelButton {
   display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 0 8px;
-  height: 28px !important;
-  /* Sleeker, smaller height */
-  border-radius: 14px;
-  /* Liquid Glass - Strong blur for readability (Match Chat) */
-  background: rgba(30, 30, 35, 0.2);
-  border: 0.5px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 1px rgba(255, 255, 255, 0.1);
+  gap: 6px;
+  padding: 0 10px;
+  height: 32px !important;
+  border-radius: 999px;
+  background: transparent;
+  border: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
   color: #a1a1aa;
-  font-size: 12px;
+  font-size: 14px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color 0.2s, color 0.2s;
   position: relative;
   overflow: hidden;
 }
 
-/* Replicate Input Box Fresnel Edge Highlight */
-.modelButton::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 14px;
-  padding: 1px;
-  /* Thinner for smaller element */
-  background: linear-gradient(145deg,
-      rgba(255, 255, 255, 0.55) 0%,
-      rgba(255, 255, 255, 0.2) 25%,
-      rgba(255, 255, 255, 0.08) 50%,
-      rgba(255, 255, 255, 0.15) 75%,
-      rgba(255, 255, 255, 0.35) 100%);
-  -webkit-mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
-  z-index: 1;
-}
-
-/* Replicate Input Box Chromatic Aberration */
+.modelButton::before,
 .modelButton::after {
   content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 14px;
-  padding: 1px;
-  /* Thinner */
-  background:
-    linear-gradient(135deg,
-      rgba(255, 100, 100, 0.4) 0%,
-      rgba(255, 255, 255, 0.3) 25%,
-      rgba(100, 150, 255, 0.4) 50%,
-      rgba(255, 255, 255, 0.2) 75%,
-      rgba(255, 200, 100, 0.35) 100%);
-  -webkit-mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
-  z-index: 2;
-  opacity: 0.7;
+  display: none;
 }
 
 .modelButton:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.06);
   color: #f4f4f5;
 }
 
 .modelName {
   font-weight: 500;
-  font-size: 10px;
-  color: #e4e4e7;
-}
-
-.modelMode {
-  padding: 0 4px;
-  height: 15px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.2) !important;
-  color: #ffffff !important;
-  font-size: 9px;
-  font-weight: 600;
+  font-size: inherit;
+  color: inherit;
 }
 
 .chevron {
@@ -1206,14 +1194,13 @@
   left: 0;
   right: 0;
   margin-bottom: 8px;
-  /* Match Chat styles */
   background: rgba(31, 31, 35, 0.98);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 0.5px solid rgba(255, 255, 255, 0.15);
+  border: none;
   border-radius: 16px;
   padding: 6px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 0 1px rgba(255, 255, 255, 0.1);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
   z-index: 100;
   animation: slideUp 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   min-width: 100%;
@@ -1255,13 +1242,11 @@
 
 .modelOptionActive {
   background: rgba(255, 255, 255, 0.15);
-  /* Neutral glass */
   color: #ffffff;
 }
 
 .modelOptionActive .modelOptionMode {
   background: rgba(255, 255, 255, 0.2);
-  /* Neutral glass tag */
   color: #ffffff;
 }
 
@@ -1269,7 +1254,6 @@
   flex: 1;
   font-weight: 500;
   font-size: 11px;
-  color: inherit;
   color: inherit;
 }
 
@@ -1282,163 +1266,45 @@
   color: #a1a1aa;
 }
 
-.modelOptionActive {
-  background: rgba(255, 255, 255, 0.15);
-  /* Neutral glass */
-  color: #ffffff;
-}
-
-/* Light theme - iOS Style Model Selector (Match Chat) */
-.light .modelButton {
-  /* Liquid Glass - More visible */
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(90px) saturate(180%);
-  -webkit-backdrop-filter: blur(90px) saturate(180%);
-  border-color: rgba(0, 0, 0, 0.08);
-  color: #374151;
-}
-
-.light .modelButton:hover {
-  background: rgba(255, 255, 255, 0.8);
-  border-color: rgba(0, 122, 255, 0.25);
-  color: #1a1a1a;
-}
-
-.light .modelName {
-  color: #1a1a1a;
-}
-
-.light .modelMode {
-  background: rgba(0, 0, 0, 0.06) !important;
-  color: #374151 !important;
-}
-
-.light .modelDropdown {
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(40px);
-  -webkit-backdrop-filter: blur(40px);
-  border-color: rgba(255, 255, 255, 0.5);
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.8);
-}
-
-.light .modelOption {
-  color: #374151;
-}
-
-.light .modelOption:hover {
-  background: rgba(0, 122, 255, 0.08);
-  color: #007AFF;
-}
-
-.light .modelOptionActive {
-  background: rgba(0, 122, 255, 0.12);
-  color: #007AFF;
-}
-
-.light .modelOptionMode {
-  background: rgba(0, 122, 255, 0.1);
-  color: #007AFF;
-}
-
-
 .uploadButton,
 .settingsButton {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px !important;
-  height: 30px !important;
-  min-width: 30px !important;
-  min-height: 30px !important;
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
   flex-shrink: 0;
   padding: 0;
   border-radius: 50%;
-  /* Liquid Glass style */
-  background: rgba(30, 30, 35, 0.2);
-  border: 0.5px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 1px rgba(255, 255, 255, 0.1);
+  border: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color 0.2s, color 0.2s;
   position: relative;
   overflow: hidden;
-  flex-shrink: 0;
 }
 
-/* Fresnel Edge Highlight */
+.uploadButton {
+  color: var(--text-secondary);
+}
+
 .uploadButton::before,
-.settingsButton::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  padding: 1px;
-  background: linear-gradient(145deg,
-      rgba(255, 255, 255, 0.55) 0%,
-      rgba(255, 255, 255, 0.2) 25%,
-      rgba(255, 255, 255, 0.08) 50%,
-      rgba(255, 255, 255, 0.15) 75%,
-      rgba(255, 255, 255, 0.35) 100%);
-  -webkit-mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
-  z-index: 1;
-}
-
-/* Chromatic Aberration */
+.settingsButton::before,
 .uploadButton::after,
 .settingsButton::after {
   content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  padding: 1px;
-  background:
-    linear-gradient(135deg,
-      rgba(255, 100, 100, 0.4) 0%,
-      rgba(255, 255, 255, 0.3) 25%,
-      rgba(100, 150, 255, 0.4) 50%,
-      rgba(255, 255, 255, 0.2) 75%,
-      rgba(255, 200, 100, 0.35) 100%);
-  -webkit-mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
-  z-index: 2;
-  opacity: 0.7;
+  display: none;
 }
 
 .uploadButton:hover,
 .settingsButton:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.08);
   color: var(--text-primary);
-}
-
-/* Light theme settings button */
-.light .uploadButton,
-.light .settingsButton {
-  background: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border-color: rgba(0, 122, 255, 0.15);
-  color: #52525b;
-}
-
-.light .uploadButton:hover,
-.light .settingsButton:hover {
-  background: rgba(255, 255, 255, 0.8);
-  border-color: rgba(0, 122, 255, 0.25);
-  color: #1a1a1a;
 }
 
 .sendButton {
@@ -1454,11 +1320,10 @@
   padding: 0;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.05);
-  /* Liquid Glass Dark */
-  border: 0.5px solid rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 1px rgba(255, 255, 255, 0.1);
+  border: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
   color: #a1a1aa;
   cursor: not-allowed;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -1468,22 +1333,18 @@
 
 .sendButtonActive {
   background: rgba(255, 255, 255, 0.15);
-  /* More glass */
   color: #ffffff;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.2), 0 0 4px rgba(255, 255, 255, 0.3);
+  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.2);
   transform: scale(1);
-  border-color: rgba(255, 255, 255, 0.3);
 }
 
 .sendButton svg {
   margin: 0;
-  /* Clear manual offsets */
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  /* Precision centering */
 }
 
 .inputFooter {
@@ -1526,32 +1387,32 @@
 
 
 .light .modelButton {
-  /* Liquid Glass - Match Chat */
-  background: rgba(255, 255, 255, 0.7) !important;
-  border: 1px solid rgba(0, 0, 0, 0.08) !important;
-  color: #1a1a1a !important;
-  height: 30px !important;
-  backdrop-filter: blur(90px) saturate(180%);
-  -webkit-backdrop-filter: blur(90px) saturate(180%);
-  box-shadow:
-    0 2px 10px rgba(0, 0, 0, 0.03),
-    inset 0 1px 0 rgba(255, 255, 255, 1) !important;
+  background: transparent !important;
+  border: none !important;
+  color: #6b7280 !important;
+  height: 32px !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
 }
 
-.light .modelMode {
-  background: rgba(0, 0, 0, 0.05) !important;
-  color: #374151 !important;
+.light .modelButton:hover {
+  background: rgba(0, 0, 0, 0.04) !important;
+  color: #111827 !important;
+}
+
+.light .modelName {
+  color: inherit !important;
 }
 
 .light .modelDropdown {
-  background: rgba(255, 255, 255, 0.6) !important;
-  /* iOS 26 Glass Dropdown */
-  backdrop-filter: blur(40px) saturate(195%) !important;
-  -webkit-backdrop-filter: blur(40px) saturate(195%) !important;
-  border: 0.5px solid rgba(255, 255, 255, 0.4) !important;
+  background: rgba(255, 255, 255, 0.96) !important;
+  backdrop-filter: blur(24px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+  border: none !important;
   box-shadow:
-    0 10px 40px rgba(0, 0, 0, 0.08),
-    0 0 1px 1.5px inset rgba(255, 255, 255, 0.9) !important;
+    0 16px 40px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
 }
 
 .light .modelOption {
@@ -1560,21 +1421,21 @@
 
 .light .modelOption:hover {
   background: rgba(0, 0, 0, 0.05) !important;
-  color: #1a1a1a !important;
+  color: #111827 !important;
 }
 
 .light .modelOptionActive {
   background: rgba(0, 0, 0, 0.08) !important;
-  color: #1a1a1a !important;
+  color: #111827 !important;
 }
 
 .light .modelOptionActive .modelOptionMode {
   background: rgba(0, 0, 0, 0.1) !important;
-  color: #1a1a1a !important;
+  color: #111827 !important;
 }
 
 .light .modelOptionName {
-  color: #1a1a1a !important;
+  color: #111827 !important;
 }
 
 .light .modelOptionMode {
@@ -1584,40 +1445,37 @@
 
 .light .uploadButton,
 .light .settingsButton {
-  background: rgba(255, 255, 255, 0.5) !important;
-  /* More transparent */
-  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  border: none !important;
   color: #374151 !important;
-  height: 30px !important;
-  width: 30px !important;
-  backdrop-filter: blur(12px) saturate(190%);
-  -webkit-backdrop-filter: blur(12px) saturate(190%);
-  box-shadow:
-    0 2px 10px rgba(0, 0, 0, 0.03),
-    inset 0 1px 0 rgba(255, 255, 255, 1) !important;
+  height: 32px !important;
+  width: 32px !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+.light .uploadButton:hover,
+.light .settingsButton:hover {
+  background: rgba(0, 0, 0, 0.05) !important;
+  color: #111827 !important;
 }
 
 .light .sendButton {
-  background: rgba(255, 255, 255, 0.8) !important;
-  border: 1px solid rgba(0, 0, 0, 0.05) !important;
+  background: rgba(0, 0, 0, 0.05) !important;
+  border: none !important;
   color: #71717a !important;
   height: 36px !important;
   width: 36px !important;
-  backdrop-filter: blur(20px) saturate(190%);
-  -webkit-backdrop-filter: blur(20px) saturate(190%);
-  box-shadow:
-    inset 0 1px 1px rgba(255, 255, 255, 1),
-    0 4px 12px rgba(0, 0, 0, 0.04) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
 }
 
 .light .sendButtonActive {
-  background: rgba(255, 255, 255, 0.95) !important;
-  /* Sync with Chat.module.css active state */
-  color: #1a1a1a !important;
-  box-shadow:
-    0 4px 15px rgba(0, 0, 0, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 1);
-  border-color: rgba(0, 0, 0, 0.1) !important;
+  background: rgba(0, 0, 0, 0.1) !important;
+  color: #111827 !important;
+  box-shadow: none !important;
+  border: none !important;
   cursor: pointer;
 }
 

@@ -23,7 +23,9 @@ from __future__ import annotations
 #         social-agent image turns also need provider-specific handling:
 #         NVIDIA Kimi can receive OpenAI-style `image_url` content arrays
 #         directly, while xAI image turns must be routed through the Grok SDK
-#         adapter that converts those arrays to xAI image inputs.
+#         adapter that converts those arrays to xAI image inputs. OpenAI chat
+#         completions now also needs an explicit `reasoning_effort` when KiKo
+#         passes GPT-5-family effort hints through the shared tool context.
 # Goal: normalize NVIDIA Kimi/GLM requests and reasoning deltas into the same
 #       gateway event protocol already consumed by KiKo's Node/Python runtimes.
 # Owns: provider-family resolution, provider request shaping, SSE normalization,
@@ -39,6 +41,8 @@ from __future__ import annotations
 #   hosted-runtime defaults.
 # - Everyday agent defaults should prefer colder temperatures and lighter
 #   thinking than provider showcase examples.
+# - OpenAI reasoning effort must be forwarded from shared tool context instead
+#   of being guessed from the selected model string.
 # - Removed DeepSeek fallbacks must not silently remain the default provider path.
 # - Kimi image arrays may pass through NVIDIA chat/completions unchanged.
 # - xAI image turns must use the SDK gateway, not unverified direct chat-completions.
@@ -117,10 +121,20 @@ def _normalized_model(model: str) -> str:
     return str(model or "").strip().lower()
 
 
+OPENAI_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 NVIDIA_KIMI_REASONING_TEMPERATURE = 0.6
 NVIDIA_KIMI_INSTANT_TEMPERATURE = 0.4
 NVIDIA_GLM_REASONING_TEMPERATURE = 0.6
 NVIDIA_GLM_FAST_TEMPERATURE = 0.3
+
+
+def _normalize_reasoning_effort(value: Any) -> str | None:
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return None
+    if normalized in OPENAI_REASONING_EFFORTS:
+        return normalized
+    return None
 
 
 def _resolve_nvidia_request_profile(model: str) -> tuple[str, float | None, dict[str, Any] | None]:
@@ -312,12 +326,17 @@ async def _stream_openai(req: GenerateRequest, provider: str):
         yield GatewayEvent(event_type="error", provider="openai", payload={"message": "OPENAI_API_KEY missing"})
         return
 
+    reasoning_effort = _normalize_reasoning_effort(
+        (req.tool_context or {}).get("reasoningEffort") or (req.tool_context or {}).get("reasoning_effort"),
+    )
     body: dict[str, Any] = {
         "model": req.model,
         "messages": [m.model_dump(exclude_none=True) for m in req.messages],
         "stream": True,
         "stream_options": {"include_usage": True},
     }
+    if reasoning_effort:
+        body["reasoning_effort"] = reasoning_effort
     # OpenAI chat/completions rejects metadata unless store=true.
     # Keep gateway behavior stable and avoid provider-specific failures.
     if req.tools:

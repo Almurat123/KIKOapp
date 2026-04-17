@@ -5,7 +5,10 @@
 //         Kimi 2.5 Instant/Fast model while keeping X and Farcaster replies
 //         bound to each user's saved preference. The backend must still
 //         normalize every user-selected model against one shared allowlist, and
-//         DeepSeek ids are being replaced by NVIDIA-hosted GLM/Kimi ids.
+//         DeepSeek ids are being replaced by NVIDIA-hosted GLM/Kimi ids. The
+//         GLM family now exposes separate fast and thinking aliases, so the
+//         allowlist must mirror both instead of collapsing them into one fake
+//         tier.
 // Goal: preserve a single canonical chat-model default and normalization rule
 //       across web chat, persisted user settings, X mention sessions, and
 //       Farcaster mention sessions.
@@ -17,6 +20,7 @@
 // - Never let X mention sessions silently fall back to an unrelated legacy model.
 // - Do not duplicate model default strings across owner layers.
 // - Provider replacement must happen through model allowlists, not ad hoc aliases in callers.
+// - Fast and thinking aliases must both be real model ids, not synthetic tiers.
 // Document Provenance:
 // - Source: operator request to switch the product default from GPT to free Kimi
 //           2.5 Instant while preserving the user's saved model for X/Farcaster replies
@@ -34,11 +38,17 @@
 // - Retrieved: 2026-04-16
 // - Applied To: backend-supported model ids for NVIDIA Kimi/GLM
 // - Verification: verified in code
+// - Source: /Users/almurat/KiKo/kiko-api/src/routes/ai.ts
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: mirroring backend-supported `glm-5-reasoning` as a real allowlisted alias
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-default-chat-model-switch-to-gpt.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-model-thinking-label-correction.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-x-verified-mentions-only.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
@@ -46,6 +56,7 @@ export const DEFAULT_CHAT_MODEL = 'kimi-k2-5-instant';
 
 export const SUPPORTED_CHAT_MODELS = new Set([
   'glm-5',
+  'glm-5-reasoning',
   'kimi-k2-5-reasoning',
   'kimi-k2-5-instant',
   'gpt-5.4-mini-2026-03-17',

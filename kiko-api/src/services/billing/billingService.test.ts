@@ -19,6 +19,7 @@ test('getBillingCategory classifies OpenAI GPT variants as premium quota bucket'
 
 test('getBillingCategory classifies NVIDIA GLM/Kimi variants as free quota bucket', () => {
     assert.equal(getBillingCategory('glm-5'), 'free');
+    assert.equal(getBillingCategory('glm-5-reasoning'), 'free');
     assert.equal(getBillingCategory('kimi-k2-5-reasoning'), 'free');
     assert.equal(getBillingCategory('kimi-k2-5-instant'), 'free');
 });
@@ -98,6 +99,7 @@ test('getDailyFreeQuotaForModel returns shared free and premium model quota knob
     env.billing.dailyFreeModelLimit = 20;
     try {
         assert.equal(getDailyFreeQuotaForModel('glm-5'), 20);
+        assert.equal(getDailyFreeQuotaForModel('glm-5-reasoning'), 20);
         assert.equal(getDailyFreeQuotaForModel('kimi-k2-5-reasoning'), 20);
     } finally {
         env.billing.dailyFreeModelLimit = original;

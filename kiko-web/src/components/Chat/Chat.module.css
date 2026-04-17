@@ -1165,7 +1165,7 @@
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.05);
   /* Liquid Glass Dark Base */
-  border: 0.5px solid rgba(255, 255, 255, 0.15);
+  border: none;
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   box-shadow:
@@ -1180,7 +1180,7 @@
     transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
     box-shadow 0.3s ease,
     color 0.2s ease,
-    border-color 0.2s ease;
+    background-color 0.2s ease;
   background-clip: padding-box;
   z-index: 10;
   overflow: hidden;
@@ -1190,7 +1190,7 @@
 .light .sendBtn {
   background: rgba(255, 255, 255, 0.8) !important;
   /* iOS 26 High-Reflectance Glass */
-  border: 1px solid rgba(0, 0, 0, 0.05) !important;
+  border: none !important;
   color: #71717a !important;
   /* Slightly darker than zinc-400 */
   box-shadow:
@@ -1211,7 +1211,6 @@
     0 0 4px rgba(255, 255, 255, 0.3);
   /* Edge glow */
   transform: scale(1);
-  border-color: rgba(255, 255, 255, 0.3);
 }
 
 .light .activeMode {
@@ -1221,7 +1220,6 @@
   box-shadow:
     0 4px 15px rgba(0, 0, 0, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 1);
-  border-color: rgba(0, 0, 0, 0.1) !important;
 }
 
 .activeMode:hover {
@@ -1240,7 +1238,7 @@
   background: rgba(0, 0, 0, 0.1) !important;
   color: #ffffff;
   cursor: pointer;
-  border: 0.5px solid rgba(255, 255, 255, 0.4);
+  border: none;
   backdrop-filter: blur(25px) saturate(200%);
   -webkit-backdrop-filter: blur(25px) saturate(200%);
   overflow: hidden;
@@ -1252,17 +1250,15 @@
 .light .stopMode {
   background: rgba(255, 255, 255, 0.1) !important;
   color: #18181b;
-  border: 0.5px solid rgba(0, 0, 0, 0.1);
+  border: none;
 }
 
 .stopMode:hover {
   transform: scale(1.1);
-  border-color: rgba(255, 255, 255, 0.6);
 }
 
 .light .stopMode:hover {
   background: rgba(255, 255, 255, 0.6);
-  border-color: rgba(0, 0, 0, 0.2);
 }
 
 /* Stopping (Processing) State */
@@ -1364,10 +1360,16 @@
 .inputActions {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0;
-  /* Removed horizontal padding */
+  gap: 14px;
+  padding: 0 10px;
   justify-content: flex-start;
+}
+
+.modelSelectors {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
 }
 
 .uploadButton,
@@ -1375,21 +1377,17 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px !important;
-  height: 30px !important;
-  min-width: 30px !important;
-  min-height: 30px !important;
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
   flex-shrink: 0;
   padding: 0;
   border-radius: 50%;
-  /* Liquid Glass style */
-  background: rgba(30, 30, 35, 0.2);
-  border: 0.5px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  box-shadow:
-    0 4px 12px rgba(0, 0, 0, 0.08),
-    0 0 1px rgba(255, 255, 255, 0.1);
+  border: none;
+  backdrop-filter: blur(16px) saturate(170%);
+  -webkit-backdrop-filter: blur(16px) saturate(170%);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06);
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s;
@@ -1401,6 +1399,7 @@
 .uploadButton::before,
 .settingsButton::before {
   content: '';
+  display: none;
   position: absolute;
   inset: 0;
   border-radius: 50%;
@@ -1426,6 +1425,7 @@
 .uploadButton::after,
 .settingsButton::after {
   content: '';
+  display: none;
   position: absolute;
   inset: 0;
   border-radius: 50%;
@@ -1450,66 +1450,91 @@
 
 .uploadButton:hover,
 .settingsButton:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.08);
   color: var(--text-primary);
-  transform: scale(1.04);
 }
 
 /* Light theme settings button */
 .light .uploadButton,
 .light .settingsButton {
-  background: rgba(255, 255, 255, 0.7) !important;
-  /* iOS 26 Pure White Glass */
-  border: 0.5px solid rgba(255, 255, 255, 0.4) !important;
+  border: none !important;
   color: #1a1a1a !important;
-  height: 30px !important;
-  width: 30px !important;
-  backdrop-filter: blur(20px) saturate(190%);
-  -webkit-backdrop-filter: blur(20px) saturate(190%);
-  box-shadow:
-    0 0 1px 1px inset rgba(255, 255, 255, 0.9),
-    0 2px 8px rgba(0, 0, 0, 0.04) !important;
+  height: 32px !important;
+  width: 32px !important;
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
 }
 
 .light .uploadButton:hover,
 .light .settingsButton:hover {
-  background: rgba(255, 255, 255, 0.6);
-  border-color: rgba(0, 0, 0, 0.12);
-  color: #1a1a1a;
+  background: rgba(0, 0, 0, 0.05) !important;
+  color: #111827 !important;
 }
 
 .userAttachmentTray {
   margin-bottom: 10px;
 }
 
+/* CONTEXT MEMORY
+ * Updated: 2026-04-17
+ * Author: Rowan
+ * Reason: The chat composer input row now uses a borderless inline model /
+ *         reasoning selector pair instead of the old boxed model pill.
+ * Goal: keep the live composer visually light while preserving the same
+ *       button footprints, dropdown behavior, and persisted model mapping.
+ * Owns: input-row control spacing, borderless icon buttons, model/reasoning
+ *       selector chrome, and the dropdown surfaces attached to the chat input.
+ * Does Not Own: transcript rendering, streaming chunk styling, or persisted
+ *       model policy.
+ * Design Language:
+ * - inline input-row actions should feel borderless and low-chrome
+ * - keep enough horizontal breathing room so selected pills do not hug the
+ *   row edges
+ * - the add-image action stays neutral at rest and highlights only on hover
+ * - model family and reasoning strength stay separate controls
+ * - dropdowns may use soft depth but should avoid hard outlines
+ * - do not reintroduce glass borders around routine input actions
+ * Document Provenance:
+ * - Source: user screenshot request showing a borderless model + reasoning row
+ * - Kind: product doc
+ * - Retrieved: 2026-04-17
+ * - Applied To: the chat composer input-row chrome
+ * - Verification: verified in code
+ * - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-input-borderless-model-reasoning-selector.md
+ * - Kind: repo doc
+ * - Retrieved: 2026-04-17
+ * - Applied To: documenting the borderless input-row selector rewrite
+ * - Verification: verified in code
+ * See also:
+ * - /Users/almurat/KiKo/system-journal/INDEX.md
+ * - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-input-borderless-model-reasoning-selector.md
+ * - /Users/almurat/KiKo/kiko-web/src/components/Chat/ChatModelSelector.tsx
+ * - /Users/almurat/KiKo/kiko-web/src/components/Chat/ChatComposer.tsx
+ * - /Users/almurat/KiKo/kiko-web/src/components/Chat/ChatInterface.tsx
+ */
 /* Model Selector */
 .modelSelector {
   position: relative;
+  flex-shrink: 0;
 }
 
 .modelButton {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   padding: 0 10px;
-  height: 28px !important;
-  /* Unified compact height */
-  border-radius: 14px;
-  /* Liquid Glass - Strong blur for readability */
-  background: rgba(30, 30, 35, 0.2);
-  /* Reduced opacity closer to input box */
-  border: 0.5px solid rgba(255, 255, 255, 0.08);
-  /* Fainter border like input */
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  box-shadow:
-    0 4px 12px rgba(0, 0, 0, 0.08),
-    0 0 1px rgba(255, 255, 255, 0.1);
-  color: #a1a1aa;
-  font-size: 11px;
+  height: 32px !important;
+  border-radius: 999px;
+  background: transparent;
+  border: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+  color: #6b7280;
+  font-size: 15px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color 0.2s, color 0.2s;
   line-height: normal;
   position: relative;
   overflow: hidden;
@@ -1518,6 +1543,7 @@
 /* Replicate Input Box Fresnel Edge Highlight */
 .modelButton::before {
   content: '';
+  display: none;
   position: absolute;
   inset: 0;
   border-radius: 14px;
@@ -1543,6 +1569,7 @@
 /* Replicate Input Box Chromatic Aberration */
 .modelButton::after {
   content: '';
+  display: none;
   position: absolute;
   inset: 0;
   border-radius: 14px;
@@ -1567,35 +1594,15 @@
 }
 
 .modelButton:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.08);
   color: #f4f4f5;
-  transform: scale(1.02);
+  transform: translateY(-0.5px);
 }
 
 .modelName {
   font-weight: 500;
-  font-size: 11px;
-  color: #e4e4e7;
-}
-
-.modelMode {
-  padding: 1px 6px;
-  height: 18px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.2) !important;
-  /* Force glass */
-  color: #ffffff !important;
-  font-size: 10px;
-  font-weight: 600;
-}
-
-.light .modelMode {
-  background: rgba(0, 0, 0, 0.08) !important;
-  color: #1a1a1a !important;
+  font-size: inherit;
+  color: inherit;
 }
 
 .modelOptionActive {
@@ -1624,16 +1631,15 @@
   left: 0;
   right: 0;
   margin-bottom: 8px;
-  background: rgba(31, 31, 35, 0.98);
-  /* Glass Dropdown Dark */
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 0.5px solid rgba(255, 255, 255, 0.15);
+  background: rgba(24, 24, 27, 0.96);
+  backdrop-filter: blur(18px) saturate(180%);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  border: none;
   border-radius: 16px;
   padding: 6px;
   box-shadow:
-    0 10px 40px rgba(0, 0, 0, 0.5),
-    0 0 1px rgba(255, 255, 255, 0.1);
+    0 16px 36px rgba(0, 0, 0, 0.28),
+    0 1px 0 rgba(255, 255, 255, 0.05);
   z-index: 100;
   animation: slideUp 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   min-width: 100%;
@@ -1700,41 +1706,35 @@
   color: #a1a1aa;
 }
 
-/* Light theme model selector - iOS Style */
+/* Light theme model selector - borderless inline controls */
 .light .modelButton {
-  /* Liquid Glass - More visible */
-  background: rgba(255, 255, 255, 0.7) !important;
-  border: 1px solid rgba(0, 0, 0, 0.08) !important;
-  color: #1a1a1a !important;
-  height: 30px !important;
-  backdrop-filter: blur(90px) saturate(180%);
-  -webkit-backdrop-filter: blur(90px) saturate(180%);
-  box-shadow:
-    0 2px 10px rgba(0, 0, 0, 0.03),
-    inset 0 1px 0 rgba(255, 255, 255, 1) !important;
+  background: transparent !important;
+  border: none !important;
+  color: #6b7280 !important;
+  height: 32px !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
 }
 
 .light .modelButton:hover {
-  background: rgba(255, 255, 255, 0.8) !important;
-  border-color: rgba(0, 0, 0, 0.1) !important;
+  background: rgba(0, 0, 0, 0.04) !important;
+  color: #111827 !important;
 }
 
 .light .modelName {
-  color: #1a1a1a;
+  color: inherit;
 }
 
-/* Removed redundant .light .modelMode */
-
-/* Light theme model selector - iOS Style Body */
+/* Light theme model selector body */
 .light .modelDropdown {
-  background: rgba(255, 255, 255, 0.75);
-  /* iOS 26 Glass Dropdown */
-  backdrop-filter: blur(20px) saturate(195%);
-  -webkit-backdrop-filter: blur(20px) saturate(195%);
-  border: 0.5px solid rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: none;
   box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.08),
-    0 0 1px 1.5px inset rgba(255, 255, 255, 0.9);
+    0 16px 40px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 .light .modelOption {
@@ -1743,12 +1743,17 @@
 
 .light .modelOption:hover {
   background: rgba(0, 0, 0, 0.05);
-  color: #1a1a1a;
+  color: #111827;
 }
 
 .light .modelOptionActive {
   background: rgba(0, 0, 0, 0.08);
-  color: #1a1a1a;
+  color: #111827;
+}
+
+.light .modelOptionActive .modelOptionMode {
+  background: rgba(0, 0, 0, 0.1);
+  color: #111827;
 }
 
 .light .modelOptionMode {

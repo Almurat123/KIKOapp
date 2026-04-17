@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-17
 // Author: Rowan
 // Reason: Chat worker traces showed a simple "Hi, who are you?" turn still paid
 //         for hidden GLM canonical normalization and then a full GLM main
@@ -14,21 +14,25 @@
 //         The worker now also has to load current-turn uploaded chat images from
 //         private storage, merge them into runtime multimodal context, and clear
 //         the Redis task binding once the task finishes without deleting sent
-//         history images.
+//         history images. Runtime transcripts later showed the direct welcome
+//         fast path was too broad: capability/skill/meta-debug questions could
+//         be replaced by a fixed product-intro macro instead of being answered
+//         by the selected skill and model.
 // Goal: keep the full agent loop for real work, but let deterministic
-//       assistant-introduction and greeting turns complete without invoking a
-//       slow provider model, while surfacing normalization reasoning through the
-//       normal assistant reasoning area so users get live runtime feedback, and
-//       let obvious non-chain turns bypass canonical normalization entirely,
-//       while treating uploaded chat images as one-turn model inputs whose
-//       private objects can still back refreshed chat history.
+//       bare greetings complete without invoking a slow provider model, while
+//       surfacing normalization reasoning through the normal assistant reasoning
+//       area so users get live runtime feedback, and let obvious non-chain turns
+//       bypass canonical normalization entirely, while treating uploaded chat
+//       images as one-turn model inputs whose private objects can still back
+//       refreshed chat history.
 // Owns: worker-level task lifecycle, moderation gates, direct fast-lane
 //       completion decisions, orchestration handoff, and task-time image binding cleanup.
 // Does Not Own: provider streaming transport, frontend chunk animation, or skill prompt content.
 // Design Language:
-// - direct assistant-intro turns should finish through the same broker/completion lifecycle
+// - only bare greetings should use deterministic direct-response copy
+// - assistant capability, skill, and meta-debug questions must go through normal model generation
 // - deterministic fast-path text should still be chunked so frontend streaming can be verified
-// - slow provider models must not be called when the answer is deterministic product copy
+// - slow provider models must not be called for bare greetings, but product-copy shortcuts must not override substantive questions
 // - billing and output moderation still run through the normal worker terminal path
 // - normalization reasoning should stream into the same reasoning surface as the
 //   assistant when available, with a short label that makes the phase obvious
@@ -67,8 +71,16 @@
 // - Retrieved: 2026-04-16
 // - Applied To: retaining sent image objects while still cleaning worker task bindings
 // - Verification: verified in code
+// - Source: operator runtime transcript where "your skill / previous behavior"
+//           questions were answered with the fixed KiKo intro macro
+// - Kind: runtime observation
+// - Retrieved: 2026-04-17
+// - Applied To: restricting the direct fast path to bare greetings only
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/chat-direct-response-policy.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-direct-welcome-fast-path-hardcoded-reply-guard.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-direct-welcome-fast-path.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-stream-diagnostics.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-normalization-reasoning-runtime-surface.md
@@ -117,6 +129,7 @@ type AITask = Awaited<ReturnType<typeof chatRepo.getTask>>;
 
 const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on', 'debug']);
 const FALSE_VALUES = new Set(['0', 'false', 'no', 'off']);
+const BARE_DIRECT_GREETING_RE = /^\s*(?:hi|hello|hey|yo|gm|gn|good\s+(?:morning|afternoon|evening)|你好|您好|嗨|哈喽)\s*[?？!！.。,，]*\s*$/i;
 
 export function isEmptyAssistantCompletion(
     content: string,
@@ -799,7 +812,7 @@ function buildOutputModerationErrorMessage(moderated: { verification?: any }): s
     return 'Assistant output blocked by moderation';
 }
 
-function buildFastDirectAssistantResponse(
+export function buildFastDirectAssistantResponse(
     snapshot: { lastUserMessage?: string; normalizedIntent?: any },
     skillResolution: SkillResolution,
 ): string | null {
@@ -810,6 +823,7 @@ function buildFastDirectAssistantResponse(
     }
 
     const query = String(snapshot.lastUserMessage || '').trim();
+    if (!BARE_DIRECT_GREETING_RE.test(query)) return null;
     if (/\b0x[a-fA-F0-9]{40}\b/.test(query)) return null;
     if (/\b(pnl|balance|portfolio|wallet|token|swap|buy|sell|trade|copy\s*trade|risk|price|chart)\b/i.test(query)) {
         return null;

@@ -48,7 +48,7 @@ import type { Message } from '../../hooks/useConversations';
 import { chatStreamDebug } from '../../utils/chatStreamDebug';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-17
 // Author: Rowan
 // Reason: runtime plan cards and assistant reasoning were previously rendered
 //         through the same surface, which caused live reasoning from NVIDIA
@@ -64,22 +64,28 @@ import { chatStreamDebug } from '../../utils/chatStreamDebug';
 //         the bubble incrementally or after frontend coalescing. A follow-up
 //         streaming pass also showed that reasoning text should stay visible
 //         while the answer is still streaming, instead of hiding behind the
-//         collapse toggle as soon as content begins to appear.
+//         collapse toggle as soon as content begins to appear. Runtime testing
+//         on 2026-04-17 showed the internal plan card itself was being mistaken
+//         for the assistant answer because hard-coded orchestration labels were
+//         rendered in the transcript before normal content.
 // Goal: keep runtime plan progress separate from assistant reasoning so the
-//       plan card only shows execution state while the message bubble owns live
-//       thinking content, while streamed chunks keep their original insertion
-//       timing and only receive a subtle opacity fade on arrival.
+//       plan card remains an opt-in debug surface while the message bubble owns
+//       user-visible assistant text and live thinking content. Streamed chunks
+//       keep their original insertion timing and only receive a subtle opacity
+//       fade on arrival.
 // Owns: assistant message presentation, runtime-card placement, and reasoning
 //       visibility rules inside the chat transcript.
 // Does Not Own: broker event routing, plan generation, or model stream parsing.
 // Design Language:
-// - plan cards show execution structure, not raw model reasoning
+// - runtime plan cards are hidden from normal users unless an explicit debug flag enables them
+// - plan cards show execution structure, not assistant answers or raw model reasoning
 // - reasoning content stays attached to the assistant message surface
 // - runtime cards must not suppress legitimate reasoning visibility
 // - streaming text should keep original chunk timing and only change presentation
 // - new streamed chunks may fade in, but runtime plan cards must not disable that surface
 // - render diagnostics should log segment counts/lengths, not raw text
 // - live reasoning should stay visible during streaming even when answer text has started
+// - internal orchestration labels such as "Understand the request" must not appear as normal chat replies
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/test.txt
 // - Kind: runtime observation
@@ -106,10 +112,18 @@ import { chatStreamDebug } from '../../utils/chatStreamDebug';
 // - Retrieved: 2026-04-16
 // - Applied To: confirming reasoning and runtime snapshots arrive on the same assistant message id
 // - Verification: verified in code
+// - Source: operator runtime transcript showing plan labels rendered before answers
+// - Kind: runtime observation
+// - Retrieved: 2026-04-17
+// - Applied To: hiding `agentRuntime.plan` from normal transcript rendering unless debug is explicitly enabled
+// - Verification: verified in code and targeted build
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/runtime-plan-visibility.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
+// - /Users/almurat/KiKo/system-journal/owner-map/chat-runtime-planning.md
 // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-runtime-plan-user-visible-hardcoding-fix.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-runtime-plan-card-reasoning-separation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-streaming-opacity-fade.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-stream-diagnostics.md
@@ -141,6 +155,9 @@ type UserImageAttachment = {
   previewUrl: string;
   name: string;
 };
+
+const SHOW_AGENT_RUNTIME_PLAN_CARD =
+  String(import.meta.env.VITE_KIKO_SHOW_AGENT_RUNTIME_PLAN || '').toLowerCase() === 'true';
 
 function useStreamingFadeSegments(target: string, enabled: boolean): {
   segments: StreamingFadeSegment[];
@@ -345,7 +362,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
   onFeedback,
 }: MessageBubbleProps) => {
   const isUser = message.role === 'user';
-  const runtimePlan = !isUser
+  const runtimePlan = !isUser && SHOW_AGENT_RUNTIME_PLAN_CARD
     ? message.data?.agentRuntime?.plan || (message.type === 'plan-card' ? message.data : null)
     : null;
   const hasRuntimeCard = !!runtimePlan;

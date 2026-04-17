@@ -5,7 +5,7 @@ import type { CanonicalIntent } from './canonicalIntent.js';
 import type { ChatContextSnapshot, PlanCard, ProviderNativeEvidenceSnapshot } from './contracts.js';
 import type { ProviderInfo } from './providerPolicyBuilder.js';
 
-test('assembleGenerationMessages renders execution plan and provider evidence as summaries, not raw JSON blocks', () => {
+test('assembleGenerationMessages renders runtime plan state structurally without user-facing plan prose', () => {
     const snapshot: ChatContextSnapshot = {
         sessionId: 'session-1',
         taskId: 'task-1',
@@ -126,8 +126,12 @@ test('assembleGenerationMessages renders execution plan and provider evidence as
     assert.ok(userMessage?.content);
 
     const content = String(userMessage?.content || '');
-    assert.match(content, /\[EXECUTION_PLAN\]/);
-    assert.match(content, /Step step-1: Understand Query/);
+    assert.match(content, /\[INTERNAL_RUNTIME_PLAN_STATE\]/);
+    assert.match(content, /step_id=step-1; status=pending; preferred_tools=x_search/);
+    assert.equal(content.includes('Trending Topics on X'), false);
+    assert.equal(content.includes('Identify current trends on X.'), false);
+    assert.equal(content.includes('Understand Query'), false);
+    assert.equal(content.includes('Interpret the request for trending topics on X.'), false);
     assert.match(content, /\[PROVIDER_NATIVE_EVIDENCE\]/);
     assert.match(content, /\[WORKFLOW_STATE\]/);
     assert.match(content, /recent_tool_result: get_trending_tokens\[success\]/);

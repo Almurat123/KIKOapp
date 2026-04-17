@@ -9,7 +9,10 @@ import type { IntentEnvelope, SkillResolution, ToolPhase } from './nodeSkillReso
 //         GLM/Kimi models, but the orchestration layer still depends on one
 //         canonical provider-capability map. Clanker deploys now add a
 //         TOKEN_DEPLOY_MUTATION action class that provider policy must pass
-//         through without reopening provider-native tools.
+//         through without reopening provider-native tools. The same owner now
+//         also threads GPT reasoning-effort hints from task context so the
+//         OpenAI adapter can preserve user-selected thinking strength instead
+//         of guessing from model id.
 // Goal: keep provider-family resolution deterministic from model id so tool
 //       policy, previous-response support, and native-search capability remain stable.
 // Owns: Node-side provider-family classification and provider option assembly.
@@ -20,12 +23,18 @@ import type { IntentEnvelope, SkillResolution, ToolPhase } from './nodeSkillReso
 // - Unknown non-Grok, non-OpenAI model ids must not fall back to removed DeepSeek behavior.
 // - TOKEN_DEPLOY_MUTATION is a hard node-controlled mutation class and must
 //   keep provider-native search disabled like swap/order mutations.
+// - GPT reasoning-effort hints belong in task context and must be normalized before provider handoff.
 // Document Provenance:
 // - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
 // - Kind: official API doc
 // - Retrieved: 2026-04-16
 // - Applied To: provider-family routing for Kimi/GLM model ids
 // - Verification: verified in code
+// - Source: OpenAI GPT-5.4 model page and reasoning guide
+// - Kind: official API doc
+// - Retrieved: 2026-04-17
+// - Applied To: normalizing GPT reasoning-effort hints for provider handoff
+// - Verification: verified in docs, applied in code
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-17
@@ -50,6 +59,7 @@ export interface ProviderOptions {
         task_id: string;
     };
     tool_context: Record<string, any>;
+    reasoning_effort?: string;
     enable_search: boolean;
     tool_policy?: {
         control_plane: string;
@@ -75,6 +85,15 @@ export interface ProviderOptions {
         x_search?: Record<string, any>;
     };
     previous_response_id?: string;
+}
+
+const OPENAI_REASONING_EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+
+export function normalizeOpenAIReasoningEffort(value: unknown): string | undefined {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized) return undefined;
+    if (OPENAI_REASONING_EFFORTS.has(normalized)) return normalized;
+    return undefined;
 }
 
 function isNvidiaModel(model: string): boolean {
@@ -131,6 +150,7 @@ export function buildProviderOptions(
         previousResponseId?: string | null;
     },
 ): ProviderOptions {
+    const reasoningEffort = normalizeOpenAIReasoningEffort(snapshot.runtime.toolContext?.reasoningEffort);
     if (providerInfo.provider !== 'grok') {
         return {
             metadata: {
@@ -138,6 +158,7 @@ export function buildProviderOptions(
                 task_id: String(snapshot.taskId || ''),
             },
             tool_context: snapshot.runtime.toolContext || {},
+            ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
             enable_search: false,
         };
     }
@@ -188,6 +209,7 @@ export function buildProviderOptions(
             task_id: String(snapshot.taskId || ''),
         },
         tool_context: snapshot.runtime.toolContext || {},
+        ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
         tool_policy: {
             control_plane: 'node',
             action_class: actionClass,

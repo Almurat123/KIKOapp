@@ -1,29 +1,36 @@
 import React from 'react';
-import { ArrowDown, ChevronDown, Plus, Settings } from 'lucide-react';
+import { ArrowDown, Plus, Settings } from 'lucide-react';
 import { motion } from 'framer-motion';
 import clsx from 'clsx';
 import styles from './Chat.module.css';
 import { LiquidGlassEffect } from '../Effects/LiquidGlassEffect';
 import { ChatInputSuggestions, type SuggestionGroup, type SuggestionItem } from './ChatInputSuggestions';
 import { agentAttrs } from '../../agent/attrs';
-import { MODEL_OPTIONS, type ChatModelOption } from './chatConstants';
+import { type ChatModelOption } from './chatConstants';
 import { ChatAttachmentTray } from './ChatAttachmentTray';
 import { COMPOSER_IMAGE_ACCEPT, type ComposerImageDraft } from './chatImageDrafts';
+import { ChatModelSelector } from './ChatModelSelector';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-17
 // Author: Rowan
 // Reason: the live chat composer now owns local image-selection affordances in
 //         addition to text entry, and its button row must stay visually aligned
-//         with the existing model/settings/send controls while allowing image-
-//         only sends into the upload pipeline.
+//         with the new borderless model/reasoning selector pair while allowing
+//         image-only sends into the upload pipeline.
 // Goal: keep the live chat composer as the single owner of in-chat prompt
-//       entry, including GPT-style local image previews and image-only send
-//       eligibility for upload-backed turns.
-// Owns: live composer control layout, local draft preview placement, and file-picker entry affordance.
-// Does Not Own: draft validation policy, upload transport, or persisted message rendering.
+//       entry, including GPT-style local image previews, borderless model /
+//       reasoning controls, and image-only send eligibility for upload-backed
+//       turns.
+// Owns: live composer control layout, borderless model/reasoning picker
+//       placement, local draft preview placement, and file-picker entry
+//       affordance.
+// Does Not Own: model catalog policy, reasoning strength mapping, draft
+//       validation policy, upload transport, or persisted message rendering.
 // Design Language:
-// - upload affordance should match the settings button material and footprint
+// - selector controls should read as inline text actions, not boxed pills
+// - model family and reasoning strength are separate controls but one persisted model id
+// - upload affordance should still match the settings button footprint
 // - local image previews live above the textarea inside the same glass composer
 // - draft previews may be removed before send without affecting chat history
 // - send affordance should activate when text or at least one image is present
@@ -34,11 +41,22 @@ import { COMPOSER_IMAGE_ACCEPT, type ComposerImageDraft } from './chatImageDraft
 // - Retrieved: 2026-04-16
 // - Applied To: `+` button placement left of settings and GPT-style preview strip
 // - Verification: verified in code
+// - Source: user screenshot request showing borderless model and reasoning controls
+// - Kind: product doc
+// - Retrieved: 2026-04-17
+// - Applied To: switching the composer to a borderless dual-selector row
+// - Verification: inferred
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-input-borderless-model-reasoning-selector.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: documenting the new input-row control grouping
+// - Verification: inferred
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
 // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-local-image-composer-base.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-input-borderless-model-reasoning-selector.md
 
 interface ChatComposerProps {
     chatStarted: boolean;
@@ -48,7 +66,6 @@ interface ChatComposerProps {
     suggestions: SuggestionGroup[] | SuggestionItem[];
     input: string;
     selectedModel: ChatModelOption;
-    isModelDropdownOpen: boolean;
     isBusy: boolean;
     isStopping: boolean;
     isUploadingImages: boolean;
@@ -58,7 +75,6 @@ interface ChatComposerProps {
     isKeyboardVisible: boolean;
     textareaRef: React.RefObject<HTMLTextAreaElement | null>;
     inputAreaRef: React.RefObject<HTMLDivElement | null>;
-    modelSelectorRef: React.RefObject<HTMLDivElement | null>;
     closeSuggestions: () => void;
     onScrollToBottom: () => void;
     onSelectSuggestion: (item: SuggestionItem) => void;
@@ -67,7 +83,6 @@ interface ChatComposerProps {
     onInputFocus: () => void;
     onCompositionStart: () => void;
     onCompositionEnd: () => void;
-    onToggleModelDropdown: () => void;
     onSelectModel: (model: ChatModelOption) => void;
     onSelectImages: (files: File[]) => void;
     onRemoveImage: (attachmentId: string) => void;
@@ -83,7 +98,6 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
     suggestions,
     input,
     selectedModel,
-    isModelDropdownOpen,
     isBusy,
     isStopping,
     isUploadingImages,
@@ -93,7 +107,6 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
     isKeyboardVisible,
     textareaRef,
     inputAreaRef,
-    modelSelectorRef,
     closeSuggestions,
     onScrollToBottom,
     onSelectSuggestion,
@@ -102,7 +115,6 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
     onInputFocus,
     onCompositionStart,
     onCompositionEnd,
-    onToggleModelDropdown,
     onSelectModel,
     onSelectImages,
     onRemoveImage,
@@ -180,36 +192,12 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
                     />
 
                     <div className={styles.inputActions}>
-                        <div className={styles.modelSelector} ref={modelSelectorRef}>
-                            <button
-                                className={styles.modelButton}
-                                {...agentAttrs({ id: 'chat.model.toggle', role: 'button', action: 'open', page: 'chat' })}
-                                onClick={onToggleModelDropdown}
-                            >
-                                <span className={styles.modelName}>
-                                    {MODEL_OPTIONS.find(model => model.id === selectedModel.id)?.name || selectedModel.name}
-                                </span>
-                                <span className={styles.modelMode}>{selectedModel.mode}</span>
-                                <ChevronDown size={12} className={clsx(styles.chevron, isModelDropdownOpen && styles.chevronOpen)} />
-                            </button>
-
-                            {isModelDropdownOpen && (
-                                <div className={styles.modelDropdown}>
-                                    {MODEL_OPTIONS.map((model) => (
-                                        <button
-                                            key={model.id}
-                                            className={clsx(styles.modelOption, selectedModel.id === model.id && styles.modelOptionActive)}
-                                            {...agentAttrs({ id: `chat.model.option.${model.id}`, role: 'button', action: 'select', page: 'chat', key: 'model_id' })}
-                                            onClick={() => onSelectModel(model)}
-                                        >
-                                            <span className={styles.modelOptionName}>{model.name}</span>
-                                            <span className={styles.modelOptionMode}>{model.mode}</span>
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-
+                        <ChatModelSelector
+                            page="chat"
+                            selectedModel={selectedModel}
+                            onSelectModel={onSelectModel}
+                            styles={styles}
+                        />
                         <button
                             type="button"
                             className={styles.uploadButton}
