@@ -4,6 +4,9 @@ Updated: 2026-04-17
 
 ## Owned Layers
 
+- `kiko-api/src/jobs/chat/chatRuntimeMode.ts`
+- `kiko-api/src/jobs/chat/chatCompatTurnRunner.ts`
+- `kiko-api/src/jobs/chat/chatV2TurnRunner.ts`
 - `kiko-api/src/jobs/chat/taskPlanner.ts`
 - `kiko-api/src/jobs/chat/modelPlanGenerator.ts`
 - `kiko-api/src/jobs/chat/streamBroker.ts`
@@ -18,6 +21,27 @@ Updated: 2026-04-17
 Owns: internal step ids, statuses, tool hints, and persisted runtime snapshots.
 
 Does not own: normal assistant answer text or transcript presentation.
+
+### Chat v2 turn runner
+
+Owns: normalized turn execution, direct follow-up branches, lean prompt
+handoff, and orchestration retries inside the chat v2 runtime.
+
+Does not own: task claiming, moderation, durable task completion, or cleanup.
+
+### Chat runtime mode
+
+Owns: runtime-mode parsing, compatibility alias policy, and worker-entry
+dispatch to the active chat executor.
+
+Does not own: turn execution internals or provider-level generation behavior.
+
+### Chat compat runner
+
+Owns: compatibility-mode execution policy and the temporary compat-to-v2 alias
+until a dedicated fallback executor exists.
+
+Does not own: runtime mode parsing or v2 turn execution internals.
 
 ### Prompt assembler
 
@@ -51,9 +75,27 @@ Does not own: mutating backend runtime state or changing tool execution policy.
   - Applied To: preserving runtime snapshots for debugging while moving display
     policy to the frontend.
   - Verification: verified in code.
+- Source: `kiko-api/src/jobs/chat/chatV2TurnRunner.ts`
+  - Kind: repo doc
+  - Retrieved: 2026-04-17
+  - Applied To: separating worker shell ownership from v2 turn execution ownership.
+  - Verification: verified in code and targeted tests.
+- Source: `kiko-api/src/jobs/chat/chatRuntimeMode.ts`
+  - Kind: repo doc
+  - Retrieved: 2026-04-17
+  - Applied To: explicit runtime mode switch above the turn runner owner.
+  - Verification: verified in code and targeted tests.
+- Source: `kiko-api/src/jobs/chat/chatCompatTurnRunner.ts`
+  - Kind: repo doc
+  - Retrieved: 2026-04-17
+  - Applied To: dedicated compatibility owner below the runtime mode switch.
+  - Verification: verified in code and targeted tests.
 
 ## See Also
 
 - /Users/almurat/KiKo/system-journal/INDEX.md
 - /Users/almurat/KiKo/system-journal/design-language/runtime-plan-visibility.md
 - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-runtime-plan-user-visible-hardcoding-fix.md
+- /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-worker-entry-boundary.md
+- /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-runtime-mode-switch.md
+- /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-compat-runner-owner.md

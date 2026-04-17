@@ -22,6 +22,29 @@ from .settings import settings
 from .ws import ws_manager
 
 
+# CONTEXT MEMORY
+# Updated: 2026-04-17
+# Author: Rowan
+# Reason: chat_v2 worker now has to stamp each turn with a task-scoped context
+#         contract before prompt assembly so lean requests stay clean and
+#         specialist turns still carry the smallest useful session slices.
+# Goal: keep Python-side prompt shaping aligned with the shared chat v2
+#       contract instead of serializing a generic context blob for every turn.
+# Owns: Python chat_v2 turn shaping, prompt data preparation, and contract injection.
+# Does Not Own: model routing policy, Node skill selection, or execution gates.
+# Design Language:
+# - build the context contract from the task shape before assembling the prompt
+# - lean turns should not expose wallet/page context unless a task explicitly needs it
+# - compatibility context may remain, but required slices must be named explicitly
+# Document Provenance:
+# - Source: /Users/almurat/KiKo/system-journal/adr/2026-04-17-chat-v2-rewrite-plan.md
+# - Kind: repo doc
+# - Retrieved: 2026-04-17
+# - Applied To: Python worker contract injection and lean prompt shaping
+# - Verification: inferred from code and plan
+# See also:
+# - /Users/almurat/KiKo/system-journal/INDEX.md
+
 @dataclass
 class TaskPayload:
     task_id: str
@@ -442,6 +465,63 @@ class ChatWorker:
         if conflict.get("question"):
             out["question"] = conflict.get("question")
         return out or None
+
+    def _build_context_contract(
+        self,
+        intent: str,
+        routing_mode: str,
+        tool_context: dict[str, Any],
+        parsed_intent: Any,
+    ) -> dict[str, Any]:
+        primary = str(intent or "GENERAL_QUERY").strip().upper()
+        required: list[str] = []
+        optional: list[str] = []
+        mode = "analysis"
+        reason = "specialist analysis turn"
+
+        has_wallet_context = bool(tool_context.get("walletAddress") or tool_context.get("chainId") or tool_context.get("nativeBalance") or tool_context.get("balance"))
+        has_surface_context = bool(tool_context.get("currentPage") or tool_context.get("pageContext"))
+        has_token_hints = bool(
+            (parsed_intent.detailed or {}).get("token_in")
+            or (parsed_intent.detailed or {}).get("token_out")
+            or (parsed_intent.detailed or {}).get("token_address")
+            or (parsed_intent.detailed or {}).get("token_symbol")
+            or (parsed_intent.contract_address)
+        )
+
+        if primary == "GENERAL_QUERY" and not has_wallet_context and not has_surface_context and not has_token_hints:
+            mode = "lean"
+            reason = "plain direct-answer turn"
+        elif primary in {"TRADING", "COPY_TRADING"} or routing_mode == "execution":
+            mode = "execution"
+            reason = "mutation workflow"
+            required.extend(["user_context", "workflow_state", "wallet_state", "user_settings"])
+            if has_token_hints:
+                required.append("token_context")
+        elif str(tool_context.get("currentPage") or "").strip().lower() == "farcaster" or str(tool_context.get("pageContext") or "").strip().lower() == "farcaster_agent":
+            mode = "social"
+            reason = "social-thread aware turn"
+            required.extend(["user_context", "workflow_state"])
+            optional.extend(["social_thread_context", "social_images"])
+        else:
+            mode = "analysis"
+            reason = "specialist analysis turn"
+            required.extend(["user_context", "workflow_state"])
+            if has_wallet_context:
+                required.append("wallet_state")
+            if has_token_hints:
+                required.append("token_context")
+
+        seen: set[str] = set()
+        required = [name for name in required if not (name in seen or seen.add(name))]
+        seen.clear()
+        optional = [name for name in optional if not (name in seen or seen.add(name))]
+        return {
+            "mode": mode,
+            "requiredContexts": required,
+            "optionalContexts": optional,
+            "reason": reason,
+        }
 
     def _build_wallet_info_from_context(self, tool_context: dict[str, Any]) -> dict[str, Any] | None:
         wallet_address = tool_context.get("walletAddress") or tool_context.get("userAddress")
@@ -1005,6 +1085,9 @@ class ChatWorker:
                 "balance": (tool_context.get("context") or {}).get("balance") or {},
                 "intentHints": self._build_intent_hints(parsed_intent.decision),
             }
+            context_contract = self._build_context_contract(intent, routing_mode, tool_context, parsed_intent)
+            user_context["contextContract"] = context_contract
+            user_context["context_contract"] = context_contract
             system_prompt = prompt_orchestrator.get_system_prompt(model, intent, routing_mode)
             enriched_user = prompt_orchestrator.build_prompt(str(last_user.get("content") or ""), user_context, intent)
             await self._record_intent_trace(task.user_message_id, parsed_intent, str(last_user.get("content") or ""))

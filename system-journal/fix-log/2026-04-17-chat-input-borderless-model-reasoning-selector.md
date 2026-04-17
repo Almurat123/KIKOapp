@@ -13,6 +13,9 @@
 - Removed visible borders from the `+`, settings, model-family, reasoning, and
   send controls in the chat input row so the layout matches the supplied
   borderless reference screenshot.
+- Removed the lingering white/default fill from the `+` and settings icon
+  buttons so they now stay transparent at rest and only highlight on hover like
+  the rest of the borderless row.
 - Updated the model catalog to preserve a single persisted model id while
   exposing family/reasoning metadata to the UI.
 - Kept the add-image `+` control unhighlighted at rest and moved its highlight
@@ -47,6 +50,7 @@ default and `low / medium / high / xhigh` as the real knobs.
 - Selected pills need enough left/right space to read clearly at rest and in
   the highlighted state.
 - Add-image affordance should be neutral at rest and only highlight on hover.
+- Icon-only buttons should stay transparent at rest, not white-filled.
 - Per-family fallback must resolve through the family's real declared options.
 - GPT-5.4 mini should expose only `Low / Medium` in the selector; do not show
   `Fast`, `High`, or `Extra High` for GPT.

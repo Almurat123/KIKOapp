@@ -1,10 +1,38 @@
 import React, { useMemo } from 'react';
 
+// CONTEXT MEMORY
+// Updated: 2026-04-17
+// Author: Rowan
+// Reason: the token-detail route already owns token hydration. The chart
+//         embed should not re-query the token-details endpoint just to recover
+//         a pool address, because that duplicated read was part of the token
+//         page burst.
+// Goal: render the GeckoTerminal iframe only from parent-supplied data and
+//       keep the chart component passive.
+// Owns: iframe URL assembly and placeholder rendering for missing pool data.
+// Does Not Own: token hydration, detail-route fetching, or backend lookup policy.
+// Design Language:
+// - child embed surfaces must stay passive
+// - parent routes own data hydration and optional enrichment
+// - do not call `/api/tokens/:network/:address` from the chart component
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-token-page-read-burst-isolation.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: removing child-side pool resolution from the chart component
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
+// - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-token-page-read-burst-isolation.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
+
 interface GeckoTerminalChartProps {
     chain: string;
-    address: string;
     poolAddress?: string;
     height?: number | string;
+    loading?: boolean;
 }
 
 // Mapping from internal chain names to GeckoTerminal network slugs
@@ -30,36 +58,11 @@ const NETWORK_MAP: Record<string, string> = {
 
 export const GeckoTerminalChart: React.FC<GeckoTerminalChartProps> = ({
     chain,
-    address,
     poolAddress: initialPoolAddress,
-    height = 500
+    height = 500,
+    loading = false,
 }) => {
-    const [resolvedPoolAddress, setResolvedPoolAddress] = React.useState<string | undefined>(initialPoolAddress);
-    const [loading, setLoading] = React.useState(!initialPoolAddress);
-
-    React.useEffect(() => {
-        if (!initialPoolAddress && address && chain) {
-            const resolvePool = async () => {
-                try {
-                    setLoading(true);
-                    const { tokenApi } = await import('../../services/api');
-                    const normalizedChain = NETWORK_MAP[chain.toLowerCase()] || chain.toLowerCase();
-                    const details = await tokenApi.getDetails(normalizedChain, address);
-                    if (details?.poolAddress) {
-                        setResolvedPoolAddress(details.poolAddress);
-                    }
-                } catch (error) {
-                    console.error('[GeckoTerminalChart] Error resolving pool:', error);
-                } finally {
-                    setLoading(false);
-                }
-            };
-            resolvePool();
-        } else {
-            setResolvedPoolAddress(initialPoolAddress);
-            setLoading(false);
-        }
-    }, [chain, address, initialPoolAddress]);
+    const resolvedPoolAddress = initialPoolAddress;
 
     const embedUrl = useMemo(() => {
         if (!resolvedPoolAddress) return '';

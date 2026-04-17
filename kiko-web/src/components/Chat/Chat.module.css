@@ -1385,9 +1385,12 @@
   padding: 0;
   border-radius: 50%;
   border: none;
-  backdrop-filter: blur(16px) saturate(170%);
-  -webkit-backdrop-filter: blur(16px) saturate(170%);
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06);
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s;
@@ -1458,12 +1461,15 @@
 .light .uploadButton,
 .light .settingsButton {
   border: none !important;
+  background: transparent !important;
   color: #1a1a1a !important;
   height: 32px !important;
   width: 32px !important;
-  backdrop-filter: blur(14px) saturate(160%);
-  -webkit-backdrop-filter: blur(14px) saturate(160%);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
 }
 
 .light .uploadButton:hover,
@@ -1492,6 +1498,7 @@
  * - keep enough horizontal breathing room so selected pills do not hug the
  *   row edges
  * - the add-image action stays neutral at rest and highlights only on hover
+ * - icon buttons should stay transparent at rest and only pick up hover fill
  * - model family and reasoning strength stay separate controls
  * - dropdowns may use soft depth but should avoid hard outlines
  * - do not reintroduce glass borders around routine input actions

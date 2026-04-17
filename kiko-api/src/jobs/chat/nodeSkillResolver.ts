@@ -1,11 +1,19 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-18
 // Author: Renata
 // Reason: Clanker launch turns now need a first-class skill note so the model
 //         sees the deploy prompt, collects missing launch fields, and keeps
 //         real deploys dry-run first instead of drifting into generic trading.
 //         Canonical deploy intent and control policy now also need the resolver
 //         to expose token_deploy as a mutation envelope instead of general_answer.
+//         Chat v2 now also needs skill routing to expose only matched business
+//         tools plus explicit read-only context tools, instead of leaking the
+//         full registry into every non-lean turn. Product owner correction on
+//         2026-04-18 moved user-facing task choice to the model, so resolver
+//         envelopes are backend safety/tool gates rather than task verdicts.
+//         The same correction requires multi-mode task selection because one
+//         user request may combine social, image, token, wallet, and execution
+//         work.
 // Goal: keep skill resolution aligned with the actual user task so Clanker
 //       launch requests surface the deploy skill, while onboarding/meta turns
 //       still stay lean.
@@ -18,6 +26,14 @@
 // - Clanker launch flows should surface explicit dry-run and confirmation guidance before a real deploy.
 // - Clanker deploy intent envelopes are mutation workflows, even when the first tool call is a dry-run preview.
 // - Session tool history may inform follow-up analysis, but must not reopen tool access for direct meta turns.
+// - Generic direct-answer turns should stay lean instead of inheriting a default market skill.
+// - Local token leaderboard fallback must stay scoped to token/general trend questions and must
+//   not swallow explicit specialist-domain turns such as Zora or Polymarket.
+// - Chat v2 needs an explicit context contract so the prompt layer can expose
+//   only the task slices this turn actually needs.
+// - Context reads are explicit tools and should be front-loaded ahead of business tools when required.
+// - Intent envelopes are backend safety envelopes; do not describe them to the model as selected intent.
+// - The model-visible task menu owns single or multi-task choice, while this layer owns tool exposure and mutation safety.
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/test.txt
 // - Kind: runtime observation
@@ -34,19 +50,49 @@
 // - Retrieved: 2026-04-17
 // - Applied To: Clanker launch routing note, dry-run confirmation guidance, and token_deploy envelope
 // - Verification: inferred from code and tests
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-lean-chat-context-exposure.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: keeping generic direct answers lean instead of falling back to a market skill
+// - Verification: verified in code and targeted tests
+// - Source: /Users/almurat/KiKo/system-journal/adr/2026-04-17-chat-v2-rewrite-plan.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: keeping specialist-domain tool scopes separate from the local token leaderboard shortcut
+// - Verification: inferred from code and tests
+// - Source: /Users/almurat/KiKo/system-journal/adr/2026-04-17-chat-v2-rewrite-plan.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: runtime context-contract emission for lean chat v2 scaffolding
+// - Verification: inferred from code and tests
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-context-read-tools.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: restricting tool exposure to matched business tools plus explicit context-read tools
+// - Verification: verified in code and targeted tests
+// - Source: product owner correction in local runtime thread about model-owned intent/task choice
+// - Kind: product instruction / runtime observation
+// - Retrieved: 2026-04-18
+// - Applied To: demoting resolver intent wording to backend safety phase guidance and allowing multi-mode task choice
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-direct-answer-tool-pruning.md
 // - /Users/almurat/KiKo/system-journal/design-language/clanker-token-deploy-skill.md
 // - /Users/almurat/KiKo/system-journal/owner-map/clanker-skill.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-lean-chat-context-exposure.md
+// - /Users/almurat/KiKo/system-journal/adr/2026-04-17-chat-v2-rewrite-plan.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-context-read-tools.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-model-selected-task-menu.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 import { LogCode } from '../../config/logRegistry.js';
 import { skillRegistryExec } from '../../skills/registry.js';
 import { logger } from '../../utils/logger.js';
 import { resolveCanonicalChainRef } from './chainIntent.js';
-import type { ChatContextSnapshot } from './contracts.js';
+import type { ChatContextBlockName, ChatContextContract, ChatContextSnapshot } from './contracts.js';
+import { CONTEXT_READ_TOOL_BY_BLOCK } from './contextReadTools.js';
 import type { CanonicalIntent } from './canonicalIntent.js';
 import {
     detectQuerySignals,
@@ -107,6 +153,7 @@ export interface SkillResolution {
     searchReason: string;
     querySignals: QuerySignals;
     intentEnvelope: IntentEnvelope;
+    contextContract: ChatContextContract;
     toolPhasePolicy: ToolPhasePolicy;
     currentPhase: ToolPhase;
 }
@@ -126,6 +173,7 @@ const EXPLICIT_SOCIAL_SOURCE_QUERY_RE = /\b(x|twitter|tweet|tweets|farcaster|cas
 const EXPLICIT_SEARCH_QUERY_RE = /\b(search|look\s*up|lookup|find on|search on|from x|from twitter|from farcaster)\b/i;
 const TOKEN_LEADERBOARD_QUERY_RE = /\b(trend|trending|hot token|hot coin|top token|top coin|pumping|top gainers|gainers|movers)\b/i;
 const DETAILED_ONBOARDING_QUERY_RE = /\b(new here|how do i start|how to start|how do i use|how to use|get(?:ting)? started|intro(?:duction)? to kiko|about kiko|what is kiko|what can\b.{0,24}\bkiko\b|what can kiko do|who are you)\b|怎么使用\s*kiko|如何使用\s*kiko|kiko\s*怎么用|kiko\s*如何用|介绍一下\s*kiko|kiko\s*是什么|kiko\s*能做什么|你能做什么|我是新手|新手怎么开始/i;
+const EXPLICIT_TRADE_ACTION_QUERY_RE = /\b(buy|sell|swap|bridge|trade)\b|买入|卖出|买\b|卖\b|换币|兑换|交换|跨链|交易/i;
 
 export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: TradingIntent | null, canonicalIntent?: CanonicalIntent | null): SkillResolution {
     const isGrok = String(snapshot.model || '').toLowerCase().includes('grok');
@@ -145,7 +193,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const blockedTools: string[] = [];
     const preferredTools: string[] = [];
     const strategyNotes: string[] = [];
-    let allowAllTools = true;
+    let allowAllTools = false;
     const strictPolicy = snapshot.policySnapshot?.enforcementLevel === 'hard';
     const sessionToolNames = Array.from(new Set(
         (snapshot.recentToolTrace?.toolCalls || [])
@@ -256,10 +304,6 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         }
     }
 
-    if (selected.length === 0 && !querySignals.welcome && !querySignals.metaDebug) {
-        selected = ['market_macro'];
-    }
-
     if (requestedChain?.chainId && snapshot.runtime.chainId && requestedChain.chainId !== Number(snapshot.runtime.chainId)) {
         strategyNotes.push(`The user explicitly requested ${requestedChain.chainName}. Treat the connected chain only as wallet context; requested chain overrides it for this turn.`);
     }
@@ -271,6 +315,11 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     selected = selected
         .filter((skillId, index) => selected.indexOf(skillId) === index && !!skillRegistryExec.getSkill(skillId))
         .slice(0, querySignals.welcome ? 1 : 3);
+
+    const isLeanDirectAnswerTurn = selected.length === 0
+        && !querySignals.welcome
+        && !querySignals.metaDebug
+        && matchResult.searchMode === 'forbidden';
 
     const skillPrompts: string[] = [];
     let allowedTools: string[] = [];
@@ -320,8 +369,9 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         strategyNotes.push('Do not use get_token_price as a prerequisite for selling or swapping a contract-address token. That tool is only for mainstream symbol price lookups.');
     }
 
-    if (!strictPolicy && !shouldConstrainToolExposure) {
-        allowedTools = Array.from(availableToolNames).sort();
+    if (isLeanDirectAnswerTurn) {
+        allowAllTools = false;
+        strategyNotes.push('No domain skill matched and search is not required. Keep this turn as a lean direct answer without exposing the full registry.');
     }
 
     const polymarketShortWindowQuery = normalizedIntent?.intent === 'polymarket_short_window';
@@ -487,6 +537,13 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         explicitRiskRequest,
         asksWalletPnl,
         hasRequestedToken,
+        selectedSkills: selected,
+    });
+    const contextContract = buildContextContract({
+        snapshot,
+        tradingIntent,
+        intentEnvelope,
+        querySignals,
     });
     const preferLocalTokenLeaderboard = isGrok && shouldPreferLocalTokenLeaderboard(snapshot, intentEnvelope);
     if (preferLocalTokenLeaderboard) {
@@ -522,7 +579,18 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     if (preferLocalTokenLeaderboard) {
         strategyNotes.push('Local token leaderboard evidence is the first-class answer path for this turn. Do not spend search budget unless the user explicitly asks for X/web/social sources.');
     } else {
-        strategyNotes.push(describePhasePolicy(intentEnvelope, toolPhasePolicy));
+        strategyNotes.push(describePhasePolicy(toolPhasePolicy));
+    }
+
+    attachContextReadTools({
+        contextContract,
+        availableToolNames,
+        allowedTools,
+        preferredTools,
+    });
+
+    if (!isLeanDirectAnswerTurn) {
+        strategyNotes.push('Chat v2 exposes only matched business tools plus explicit context-read tools. Read the required context first instead of assuming the full registry is available.');
     }
 
     logger.info(LogCode.AI_SKILLS_ATTACHED, 'Node skill resolution completed', {
@@ -557,6 +625,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         searchReason: effectiveSearchReason,
         querySignals,
         intentEnvelope,
+        contextContract,
         toolPhasePolicy,
         currentPhase: toolPhasePolicy.initialPhase,
     };
@@ -573,6 +642,7 @@ function buildIntentEnvelope(params: {
     explicitRiskRequest: boolean;
     asksWalletPnl: boolean;
     hasRequestedToken: boolean;
+    selectedSkills: string[];
 }): IntentEnvelope {
     const {
         snapshot,
@@ -585,6 +655,7 @@ function buildIntentEnvelope(params: {
         explicitRiskRequest,
         asksWalletPnl,
         hasRequestedToken,
+        selectedSkills,
     } = params;
 
     if (canonicalIntent) {
@@ -676,6 +747,85 @@ function buildIntentEnvelope(params: {
             required_evidence: [],
         };
     }
+    const rawQuery = String(snapshot.lastUserMessage || '');
+    const selectedSet = new Set(selectedSkills);
+    if (selectedSet.has('swap') && querySignals.swap && EXPLICIT_TRADE_ACTION_QUERY_RE.test(rawQuery)) {
+        return {
+            primary_intent: 'swap_execution',
+            task_mode: 'execute',
+            search_mode: searchMode,
+            search_target: 'none',
+            domain: hasRequestedToken ? 'token' : 'general',
+            execution_risk: 'mutation',
+            required_evidence: [],
+        };
+    }
+    if (selectedSet.has('copy_trade') && querySignals.copyTrade) {
+        return {
+            primary_intent: 'copytrade_execution',
+            task_mode: 'execute',
+            search_mode: searchMode,
+            search_target: 'none',
+            domain: 'wallet',
+            execution_risk: 'mutation',
+            required_evidence: [],
+        };
+    }
+    if (selectedSet.has('wallet_portfolio') && (querySignals.wallet || asksWalletPnl)) {
+        return {
+            primary_intent: 'wallet_analysis',
+            task_mode: 'analyze',
+            search_mode: searchMode,
+            search_target: 'none',
+            domain: 'wallet',
+            execution_risk: 'read_only',
+            required_evidence: ['onchain_wallet_evidence'],
+        };
+    }
+    if (selectedSet.has('token_analysis') && (hasRequestedToken || querySignals.tokenAnalysis)) {
+        return {
+            primary_intent: explicitRiskRequest ? 'token_risk' : 'token_analysis',
+            task_mode: 'analyze',
+            search_mode: searchMode,
+            search_target: 'none',
+            domain: 'token',
+            execution_risk: 'read_only',
+            required_evidence: ['onchain_token_evidence'],
+        };
+    }
+    if (selectedSet.has('polymarket_prediction') || querySignals.prediction) {
+        return {
+            primary_intent: 'polymarket_discovery',
+            task_mode: 'discover',
+            search_mode: searchMode,
+            search_target: searchMode === 'forbidden' ? 'none' : 'web',
+            domain: 'polymarket',
+            execution_risk: 'read_only',
+            required_evidence: searchMode === 'forbidden' ? [] : ['native_search_results'],
+        };
+    }
+    if (selectedSet.has('social_farcaster') || querySignals.social) {
+        return {
+            primary_intent: 'social_discovery',
+            task_mode: 'discover',
+            search_mode: searchMode,
+            search_target: preferXNativeSearch ? 'x' : searchMode === 'forbidden' ? 'none' : 'x_and_web',
+            domain: explicitlyMentionsFarcaster ? 'farcaster' : querySignals.xSearch ? 'x' : 'general',
+            execution_risk: 'read_only',
+            required_evidence: searchMode === 'forbidden' ? [] : ['native_search_results'],
+        };
+    }
+    if (selectedSet.has('market_macro') || searchMode === 'required') {
+        return {
+            primary_intent: 'search_discovery',
+            task_mode: 'discover',
+            search_mode: searchMode,
+            search_target: querySignals.xSearch ? 'x' : querySignals.webSearch ? 'web' : searchMode === 'forbidden' ? 'none' : 'web',
+            domain: querySignals.market ? 'market' : 'general',
+            execution_risk: 'read_only',
+            required_evidence: searchMode === 'forbidden' ? [] : ['native_search_results'],
+        };
+    }
 
     return {
         primary_intent: 'general_answer',
@@ -686,6 +836,123 @@ function buildIntentEnvelope(params: {
         execution_risk: 'read_only',
         required_evidence: [],
     };
+}
+
+function buildContextContract(params: {
+    snapshot: ChatContextSnapshot;
+    tradingIntent: TradingIntent | null;
+    intentEnvelope: IntentEnvelope;
+    querySignals: QuerySignals;
+}): ChatContextContract {
+    const { snapshot, tradingIntent, intentEnvelope, querySignals } = params;
+    const required = new Set<ChatContextBlockName>();
+    const optional = new Set<ChatContextBlockName>();
+    const hasSocialInput = Boolean(snapshot.runtime?.socialInput);
+    const hasSocialImages = Array.isArray(snapshot.runtime?.socialInput?.images) && snapshot.runtime.socialInput.images.length > 0;
+
+    const mode: ChatContextContract['mode'] = (() => {
+        if (intentEnvelope.primary_intent === 'general_answer') return 'lean';
+        if (intentEnvelope.primary_intent === 'meta_debug') return 'debug';
+        if (intentEnvelope.execution_risk === 'mutation') return 'execution';
+        if (intentEnvelope.domain === 'x' || intentEnvelope.domain === 'farcaster') return 'social';
+        return 'analysis';
+    })();
+
+    if (mode === 'analysis' || mode === 'execution') {
+        required.add('workflow_state');
+        required.add('skill_prompts');
+        required.add('execution_plan');
+        required.add('user_context');
+    } else if (mode === 'debug') {
+        required.add('workflow_state');
+        required.add('user_context');
+    } else if (mode === 'social') {
+        required.add('workflow_state');
+        required.add('user_context');
+    }
+
+    if (mode === 'execution') {
+        required.add('user_settings');
+    }
+
+    if (intentEnvelope.primary_intent === 'wallet_analysis' || intentEnvelope.primary_intent === 'wallet_pnl') {
+        required.add('wallet_state');
+    }
+    if (intentEnvelope.primary_intent === 'token_analysis' || intentEnvelope.primary_intent === 'token_risk') {
+        required.add('token_context');
+    }
+    if (intentEnvelope.primary_intent === 'swap_execution' || intentEnvelope.primary_intent === 'copytrade_execution') {
+        required.add('wallet_state');
+        required.add('token_context');
+    }
+    if (intentEnvelope.primary_intent === 'token_deploy') {
+        required.add('wallet_state');
+        required.add('token_context');
+        required.add('launchpad_context');
+        required.add('user_settings');
+    }
+    if (intentEnvelope.primary_intent === 'polymarket_order') {
+        required.add('user_settings');
+    }
+    if (intentEnvelope.domain === 'zora') {
+        required.add('token_context');
+    }
+
+    if (querySignals.socialChainEvidence || intentEnvelope.domain === 'x' || intentEnvelope.domain === 'farcaster') {
+        optional.add('provider_native_evidence');
+    }
+    if (hasSocialInput) {
+        optional.add('social_thread_context');
+    }
+    if (hasSocialImages) {
+        optional.add('social_images');
+    }
+
+    const reason = (() => {
+        if (mode === 'lean') return 'plain direct-answer turn';
+        if (mode === 'debug') return 'assistant behavior explanation turn';
+        if (mode === 'execution') return 'mutation workflow';
+        if (mode === 'social') return 'social-thread aware turn';
+        return 'specialist analysis turn';
+    })();
+
+    return {
+        mode,
+        requiredContexts: Array.from(required),
+        optionalContexts: Array.from(optional),
+        reason,
+    };
+}
+
+function attachContextReadTools(params: {
+    contextContract: ChatContextContract;
+    availableToolNames: Set<string>;
+    allowedTools: string[];
+    preferredTools: string[];
+}) {
+    const { contextContract, availableToolNames, allowedTools, preferredTools } = params;
+    const requiredContextTools = Array.from(new Set(
+        (contextContract.requiredContexts || [])
+            .map((contextName) => CONTEXT_READ_TOOL_BY_BLOCK[contextName])
+            .filter((toolName): toolName is string => typeof toolName === 'string' && availableToolNames.has(toolName)),
+    ));
+    const optionalContextTools = Array.from(new Set(
+        (contextContract.optionalContexts || [])
+            .map((contextName) => CONTEXT_READ_TOOL_BY_BLOCK[contextName])
+            .filter((toolName): toolName is string => typeof toolName === 'string' && availableToolNames.has(toolName)),
+    ));
+
+    for (const toolName of [...requiredContextTools, ...optionalContextTools]) {
+        if (!allowedTools.includes(toolName)) {
+            allowedTools.push(toolName);
+        }
+    }
+    for (let index = requiredContextTools.length - 1; index >= 0; index -= 1) {
+        prependPreferred(preferredTools, requiredContextTools[index]!);
+    }
+    for (const toolName of optionalContextTools) {
+        pushPreferred(preferredTools, toolName);
+    }
 }
 
 function buildToolPhasePolicy(
@@ -765,28 +1032,29 @@ function requiresPostSearchLocalAnalysis(intentEnvelope: IntentEnvelope): boolea
         || ['token_analysis', 'token_risk', 'wallet_analysis', 'polymarket_discovery', 'polymarket_order'].includes(intentEnvelope.primary_intent);
 }
 
-function describePhasePolicy(intentEnvelope: IntentEnvelope, toolPhasePolicy: ToolPhasePolicy): string {
+function describePhasePolicy(toolPhasePolicy: ToolPhasePolicy): string {
     if (toolPhasePolicy.initialPhase === 'native_search_only') {
-        return `Structured intent: ${intentEnvelope.primary_intent} in domain=${intentEnvelope.domain}. Start with provider-native search only, then move to ${toolPhasePolicy.nextPhaseAfterNativeSearch || 'final answer'} once evidence is gathered.`;
+        return `Model chooses one or more tasks from TASK_MENU. Backend safety phase: start with provider-native search only, then move to ${toolPhasePolicy.nextPhaseAfterNativeSearch || 'final answer'} once evidence is gathered.`;
     }
     if (toolPhasePolicy.initialPhase === 'execution') {
-        return `Structured intent: ${intentEnvelope.primary_intent}. Execution phase is allowed only for the approved mutation tools in this turn.`;
+        return 'Model chooses one or more tasks from TASK_MENU. Backend safety phase: execution is allowed only for the approved mutation tools in this turn.';
     }
-    return `Structured intent: ${intentEnvelope.primary_intent} in domain=${intentEnvelope.domain}. Start with local analysis tools; search stays gated by the phase policy.`;
+    return 'Model chooses one or more tasks from TASK_MENU. Backend safety phase: start with local analysis tools; search stays gated by the phase policy.';
 }
 
 function shouldPreferLocalTokenLeaderboard(snapshot: ChatContextSnapshot, intentEnvelope: IntentEnvelope): boolean {
     if (intentEnvelope.execution_risk !== 'read_only') return false;
-    if (intentEnvelope.domain !== 'token') return false;
-    if (!['search_discovery', 'social_discovery', 'token_analysis'].includes(intentEnvelope.primary_intent)) return false;
-    const hasLocalLeaderboardTool = (snapshot.toolDefinitions || []).some((definition) => definition.name === 'get_trending_tokens');
-    if (!hasLocalLeaderboardTool) return false;
     const query = String(snapshot.lastUserMessage || '').trim();
-    if (!query) return false;
     if (!TOKEN_LEADERBOARD_QUERY_RE.test(query)) return false;
     if (EXPLICIT_SOCIAL_SOURCE_QUERY_RE.test(query)) return false;
     if (EXPLICIT_SEARCH_QUERY_RE.test(query)) return false;
-    return true;
+    const hasLocalLeaderboardTool = (snapshot.toolDefinitions || []).some((definition) => definition.name === 'get_trending_tokens');
+    if (!hasLocalLeaderboardTool) return false;
+    if (intentEnvelope.domain === 'token') {
+        return ['search_discovery', 'social_discovery', 'token_analysis'].includes(intentEnvelope.primary_intent);
+    }
+    if (intentEnvelope.domain !== 'general') return false;
+    return intentEnvelope.primary_intent === 'general_answer';
 }
 
 function ensurePrimarySkill(selected: string[], skillId: string) {
@@ -794,6 +1062,11 @@ function ensurePrimarySkill(selected: string[], skillId: string) {
     const filtered = selected.filter((item) => item !== skillId);
     filtered.unshift(skillId);
     selected.splice(0, selected.length, ...filtered);
+}
+
+function prependPreferred(preferredTools: string[], toolName: string) {
+    removeTool(preferredTools, toolName);
+    preferredTools.unshift(toolName);
 }
 
 function ensureSupportingSkill(selected: string[], skillId: string) {

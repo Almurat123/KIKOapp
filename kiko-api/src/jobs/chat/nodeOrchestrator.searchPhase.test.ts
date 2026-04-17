@@ -555,8 +555,9 @@ test('duplicate-only read-only rounds force a no-tool final answer from cached e
 
     assert.equal(executeCalls, 1);
     assert.equal(generationRound, 3);
-    assert.equal(seenRounds[0]?.enableSearch, true);
-    assert.deepEqual(seenRounds[0]?.tools || [], []);
+    assert.equal(seenRounds[0]?.enableSearch, false);
+    assert.ok((seenRounds[0]?.tools || []).includes('get_trending_tokens'));
+    assert.ok((seenRounds[0]?.tools || []).includes('read_workflow_state'));
     assert.equal(seenRounds[2]?.enableSearch, false);
     assert.deepEqual(seenRounds[2]?.tools || [], []);
     assert.equal(broker.texts.join(''), 'The top cached trending token on BSC is VIRTUAL.');
@@ -802,7 +803,7 @@ test('function_call-style pseudo tool output is sanitized and rejected when no u
     assert.deepEqual(broker.replacements, ['']);
 });
 
-test('prose-style pseudo tool narration is sanitized but does not trigger a forced retry', async () => {
+test('prose-style pseudo tool narration may trigger one clean recovery round', async () => {
     const tokenAddress = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
     const snapshot = makeSnapshot('Find the early buyers around 2026-03-10 for this token', {
         model: 'deepseek-reasoner',
@@ -847,7 +848,13 @@ test('prose-style pseudo tool narration is sanitized but does not trigger a forc
                     toolCalls: [],
                 };
             }
-            throw new Error('unexpected extra generation round');
+            if (generationRound >= 2) {
+                return {
+                    text: 'No verified early-buyer evidence has been gathered yet.',
+                    reasoning: '',
+                    toolCalls: [],
+                };
+            }
         },
     };
 
@@ -859,12 +866,12 @@ test('prose-style pseudo tool narration is sanitized but does not trigger a forc
         toolContext: {},
     });
 
-    assert.equal(generationRound, 1);
+    assert.ok(generationRound >= 2);
     assert.deepEqual(broker.replacements, ['I will use real tools now.']);
-    assert.equal(broker.texts.join(''), 'I will use real tools now.');
+    assert.match(broker.texts.join(''), /No verified early-buyer evidence has been gathered yet\./);
 });
 
-test('pure early-buyer tool-name narration ends with the model response and does not auto-continue', async () => {
+test('pure early-buyer tool-name narration may trigger one clean recovery round', async () => {
     const tokenAddress = '0xeCCBb861c0dda7eFd964010085488B69317e4444';
     const snapshot = makeSnapshot(`Check ${tokenAddress} early buyer`, {
         model: 'deepseek-reasoner',
@@ -904,7 +911,13 @@ test('pure early-buyer tool-name narration ends with the model response and does
                     toolCalls: [],
                 };
             }
-            throw new Error('unexpected extra generation round');
+            if (generationRound >= 2) {
+                return {
+                    text: 'No verified early-buyer data is available yet.',
+                    reasoning: '',
+                    toolCalls: [],
+                };
+            }
         },
     };
 
@@ -916,14 +929,11 @@ test('pure early-buyer tool-name narration ends with the model response and does
         toolContext: {},
     });
 
-    assert.equal(generationRound, 1);
+    assert.ok(generationRound >= 2);
     assert.deepEqual(broker.replacements, [
         `I will fetch on-chain token info and early-buyer data now for ${tokenAddress} on BNB Chain (chain id 56). Proceeding to gather evidence.`,
     ]);
-    assert.equal(
-        broker.texts.join(''),
-        `I will fetch on-chain token info and early-buyer data now for ${tokenAddress} on BNB Chain (chain id 56). Proceeding to gather evidence.`,
-    );
+    assert.match(broker.texts.join(''), /No verified early-buyer data is available yet\./);
 });
 
 test('artifact-only rounds fail when the model returns no final answer text', async () => {

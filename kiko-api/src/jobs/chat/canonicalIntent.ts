@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-18
 // Author: Renata
 // Reason: LLM canonical-intent wallet entities can drift from the user's
 //         literal wallet string and must not be treated as authoritative when
@@ -7,7 +7,10 @@
 //         must be able to bypass canonical normalization without losing an
 //         explicit owner-visible state marker. Clanker launch requests now need
 //         a first-class canonical intent so deploy turns do not collapse back
-//         into generic token analysis or free-form clarification.
+//         into generic token analysis or free-form clarification. Product owner
+//         correction on 2026-04-18 moved default task selection to the main
+//         model, so canonical normalization state also needs an explicit
+//         `model_selected_task_menu` bypass marker.
 // Goal: keep canonical intent normalization usable while filtering malformed
 //       wallet entities out of downstream execution paths, and preserve
 //       deterministic bypass state for non-chain turns that must not re-enter
@@ -22,6 +25,7 @@
 // - do not let invalid wallet entities outrank exact addresses extracted elsewhere
 // - deterministic normalization bypass must be explicit state, not hidden worker memory
 // - Clanker launch/deploy turns are canonical `clanker_deploy`, not generic token analysis
+// - model-selected task-menu bypass means no backend canonical intent was chosen for the user-facing turn
 // Document Provenance:
 // - Source: chat transcript + runtime logs + production database inspection for BSC copy-trade target wallets
 // - Kind: runtime observation
@@ -38,6 +42,11 @@
 // - Retrieved: 2026-04-17
 // - Applied To: first-class `clanker_deploy` canonical intent
 // - Verification: verified in code and targeted tests
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-model-selected-task-menu.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-18
+// - Applied To: `model_selected_task_menu` deterministic bypass marker
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
@@ -45,6 +54,7 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-wallet-entity-hardening.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-non-chain-normalization-bypass.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-model-selected-task-menu.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import type { ChatContextSnapshot } from './contracts.js';
 import { resolveBinaryLocale } from './runtimeLocale.js';
@@ -145,7 +155,7 @@ export interface CanonicalIntent {
 export interface CanonicalIntentNormalizationState {
     status: 'ok' | 'invalid';
     source: 'llm' | 'deterministic';
-    bypassKind?: 'general_non_chain';
+    bypassKind?: 'general_non_chain' | 'model_selected_task_menu';
     reasonCode?: NormalizationReasonCode;
     error?: string;
     rawText?: string;

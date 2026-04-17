@@ -17,6 +17,7 @@
 // - Clanker mentions should be recognized on both canonical-normalized and raw-query paths.
 // - Skill routing should stay deterministic instead of depending on hidden prompt memory.
 // - `clanker_deploy` canonical intent must select the Clanker skill before generic token analysis.
+// - Plain capability questions such as "what can you do" should route to onboarding, not a generic market skill.
 // Document Provenance:
 // - Source: Clanker Documentation, Deploy Token (v4.0.0)
 // - Kind: official API doc
@@ -28,12 +29,18 @@
 // - Retrieved: 2026-04-17
 // - Applied To: routing change that exposes the Clanker skill prompt and canonical deploy route
 // - Verification: inferred from code and tests
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-lean-chat-context-exposure.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: routing plain capability questions like "what can you do" to onboarding instead of a generic market skill
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/clanker-token-deploy-skill.md
 // - /Users/almurat/KiKo/system-journal/owner-map/clanker-skill.md
 // - /Users/almurat/KiKo/system-journal/adr/2026-04-15-clanker-token-deploy-skill.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-lean-chat-context-exposure.md
 import { skillRegistryExec } from '../../skills/registry.js';
 import type { Skill } from '../../skills/types.js';
 import type { ChatContextSnapshot } from './contracts.js';
@@ -103,7 +110,7 @@ const STRONG_MATCH_THRESHOLD = 60;
 const MIN_MATCH_THRESHOLD = 35;
 const MAX_SKILL_MATCHES = 3;
 const GREETING_QUERY_RE = /^(?:\s)*(?:hi|hello|hey|yo|gm|gn|good\s+morning|good\s+afternoon|good\s+evening|你好|您好|嗨|哈喽)(?:\s|!|\.|,|$)/i;
-const PLATFORM_ONBOARDING_QUERY_RE = /\b(?:new here|how do i start|how to start|how do i use|how to use|get(?:ting)? started|intro(?:duction)? to kiko|about kiko|what is kiko|what can\b.{0,24}\bkiko\b|what can\b.{0,24}\byou\b.{0,24}\bkiko\b|what can kiko do|who are you)\b|怎么使用\s*kiko|如何使用\s*kiko|kiko\s*怎么用|kiko\s*如何用|介绍一下\s*kiko|kiko\s*是什么|kiko\s*能做什么|你能做什么|我是新手|新手怎么开始/i;
+const PLATFORM_ONBOARDING_QUERY_RE = /\b(?:new here|how do i start|how to start|how do i use|how to use|get(?:ting)? started|intro(?:duction)? to kiko|about kiko|what is kiko|what can\b.{0,24}\bkiko\b|what can\b.{0,24}\byou\b.{0,24}\bkiko\b|what can kiko do|what can you do|who are you)\b|怎么使用\s*kiko|如何使用\s*kiko|kiko\s*怎么用|kiko\s*如何用|介绍一下\s*kiko|kiko\s*是什么|kiko\s*能做什么|你能做什么|我是新手|新手怎么开始/i;
 
 const SKILL_INTENT_MAP: Record<string, NormalizedIntent[]> = {
     welcome_onboarding: ['WELCOME'],

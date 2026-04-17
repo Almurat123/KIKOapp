@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-18
 // Author: Renata
 // Reason: canonical intent normalization was consuming Farcaster transport
 //         wrapper text and misclassifying literal token-address queries as
@@ -14,7 +14,9 @@
 //         review showed obvious non-chain questions like "量子纠缠是什么" should
 //         not enter canonical normalization at all. Clanker token launches now
 //         require a canonical deploy intent so routing, policy, and confirmation
-//         gates agree that a launch is a mutation workflow.
+//         gates agree that a launch is a mutation workflow. Product owner
+//         correction on 2026-04-18 made model-selected task routing the default,
+//         so deterministic bypass checks must recognize the new state marker.
 // Goal: feed normalization with the effective user query, sanitized recent
 //       user history, explicit address-type hints, and a fast normalization
 //       model so routing decisions reflect user intent instead of transport
@@ -37,6 +39,8 @@
 // - obvious non-chain turns should bypass normalization before any JSON routing prompt is built
 // - deploy/launch/create token requests through Clanker normalize as `clanker_deploy`
 //   with task_mode=execute or confirm instead of generic token analysis
+// - `model_selected_task_menu` is a runner-owned bypass marker; it must not be
+//   treated as a backend-selected canonical intent
 // Document Provenance:
 // - Source: Farcaster mention runtime logs for trace dd7b79f7-41fb-4147-8e38-44a3c4bfeff0
 // - Kind: runtime observation
@@ -74,6 +78,11 @@
 // - Retrieved: 2026-04-17
 // - Applied To: Clanker launch canonical intent prompt rules
 // - Verification: verified in code and targeted tests
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-model-selected-task-menu.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-18
+// - Applied To: deterministic normalization bypass recognition for model-selected task routing
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
@@ -83,6 +92,7 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-normalization-reasoning-runtime-surface.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-non-chain-normalization-bypass.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-model-selected-task-menu.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
@@ -310,7 +320,8 @@ export function buildNonChainNormalizationBypass(
 export function isDeterministicNormalizationBypassState(
     state: CanonicalIntentNormalizationState | null | undefined,
 ): boolean {
-    return state?.status === 'ok' && state?.bypassKind === 'general_non_chain';
+    return state?.status === 'ok'
+        && (state?.bypassKind === 'general_non_chain' || state?.bypassKind === 'model_selected_task_menu');
 }
 
 function buildDeterministicAssistantIntroIntent(snapshot: ChatContextSnapshot): CanonicalIntent | null {

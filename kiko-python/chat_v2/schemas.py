@@ -1,3 +1,28 @@
+"""Chat v2 API schemas."""
+
+# CONTEXT MEMORY
+# Updated: 2026-04-17
+# Author: Rowan
+# Reason: the chat v2 service needs an explicit context-contract field so the
+#         Python prompt orchestrator can mirror the Node-side lean prompt
+#         boundary instead of receiving an undifferentiated context blob.
+# Goal: keep chat v2 requests explicit about which context slices are required
+#       for the current turn while preserving backward-compatible optional
+#       context payloads.
+# Owns: request/response schemas for the Python chat_v2 service.
+# Does Not Own: routing policy, model selection, or persistence writes.
+# Design Language:
+# - context contracts are explicit input, not hidden prompt lore
+# - optional generic context may still be present for compatibility, but the
+#   contract must name the required slices for the turn
+# - schema growth should keep backward-compatible defaults
+# Document Provenance:
+# - Source: /Users/almurat/KiKo/system-journal/adr/2026-04-17-chat-v2-rewrite-plan.md
+# - Kind: repo doc
+# - Retrieved: 2026-04-17
+# - Applied To: explicit context contract on chat_v2 requests
+# - Verification: inferred from code and plan
+
 from datetime import datetime
 from typing import Any, Literal
 
@@ -33,6 +58,7 @@ class MessageSendRequest(BaseModel):
     accessToken: str | None = None
     appKey: str | None = None
     context: dict[str, Any] | None = None
+    contextContract: dict[str, Any] | None = None
 
 
 class FeedbackRequest(BaseModel):

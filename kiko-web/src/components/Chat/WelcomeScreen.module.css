@@ -1094,7 +1094,8 @@
  * Updated: 2026-04-17
  * Author: Rowan
  * Reason: The welcome shell now mirrors the live composer with a borderless
- *         inline model/reasoning selector pair and matching icon buttons.
+ *         inline model/reasoning selector pair and matching transparent icon
+ *         buttons instead of separate glass chips.
  * Goal: keep the first-paint prompt row visually light while preserving the
  *       same picker behavior, button footprints, and persisted model mapping.
  * Owns: welcome-shell input-row control spacing, borderless icon buttons,
@@ -1103,13 +1104,14 @@
  * Does Not Own: transcript rendering, streaming chunk styling, or persisted
  *       model policy.
  * Design Language:
-* - first-paint input-row actions should feel borderless and low-chrome
+ * - first-paint input-row actions should feel borderless and low-chrome
  * - keep enough horizontal breathing room so selected pills do not hug the
  *   row edges
-* - the add-image action stays neutral at rest and highlights only on hover
-* - model family and reasoning strength stay separate controls
-* - dropdowns may use soft depth but should avoid hard outlines
-* - do not reintroduce glass borders around routine welcome actions
+ * - the add-image action stays neutral at rest and highlights only on hover
+ * - icon buttons should stay transparent at rest and only pick up hover fill
+ * - model family and reasoning strength stay separate controls
+ * - dropdowns may use soft depth but should avoid hard outlines
+ * - do not reintroduce glass borders around routine welcome actions
  * Document Provenance:
  * - Source: user screenshot request showing a borderless model + reasoning row
  * - Kind: product doc
@@ -1279,6 +1281,9 @@
   padding: 0;
   border-radius: 50%;
   border: none;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   box-shadow: none;
@@ -1446,9 +1451,12 @@
 .light .uploadButton,
 .light .settingsButton {
   border: none !important;
+  background: transparent !important;
   color: #374151 !important;
   height: 32px !important;
   width: 32px !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   box-shadow: none !important;

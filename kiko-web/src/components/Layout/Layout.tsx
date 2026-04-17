@@ -16,6 +16,34 @@ import { useAgentMode } from '../../contexts/AgentModeContext';
 import { useOnboardingFlow } from '../../hooks/useOnboardingFlow';
 import { FarcasterFollowModal } from '../Chat/FarcasterFollowModal';
 
+// CONTEXT MEMORY
+// Updated: 2026-04-17
+// Author: Rowan
+// Reason: this layout now decides whether the sidebar may auto-refresh the
+//         quota summary. Token and other browse pages should not inherit chat
+//         usage refresh traffic just because the sidebar is visible.
+// Goal: keep chat quota reads scoped to chat surfaces while still letting the
+//       sidebar render on every route.
+// Owns: route-scoped sidebar policy and the prop that enables quota refreshes.
+// Does Not Own: quota computation, billing persistence, or sidebar rendering logic.
+// Design Language:
+// - chat quota summaries belong to chat surfaces, not global navigation
+// - non-chat routes must not auto-trigger authenticated usage-summary reads
+// - explicit refresh actions may still be user-owned
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-token-page-stray-read-rate-limit.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: route-scoped gating of sidebar usage-summary refreshes
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/owner-map/chat-usage-quota.md
+// - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
+// - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-token-page-read-burst-isolation.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
+
 interface SidebarContextType {
     onOpenSidebar: () => void;
     isSidebarOpen: boolean;
@@ -71,7 +99,8 @@ export const Layout: React.FC<LayoutProps> = ({
     const location = useLocation();
     const navigate = useNavigate();
 
-    const isChatActive = location.pathname === '/' || location.pathname.startsWith('/chat');
+    const isChatActive = location.pathname === '/' || location.pathname.startsWith('/chat/');
+    const usageSummaryEnabled = isChatActive;
     const handleBackToWelcome = useCallback(() => {
         setChatStarted(false);
         setOnBackHandler(null);
@@ -144,6 +173,7 @@ export const Layout: React.FC<LayoutProps> = ({
                     onConversationRename={onConversationRename}
                     onConversationDelete={onConversationDelete}
                     generatingConversationId={generatingConversationId}
+                    usageSummaryEnabled={usageSummaryEnabled}
                 />
 
                 <main className={styles.main}>

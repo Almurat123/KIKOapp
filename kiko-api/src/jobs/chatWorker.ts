@@ -17,7 +17,12 @@
 //         history images. Runtime transcripts later showed the direct welcome
 //         fast path was too broad: capability/skill/meta-debug questions could
 //         be replaced by a fixed product-intro macro instead of being answered
-//         by the selected skill and model.
+//         by the selected skill and model. The chat v2 rewrite now also needs
+//         a dedicated turn-runner owner so task lifecycle code does not keep
+//         owning normalization, skill resolution, direct follow-up execution,
+//         and orchestration retries. The rewrite now also needs an explicit
+//         runtime-mode switch above that runner so rollout and fallback policy
+//         live at the entry boundary instead of inside hidden worker branches.
 // Goal: keep the full agent loop for real work, but let deterministic
 //       bare greetings complete without invoking a slow provider model, while
 //       surfacing normalization reasoning through the normal assistant reasoning
@@ -25,9 +30,10 @@
 //       bypass canonical normalization entirely, while treating uploaded chat
 //       images as one-turn model inputs whose private objects can still back
 //       refreshed chat history.
-// Owns: worker-level task lifecycle, moderation gates, direct fast-lane
-//       completion decisions, orchestration handoff, and task-time image binding cleanup.
-// Does Not Own: provider streaming transport, frontend chunk animation, or skill prompt content.
+// Owns: worker-level task lifecycle, moderation gates, broker completion,
+//       persistence handoff, and task-time image binding cleanup.
+// Does Not Own: provider streaming transport, frontend chunk animation, skill
+//               prompt content, or the internal chat v2 turn pipeline.
 // Design Language:
 // - only bare greetings should use deterministic direct-response copy
 // - assistant capability, skill, and meta-debug questions must go through normal model generation
@@ -40,6 +46,8 @@
 // - uploaded chat images belong only to the current model turn, but sent image
 //   objects must remain available for refreshed chat-history previews
 // - worker cleanup removes task bindings, not durable sent image objects
+// - chat v2 turn execution belongs to a dedicated runner owner, not the worker shell
+// - runtime mode selection belongs above turn execution and must stay explicit
 // Document Provenance:
 // - Source: local runtime log trace 5be7a239-eda6-4ef7-a8ea-7fb4b1160de3
 // - Kind: runtime observation
@@ -77,9 +85,22 @@
 // - Retrieved: 2026-04-17
 // - Applied To: restricting the direct fast path to bare greetings only
 // - Verification: verified in code and targeted tests
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-worker-entry-boundary.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: moving chat v2 turn execution out of chatWorker and into a dedicated runner owner
+// - Verification: verified in code and targeted tests
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-runtime-mode-switch.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: explicit runtime-mode dispatch before chat turn execution
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/chat-direct-response-policy.md
+// - /Users/almurat/KiKo/system-journal/owner-map/chat-runtime-planning.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-worker-entry-boundary.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-runtime-mode-switch.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-direct-welcome-fast-path-hardcoded-reply-guard.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-direct-welcome-fast-path.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-stream-diagnostics.md
@@ -97,65 +118,26 @@ import { processClaimedTasks } from './chat/taskClaimRunner.js';
 import { toolRegistry } from '../tooling/registry.js';
 import { ensureToolRegistryInitialized } from '../tooling/bootstrap.js';
 import { assembleChatContext } from './chat/contextAssembler.js';
+import { runChatV2Turn } from './chat/chatV2TurnRunner.js';
+import { resolveChatRuntimeMode, runChatTurnByRuntimeMode } from './chat/chatRuntimeMode.js';
 import { ToolExecutionEngine } from './chat/toolExecutionEngine.js';
 import { ChatStreamBroker } from './chat/streamBroker.js';
 import { getToolStatusMessage, persistBillingUsage } from './chat/legacyCompat.js';
-import { executeDirectTradeFollowup } from './chat/tradeFollowupExecutor.js';
-import { maybeExecuteFastSwap } from './chat/fastSwapCoordinator.js';
 import cacheClient from '../cache/cacheClient.js';
 import { PythonGenerationClient } from './chat/pythonGenerationClient.js';
-import { runNodeOrchestration } from './chat/nodeOrchestrator.js';
-import { parseTradingIntent } from './chat/tradingIntentResolver.js';
-import { resolveNodeSkills, type SkillResolution } from './chat/nodeSkillResolver.js';
-import { buildTaskPlanningContext, buildWarmupPlan, materializePlanCard } from './chat/taskPlanner.js';
-import { buildControlPolicySnapshot } from './chat/controlPolicy.js';
-import {
-    buildNonChainNormalizationBypass,
-    isDeterministicNormalizationBypassState,
-    normalizeCanonicalIntent,
-} from './chat/canonicalIntentNormalizer.js';
-import { buildCanonicalIntentClarification } from './chat/canonicalIntent.js';
-import { applyConversationActionState } from './chat/conversationStateResolver.js';
-import { resolveRuntimeDirectives } from './chat/runtimeDirectiveResolver.js';
+import { buildWarmupPlan } from './chat/taskPlanner.js';
 import { enrichRequestedAddressClassifications } from './chat/addressEntityClassifier.js';
 import { getWalletBalance } from '../services/alchemy.js';
 import { walletService } from '../services/walletService.js';
 import { ethers } from 'ethers';
-import { isExplicitChainSwitchRequest } from './chat/chainIntent.js';
-import { logChatStreamDebug } from '../services/chatStreamDebug.js';
 import { cleanupTaskChatImageUploads, loadTaskChatImageInputs } from '../services/chatImageUploads.js';
 
 type AITask = Awaited<ReturnType<typeof chatRepo.getTask>>;
-
-const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on', 'debug']);
-const FALSE_VALUES = new Set(['0', 'false', 'no', 'off']);
-const BARE_DIRECT_GREETING_RE = /^\s*(?:hi|hello|hey|yo|gm|gn|good\s+(?:morning|afternoon|evening)|你好|您好|嗨|哈喽)\s*[?？!！.。,，]*\s*$/i;
 
 export function isEmptyAssistantCompletion(
     content: string,
 ): boolean {
     return String(content || '').trim().length === 0;
-}
-
-function readBooleanFlag(value: unknown): boolean | null {
-    const normalized = String(value ?? '').trim().toLowerCase();
-    if (!normalized) return null;
-    if (TRUE_VALUES.has(normalized)) return true;
-    if (FALSE_VALUES.has(normalized)) return false;
-    return null;
-}
-
-function shouldExposeNormalizationReasoning(): boolean {
-    const override = readBooleanFlag(process.env.CHAT_EXPOSE_NORMALIZATION_REASONING);
-    if (override !== null) return override;
-    return true;
-}
-
-function buildNormalizationReasoningPreamble(query: string): string {
-    const isZh = /[\u3400-\u9fff]/.test(String(query || ''));
-    return isZh
-        ? '请求分析中:\n'
-        : 'Analyzing the request:\n';
 }
 
 function mergeRuntimeSocialInput(
@@ -313,111 +295,41 @@ export class ChatWorker {
                 requestedAddresses: snapshot.requestedTokenAddresses.length,
                 requestedAddressClassifications: snapshot.requestedAddressClassifications,
             });
-            const exposeNormalizationReasoning = shouldExposeNormalizationReasoning();
-            let normalizationReasoningStarted = false;
-            let streamedNormalizationReasoningLength = 0;
-            const preNormalizationTradingIntent = parseTradingIntent(snapshot.lastUserMessage, snapshot, null);
-            const pushNormalizationReasoningDebug = async (text: string) => {
-                if (!broker || !exposeNormalizationReasoning || !text) return;
-                if (!normalizationReasoningStarted) {
-                    normalizationReasoningStarted = true;
-                    await broker.pushReasoning(buildNormalizationReasoningPreamble(snapshot.lastUserMessage));
-                }
-                streamedNormalizationReasoningLength += text.length;
-                await broker.pushReasoning(text);
-            };
-            const deterministicBypass = buildNonChainNormalizationBypass(snapshot, preNormalizationTradingIntent);
-            if (deterministicBypass) {
-                logger.info(LogCode.AI_ORCHESTRATOR, 'ChatWorker: skipped canonical normalization for deterministic non-chain turn', {
-                    taskId: task.id,
-                    sessionId: task.sessionId,
-                    bypassKind: deterministicBypass.state.bypassKind,
-                    model: task.model,
-                });
-                snapshot = applyConversationActionState(deterministicBypass.snapshot);
-            } else {
-                const normalization = await normalizeCanonicalIntent({
-                    snapshot,
-                    generationClient: this.generationClient,
-                    shouldCancel: async () => this.checkTaskCancelled(task.id),
-                    onReasoningDelta: pushNormalizationReasoningDebug,
-                });
-                snapshot = applyConversationActionState(normalization.snapshot);
-            }
-            const finalNormalizationReasoning = String(snapshot.normalizationState?.reasoningText || '');
-            if (exposeNormalizationReasoning && finalNormalizationReasoning.length > streamedNormalizationReasoningLength) {
-                if (!normalizationReasoningStarted) {
-                    normalizationReasoningStarted = true;
-                    await broker.pushReasoning(buildNormalizationReasoningPreamble(snapshot.lastUserMessage));
-                }
-                await broker.pushReasoning(finalNormalizationReasoning.slice(streamedNormalizationReasoningLength));
-            }
-            snapshot.runtime.systemDirectives = resolveRuntimeDirectives({
-                task,
-                lastUserMessage: snapshot.lastUserMessage,
-                confirmationState: snapshot.confirmationState,
+            const runtimeMode = resolveChatRuntimeMode();
+            logger.info(LogCode.AI_ORCHESTRATOR, 'ChatWorker: resolved runtime mode', {
+                taskId: task.id,
+                sessionId: task.sessionId,
+                runtimeMode,
             });
-            if (!snapshot.normalizedIntent && !isDeterministicNormalizationBypassState(snapshot.normalizationState)) {
-                await broker.pushText(buildCanonicalIntentClarification({
-                    snapshot,
-                    reasonCode: snapshot.normalizationState?.reasonCode,
-                }));
-                await persistBillingUsage({
-                    assistantMessageId: task.assistantMessageId!,
-                    userId,
-                    model: task.model,
-                    usage: broker.getUsage(),
-                    toolContext: task.toolContext,
-                    toolCallNames: broker.getToolResults().map((item) => item.name),
-                });
-                await this.repo.updateTaskStatus(task.id, 'done');
-                this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'done' });
-                return;
-            }
-            const tradingIntent = snapshot.normalizedIntent
-                ? parseTradingIntent(snapshot.lastUserMessage, snapshot, snapshot.normalizedIntent)
-                : preNormalizationTradingIntent;
-            const skillResolution = resolveNodeSkills(snapshot, tradingIntent, snapshot.normalizedIntent);
-            snapshot.policySnapshot = buildControlPolicySnapshot({
-                snapshot,
-                tradingIntent,
-                skillResolution,
-            });
-            const fastDirectAssistantResponse = buildFastDirectAssistantResponse(snapshot, skillResolution);
-            if (!fastDirectAssistantResponse) {
-                await broker.applyModelPlan(materializePlanCard(buildTaskPlanningContext(snapshot, skillResolution)));
-            }
-
-            if (!isExplicitChainSwitchRequest(lastUserMessage, snapshot.normalizedIntent)) {
-                const directFollowup = await executeDirectTradeFollowup({
-                    snapshot,
-                    task,
-                    userId,
-                    broker,
-                    toolExecutionEngine: this.toolExecutionEngine,
-                });
-                if (directFollowup.handled) {
-                    await persistBillingUsage({
-                        assistantMessageId: task.assistantMessageId!,
-                        userId,
-                        model: task.model,
-                        usage: broker.getUsage(),
-                        toolContext: task.toolContext,
-                        toolCallNames: broker.getToolResults().map((item) => item.name),
-                    });
-                    await this.repo.updateTaskStatus(task.id, 'done');
-                    this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'done' });
-                    return;
-                }
-            }
-
-            const fastSwapResult = await maybeExecuteFastSwap({
+            const turnResult = await runChatTurnByRuntimeMode({
                 snapshot,
                 task,
                 userId,
                 broker,
+                generationClient: this.generationClient,
+                toolExecutionEngine: this.toolExecutionEngine,
+                toolContext: task.toolContext || {},
+                runtimeMode,
+                shouldCancel: async () => this.checkTaskCancelled(task.id),
+                updateSessionConversationState: async (state) => {
+                    await this.repo.updateSessionConversationState(task.sessionId, state);
+                },
+                shouldRecoverFromStalePreviousResponse: (error, model, previousResponseId) => (
+                    this.shouldRecoverFromStalePreviousResponse(error, model, previousResponseId)
+                ),
+                isSuspiciousProviderResponseId: (value) => this.isSuspiciousProviderResponseId(value),
+                onToolStatus: async (toolName) => {
+                    this.broadcastTaskStatus(userId, task, {
+                        taskId: task.id,
+                        status: 'running',
+                        message: getToolStatusMessage(toolName),
+                    });
+                },
+            }, {
+                runChatV2Turn,
             });
-            if (fastSwapResult.handled) {
+            snapshot = turnResult.snapshot;
+            if (turnResult.terminal) {
                 await persistBillingUsage({
                     assistantMessageId: task.assistantMessageId!,
                     userId,
@@ -429,81 +341,6 @@ export class ChatWorker {
                 await this.repo.updateTaskStatus(task.id, 'done');
                 this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'done' });
                 return;
-            }
-
-            if (fastDirectAssistantResponse) {
-                logger.info(LogCode.AI_ORCHESTRATOR, 'ChatWorker: direct assistant intro fast path', {
-                    taskId: task.id,
-                    sessionId: task.sessionId,
-                    model: task.model,
-                });
-                await streamDirectAssistantFastPathResponse(broker, fastDirectAssistantResponse, {
-                    taskId: task.id,
-                    sessionId: task.sessionId,
-                    assistantMessageId: task.assistantMessageId!,
-                    model: task.model,
-                });
-            } else {
-                let orchestrationRetried = false;
-                while (true) {
-                    try {
-                        await runNodeOrchestration({
-                            snapshot,
-                            generationClient: this.generationClient,
-                            toolExecutionEngine: this.toolExecutionEngine,
-                            broker,
-                            toolContext: {
-                                ...(task.toolContext || {}),
-                                prefetchedToolResults: snapshot.runtime.prefetchedToolResults || {},
-                                recentToolTrace: snapshot.recentToolTrace,
-                                __controlPolicy: snapshot.policySnapshot,
-                                __snapshot: snapshot,
-                            },
-                            shouldCancel: async () => this.checkTaskCancelled(task.id),
-                            onProviderState: async (state) => {
-                                if (state.previousResponseId) {
-                                    if (this.isSuspiciousProviderResponseId(state.previousResponseId)) {
-                                        logger.warn(LogCode.AI_ORCHESTRATOR, 'ChatWorker: skip suspicious provider response id', {
-                                            taskId: task.id,
-                                            sessionId: task.sessionId,
-                                            previousResponseId: state.previousResponseId,
-                                        });
-                                        return;
-                                    }
-                                    await this.repo.updateSessionConversationState(task.sessionId, {
-                                        lastResponseId: state.previousResponseId,
-                                    });
-                                }
-                            },
-                            onToolStatus: async (toolName) => {
-                                this.broadcastTaskStatus(userId, task, {
-                                    taskId: task.id,
-                                    status: 'running',
-                                    message: getToolStatusMessage(toolName),
-                                });
-                            },
-                        });
-                        break;
-                    } catch (orchestrationError: any) {
-                        if (
-                            !orchestrationRetried
-                            && broker.getContent().trim().length === 0
-                            && broker.getToolResults().length === 0
-                            && this.shouldRecoverFromStalePreviousResponse(orchestrationError, snapshot.model, snapshot.previousResponseId)
-                        ) {
-                            orchestrationRetried = true;
-                            logger.warn(LogCode.AI_ORCHESTRATOR, 'ChatWorker: stale previous_response_id detected, retrying without it', {
-                                taskId: task.id,
-                                sessionId: task.sessionId,
-                                previousResponseId: snapshot.previousResponseId,
-                            });
-                            snapshot.previousResponseId = null;
-                            await this.repo.updateSessionConversationState(task.sessionId, { lastResponseId: null });
-                            continue;
-                        }
-                        throw orchestrationError;
-                    }
-                }
             }
             logger.info(LogCode.AI_ORCHESTRATOR, 'ChatWorker: generation loop finished', {
                 taskId: task.id,
@@ -812,89 +649,5 @@ function buildOutputModerationErrorMessage(moderated: { verification?: any }): s
     return 'Assistant output blocked by moderation';
 }
 
-export function buildFastDirectAssistantResponse(
-    snapshot: { lastUserMessage?: string; normalizedIntent?: any },
-    skillResolution: SkillResolution,
-): string | null {
-    if (!skillResolution.querySignals.welcome) return null;
-    const normalizedIntent = snapshot.normalizedIntent;
-    if (normalizedIntent?.requiresRealtime || normalizedIntent?.requiresOnchainEvidence || normalizedIntent?.executionCandidate) {
-        return null;
-    }
-
-    const query = String(snapshot.lastUserMessage || '').trim();
-    if (!BARE_DIRECT_GREETING_RE.test(query)) return null;
-    if (/\b0x[a-fA-F0-9]{40}\b/.test(query)) return null;
-    if (/\b(pnl|balance|portfolio|wallet|token|swap|buy|sell|trade|copy\s*trade|risk|price|chart)\b/i.test(query)) {
-        return null;
-    }
-    if (/钱包|余额|收益|盈利|代币|买|卖|换币|交易|跟单|风险|价格|图表/.test(query)) {
-        return null;
-    }
-
-    const isZh = /[\u3400-\u9fff]/.test(query);
-    if (isZh) {
-        return '我是 KiKo，你的链上交易 Agent。可以查钱包 PnL、分析代币和风险、看市场线索，也能在连接钱包后帮你换币或配置跟单。发钱包、代币或交易问题就行。';
-    }
-
-    return "Hi, I'm KiKo, your on-chain trading agent. I can check wallet PnL, analyze tokens and risk, find market context, and help with swaps or copy-trade setup when your wallet is connected. Send a wallet, token, or trade question.";
-}
-
-async function streamDirectAssistantFastPathResponse(
-    broker: ChatStreamBroker,
-    text: string,
-    context: {
-        taskId: string;
-        sessionId: string;
-        assistantMessageId: string;
-        model: string;
-    },
-) {
-    const chunks = splitFastPathResponseIntoChunks(text);
-    const delayMs = Math.max(0, Math.min(120, parseInt(process.env.CHAT_FAST_PATH_CHUNK_DELAY_MS || '55', 10) || 55));
-    logChatStreamDebug(LogCode.AI_ORCHESTRATOR, 'ChatWorker: direct fast-path streaming started', {
-        ...context,
-        chunkCount: chunks.length,
-        totalLength: text.length,
-        delayMs,
-    });
-    for (let index = 0; index < chunks.length; index += 1) {
-        const chunk = chunks[index];
-        await broker.pushText(chunk);
-        logChatStreamDebug(LogCode.AI_ORCHESTRATOR, 'ChatWorker: direct fast-path chunk pushed', {
-            ...context,
-            chunkIndex: index + 1,
-            chunkCount: chunks.length,
-            deltaLength: chunk.length,
-        });
-        if (delayMs > 0 && index < chunks.length - 1) {
-            await wait(delayMs);
-        }
-    }
-}
-
-function splitFastPathResponseIntoChunks(text: string): string[] {
-    const value = String(text || '');
-    if (!value) return [];
-    const targetLength = Math.max(8, Math.min(32, parseInt(process.env.CHAT_FAST_PATH_CHUNK_SIZE || '14', 10) || 14));
-    const pieces = /\s/.test(value)
-        ? (value.match(/\S+\s*/g) || [value])
-        : Array.from(value);
-    const chunks: string[] = [];
-    let current = '';
-    for (const piece of pieces) {
-        current += piece;
-        if (current.length >= targetLength) {
-            chunks.push(current);
-            current = '';
-        }
-    }
-    if (current) chunks.push(current);
-    return chunks.length > 0 ? chunks : [value];
-}
-
-function wait(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 export const chatWorker = new ChatWorker();
+export { buildFastDirectAssistantResponse } from './chat/chatV2TurnRunner.js';

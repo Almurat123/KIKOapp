@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-17
 // Author: Rowan
 // Reason: Node orchestration now needs to persist reasoning content for
 //         NVIDIA-hosted GLM and Kimi reasoning models using the same internal
@@ -9,7 +9,9 @@
 //         been a direct response. A later runtime review showed obvious
 //         non-chain turns should not be forced back into canonical
 //         normalization after the worker already classified them as deterministic
-//         bypasses.
+//         bypasses. Chat v2 now also needs deterministic required-context
+//         enforcement so the model cannot skip wallet/workflow/skill context
+//         reads after the resolver declared them mandatory for the turn.
 // Goal: keep the broker/runtime reasoning stream and stored assistant messages
 //       consistent across reasoning-capable providers without changing the
 //       downstream message schema, while avoiding unnecessary plan-model work
@@ -24,6 +26,8 @@
 // - removed provider brands must not remain hard-coded in orchestration gates
 // - direct onboarding/meta turns should not trigger extra hidden plan-model latency
 // - worker-approved deterministic non-chain bypasses must not be re-normalized here
+// - required context is a runtime contract and may force another round before a final answer
+// - production debugging needs one safe Railway-visible trace summary per AI turn
 // Document Provenance:
 // - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
 // - Kind: official API doc
@@ -40,17 +44,30 @@
 // - Retrieved: 2026-04-16
 // - Applied To: respecting deterministic non-chain normalization bypass in orchestration
 // - Verification: verified in runtime and applied in code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-context-read-tools.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: required-context enforcement and runtime handoff for chat v2 context-read tools
+// - Verification: verified in code and targeted tests
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-ai-trace-logging.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: one-line per-turn orchestration trace summaries for Railway logs
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-direct-answer-tool-pruning.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-non-chain-normalization-bypass.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-context-read-tools.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-ai-trace-logging.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { containsPseudoToolCallOutput, stripPseudoToolCallOutput } from '../../services/ai/promptLeakSanitizer.js';
-import type { ChatContextSnapshot, ProviderNativeEvidenceSnapshot } from './contracts.js';
+import type { ChatContextContract, ChatContextSnapshot, ProviderNativeEvidenceSnapshot } from './contracts.js';
+import { CONTEXT_READ_TOOL_BY_BLOCK } from './contextReadTools.js';
 import { buildProviderOptions, normalizeOpenAIReasoningEffort, resolveProviderInfo } from './providerPolicyBuilder.js';
 import { resolveNodeSkills } from './nodeSkillResolver.js';
 import { assembleGenerationMessages, buildRoundToolPolicySystemMessage, sanitizeProviderHistory, type GenerationMessage } from './nodePromptAssembler.js';
@@ -77,6 +94,7 @@ import {
 import { buildCanonicalIntentClarification, type CanonicalIntent } from './canonicalIntent.js';
 import { applyConversationActionState } from './conversationStateResolver.js';
 import { tryBuildFastLaneSwapIntent, tryRunFastSwapLane } from './swapFastLane.js';
+import { ChatAiTraceLogger } from './chatAiTraceLogger.js';
 
 const CHAIN_EVIDENCE_TOOLS = new Set([
     'get_token_info',
@@ -118,6 +136,8 @@ export async function runNodeOrchestration(params: {
     onProviderState?: (state: GenerationProviderState) => Promise<void> | void;
 }) {
     const providerInfo = resolveProviderInfo(params.snapshot.model);
+    const chatAiTrace = new ChatAiTraceLogger(params.snapshot, providerInfo.provider);
+    try {
     await params.broker.bootstrapRuntime(buildWarmupPlan(params.snapshot.lastUserMessage));
     let normalizedSnapshot = tryBuildFastLaneSwapIntent(params.snapshot).snapshot;
     const preNormalizationTradingIntent = parseTradingIntent(
@@ -151,6 +171,8 @@ export async function runNodeOrchestration(params: {
             snapshot: normalizedSnapshot,
             reasonCode: normalizedSnapshot.normalizationState?.reasonCode,
         }));
+        chatAiTrace.markTerminal('canonical_intent_clarification');
+        chatAiTrace.emit();
         return;
     }
     if (
@@ -158,6 +180,8 @@ export async function runNodeOrchestration(params: {
         && normalizedSnapshot.normalizedIntent.clarificationQuestion
     ) {
         await params.broker.pushText(normalizedSnapshot.normalizedIntent.clarificationQuestion);
+        chatAiTrace.markTerminal('normalized_intent_clarification');
+        chatAiTrace.emit();
         return;
     }
     const tradingIntent = normalizedSnapshot.normalizedIntent
@@ -179,9 +203,12 @@ export async function runNodeOrchestration(params: {
         userId: normalizedSnapshot.runtime.userId || null,
         toolExecutionEngine: params.toolExecutionEngine,
     })) {
+        chatAiTrace.markTerminal('fast_swap_lane');
+        chatAiTrace.emit();
         return;
     }
     const skillResolution = resolveNodeSkills(normalizedSnapshot, tradingIntent, normalizedSnapshot.normalizedIntent);
+    chatAiTrace.recordSkillResolution(skillResolution);
     const strictPolicy = params.snapshot.policySnapshot?.enforcementLevel === 'hard';
     params.snapshot = normalizedSnapshot;
     const effectiveAllowedTools = strictPolicy && params.snapshot.policySnapshot
@@ -229,7 +256,14 @@ export async function runNodeOrchestration(params: {
     let forceBufferedVisibleOutput = false;
     let truncationContinuationCount = 0;
     let visibleFinalAnswerText = '';
+    let requiredContextEnforcementCount = 0;
     const isReadOnlyTask = (params.snapshot.policySnapshot?.actionClass || 'READ_ONLY') === 'READ_ONLY';
+
+    updateChatContextRuntime(params.toolContext, {
+        executionPlan: plan,
+        skillPrompts: skillResolution.skillPrompts,
+        providerNativeEvidence,
+    });
 
     const messages: GenerationMessage[] = assembleGenerationMessages(
         params.snapshot,
@@ -245,6 +279,7 @@ export async function runNodeOrchestration(params: {
             searchReason: skillResolution.searchReason,
             toolPhase: currentPhase,
             intentEnvelope: skillResolution.intentEnvelope,
+            contextContract: skillResolution.contextContract,
             providerNativeEvidence,
         },
     );
@@ -324,6 +359,7 @@ export async function runNodeOrchestration(params: {
             searchReason: skillResolution.searchReason,
             toolPhase: effectivePhase,
             intentEnvelope: skillResolution.intentEnvelope,
+            contextContract: skillResolution.contextContract,
             providerNativeEvidence,
         });
         const roundPolicyContent = typeof roundPolicyMessage?.content === 'string'
@@ -361,6 +397,13 @@ export async function runNodeOrchestration(params: {
                 providerInfo.provider,
                 effectivePhase,
             );
+        chatAiTrace.recordRoundStart({
+            round,
+            phase: effectivePhase,
+            toolCount: roundTools.length,
+            allowedTools: phaseAllowedTools,
+            forcedFinalAnswer: forceAnswerFromEvidence,
+        });
         const roundProviderOptions = forceAnswerFromEvidence
             ? buildEvidenceOnlyProviderOptions(params.snapshot, providerInfo, {
                 previousResponseId,
@@ -382,6 +425,11 @@ export async function runNodeOrchestration(params: {
                     previousResponseId,
                 },
             );
+        updateChatContextRuntime(params.toolContext, {
+            executionPlan: plan,
+            skillPrompts: skillResolution.skillPrompts,
+            providerNativeEvidence,
+        });
         const roundPreviousResponseId = typeof (roundProviderOptions as any)?.previous_response_id === 'string'
             ? String((roundProviderOptions as any).previous_response_id)
             : '';
@@ -502,6 +550,15 @@ export async function runNodeOrchestration(params: {
                 reasoning: cleanedReasoning,
             };
         }
+        chatAiTrace.recordGenerationResult({
+            round,
+            textLength: String(roundResult.text || '').length,
+            reasoningLength: String(roundResult.reasoning || '').length,
+            toolCalls: roundResult.toolCalls || [],
+            citationCount: Array.isArray(roundResult.citations) ? roundResult.citations.length : 0,
+            finishReason: roundResult.providerState?.finishReason,
+            bufferedVisibleOutput: Boolean(roundResult.bufferedVisibleOutput),
+        });
 
         if (roundResult.toolCalls.length === 0) {
             const hasUserFacingText = (roundResult.text || '').trim().length > 0;
@@ -512,6 +569,30 @@ export async function runNodeOrchestration(params: {
                         ? '模型没有返回可见的最终回答'
                         : 'The model returned no visible final answer',
                 );
+            }
+            const missingRequiredContextTools = resolveMissingRequiredContextTools(
+                skillResolution.contextContract,
+                toolUsageCount,
+                knownToolNames,
+            );
+            if (
+                shouldEnforceRequiredContextReads(skillResolution.contextContract)
+                && missingRequiredContextTools.length > 0
+                && requiredContextEnforcementCount < 2
+                && !forceAnswerFromEvidence
+            ) {
+                requiredContextEnforcementCount += 1;
+                chatAiTrace.recordRequiredContextEnforcement(round, missingRequiredContextTools);
+                messages.push({
+                    role: 'system',
+                    content: buildRequiredContextReadInstruction(missingRequiredContextTools, planning.locale),
+                });
+                await params.broker.markPlanPhase(
+                    planning.locale === 'zh'
+                        ? '正在补充本轮必需上下文'
+                        : 'Reading the required context for this turn',
+                );
+                continue;
             }
             if (
                 shouldContinueTruncatedProviderAnswer(roundResult.providerState, providerInfo.provider)
@@ -560,6 +641,7 @@ export async function runNodeOrchestration(params: {
                 round,
                 contentLength: roundResult.text.length,
             });
+            chatAiTrace.emit({ finalRound: round, finalReason: 'direct_model_answer' });
             return;
         }
 
@@ -604,6 +686,7 @@ export async function runNodeOrchestration(params: {
                 providerNativeEvidence.push(evidenceSnapshot);
                 await params.broker.recordProviderNativeEvidence?.(evidenceSnapshot);
             }
+            chatAiTrace.recordProviderNativeToolRound(round, normalizedToolCalls, Boolean(evidenceSnapshot));
 
             if (effectivePhase === 'native_search_only') {
                 if (evidenceSnapshot && skillResolution.toolPhasePolicy.nextPhaseAfterNativeSearch) {
@@ -617,6 +700,30 @@ export async function runNodeOrchestration(params: {
                     continue;
                 }
                 if (evidenceSnapshot && (roundResult.text || '').trim().length > 0) {
+                    const missingRequiredContextTools = resolveMissingRequiredContextTools(
+                        skillResolution.contextContract,
+                        toolUsageCount,
+                        knownToolNames,
+                    );
+                    if (
+                        shouldEnforceRequiredContextReads(skillResolution.contextContract)
+                        && missingRequiredContextTools.length > 0
+                        && requiredContextEnforcementCount < 2
+                        && !forceAnswerFromEvidence
+                    ) {
+                        requiredContextEnforcementCount += 1;
+                        chatAiTrace.recordRequiredContextEnforcement(round, missingRequiredContextTools);
+                        messages.push({
+                            role: 'system',
+                            content: buildRequiredContextReadInstruction(missingRequiredContextTools, planning.locale),
+                        });
+                        await params.broker.markPlanPhase(
+                            planning.locale === 'zh'
+                                ? '正在补充本轮必需上下文'
+                                : 'Reading the required context for this turn',
+                        );
+                        continue;
+                    }
                     const summaryStep = buildSummaryPlanStep(params.snapshot.lastUserMessage);
                     await params.broker.markAnswerStarted(summaryStep);
                     await params.broker.markPlanPhase(
@@ -642,6 +749,7 @@ export async function runNodeOrchestration(params: {
                         round,
                         contentLength: roundResult.text.length,
                     });
+                    chatAiTrace.emit({ finalRound: round, finalReason: 'provider_native_search_answer' });
                     return;
                 }
                 messages.push({
@@ -654,6 +762,30 @@ export async function runNodeOrchestration(params: {
             }
 
             if ((roundResult.text || '').trim().length > 0) {
+                const missingRequiredContextTools = resolveMissingRequiredContextTools(
+                    skillResolution.contextContract,
+                    toolUsageCount,
+                    knownToolNames,
+                );
+                if (
+                    shouldEnforceRequiredContextReads(skillResolution.contextContract)
+                    && missingRequiredContextTools.length > 0
+                    && requiredContextEnforcementCount < 2
+                    && !forceAnswerFromEvidence
+                ) {
+                    requiredContextEnforcementCount += 1;
+                    chatAiTrace.recordRequiredContextEnforcement(round, missingRequiredContextTools);
+                    messages.push({
+                        role: 'system',
+                        content: buildRequiredContextReadInstruction(missingRequiredContextTools, planning.locale),
+                    });
+                    await params.broker.markPlanPhase(
+                        planning.locale === 'zh'
+                            ? '正在补充本轮必需上下文'
+                            : 'Reading the required context for this turn',
+                    );
+                    continue;
+                }
                 const summaryStep = buildSummaryPlanStep(params.snapshot.lastUserMessage);
                 await params.broker.markAnswerStarted(summaryStep);
                 await params.broker.setRuntimeState?.(undefined);
@@ -680,6 +812,7 @@ export async function runNodeOrchestration(params: {
                     round,
                     contentLength: roundResult.text.length,
                 });
+                chatAiTrace.emit({ finalRound: round, finalReason: 'provider_managed_tool_answer' });
                 return;
             }
 
@@ -739,6 +872,7 @@ export async function runNodeOrchestration(params: {
                 params.snapshot,
             );
             if (polymarketOrderGuard) {
+                chatAiTrace.recordToolResult(round, polymarketOrderGuard);
                 await params.broker.recordToolResult(polymarketOrderGuard);
                 messages.push({
                     role: 'tool',
@@ -800,6 +934,7 @@ export async function runNodeOrchestration(params: {
                 if (isReadOnlyTask) {
                     shouldForceAnswerAfterRound = true;
                 }
+                chatAiTrace.recordToolResult(round, budgetResult as any, { cached: Boolean(cached) });
                 await params.broker.recordToolResult(budgetResult as any);
                 messages.push({
                     role: 'tool',
@@ -862,6 +997,7 @@ export async function runNodeOrchestration(params: {
                     metadata: result.metadata,
                 });
             }
+            chatAiTrace.recordToolResult(round, result, { cached: Boolean(cached) });
             await params.broker.recordToolResult(result);
             messages.push({
                 role: 'tool',
@@ -888,10 +1024,66 @@ export async function runNodeOrchestration(params: {
     }
 
     throw new Error('Max orchestration rounds exceeded');
+    } catch (error) {
+        chatAiTrace.markFailed(error);
+        chatAiTrace.emit();
+        throw error;
+    }
 }
 
 function buildToolCallKey(name: string, args: Record<string, any>): string {
     return `${name}:${stableStringify(args || {})}`;
+}
+
+function updateChatContextRuntime(
+    toolContext: Record<string, any>,
+    runtime: {
+        executionPlan: any;
+        skillPrompts: string[];
+        providerNativeEvidence: ProviderNativeEvidenceSnapshot[];
+    },
+) {
+    toolContext.__chatContextRuntime = {
+        executionPlan: runtime.executionPlan || null,
+        skillPrompts: Array.isArray(runtime.skillPrompts) ? runtime.skillPrompts : [],
+        providerNativeEvidence: Array.isArray(runtime.providerNativeEvidence) ? runtime.providerNativeEvidence : [],
+    };
+}
+
+function resolveMissingRequiredContextTools(
+    contextContract: ChatContextContract | null | undefined,
+    toolUsageCount: Map<string, number>,
+    knownToolNames: Set<string>,
+): string[] {
+    const requiredContexts = contextContract?.requiredContexts || [];
+    return Array.from(new Set(
+        requiredContexts
+            .map((contextName) => CONTEXT_READ_TOOL_BY_BLOCK[contextName])
+            .filter((toolName): toolName is string => typeof toolName === 'string' && knownToolNames.has(toolName))
+            .filter((toolName) => (toolUsageCount.get(toolName) || 0) === 0),
+    ));
+}
+
+function shouldEnforceRequiredContextReads(contextContract: ChatContextContract | null | undefined): boolean {
+    const contract = contextContract || null;
+    if (!contract) return false;
+    if (contract.mode === 'execution' || contract.mode === 'debug') {
+        return true;
+    }
+    const highRiskContexts = new Set<ChatContextContract['requiredContexts'][number]>([
+        'user_settings',
+        'wallet_state',
+        'token_context',
+        'launchpad_context',
+    ]);
+    return (contract.requiredContexts || []).some((contextName) => highRiskContexts.has(contextName));
+}
+
+function buildRequiredContextReadInstruction(missingToolNames: string[], locale: 'en' | 'zh'): string {
+    if (locale === 'zh') {
+        return `你还没有读取本轮必需上下文。先调用这些 read_* 工具补齐缺失上下文，再继续最终回答：${missingToolNames.join(', ')}。不要跳过。`;
+    }
+    return `You have not read the required context for this turn yet. Call these read_* tools first, then continue the final answer: ${missingToolNames.join(', ')}. Do not skip them.`;
 }
 
 function buildEvidenceOnlyAnswerInstruction(locale: 'en' | 'zh'): string {

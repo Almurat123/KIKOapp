@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-18
 // Author: Rowan
 // Reason: Farcaster agent replies need a surface-specific system prompt so the
 //         model recognizes the conversation as a social-agent mode instead of a
@@ -12,6 +12,12 @@
 //         contaminating replayed text history. Runtime plan labels were later
 //         found to leak into model-visible prompt context as user-facing
 //         phrases, encouraging "I will..." and step-name narration in answers.
+//         Product owner correction on 2026-04-18 clarified that task/intent
+//         selection must be model-owned: backend hints may gate tools and
+//         required context, but the model-visible prompt must present a task
+//         menu instead of a preselected backend intent. A follow-up correction
+//         clarified the menu is multi-select: one user request may combine
+//         several task modes and should not be collapsed into one intent.
 // Goal: keep generation messages explicit about surface mode, especially for
 //       Farcaster agent turns where short, direct replies are the default, keep
 //       reasoning traces out of replayed assistant history, and assemble
@@ -20,6 +26,8 @@
 //       as user-facing copy the model can quote.
 // Owns: generation-message assembly, current-turn multimodal content shaping,
 //       and surface-specific prompt overlays.
+//       Expose a model-selected task menu while keeping backend context
+//       contracts as safety/read gates rather than task conclusions.
 // Does Not Own: model provider selection, runtime directive derivation, or cast publication.
 // Design Language:
 // - surface mode belongs in the system prompt, not only in downstream formatting
@@ -32,6 +40,13 @@
 // - NVIDIA GLM stays text-only until its active endpoint documents image input
 // - runtime plan state may guide tool routing, but its titles and summaries are not answer content
 // - never expose "I will..." plan summaries or localized step labels inside generation prompt blocks
+// - ordinary direct-answer turns should stay lean and must not inherit wallet/token/workflow skill blocks by default
+// - chat v2 must expose a context catalog plus a required-context contract, instead of dumping every cached block into the prompt
+// - user settings should reach the model through one normalized contract, not extra execution-mode prose
+// - context catalog wording should name worker data contracts, not vague summaries
+// - task selection belongs to the model; backend context contracts are gates, not user-task verdicts
+// - task selection may be multi-mode; preserve primary and supporting tasks instead of forcing one intent
+// - prompt text must not say or imply that canonical intent already chose the answer path
 // Document Provenance:
 // - Source: Neynar/Farcaster cast writing docs and runtime screenshots of
 //           report-style public replies
@@ -68,6 +83,36 @@
 // - Retrieved: 2026-04-17
 // - Applied To: replacing model-visible execution-plan prose with structural runtime state only
 // - Verification: verified in code and targeted tests
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-lean-chat-context-exposure.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: narrowing direct-answer prompt exposure so lean turns do not inherit unrelated tool/context blocks
+// - Verification: verified in code and targeted tests
+// - Source: /Users/almurat/KiKo/system-journal/adr/2026-04-17-chat-v2-rewrite-plan.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: explicit context catalog and required-context contract scaffolding
+// - Verification: inferred from code and tests
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-context-read-tools.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: replacing prompt pre-injection with tool-readable context catalog entries
+// - Verification: verified in code and targeted tests
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-user-settings-contract.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: removing mixed prose user-settings guidance in favor of one normalized contract
+// - Verification: verified in code and targeted tests
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-worker-context-contracts.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: shorter worker-facing context catalog descriptions
+// - Verification: verified in code and targeted tests
+// - Source: product owner correction in local runtime thread about model-owned intent/task choice
+// - Kind: product instruction / runtime observation
+// - Retrieved: 2026-04-18
+// - Applied To: adding multi-select TASK_MENU and framing context contracts as gates rather than selected intent
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/runtime-plan-visibility.md
@@ -75,6 +120,11 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-runtime-plan-user-visible-hardcoding-fix.md
 // - /Users/almurat/KiKo/system-journal/design-language/social-agent-multimodal-input.md
 // - /Users/almurat/KiKo/system-journal/owner-map/social-agent-multimodal-input.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-lean-chat-context-exposure.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-context-read-tools.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-user-settings-contract.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-worker-context-contracts.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-model-selected-task-menu.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-kimi-grok-social-image-input.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-reply-style-directive.md
@@ -83,11 +133,13 @@
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import { CORE_UNIFIED, GROK_SEARCH_DELTA } from '../../services/ai/prompts/v2/CORE.js';
 import { resolveCanonicalChainRef } from './chainIntent.js';
-import type { ChatContextSnapshot, PlanCard, PolymarketSelectionState, ProviderNativeEvidenceSnapshot } from './contracts.js';
+import type { ChatContextBlockName, ChatContextContract, ChatContextSnapshot, PlanCard, PolymarketSelectionState, ProviderNativeEvidenceSnapshot } from './contracts.js';
+import { CONTEXT_READ_TOOL_BY_BLOCK } from './contextReadTools.js';
 import { summarizeCanonicalIntent } from './canonicalIntent.js';
 import type { IntentEnvelope, ToolPhase } from './nodeSkillResolver.js';
 import type { ProviderInfo } from './providerPolicyBuilder.js';
 import type { SearchMode, SkillMatch } from './skillIntentMatcher.js';
+import { buildUserSettingsContract } from './userSettingsContract.js';
 
 export interface GenerationMessage {
     role: 'system' | 'user' | 'assistant' | 'tool';
@@ -110,7 +162,7 @@ const SYSTEM_PROMPT_BASE = [
     'When you already have a structured tool result, prefer that result over generic market memory or background knowledge. Do not replace a concrete tool result with a broader narrative.',
     'If the user asks a singular question but the tool returns a ranked list, answer from rank #1 first and make clear it is the top-ranked result. If the user asks plural, summarize the returned shortlist instead of collapsing it to one item.',
     'If the user asks for research, discovery, a shortlist, upcoming launches, airdrops, TGE candidates, tutorial links, or points/quest opportunities, do not stop after one partial lead. Combine enough tools and sources to return a usable shortlist with concrete links or clearly state what evidence is still missing.',
-    'Treat USER_SETTINGS as current preferences and USER_CONTEXT as connected-session context.',
+    'Treat read_user_settings output as current preferences and read_user_context output as connected-session context.',
     'If USER_QUERY explicitly names a chain or clearly implies one, that requested chain overrides the connected chain for analysis and execution planning.',
 ].join('\n\n');
 
@@ -143,6 +195,238 @@ function buildSocialImageLabelsBlock(snapshot: ChatContextSnapshot): string {
     return lines.join('\n');
 }
 
+const CHAT_V2_CONTEXT_CATALOG: Array<{ name: ChatContextBlockName; description: string; toolName?: string }> = [
+    { name: 'user_settings', description: 'worker preferences: execution mode, swap defaults, safety flags', toolName: CONTEXT_READ_TOOL_BY_BLOCK.user_settings },
+    { name: 'user_context', description: 'worker session: wallet identity, surface, requested/effective chain', toolName: CONTEXT_READ_TOOL_BY_BLOCK.user_context },
+    { name: 'workflow_state', description: 'worker state: pending action, confirmation, recent tools', toolName: CONTEXT_READ_TOOL_BY_BLOCK.workflow_state },
+    { name: 'wallet_state', description: 'worker wallet: active-chain and all-chain balances', toolName: CONTEXT_READ_TOOL_BY_BLOCK.wallet_state },
+    { name: 'token_context', description: 'worker token facts: snapshot, requested symbols/addresses', toolName: CONTEXT_READ_TOOL_BY_BLOCK.token_context },
+    { name: 'launchpad_context', description: 'worker launch facts: deploy state and launchpad metadata', toolName: CONTEXT_READ_TOOL_BY_BLOCK.launchpad_context },
+    { name: 'social_thread_context', description: 'worker social text: current X/Farcaster thread', toolName: CONTEXT_READ_TOOL_BY_BLOCK.social_thread_context },
+    { name: 'social_images', description: 'worker images: current-turn image labels/URLs', toolName: CONTEXT_READ_TOOL_BY_BLOCK.social_images },
+    { name: 'provider_native_evidence', description: 'worker evidence: provider search results/citations', toolName: CONTEXT_READ_TOOL_BY_BLOCK.provider_native_evidence },
+    { name: 'execution_plan', description: 'worker plan: internal orchestration state', toolName: CONTEXT_READ_TOOL_BY_BLOCK.execution_plan },
+    { name: 'skill_prompts', description: 'worker skill: matched specialist instructions', toolName: CONTEXT_READ_TOOL_BY_BLOCK.skill_prompts },
+];
+
+const CHAT_V2_MODEL_TASK_MENU: Array<{ mode: string; description: string }> = [
+    { mode: 'lean_chat', description: 'normal question, explanation, translation, writing, or casual chat; no private context by default' },
+    { mode: 'image_chat', description: 'answer from user-uploaded or social images; use image input and image context when relevant' },
+    { mode: 'social_thread', description: 'X/Farcaster thread-aware reply; read social thread context only when the thread changes the answer' },
+    { mode: 'wallet_read', description: 'wallet balance, holdings, PnL, portfolio, or connected-chain context' },
+    { mode: 'token_analysis', description: 'token facts, risk, creator, holders, early buyers, or market structure' },
+    { mode: 'market_research', description: 'realtime discovery, web/X research, trend shortlist, launch/TGE/airdrop/quest research' },
+    { mode: 'swap_quote', description: 'buy, sell, swap, bridge, quote, or preflight a trade before user confirmation' },
+    { mode: 'trade_confirmation', description: 'user confirms a pending quote/order; backend validates quote binding before execution' },
+    { mode: 'token_deploy', description: 'create, launch, or deploy a token; collect only missing required launch fields' },
+    { mode: 'polymarket', description: 'prediction-market discovery, selection, quote, or order preparation' },
+    { mode: 'meta_debug', description: 'explain KiKo behavior, routing, tools, logs, failures, or architecture at a high level' },
+];
+
+function buildModelTaskMenuBlock(): string {
+    const lines = [
+        '[TASK_MENU]',
+        '- You, the model, choose one or more task modes that fit the user request. The backend does not preselect the user-facing task for you.',
+        '- Start from lean_chat. Add specialist modes only when the user request clearly needs those domains.',
+        '- If multiple modes apply, keep a primary task and supporting tasks. Answer or act in the order that best satisfies the user request.',
+        '- Do not announce selected task modes unless the user explicitly asks how the system worked.',
+        '- If any selected mode needs private/session/runtime context, call the matching read_* context tool before finalizing.',
+        '- Treat CONTEXT_CONTRACT as a safety/read gate. It can require context reads, but it is not a preselected answer intent.',
+        ...CHAT_V2_MODEL_TASK_MENU.map((item) => `- ${item.mode}: ${item.description}`),
+    ];
+    return lines.join('\n');
+}
+
+function resolvePromptContextContract(
+    snapshot: ChatContextSnapshot,
+    guidance?: {
+        preferredTools?: string[];
+        intentEnvelope?: IntentEnvelope | null;
+        contextContract?: ChatContextContract | null;
+    },
+): ChatContextContract {
+    if (guidance?.contextContract) {
+        return guidance.contextContract;
+    }
+    const runtimeContract = snapshot.runtime?.contextContract;
+    if (runtimeContract) {
+        return runtimeContract;
+    }
+    return buildFallbackContextContract(snapshot, guidance?.intentEnvelope || null);
+}
+
+function buildFallbackContextContract(snapshot: ChatContextSnapshot, intentEnvelope: IntentEnvelope | null): ChatContextContract {
+    const hasSocialInput = Boolean(snapshot.runtime?.socialInput);
+    const hasSocialImages = Array.isArray(snapshot.runtime?.socialInput?.images) && snapshot.runtime.socialInput.images.length > 0;
+    const rawQuery = String(snapshot.lastUserMessage || '');
+    const canonicalIntentName = String(snapshot.normalizedIntent?.intent || '').trim().toLowerCase();
+    const hasCanonicalTaskIntent = Boolean(canonicalIntentName && !['general_answer', 'assistant_meta'].includes(canonicalIntentName));
+    const queryLooksTaskScoped = /(\b(buy|sell|swap|trade|bridge|deploy|analy[sz]e|analysis|risk|price|pnl|profit|trend|trending|market|bet|polymarket|token|wallet|balance|launch|launchpad|x|farcaster|cast|zora)\b|买|卖|换|交换|跨链|部署|分析|风险|价格|钱包|余额|代币|趋势|预测市场)/i.test(rawQuery);
+    const hasTaskSignals = Boolean(
+        (snapshot.requestedAddressClassifications || []).length > 0
+        || snapshot.polymarketSelection
+        || (snapshot.conversationActionState?.pendingAction && snapshot.conversationActionState.pendingAction !== 'none')
+        || queryLooksTaskScoped
+        || hasCanonicalTaskIntent
+        || String(snapshot.runtime?.currentPage || '').toLowerCase() === 'farcaster'
+        || String(snapshot.runtime?.pageContext || '').toLowerCase() === 'farcaster_agent'
+    );
+    const primaryIntent = intentEnvelope?.primary_intent || 'general_answer';
+    const domain = intentEnvelope?.domain || 'general';
+    const executionRisk = intentEnvelope?.execution_risk || 'read_only';
+    const required = new Set<ChatContextBlockName>();
+    const optional = new Set<ChatContextBlockName>();
+
+    let mode: ChatContextContract['mode'] = 'analysis';
+    if (primaryIntent === 'general_answer' && !hasTaskSignals && !hasSocialInput) {
+        mode = 'lean';
+    } else if (primaryIntent === 'meta_debug') {
+        mode = 'debug';
+    } else if (executionRisk === 'mutation') {
+        mode = 'execution';
+    } else if (domain === 'x' || domain === 'farcaster' || hasSocialInput) {
+        mode = 'social';
+    }
+
+    if (mode !== 'lean') {
+        required.add('workflow_state');
+        required.add('skill_prompts');
+        required.add('execution_plan');
+        required.add('user_context');
+    }
+
+    if (mode === 'execution') {
+        required.add('user_settings');
+    }
+
+    if (primaryIntent === 'wallet_analysis' || primaryIntent === 'wallet_pnl') {
+        required.add('wallet_state');
+    }
+    if (primaryIntent === 'token_analysis' || primaryIntent === 'token_risk') {
+        required.add('token_context');
+    }
+    if (primaryIntent === 'swap_execution' || primaryIntent === 'copytrade_execution') {
+        required.add('wallet_state');
+        required.add('token_context');
+    }
+    if (primaryIntent === 'token_deploy') {
+        required.add('wallet_state');
+        required.add('token_context');
+        required.add('launchpad_context');
+        required.add('user_settings');
+    }
+    if (primaryIntent === 'polymarket_order') {
+        required.add('user_settings');
+    }
+    if (domain === 'zora') {
+        required.add('token_context');
+    }
+
+    if (intentEnvelope?.search_mode !== 'forbidden') {
+        optional.add('provider_native_evidence');
+    }
+    if (hasSocialInput) {
+        optional.add('social_thread_context');
+    }
+    if (hasSocialImages) {
+        optional.add('social_images');
+    }
+
+    const reason = (() => {
+        if (mode === 'lean') return 'plain direct-answer turn';
+        if (mode === 'debug') return 'assistant behavior explanation turn';
+        if (mode === 'execution') return 'mutation workflow';
+        if (mode === 'social') return 'social-thread aware turn';
+        return 'specialist analysis turn';
+    })();
+
+    return {
+        mode,
+        requiredContexts: Array.from(required),
+        optionalContexts: Array.from(optional),
+        reason,
+    };
+}
+
+function buildContextCatalogBlock(): string {
+    const lines = ['[CONTEXT_CATALOG]'];
+    for (const item of CHAT_V2_CONTEXT_CATALOG) {
+        lines.push(`- ${item.name}: ${item.description}${item.toolName ? `; read via ${item.toolName}` : ''}`);
+    }
+    return lines.join('\n');
+}
+
+function buildContextContractBlock(contract: ChatContextContract): string {
+    const required = contract.requiredContexts || [];
+    const optional = contract.optionalContexts || [];
+    const requiredSet = new Set(required);
+    const optionalSet = new Set(optional);
+    const blocked = CHAT_V2_CONTEXT_CATALOG
+        .map((item) => item.name)
+        .filter((name) => !requiredSet.has(name) && !optionalSet.has(name));
+    const lines = [
+        '[CONTEXT_CONTRACT]',
+        `- mode: ${contract.mode}`,
+        `- required_contexts: ${required.length > 0 ? required.join(', ') : 'none'}`,
+        `- optional_contexts: ${optional.length > 0 ? optional.join(', ') : 'none'}`,
+        `- blocked_contexts: ${blocked.length > 0 ? blocked.join(', ') : 'none'}`,
+    ];
+    if (contract.reason) {
+        lines.push(`- reason: ${contract.reason}`);
+    }
+    return lines.join('\n');
+}
+
+function buildContextSliceBlocks(
+    snapshot: ChatContextSnapshot,
+    contract: ChatContextContract,
+    skillPrompts: string[],
+    guidance?: {
+        executionPlan?: PlanCard | null;
+        providerNativeEvidence?: ProviderNativeEvidenceSnapshot[];
+    },
+): string[] {
+    const runtime = snapshot.runtime || {};
+    const contextBlocks = runtime.contextBlocks || {};
+    const required = new Set(contract.requiredContexts || []);
+    const blocks: string[] = [];
+
+    if (required.has('user_settings')) {
+        blocks.push(buildLabeledSummaryBlock('USER_SETTINGS', buildUserSettings(runtime.userSettings || {})));
+    }
+    if (required.has('user_context')) {
+        blocks.push(buildLabeledSummaryBlock('USER_CONTEXT', buildUserContext(snapshot)));
+    }
+    if (required.has('workflow_state')) {
+        blocks.push(buildWorkflowStateBlock(snapshot));
+    }
+    if (required.has('wallet_state') && contextBlocks.walletState) {
+        blocks.push(contextBlocks.walletState);
+    }
+    if (required.has('token_context') && contextBlocks.tokenContext) {
+        blocks.push(contextBlocks.tokenContext);
+    }
+    if (required.has('launchpad_context') && contextBlocks.launchpadContext) {
+        blocks.push(contextBlocks.launchpadContext);
+    }
+    if (required.has('execution_plan')) {
+        blocks.push(buildExecutionPlanBlock(guidance?.executionPlan));
+    }
+    if (required.has('skill_prompts')) {
+        blocks.push(`[SKILLS]\n${skillPrompts.length > 0 ? skillPrompts.join('\n\n') : 'No extra skill prompts selected.'}`);
+    }
+
+    if (
+        (contract.optionalContexts || []).includes('provider_native_evidence')
+        && Array.isArray(guidance?.providerNativeEvidence)
+        && guidance.providerNativeEvidence.length > 0
+    ) {
+        blocks.push(buildProviderNativeEvidenceBlock(guidance.providerNativeEvidence));
+    }
+
+    return blocks.filter(Boolean);
+}
+
 function isKimiModel(model: string): boolean {
     const normalized = String(model || '').trim().toLowerCase();
     return normalized.includes('kimi') || normalized.includes('moonshotai/');
@@ -152,6 +436,21 @@ function supportsNativeSocialImages(providerInfo: ProviderInfo): boolean {
     if (providerInfo.provider === 'openai') return true;
     if (providerInfo.provider === 'grok') return true;
     return providerInfo.provider === 'nvidia' && isKimiModel(providerInfo.model);
+}
+
+function isLeanDirectAnswerTurn(guidance?: {
+    preferredTools?: string[];
+    intentEnvelope?: IntentEnvelope | null;
+    contextContract?: ChatContextContract | null;
+}): boolean {
+    if (guidance?.contextContract) {
+        return guidance.contextContract.mode === 'lean' && (guidance.contextContract.requiredContexts || []).length === 0;
+    }
+    const primaryIntent = guidance?.intentEnvelope?.primary_intent;
+    if (primaryIntent !== 'general_answer' && primaryIntent !== 'meta_debug') {
+        return false;
+    }
+    return (guidance?.preferredTools || []).length === 0;
 }
 
 function normalizeSocialImageInputs(images: any[]): Array<{ url: string; label: string }> {
@@ -205,15 +504,17 @@ export function assembleGenerationMessages(
         searchReason?: string;
         toolPhase?: ToolPhase;
         intentEnvelope?: IntentEnvelope;
+        contextContract?: ChatContextContract | null;
         providerNativeEvidence?: ProviderNativeEvidenceSnapshot[];
     },
 ): GenerationMessage[] {
     const runtime = snapshot.runtime || {};
-    const contextBlocks = runtime.contextBlocks || {};
     const systemDirectives = runtime.systemDirectives || [];
-
-    const userSettings = buildUserSettings(runtime.userSettings || {});
-    const userContext = buildUserContext(snapshot);
+    const contextContract = resolvePromptContextContract(snapshot, guidance);
+    const requiredContextNames = new Set(contextContract.requiredContexts || []);
+    const leanDirectAnswerTurn = isLeanDirectAnswerTurn({ ...guidance, contextContract });
+    const exposeToolGuidance = !leanDirectAnswerTurn || (guidance?.preferredTools?.length || 0) > 0;
+    const hasSkillPrompts = skillPrompts.length > 0;
 
     const systemParts = [SYSTEM_PROMPT_BASE];
     if (providerInfo.provider === 'grok' && guidance?.searchMode !== 'forbidden') {
@@ -225,39 +526,28 @@ export function assembleGenerationMessages(
     if (!providerInfo.supportsNativeSearch && guidance?.searchMode === 'required') {
         systemParts.push('This provider path has no provider-native search. When search evidence is required, use local search tools such as external_web_search together with any relevant chain-analysis tools.');
     }
+    if (hasSkillPrompts && requiredContextNames.has('skill_prompts')) {
+        systemParts.push('Matched specialist guidance is available through the read_skill_prompts context tool when needed.');
+    }
     if (isFarcasterAgentSurface(snapshot)) {
         systemParts.push(FARCASTER_AGENT_MODE_PROMPT);
     }
-    const swapModeContract = buildSwapModeContract(runtime.userSettings || {});
-    if (swapModeContract) {
-        systemParts.push(swapModeContract);
-    }
+    const contextTextParts: string[] = [
+        buildModelTaskMenuBlock(),
+        buildContextCatalogBlock(),
+        buildContextContractBlock(contextContract),
+    ];
 
-    const contextTextParts = [
-        buildLabeledSummaryBlock('USER_CONTEXT', userContext),
-        ...(() => {
-            const intentSummary = summarizeCanonicalIntent(snapshot.normalizedIntent);
-            return intentSummary ? [buildLabeledSummaryBlock('INTENT_NORMALIZATION', intentSummary)] : [];
-        })(),
-        buildWorkflowStateBlock(snapshot),
-        contextBlocks.walletState,
-        contextBlocks.tokenContext,
-        contextBlocks.launchpadContext,
-        buildRuntimeDirectivesBlock(systemDirectives),
-        snapshot.compactedHistory ? `[HISTORY_SUMMARY]\n${snapshot.compactedHistory}` : '',
-    ].filter(Boolean);
-
-    const userContent = [
-        buildLabeledSummaryBlock('USER_SETTINGS', userSettings),
+    const userContentParts = [
         ...contextTextParts,
-        buildExecutionPlanBlock(guidance?.executionPlan),
-        buildToolGuidanceBlock(guidance),
-        buildProviderNativeEvidenceBlock(guidance?.providerNativeEvidence),
+        buildRuntimeDirectivesBlock(systemDirectives),
+        buildToolGuidanceBlock(exposeToolGuidance ? { ...guidance, contextContract } : undefined),
         buildSocialThreadContextBlock(snapshot),
         buildSocialImageLabelsBlock(snapshot),
-        `[SKILLS]\n${skillPrompts.length > 0 ? skillPrompts.join('\n\n') : 'No extra skill prompts selected.'}`,
         `[USER_QUERY]\n${snapshot.lastUserMessage || ''}`,
-    ].join('\n\n');
+    ].filter(Boolean);
+
+    const userContent = userContentParts.join('\n\n');
 
     const messages: GenerationMessage[] = [{ role: 'system', content: systemParts.join('\n\n') }];
     messages.push(...buildHistoryMessages(snapshot));
@@ -275,21 +565,33 @@ function buildToolGuidanceBlock(guidance?: {
         searchReason?: string;
         toolPhase?: ToolPhase;
         intentEnvelope?: IntentEnvelope;
+        contextContract?: ChatContextContract | null;
         providerNativeEvidence?: ProviderNativeEvidenceSnapshot[];
 }): string {
+    if (isLeanDirectAnswerTurn(guidance)) {
+        return '';
+    }
     const lines: string[] = [];
+    const requiredContextTools = Array.from(new Set(
+        (guidance?.contextContract?.requiredContexts || [])
+            .map((contextName) => CONTEXT_READ_TOOL_BY_BLOCK[contextName])
+            .filter((toolName): toolName is string => typeof toolName === 'string' && toolName.trim().length > 0),
+    ));
     if (guidance?.allowAllTools !== undefined || guidance?.searchMode) {
         lines.push('[TOOL_CONTEXT]');
         if (guidance?.allowAllTools) {
             lines.push('- Registered tools are available for this turn unless the safety/policy layer blocks them.');
         } else {
-        lines.push('- Some tools may be unavailable on this turn because of provider or policy constraints.');
+            lines.push('- Only the matched business tools and explicit context-read tools are available on this turn.');
         }
         lines.push('- No fixed workflow is prescribed. For narrow factual or execution tasks, stay lean; for research/discovery/list-building tasks, use enough tools to verify claims and produce a usable shortlist or guide.');
         lines.push('- When a direct tool result already answers the request, prefer that result over broader narrative synthesis.');
         lines.push('- After any direct tool result, make an explicit choice: either answer from the current evidence now, or emit exactly the next real tool call that fills a concrete missing evidence gap. Do not emit empty/no-op tool calls, and do not continue searching without a specific missing field to justify it.');
         if (guidance.intentEnvelope?.required_evidence?.length) {
-            lines.push(`- Required evidence before final answer/conclusion: ${guidance.intentEnvelope.required_evidence.join(', ')}.`);
+            lines.push(`- Evidence guardrail before final answer/conclusion: ${guidance.intentEnvelope.required_evidence.join(', ')}.`);
+        }
+        if (requiredContextTools.length > 0) {
+            lines.push(`- Required context tools before final answer when relevant: ${requiredContextTools.join(', ')}.`);
         }
         if (guidance.toolPhase === 'native_search_only') {
             lines.push('- In this provider-native search phase, start with the smallest search set that can satisfy the required evidence.');
@@ -297,6 +599,11 @@ function buildToolGuidanceBlock(guidance?: {
             lines.push('- Do not fan out into many near-duplicate searches or page opens. If you already have enough evidence to answer or hand off, stop searching.');
             lines.push('- Budget guideline: usually stay within about 6 provider-native search/open actions in this phase unless a required evidence type is still missing.');
         }
+    }
+    if (requiredContextTools.length > 0) {
+        lines.push('[CONTEXT_READ_POLICY]');
+        lines.push(`- required_context_tools: ${requiredContextTools.join(', ')}`);
+        lines.push('- rule: if a required context is still missing, call the corresponding read_* tool before finalizing.');
     }
     if (Array.isArray(guidance?.strategyNotes) && guidance.strategyNotes.length > 0) {
         if (lines.length === 0) {
@@ -353,12 +660,13 @@ export function buildRoundToolPolicySystemMessage(guidance: {
     searchReason?: string;
     toolPhase?: ToolPhase;
     intentEnvelope?: IntentEnvelope;
+    contextContract?: ChatContextContract | null;
     providerNativeEvidence?: ProviderNativeEvidenceSnapshot[];
 }): GenerationMessage | null {
-    const content = [
-        buildToolGuidanceBlock(guidance),
-        buildProviderNativeEvidenceBlock(guidance.providerNativeEvidence),
-    ].filter(Boolean).join('\n\n');
+    if (isLeanDirectAnswerTurn(guidance)) {
+        return null;
+    }
+    const content = buildToolGuidanceBlock(guidance);
     return content ? { role: 'system', content } : null;
 }
 
@@ -438,41 +746,7 @@ function buildWorkflowStateBlock(snapshot: ChatContextSnapshot): string {
 }
 
 function buildUserSettings(settings: Record<string, any>): Record<string, any> {
-    const compact = {
-        quick_swap: asBoolean(settings.quickSwapMode),
-        fast_swap: asBoolean(settings.fastSwapMode),
-        quote_before_swap: asBoolean(settings.showQuoteBeforeSwap),
-        mev_protection: asBoolean(settings.mevProtection),
-        price_deviation_check: asBoolean(settings.priceDeviationCheck),
-        default_swap_amount: normalizePrimitive(settings.defaultSwapAmount),
-        default_swap_unit: normalizePrimitive(settings.defaultSwapUnit),
-        slippage_mode: normalizePrimitive(settings.slippageMode),
-        custom_slippage_pct: normalizePrimitive(settings.customSlippage),
-        copy_trade_ai_mode: normalizePrimitive(settings.copyTradeAIMode),
-    };
-    return stripEmptyEntries(compact);
-}
-
-function buildSwapModeContract(settings: Record<string, any>): string {
-    if (asBoolean(settings.fastSwapMode)) {
-        return [
-            'EXECUTION_MODE: fast_swap',
-            '- Quote is optional, not a blocking prerequisite.',
-            '- Once token, chain, amount, and wallet context are explicit enough, move directly toward execution.',
-        ].join('\n');
-    }
-
-    if (settings.showQuoteBeforeSwap !== false) {
-        return [
-            'EXECUTION_MODE: quote_before_swap',
-            '- Quote once, wait for explicit confirmation, then execute without repeating the quote unless it is stale or mismatched.',
-        ].join('\n');
-    }
-
-    return [
-        'EXECUTION_MODE: direct',
-        '- Use only the minimum preflight needed for balance, chain, token resolution, or safety validation before execution.',
-    ].join('\n');
+    return buildUserSettingsContract(settings);
 }
 
 function buildUserContext(snapshot: ChatContextSnapshot): Record<string, any> {
@@ -747,11 +1021,6 @@ function normalizePrimitive(value: any): string | number | boolean | undefined {
     if (typeof value === 'number' || typeof value === 'boolean') {
         return value;
     }
-    return undefined;
-}
-
-function asBoolean(value: any): boolean | undefined {
-    if (typeof value === 'boolean') return value;
     return undefined;
 }
 

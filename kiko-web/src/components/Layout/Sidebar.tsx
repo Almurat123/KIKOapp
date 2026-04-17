@@ -15,25 +15,24 @@ import styles from './Sidebar.module.css';
 import type { Conversation } from '../../hooks/useConversations';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-17
 // Author: Rowan
-// Reason: Sidebar usage-summary reads were firing even when the mobile sidebar
-//         was hidden, and passive page-focus listeners kept adding authenticated
-//         reads during ordinary navigation. The quota summary now exposes free
-//         usage with an optional shared cap plus one shared premium quota, so
-//         the sidebar must render that shape instead of assuming Normal/Advanced buckets.
-// Goal: limit billing-summary reads to moments when the sidebar is actually
-//       visible or when an explicit refresh is requested, while rendering the
-//       server-provided quota envelope faithfully.
-// Owns: Sidebar-driven usage-summary refresh timing, visibility gating, and
-//       footer quota presentation.
+// Reason: sidebar quota reads were still following background chat completion
+//         events onto non-chat pages. The quota summary now exposes free usage
+//         with an optional shared cap plus one shared premium quota, so the
+//         sidebar must render that shape instead of assuming Normal/Advanced buckets.
+// Goal: limit billing-summary reads to chat surfaces or explicit refreshes,
+//       while rendering the server-provided quota envelope faithfully.
+// Owns: Sidebar-driven usage-summary refresh timing, route gating, visibility
+//       gating, and footer quota presentation.
 // Does Not Own: Billing quota computation, token balance mutations, or auth state.
 // Design Language:
 // - hidden mobile sidebar state must not trigger authenticated read traffic
+// - non-chat routes must not auto-refresh usage summary
 // - passive focus/visibility changes should not refetch quota by default
 // - free/premium quota rows from the server must not be flattened back into guessed client categories
 // - nullable free-model limits render as infinity, not zero
-// - forbidden local patch patterns: unconditional usage-summary fetches on every page activation
+// - forbidden local patch patterns: unconditional usage-summary fetches on every page activation or on non-chat route changes
 // Document Provenance:
 // - Source: Production console traces showing `/api/billing/usage-summary` 429s while entering the token page
 // - Kind: runtime observation
@@ -50,6 +49,11 @@ import type { Conversation } from '../../hooks/useConversations';
 // - Retrieved: 2026-04-16
 // - Applied To: rendering nullable free-model cap in the footer
 // - Verification: verified in code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-token-page-read-burst-isolation.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: route-scoped suppression of chat usage-summary reads on token and other browse pages
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/chat-usage-quota-policy.md
@@ -58,6 +62,7 @@ import type { Conversation } from '../../hooks/useConversations';
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
 // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-token-page-stray-read-rate-limit.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-token-page-read-burst-isolation.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 interface SidebarProps {
@@ -74,6 +79,7 @@ interface SidebarProps {
   onConversationRename?: (id: string, newTitle: string) => void;
   onConversationDelete?: (id: string) => void;
   generatingConversationId?: string | null;
+  usageSummaryEnabled?: boolean;
 }
 
 interface NavItem {
@@ -104,6 +110,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onConversationRename,
   onConversationDelete,
   generatingConversationId,
+  usageSummaryEnabled = true,
 }) => {
   const { resolvedTheme } = useThemeContext();
   const { user, authenticated, ready, getAccessToken } = usePrivy();
@@ -126,7 +133,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isSidebarVisible = isMobile ? isOpen : isDesktopOpen;
 
   const fetchUsageSummary = React.useCallback(async () => {
-    if (!isSidebarVisible) {
+    if (!usageSummaryEnabled || !isSidebarVisible) {
       return;
     }
     if (!authenticated || !ready) {
@@ -144,20 +151,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
     } catch {
       setUsageSummary(null);
     }
-  }, [authenticated, ready, getAccessToken, isSidebarVisible]);
+  }, [authenticated, ready, getAccessToken, isSidebarVisible, usageSummaryEnabled]);
 
   useEffect(() => {
-    if (!isSidebarVisible) return;
+    if (!usageSummaryEnabled || !isSidebarVisible) return;
     fetchUsageSummary();
-  }, [fetchUsageSummary, isSidebarVisible]);
+  }, [fetchUsageSummary, isSidebarVisible, usageSummaryEnabled]);
 
   useEffect(() => {
     const handler = () => {
+      if (!usageSummaryEnabled || !isSidebarVisible) {
+        return;
+      }
       fetchUsageSummary();
     };
     window.addEventListener('kiko-usage-refresh', handler as EventListener);
     return () => window.removeEventListener('kiko-usage-refresh', handler as EventListener);
-  }, [fetchUsageSummary]);
+  }, [fetchUsageSummary, isSidebarVisible, usageSummaryEnabled]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -517,20 +527,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </nav>
 
         <div className={styles.footer}>
-          <div className={styles.usageSummary}>
-            <div className={styles.usageRow}>
-              <span className={styles.usageLabel}>Free</span>
-              <span className={styles.usageValue}>
-                {usageSummary ? `${usageSummary.free.used}/${usageSummary.free.limit ?? '∞'}` : '--'}
-              </span>
+          {usageSummaryEnabled && (
+            <div className={styles.usageSummary}>
+              <div className={styles.usageRow}>
+                <span className={styles.usageLabel}>Free</span>
+                <span className={styles.usageValue}>
+                  {usageSummary ? `${usageSummary.free.used}/${usageSummary.free.limit ?? '∞'}` : '--'}
+                </span>
+              </div>
+              <div className={styles.usageRow}>
+                <span className={styles.usageLabel}>Premium</span>
+                <span className={styles.usageValue}>
+                  {usageSummary ? `${usageSummary.premium.used}/${usageSummary.premium.limit}` : '--'}
+                </span>
+              </div>
             </div>
-            <div className={styles.usageRow}>
-              <span className={styles.usageLabel}>Premium</span>
-              <span className={styles.usageValue}>
-                {usageSummary ? `${usageSummary.premium.used}/${usageSummary.premium.limit}` : '--'}
-              </span>
-            </div>
-          </div>
+          )}
           <button
             className={styles.userProfile}
             {...agentAttrs({ id: 'sidebar.user.profile', role: 'button', action: 'navigate', page: 'sidebar' })}

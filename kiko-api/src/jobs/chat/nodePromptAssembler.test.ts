@@ -5,7 +5,7 @@ import type { CanonicalIntent } from './canonicalIntent.js';
 import type { ChatContextSnapshot, PlanCard, ProviderNativeEvidenceSnapshot } from './contracts.js';
 import type { ProviderInfo } from './providerPolicyBuilder.js';
 
-test('assembleGenerationMessages renders runtime plan state structurally without user-facing plan prose', () => {
+test('assembleGenerationMessages exposes context tools instead of pre-injecting runtime plan and evidence blocks', () => {
     const snapshot: ChatContextSnapshot = {
         sessionId: 'session-1',
         taskId: 'task-1',
@@ -126,29 +126,183 @@ test('assembleGenerationMessages renders runtime plan state structurally without
     assert.ok(userMessage?.content);
 
     const content = String(userMessage?.content || '');
-    assert.match(content, /\[INTERNAL_RUNTIME_PLAN_STATE\]/);
-    assert.match(content, /step_id=step-1; status=pending; preferred_tools=x_search/);
+    assert.match(content, /\[TASK_MENU\]/);
+    assert.match(content, /You, the model, choose one or more task modes/);
+    assert.match(content, /keep a primary task and supporting tasks/);
+    assert.match(content, /lean_chat: normal question/);
+    assert.match(content, /swap_quote: buy, sell, swap, bridge, quote/);
+    assert.match(content, /CONTEXT_CONTRACT as a safety\/read gate/);
+    assert.match(content, /execution_plan: worker plan: internal orchestration state; read via read_execution_plan/);
+    assert.match(content, /provider_native_evidence: worker evidence: provider search results\/citations; read via read_provider_native_evidence/);
+    assert.match(content, /user_context: worker session: wallet identity, surface, requested\/effective chain; read via read_user_context/);
+    assert.match(content, /workflow_state: worker state: pending action, confirmation, recent tools; read via read_workflow_state/);
     assert.equal(content.includes('Trending Topics on X'), false);
     assert.equal(content.includes('Identify current trends on X.'), false);
     assert.equal(content.includes('Understand Query'), false);
     assert.equal(content.includes('Interpret the request for trending topics on X.'), false);
-    assert.match(content, /\[PROVIDER_NATIVE_EVIDENCE\]/);
-    assert.match(content, /\[WORKFLOW_STATE\]/);
-    assert.match(content, /recent_tool_result: get_trending_tokens\[success\]/);
-    assert.match(content, /result=\[rank=1, name=TOKEN1, symbol=TK1, address=0x111, price=1.23, volume24h=\$1.2M/);
-    assert.match(content, /\[USER_SETTINGS\]/);
-    assert.match(content, /quick_swap: true/);
-    assert.match(content, /\[USER_CONTEXT\]/);
-    assert.match(content, /wallet: 0xabc/);
-    assert.match(content, /connected_chain.id: 8453/);
-    assert.match(content, /Evidence: Trending Topics \| url=https:\/\/x\.com\/explore \| snippet=Top current trends\./);
+    assert.match(content, /\[CONTEXT_CONTRACT\]/);
+    assert.match(content, /mode: social/);
+    assert.match(content, /required_contexts: .*workflow_state/);
+    assert.match(content, /required_contexts: .*skill_prompts/);
+    assert.match(content, /required_contexts: .*execution_plan/);
+    assert.match(content, /required_contexts: .*user_context/);
+    assert.match(content, /\[CONTEXT_READ_POLICY\]/);
+    assert.match(content, /required_context_tools: read_workflow_state, read_skill_prompts, read_execution_plan, read_user_context/);
     assert.equal(content.includes('"steps"'), false);
     assert.equal(content.includes('"sourceTypes"'), false);
     assert.equal(content.includes('"wallet"'), false);
     assert.equal(content.includes('"quick_swap"'), false);
 });
 
-test('assembleGenerationMessages marks requested chain separately from connected chain', () => {
+test('assembleGenerationMessages keeps general answers lean without business context blocks', () => {
+    const snapshot: ChatContextSnapshot = {
+        sessionId: 'session-lean',
+        taskId: 'task-lean',
+        model: 'gpt-5-mini',
+        history: [],
+        lastUserMessage: 'Explain quantum entanglement.',
+        runtime: {
+            contextBlocks: {
+                walletState: '[USER_BALANCE_CONTEXT]\n- balance: 999',
+                tokenContext: '[TOKEN_CONTEXT]\n- symbol: KIKO',
+                launchpadContext: '[LAUNCHPAD_CONTEXT]\n- provider: clanker',
+            },
+            userSettings: {
+                quickSwapMode: true,
+                showQuoteBeforeSwap: true,
+            },
+            walletAddress: '0xabc',
+            chainId: 8453,
+            chainName: 'Base',
+            currentPage: 'chat',
+            pageContext: 'ordinary chat',
+        },
+        requestedTokenAddresses: ['0x1111111111111111111111111111111111111111'],
+        requestedTokenSymbols: ['KIKO'],
+        recentToolTrace: {
+            messageId: 'assistant-lean',
+            toolCalls: [
+                {
+                    tool: 'get_wallet_info',
+                    status: 'success',
+                    result: { address: '0xabc', balance: '1.23' },
+                },
+            ],
+        },
+        conversationActionState: {
+            pendingAction: 'none',
+            canExecute: false,
+            needsClarification: false,
+            clarificationQuestion: null,
+        },
+        toolDefinitions: [],
+    };
+
+    const providerInfo: ProviderInfo = {
+        provider: 'openai',
+        model: snapshot.model,
+        supportsNativeSearch: false,
+        supportsPreviousResponse: true,
+    };
+
+    const messages = assembleGenerationMessages(snapshot, [], providerInfo, {
+        intentEnvelope: {
+            primary_intent: 'general_answer',
+            task_mode: 'discover',
+            search_mode: 'forbidden',
+            search_target: 'none',
+            domain: 'general',
+            execution_risk: 'read_only',
+            required_evidence: [],
+        },
+    });
+
+    const userMessage = messages.find((message) => message.role === 'user');
+    const content = String(userMessage?.content || '');
+    assert.match(content, /\[USER_QUERY\]/);
+    assert.match(content, /\[TASK_MENU\]/);
+    assert.match(content, /Start from lean_chat/);
+    assert.match(content, /Add specialist modes only when/);
+    assert.match(content, /\[CONTEXT_CATALOG\]/);
+    assert.match(content, /\[CONTEXT_CONTRACT\]/);
+    assert.match(content, /mode: lean/);
+    assert.match(content, /required_contexts: none/);
+    assert.doesNotMatch(content, /\[USER_CONTEXT\]/);
+    assert.doesNotMatch(content, /\[WORKFLOW_STATE\]/);
+    assert.doesNotMatch(content, /\[SKILLS\]/);
+    assert.doesNotMatch(content, /\[TOOL_CONTEXT\]/);
+    assert.doesNotMatch(content, /\[USER_BALANCE_CONTEXT\]/);
+    assert.doesNotMatch(content, /\[TOKEN_CONTEXT\]/);
+    assert.doesNotMatch(content, /\[LAUNCHPAD_CONTEXT\]/);
+    assert.doesNotMatch(content, /quick_swap: true/);
+    assert.doesNotMatch(content, /balance: 999/);
+    assert.doesNotMatch(content, /get_wallet_info/);
+});
+
+test('assembleGenerationMessages exposes execution context contract for swap turns', () => {
+    const snapshot: ChatContextSnapshot = {
+        sessionId: 'session-exec',
+        taskId: 'task-exec',
+        model: 'gpt-5-mini',
+        history: [],
+        lastUserMessage: 'Swap ETH for USDC',
+        runtime: {
+            contextBlocks: {
+                walletState: '[USER_BALANCE_CONTEXT]\n- balance: 1.0 ETH',
+                tokenContext: '[TOKEN_CONTEXT]\n- symbol: USDC',
+            },
+            userSettings: {
+                showQuoteBeforeSwap: true,
+            },
+            walletAddress: '0xabc',
+            chainId: 8453,
+            chainName: 'Base',
+            currentPage: 'chat',
+        },
+        requestedTokenAddresses: [],
+        requestedTokenSymbols: ['ETH', 'USDC'],
+        toolDefinitions: [],
+    };
+
+    const providerInfo: ProviderInfo = {
+        provider: 'openai',
+        model: snapshot.model,
+        supportsNativeSearch: false,
+        supportsPreviousResponse: true,
+    };
+
+    const messages = assembleGenerationMessages(snapshot, [], providerInfo, {
+        intentEnvelope: {
+            primary_intent: 'swap_execution',
+            task_mode: 'execute',
+            search_mode: 'forbidden',
+            search_target: 'none',
+            domain: 'token',
+            execution_risk: 'mutation',
+            required_evidence: [],
+        },
+    });
+
+    const userMessage = messages.find((message) => message.role === 'user');
+    const content = String(userMessage?.content || '');
+    assert.match(content, /\[TASK_MENU\]/);
+    assert.match(content, /trade_confirmation: user confirms a pending quote\/order/);
+    assert.match(content, /\[CONTEXT_CONTRACT\]/);
+    assert.match(content, /mode: execution/);
+    assert.match(content, /required_contexts: .*wallet_state/);
+    assert.match(content, /required_contexts: .*token_context/);
+    assert.match(content, /required_contexts: .*user_settings/);
+    assert.match(content, /wallet_state: worker wallet: active-chain and all-chain balances; read via read_wallet_state/);
+    assert.match(content, /token_context: worker token facts: snapshot, requested symbols\/addresses; read via read_token_context/);
+    assert.match(content, /user_settings: worker preferences: execution mode, swap defaults, safety flags; read via read_user_settings/);
+    assert.match(content, /required_context_tools: read_workflow_state, read_skill_prompts, read_execution_plan, read_user_context, read_user_settings, read_wallet_state, read_token_context/);
+    assert.doesNotMatch(content, /\[USER_BALANCE_CONTEXT\]/);
+    assert.doesNotMatch(content, /\[TOKEN_CONTEXT\]/);
+    assert.doesNotMatch(content, /\[SKILLS\]/);
+    assert.doesNotMatch(String(messages.find((message) => message.role === 'system')?.content || ''), /EXECUTION_MODE:/);
+});
+
+test('assembleGenerationMessages routes chain-sensitive turns through read_user_context instead of pre-injecting chain state', () => {
     const snapshot: ChatContextSnapshot = {
         sessionId: 'session-3',
         taskId: 'task-3',
@@ -179,9 +333,10 @@ test('assembleGenerationMessages marks requested chain separately from connected
     const userMessage = messages.find((message) => message.role === 'user');
 
     assert.match(String(systemMessage?.content || ''), /requested chain overrides the connected chain/i);
-    assert.match(String(userMessage?.content || ''), /connected_chain.id: 8453/);
-    assert.match(String(userMessage?.content || ''), /requested_chain.id: 56/);
-    assert.match(String(userMessage?.content || ''), /requested_chain.name: BNB Chain/);
+    assert.match(String(userMessage?.content || ''), /user_context: worker session: wallet identity, surface, requested\/effective chain; read via read_user_context/);
+    assert.match(String(userMessage?.content || ''), /required_contexts: .*user_context/);
+    assert.doesNotMatch(String(userMessage?.content || ''), /connected_chain.id: 8453/);
+    assert.doesNotMatch(String(userMessage?.content || ''), /requested_chain.id: 56/);
 });
 
 test('assembleGenerationMessages injects Farcaster agent mode prompt for public social replies', () => {
@@ -403,7 +558,7 @@ test('assembleGenerationMessages falls back to image URLs on NVIDIA GLM social-a
     assert.match(String(userMessage?.content || ''), /https:\/\/example\.com\/cast-image\.png/);
 });
 
-test('assembleGenerationMessages exposes requested address classifications in user context', () => {
+test('assembleGenerationMessages exposes requested address classifications through read_user_context instead of inline prompt text', () => {
     const snapshot: ChatContextSnapshot = {
         sessionId: 'session-address',
         taskId: 'task-address',
@@ -440,7 +595,9 @@ test('assembleGenerationMessages exposes requested address classifications in us
     const messages = assembleGenerationMessages(snapshot, [], providerInfo);
     const userMessage = messages.find((message) => message.role === 'user');
 
-    assert.match(String(userMessage?.content || ''), /requested_address_classifications: 0x4972e029f2e1831d205b20d05833cc771feb2ba3 \| kind=token_contract \| chain=Base \| source=rpc/);
+    assert.match(String(userMessage?.content || ''), /user_context: worker session: wallet identity, surface, requested\/effective chain; read via read_user_context/);
+    assert.match(String(userMessage?.content || ''), /required_contexts: .*user_context/);
+    assert.doesNotMatch(String(userMessage?.content || ''), /requested_address_classifications:/);
 });
 
 test('assembleGenerationMessages nudges shortlist research tasks toward multi-source evidence and official links', () => {
@@ -556,7 +713,7 @@ test('assembleGenerationMessages includes strategy notes for early-buyer token p
     assert.match(content, /Pass the same token_address into analyze_wallet_pnl_batch/);
 });
 
-test('assembleGenerationMessages exposes persisted polymarket selection state to the model', () => {
+test('assembleGenerationMessages routes persisted polymarket selection through read_workflow_state instead of inline prompt text', () => {
     const snapshot: ChatContextSnapshot = {
         sessionId: 'session-poly',
         taskId: 'task-poly',
@@ -599,8 +756,9 @@ test('assembleGenerationMessages exposes persisted polymarket selection state to
     const messages = assembleGenerationMessages(snapshot, [], providerInfo);
     const userMessage = messages.find((message) => message.role === 'user');
     const content = String(userMessage?.content || '');
-    assert.match(content, /polymarket_selection: market=Bitcoin Up or Down - March 26, 1:55AM-2:00AM ET/i);
-    assert.match(content, /outcomes=\[Up:token-up, Down:token-down\]/i);
+    assert.match(content, /workflow_state: worker state: pending action, confirmation, recent tools; read via read_workflow_state/);
+    assert.match(content, /required_contexts: .*workflow_state/);
+    assert.doesNotMatch(content, /polymarket_selection:/i);
 });
 
 test('assembleGenerationMessages tells non-native-search providers to use local search tools when search is required', () => {
@@ -689,7 +847,7 @@ test('assembleGenerationMessages carries early-buyer evidence requirements throu
 
     const userMessage = messages.find((message) => message.role === 'user');
     assert.match(String(userMessage?.content || ''), /\[TOOL_CONTEXT\]/);
-    assert.match(String(userMessage?.content || ''), /required evidence before final answer\/conclusion: native_search_results, onchain_token_evidence/i);
+    assert.match(String(userMessage?.content || ''), /evidence guardrail before final answer\/conclusion: native_search_results, onchain_token_evidence/i);
 });
 
 test('assembleGenerationMessages includes exact canonical time anchor bounds when present', () => {
@@ -751,8 +909,10 @@ test('assembleGenerationMessages includes exact canonical time anchor bounds whe
     const messages = assembleGenerationMessages(snapshot, [], providerInfo);
     const userMessage = messages.find((message) => message.role === 'user');
     const content = String(userMessage?.content || '');
-    assert.match(content, /time_anchor_start: 2026-04-03T11:48:00\+08:00/);
-    assert.match(content, /time_anchor_end: 2026-04-03T11:48:59\+08:00/);
+    assert.match(content, /workflow_state: worker state: pending action, confirmation, recent tools; read via read_workflow_state/);
+    assert.match(content, /required_context_tools: read_workflow_state, read_skill_prompts, read_execution_plan, read_user_context/);
+    assert.doesNotMatch(content, /time_anchor_start:/);
+    assert.doesNotMatch(content, /time_anchor_end:/);
 });
 
 test('assembleGenerationMessages uses compact execution mode guidance for swap execution flows', () => {
@@ -791,8 +951,9 @@ test('assembleGenerationMessages uses compact execution mode guidance for swap e
     });
 
     const systemMessage = messages.find((message) => message.role === 'system');
-    assert.match(String(systemMessage?.content || ''), /EXECUTION_MODE: quote_before_swap/);
-    assert.match(String(systemMessage?.content || ''), /Quote once, wait for explicit confirmation/i);
+    const userMessage = messages.find((message) => message.role === 'user');
+    assert.doesNotMatch(String(systemMessage?.content || ''), /EXECUTION_MODE:/);
+    assert.match(String(userMessage?.content || ''), /user_settings: worker preferences: execution mode, swap defaults, safety flags; read via read_user_settings/);
 });
 
 test('assembleGenerationMessages includes canonical intent normalization summary when available', () => {
@@ -852,13 +1013,15 @@ test('assembleGenerationMessages includes canonical intent normalization summary
     const messages = assembleGenerationMessages(snapshot, [], providerInfo);
     const userMessage = messages.find((message) => message.role === 'user');
     const content = String(userMessage?.content || '');
-    assert.match(content, /\[INTENT_NORMALIZATION\]/);
-    assert.match(content, /intent: early_buyers/);
-    assert.match(content, /output_mode: full_table/);
-    assert.match(content, /row_count: 30/);
+    assert.match(content, /required_context_tools: read_workflow_state, read_skill_prompts, read_execution_plan, read_user_context/);
+    assert.match(content, /user_context: worker session: wallet identity, surface, requested\/effective chain; read via read_user_context/);
+    assert.doesNotMatch(content, /\[INTENT_NORMALIZATION\]/);
+    assert.doesNotMatch(content, /intent: early_buyers/);
+    assert.doesNotMatch(content, /output_mode: full_table/);
+    assert.doesNotMatch(content, /row_count: 30/);
 });
 
-test('assembleGenerationMessages adds fast swap contract guidance when fast swap mode is enabled', () => {
+test('assembleGenerationMessages keeps fast swap preference in read_user_settings instead of inline system prose', () => {
     const snapshot: ChatContextSnapshot = {
         sessionId: 'session-fast',
         taskId: 'task-fast',
@@ -897,8 +1060,10 @@ test('assembleGenerationMessages adds fast swap contract guidance when fast swap
     });
 
     const systemMessage = messages.find((message) => message.role === 'system');
-    assert.match(String(systemMessage?.content || ''), /EXECUTION_MODE: fast_swap/);
-    assert.match(String(systemMessage?.content || ''), /Quote is optional, not a blocking prerequisite/i);
+    const userMessage = messages.find((message) => message.role === 'user');
+
+    assert.doesNotMatch(String(systemMessage?.content || ''), /EXECUTION_MODE:/);
+    assert.match(String(userMessage?.content || ''), /user_settings: worker preferences: execution mode, swap defaults, safety flags; read via read_user_settings/);
 });
 
 test('assembleGenerationMessages does not send stored reasoning_content back to NVIDIA reasoning-model history', () => {

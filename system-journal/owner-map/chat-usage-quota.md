@@ -1,6 +1,6 @@
 # Chat Usage Quota Owner Map
 
-Updated: 2026-04-16
+Updated: 2026-04-17
 
 ## Owned Layers
 
@@ -57,7 +57,8 @@ configuration define.
 ### Sidebar boundary
 
 Owns: rendering the server-provided free/premium quota shape without flattening
-model rows back into guessed client buckets.
+model rows back into guessed client buckets, and only auto-refreshing that quota
+summary on chat routes or explicit refresh requests.
 
 Does not own: recomputing limits or second-guessing server enforcement.
 

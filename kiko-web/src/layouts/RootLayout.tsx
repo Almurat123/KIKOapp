@@ -1,22 +1,28 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-17
 // Author: Rowan
 // Reason: chat text could arrive through WebSocket but still appear all at once
 //         if RootLayout buffered multiple chunks into one animation-frame flush.
 //         Runtime logs later confirmed backend emitted 11 fast-path chunks while
 //         the browser only rendered one update because `sessionPending` merged
-//         them before the next frame.
+//         them before the next frame. RootLayout also owns whether chat
+//         completion events may refresh the sidebar quota summary; those
+//         refreshes must stay on chat routes so browse pages do not inherit
+//         chat-driven read traffic.
 // Goal: make the frontend state boundary observable: incoming chunk count,
 //       pending buffer size, flush timing, and message length before/after merge,
 //       while applying content/reasoning chunks immediately once the target
-//       assistant message already exists in local state.
-// Owns: authenticated chat WebSocket subscription and conversation state merging.
+//       assistant message already exists in local state and keeping usage
+//       refresh broadcasts route-scoped.
+// Owns: authenticated chat WebSocket subscription, conversation state merging,
+//       and chat-route usage-refresh broadcasts.
 // Does Not Own: backend chunk generation, browser WebSocket transport, or bubble styling.
 // Design Language:
 // - RootLayout stream logs should correlate ws-receive and MessageBubble render logs
 // - diagnostics must log lengths/counts, not raw assistant text
 // - requestAnimationFrame batching should be visible as flush logs
 // - once a target assistant message exists locally, content/reasoning chunks should not wait for a coalescing flush
+// - chat-driven quota refreshes must not leak onto non-chat browse pages
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/test.txt
 // - Kind: runtime observation
@@ -28,9 +34,15 @@
 // - Retrieved: 2026-04-16
 // - Applied To: replacing chunk coalescing with immediate per-message chunk application
 // - Verification: verified in runtime log and code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-token-page-read-burst-isolation.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: route-scoped suppression of chat usage-summary refreshes on token and other browse pages
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-stream-diagnostics.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-token-page-read-burst-isolation.md
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { usePrivy } from '@privy-io/react-auth';
@@ -89,6 +101,7 @@ export const RootLayout: React.FC = () => {
         () => conversations.find(c => c.activeTask != null)?.id ?? null,
         [conversations]
     );
+    const isChatRouteRef = useRef(location.pathname === '/' || location.pathname.startsWith('/chat/'));
 
     // WebSocket message buffering refs
     const pendingByConversationRef = useRef<Map<string, Map<string, Message>>>(new Map());
@@ -99,6 +112,10 @@ export const RootLayout: React.FC = () => {
     const lastResumeSyncAtRef = useRef(0);
     const firstChunkLoggedRef = useRef<Set<string>>(new Set());
     const streamChunkStatsRef = useRef<Map<string, { chunks: number; contentLength: number; reasoningLength: number; lastAtMs: number }>>(new Map());
+
+    useEffect(() => {
+        isChatRouteRef.current = location.pathname === '/' || location.pathname.startsWith('/chat/');
+    }, [location.pathname]);
 
     // --- WebSocket & Sync Logic (Identical to App.tsx) ---
 
@@ -595,7 +612,7 @@ export const RootLayout: React.FC = () => {
                         activeTaskId: c.activeTask.id,
                     });
                 }
-                if (typeof window !== 'undefined') {
+                if (isChatRouteRef.current && typeof window !== 'undefined') {
                     window.dispatchEvent(new CustomEvent('kiko-usage-refresh'));
                 }
                 return;
@@ -622,7 +639,7 @@ export const RootLayout: React.FC = () => {
                 });
 
                 // Dispatch event to refresh sidebar usage count now that the message computation is done
-                if (typeof window !== 'undefined') {
+                if (isChatRouteRef.current && typeof window !== 'undefined') {
                     window.dispatchEvent(new CustomEvent('kiko-usage-refresh'));
                 }
 

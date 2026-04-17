@@ -1,6 +1,6 @@
 # Loading Resilience
 
-Updated: 2026-04-08
+Updated: 2026-04-17
 
 ## Purpose
 
@@ -19,6 +19,9 @@ temporarily unavailable.
    limits, timeouts, and transient transport errors only.
 5. When the backend already exposes a safe aggregate read, prefer it over
    client-side multi-request fan-out for the same page.
+6. Keep parent-owned detail hydration on the parent route. Child embeds should
+   render the resolved snapshot instead of re-reading the same entity to fill an
+   optional field.
 
 ## Forbidden Local Patch Patterns
 
@@ -27,6 +30,8 @@ temporarily unavailable.
 - Letting one failing upstream source erase already recovered data from another.
 - Rebuilding a server-provided aggregate view by issuing the same reads from the
   browser one-by-one.
+- Letting a chart or other child visual re-query a parent-hydrated token detail
+  endpoint just to recover optional display metadata.
 
 ## Related Outcomes
 

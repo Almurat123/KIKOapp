@@ -6,7 +6,10 @@
 //         drifting into report-style answers. Social-agent ingress now also
 //         needs a stable structured field for current-turn thread/image context
 //         so prompt assembly can create multimodal user messages without
-//         overloading plain history strings.
+//         overloading plain history strings. The chat v2 rewrite also needs a
+//         stable context-contract field so Node and Python can agree on which
+//         context slices are required for a turn instead of re-injecting every
+//         cached block by default.
 // Goal: keep funds-sensitive confirmation state explicit and serializable while
 //       preserving turn-level runtime directives and social-agent multimodal
 //       context as stable orchestration contracts.
@@ -21,6 +24,8 @@
 // - current-turn social multimodal context is runtime metadata, not replayed
 //   history
 // - literal address classification should be explicit context, not hidden model inference
+// - chat v2 must carry an explicit context contract so prompt assembly can
+//   expose only the slices that the current task actually needs
 // Document Provenance:
 // - Source: runtime screenshot of awkward Farcaster public reply formatting
 // - Kind: runtime observation
@@ -33,6 +38,11 @@
 // - Applied To: ChatContextSnapshot.runtime.socialInput for current-turn
 //   thread/image context
 // - Verification: verified in docs and code
+// - Source: /Users/almurat/KiKo/system-journal/adr/2026-04-17-chat-v2-rewrite-plan.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: explicit context-contract storage in runtime snapshot
+// - Verification: inferred from code and planned architecture
 // - Source: Farcaster/runtime address-routing incidents where token contracts
 //           were interpreted as wallet-analysis targets
 // - Kind: runtime observation
@@ -99,6 +109,26 @@ export interface TradeConfirmationState {
         confirmationToken: string;
         actionClass: ActionClass;
     };
+}
+
+export type ChatContextBlockName =
+    | 'user_settings'
+    | 'user_context'
+    | 'workflow_state'
+    | 'wallet_state'
+    | 'token_context'
+    | 'launchpad_context'
+    | 'social_thread_context'
+    | 'social_images'
+    | 'provider_native_evidence'
+    | 'execution_plan'
+    | 'skill_prompts';
+
+export interface ChatContextContract {
+    mode: 'lean' | 'analysis' | 'execution' | 'social' | 'debug';
+    requiredContexts: ChatContextBlockName[];
+    optionalContexts: ChatContextBlockName[];
+    reason?: string | null;
 }
 
 export interface PolymarketSelectionOutcomeState {
@@ -323,6 +353,7 @@ export interface ChatContextSnapshot {
         allChainBalancesSnapshotAt?: string | null;
         systemDirectives?: RuntimeDirective[];
         prefetchedToolResults?: Record<string, any> | null;
+        contextContract?: ChatContextContract | null;
         contextBlocks?: {
             clientContext?: string;
             walletState?: string;

@@ -1,9 +1,12 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-15
+// Updated: 2026-04-17
 // Author: Renata
 // Reason: Clanker token deployment and reward/fee lookup tools now join the
 //         built-in registry so agent turns can launch tokens, inspect admin or
 //         deployer history, read v4 rewards, and prepare claim transactions.
+//         Chat v2 now also needs explicit read-only context tools registered in
+//         the same registry so the model can fetch runtime context on demand
+//         instead of inheriting it from prompt pre-injection.
 // Goal: keep the built-in tool registry as the single explicit list of tools
 //       exposed to chat execution.
 // Owns: imports and registration order for built-in tools.
@@ -12,17 +15,24 @@
 // - New skills must register explicitly here; hidden auto-discovery is not used.
 // - Tool names must remain stable after registration because chat traces persist them.
 // - Stateful or write-capable tools must keep their own safety checks in the tool layer.
+// - Chat runtime context reads are first-class tools and must register explicitly.
 // Document Provenance:
 // - Source: system-journal/adr/2026-04-15-clanker-token-deploy-skill.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-15
 // - Applied To: ClankerSkill registration in the built-in registry
 // - Verification: verified in code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-context-read-tools.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: registering chat v2 context read tools in the built-in registry
+// - Verification: verified in code and targeted tests
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/design-language/clanker-token-deploy-skill.md
 // - system-journal/owner-map/clanker-skill.md
 // - system-journal/adr/2026-04-15-clanker-token-deploy-skill.md
+// - system-journal/fix-log/2026-04-17-chat-v2-context-read-tools.md
 import { toolRegistry } from './registry.js';
 import { GetCrossChainQuoteTool, PrepareCrossChainTxTool } from '../skills/CrossChainSkill/index.js';
 import { GetTokenInfoTool, GetTrendingTokensTool, GetTokenPriceTool, GetHistoricalPriceTool, GetEarlyBuyersTool, AnalyzeCreatorTool } from '../skills/TokenSkill/index.js';
@@ -67,10 +77,12 @@ import {
     GetClankerTokensDeployedByAddressTool,
     PrepareClankerClaimRewardsTool,
 } from '../skills/ClankerSkill/index.js';
+import { CHAT_CONTEXT_READ_TOOLS } from '../jobs/chat/contextReadTools.js';
 
 let initialized = false;
 
 const BUILT_IN_TOOLS = [
+    ...CHAT_CONTEXT_READ_TOOLS,
     GetTokenInfoTool,
     GetTrendingTokensTool,
     ExternalWebSearchTool,

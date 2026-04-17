@@ -22,6 +22,35 @@ import { Skeleton } from '../components/Skeleton';
 import { agentAttrs } from '../agent/attrs';
 import styles from './TokenDetailPage.module.css';
 
+// CONTEXT MEMORY
+// Updated: 2026-04-17
+// Author: Rowan
+// Reason: token detail opens could hydrate from navigation state, but the
+//         chart still needed a pool address and would re-query the same token
+//         details route. That split ownership created duplicate reads on token
+//         page entry.
+// Goal: keep one token-detail owner for hydration, merge partial navigation
+//       state with a single backend read when the pool address is missing, and
+//       pass the resolved data down to passive child surfaces.
+// Owns: token detail hydration, state merging, favorite state, and deep-link recovery.
+// Does Not Own: chart embedding, token list shaping, or backend quote policy.
+// Design Language:
+// - the parent route owns token-detail hydration
+// - child visuals should render the resolved snapshot, not re-fetch it
+// - missing optional fields may be hydrated once, not by every child surface
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-token-page-read-burst-isolation.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-17
+// - Applied To: moving pool-address resolution into the token detail owner
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
+// - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-token-page-read-burst-isolation.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
+
 // --- Types ---
 
 interface TokenInfo {
@@ -136,10 +165,6 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
   const [fetchLoading, setFetchLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
-  // Derived state to use either prop or fetched token
-  // Priority: Prop > Location State > Fetched
-  const token = propToken || (location.state as any)?.token || fetchedToken;
-
   // Handle back navigation
   const handleBack = useCallback(() => {
     if (propOnBack) {
@@ -220,6 +245,8 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
   const { resolvedTheme } = useThemeContext();
   const isDark = resolvedTheme === 'dark';
   const [loading, setLoading] = useState(true);
+  const tokenFromState = (location.state as any)?.token as TokenInfo | undefined;
+  const baseToken = propToken || tokenFromState || null;
 
   /**
    * Helper to normalize network names (canonical form)
@@ -287,13 +314,18 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
     };
   }, []);
 
-  // Effect: Fetch data if no token provided but we have params
+  // Effect: Hydrate missing poolAddress or full token details exactly once.
   useEffect(() => {
     let isMounted = true;
-    const tokenFromState = (location.state as any)?.token;
+    const needsHydration = !!chain && !!address && (!baseToken || !baseToken.poolAddress);
 
-    if (!propToken && !tokenFromState && chain && address) {
+    if (needsHydration) {
       const loadData = async () => {
+        if (!baseToken) {
+          setLoading(true);
+        }
+        setFetchError(null);
+        setFetchedToken(null);
         setFetchLoading(true);
         try {
           const data = await tokenApi.getDetails(chain, address);
@@ -314,26 +346,38 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
       loadData();
     }
     return () => { isMounted = false; };
-  }, [chain, address, propToken, mapApiToTokenInfo, !!(location.state as any)?.token]); // Stabilize location.state dependency
+  }, [chain, address, baseToken?.poolAddress, mapApiToTokenInfo]); // Hydrate only when the owner snapshot is incomplete
 
   // Resolve loading state
   useEffect(() => {
     // If token came from props or navigation state (not API fetch), show immediately.
-    const fromNavState = !propToken && !!(location.state as any)?.token;
+    const fromNavState = !!tokenFromState;
     if (propToken || fromNavState) {
       // Data already available — no delay needed
       setLoading(false);
       return;
     }
     // Token came from API fetch — wait until fetch completes
-    if (!fetchLoading && token) {
+    if (!fetchLoading && baseToken) {
       setLoading(false);
     } else if (!fetchLoading && fetchError) {
       setLoading(false);
-    } else if (!fetchLoading && !token && !chain) {
+    } else if (!fetchLoading && !baseToken && !chain) {
       setLoading(false);
     }
-  }, [token, fetchLoading, fetchError, chain, propToken, location.state]);
+  }, [baseToken, fetchLoading, fetchError, chain, propToken, tokenFromState]);
+
+  const token: any = fetchedToken && baseToken
+    ? { ...baseToken, ...fetchedToken }
+    : (fetchedToken || baseToken);
+
+  useEffect(() => {
+    setFetchedToken(null);
+    setFetchError(null);
+    if (!baseToken && chain && address) {
+      setLoading(true);
+    }
+  }, [chain, address, baseToken]);
 
   useEffect(() => {
     if (containerRef.current) {
@@ -360,20 +404,22 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
 
   // Check Favorite status on mount (NO auto security scan - user triggers via Ask AI)
   useEffect(() => {
-    if (token.chain && token.address) {
-      const checkFav = async () => {
-        if (!authenticated) return;
-
-        try {
-          const normalizedChain = token.chain.toLowerCase();
-          const status = await favoriteApi.checkFavorite(normalizedChain, token.address);
-          setIsFavorite(status);
-        } catch (e) { console.error(e); }
-      };
-
-      checkFav();
+    if (!token || !token.chain || !token.address) {
+      return;
     }
-  }, [token.chain, token.address, authenticated]);
+
+    const checkFav = async () => {
+      if (!authenticated) return;
+
+      try {
+        const normalizedChain = token.chain.toLowerCase();
+        const status = await favoriteApi.checkFavorite(normalizedChain, token.address);
+        setIsFavorite(status);
+      } catch (e) { console.error(e); }
+    };
+
+    checkFav();
+  }, [token?.chain, token?.address, authenticated]);
 
   // Handle Favorite Toggle
   const toggleFavorite = async () => {
@@ -528,6 +574,34 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
 
         <div className={styles.mainContent}>
           <Skeleton variant="rectangular" width="100%" height={500} style={{ borderRadius: 12 }} />
+        </div>
+      </div>
+    );
+  }
+
+  if (!token) {
+    return (
+      <div className={`${styles.container} ${styles[resolvedTheme]}`}>
+        <div className={styles.headerSection}>
+          <div className={styles.tokenTitleRow}>
+            <div className={styles.tokenIdentity}>
+              <button
+                onClick={handleBack}
+                className={styles.backButton}
+                {...agentAttrs({ id: 'token_detail.back', role: 'button', action: 'navigate', page: 'token_detail' })}
+              >
+                <ArrowLeft size={18} />
+              </button>
+              <div className={styles.tokenNameWrapper}>
+                <h1 className={styles.tokenSymbol}>Token unavailable</h1>
+              </div>
+            </div>
+          </div>
+          <div className={styles.tokenInfoSection}>
+            <p style={{ margin: 0, opacity: 0.7 }}>
+              {fetchError || 'Failed to load token details.'}
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -773,8 +847,8 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token: propTok
         >
           <GeckoTerminalChart
             chain={token.chain}
-            address={token.address}
             poolAddress={token.poolAddress}
+            loading={fetchLoading && !token.poolAddress}
             height={500}
           />
         </div>

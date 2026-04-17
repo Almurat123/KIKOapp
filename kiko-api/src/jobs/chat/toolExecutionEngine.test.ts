@@ -3,6 +3,45 @@ import test from 'node:test';
 
 import { ToolExecutionEngine } from './toolExecutionEngine.js';
 
+test('tool execution engine executes chat context read tools through the built-in registry', async () => {
+    const engine = new ToolExecutionEngine();
+    const result = await engine.execute(
+        {
+            id: 'call-read-user-context',
+            name: 'read_user_context',
+            arguments: {},
+        },
+        {
+            __snapshot: {
+                lastUserMessage: 'Buy CAKE on BNB chain',
+                requestedTokenSymbols: ['CAKE', 'BNB'],
+                runtime: {
+                    walletAddress: '0xabc',
+                    chainId: 8453,
+                    chainName: 'Base',
+                },
+            },
+            __controlPolicy: {
+                policyVersion: 'test',
+                policyDecisionId: 'policy-read-1',
+                actionClass: 'READ_ONLY',
+                controlPlane: 'node',
+                mutationAllowed: false,
+                enforcementLevel: 'hard',
+                allowedTools: ['read_user_context'],
+                mutationToolAllowlist: [],
+                providerNativeTools: [],
+                toolBudgets: { default: 4 },
+            },
+        },
+    );
+
+    assert.equal(result.ok, true);
+    assert.equal(result.result?.context?.wallet?.address, '0xabc');
+    assert.equal(result.result?.context?.chain?.connected?.chain_id, 8453);
+    assert.equal(result.result?.context?.chain?.requested?.chain_id, 56);
+});
+
 test('tool execution engine preserves copytrade confirmation payload without marking it failed', async () => {
     const engine = new ToolExecutionEngine();
     const result = await engine.execute(

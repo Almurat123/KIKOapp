@@ -212,7 +212,7 @@ test('routes assistant meta debugging turns to meta_debug without pulling stale 
     assert.equal(resolution.intentEnvelope.primary_intent, 'meta_debug');
     assert.equal(resolution.intentEnvelope.domain, 'assistant_meta');
     assert.equal(resolution.allowAllTools, false);
-    assert.deepEqual(resolution.allowedTools, []);
+    assert.deepEqual(resolution.allowedTools, ['read_workflow_state', 'read_user_context']);
     assert.ok(resolution.strategyNotes.some((note) => note.includes('assistant or system behavior itself')));
 });
 
@@ -326,7 +326,7 @@ test('Grok web-first discovery intents execute the declared web search target be
     assert.equal(providerOptions.tool_policy?.native_tools.preferred_required_tool, 'web_search');
 });
 
-test('X trending queries keep X-first intent but no longer lock tool exposure', () => {
+test('X trending queries keep X-first intent while staying on skill-scoped tools', () => {
     const canonicalIntent = makeCanonicalIntent({
         domain: 'x',
         intent: 'social_discovery',
@@ -343,10 +343,12 @@ test('X trending queries keep X-first intent but no longer lock tool exposure', 
     assert.equal(resolution.toolPhasePolicy.nextPhaseAfterNativeSearch, 'local_analysis');
     assert.ok(resolution.intentEnvelope.required_evidence.includes('connected_chain_evidence'));
     assert.ok(resolution.strategyNotes.some((note) => note.includes('X/Twitter')));
-    assert.equal(resolution.allowAllTools, true);
+    assert.equal(resolution.allowAllTools, false);
+    assert.ok(resolution.allowedTools.includes('read_workflow_state'));
+    assert.ok(resolution.allowedTools.includes('read_user_context'));
 });
 
-test('DeepSeek X trending queries stay out of native-search-only while keeping full tool access', () => {
+test('DeepSeek X trending queries stay out of native-search-only while keeping skill-scoped tool access', () => {
     const canonicalIntent = makeCanonicalIntent({
         domain: 'x',
         intent: 'social_discovery',
@@ -361,7 +363,9 @@ test('DeepSeek X trending queries stay out of native-search-only while keeping f
     }), null, canonicalIntent);
     assert.equal(resolution.intentEnvelope.domain, 'x');
     assert.equal(resolution.toolPhasePolicy.initialPhase, 'local_analysis');
-    assert.ok(resolution.allowAllTools);
+    assert.equal(resolution.allowAllTools, false);
+    assert.ok(resolution.allowedTools.includes('read_workflow_state'));
+    assert.ok(resolution.allowedTools.includes('read_user_context'));
     assert.ok(resolution.searchMode === 'required');
     assert.ok(resolution.strategyNotes.some((note) => note.includes('native X search')));
 });
@@ -461,8 +465,10 @@ test('generic X queries still require search plus chain-side follow-up', () => {
     }), null, canonicalIntent);
 
     assert.equal(resolution.searchMode, 'required');
-    assert.ok(resolution.allowAllTools);
+    assert.equal(resolution.allowAllTools, false);
     assert.ok(resolution.preferredTools.includes('get_wallet_info'));
+    assert.ok(resolution.allowedTools.includes('read_workflow_state'));
+    assert.ok(resolution.allowedTools.includes('read_user_context'));
     assert.ok(resolution.strategyNotes.some((note) => note.includes('chain-side evidence')));
 });
 
@@ -644,6 +650,10 @@ test('swap intents prefer wallet info and preflight before prepare swap executio
     assert.ok(resolution.preferredTools.includes('get_wallet_info'));
     assert.ok(resolution.preferredTools.includes('simulate_swap'));
     assert.ok(resolution.preferredTools.includes('prepare_swap_transaction'));
+    assert.equal(resolution.contextContract.mode, 'execution');
+    assert.ok(resolution.contextContract.requiredContexts.includes('user_settings'));
+    assert.ok(resolution.contextContract.requiredContexts.includes('wallet_state'));
+    assert.ok(resolution.contextContract.requiredContexts.includes('token_context'));
     assert.ok(
         resolution.strategyNotes.some((note) =>
             note.includes('preflight evidence first') || note.includes('Quote-before-swap mode is enabled')
@@ -883,7 +893,7 @@ test('resolver carries forward session-used tools into orchestration context', (
     assert.ok(resolution.strategyNotes.some((note) => note.includes('Recent tool evidence is available from this session')));
 });
 
-test('resolver keeps the full available registry exposed on non-hard-policy turns', () => {
+test('plain capability questions route to onboarding and stay tool-free', () => {
     const snapshot = makeSnapshot('What can you do?', {
         toolDefinitions: [
             {
@@ -900,8 +910,49 @@ test('resolver keeps the full available registry exposed on non-hard-policy turn
     });
 
     const resolution = resolveNodeSkills(snapshot, null);
-    assert.ok(resolution.allowAllTools);
-    assert.deepEqual(resolution.allowedTools.sort(), ['external_web_search', 'get_token_info']);
+    assert.deepEqual(resolution.selectedSkills, ['welcome_onboarding']);
+    assert.equal(resolution.allowAllTools, false);
+    assert.deepEqual(resolution.allowedTools, []);
+});
+
+test('generic direct answers do not fall back to a market skill', () => {
+    const resolution = resolveNodeSkills(makeSnapshot('Explain quantum entanglement.'), null);
+    assert.deepEqual(resolution.selectedSkills, []);
+    assert.equal(resolution.allowAllTools, false);
+    assert.deepEqual(resolution.allowedTools, []);
+    assert.equal(resolution.contextContract.mode, 'lean');
+    assert.deepEqual(resolution.contextContract.requiredContexts, []);
+});
+
+test('model-selected routing infers execution envelope from explicit raw swap text without canonical intent', () => {
+    const resolution = resolveNodeSkills(makeSnapshot('Buy CAKE on BNB chain', {
+        requestedTokenSymbols: ['CAKE', 'BNB'],
+    }), null);
+    assert.ok(resolution.selectedSkills.includes('swap'));
+    assert.equal(resolution.intentEnvelope.primary_intent, 'swap_execution');
+    assert.equal(resolution.intentEnvelope.execution_risk, 'mutation');
+    assert.equal(resolution.contextContract.mode, 'execution');
+    assert.ok(resolution.contextContract.requiredContexts.includes('wallet_state'));
+    assert.ok(resolution.contextContract.requiredContexts.includes('token_context'));
+    assert.ok(resolution.contextContract.requiredContexts.includes('user_settings'));
+});
+
+test('phase strategy notes frame resolver output as backend safety, not selected intent', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'x',
+        intent: 'social_discovery',
+        searchMode: 'required',
+        searchTarget: 'x',
+        requiresRealtime: true,
+        evidenceRequirements: ['native_search_results'],
+    });
+    const resolution = resolveNodeSkills(makeSnapshot("What's trending on X today?", {
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
+    const strategyText = resolution.strategyNotes.join('\n');
+    assert.match(strategyText, /Model chooses one or more tasks from TASK_MENU/);
+    assert.match(strategyText, /Backend safety phase/);
+    assert.doesNotMatch(strategyText, /Structured intent:/);
 });
 
 test('canonical multilingual early-buyer intents route identically across languages', () => {
