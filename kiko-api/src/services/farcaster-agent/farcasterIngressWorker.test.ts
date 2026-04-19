@@ -11,7 +11,10 @@ import {
   FarcasterIngressWorker,
   getFarcasterInboundIgnoreReason,
 } from './farcasterIngressWorker.js';
-import { buildFarcasterAssistantReplyFromMessage } from './farcasterChatBridge.js';
+import {
+  buildFarcasterAssistantReplyFromMessage,
+  resolveFarcasterAssistantReplyText,
+} from './farcasterChatBridge.js';
 
 after(async () => {
   await prisma.$disconnect().catch(() => {});
@@ -283,4 +286,29 @@ test('buildFarcasterAssistantReplyFromMessage prefers public embeds from generat
 
   assert.equal(reply.text, '已生成。');
   assert.deepEqual(reply.embeds, ['https://cdn.example/public-generated.png']);
+});
+
+test('resolveFarcasterAssistantReplyText acknowledges terminal generated-image turns without assistant text', () => {
+  const reply = resolveFarcasterAssistantReplyText({
+    type: 'generated-image',
+    content: '',
+    data: null,
+  }, {
+    taskStatus: 'done',
+  });
+
+  assert.equal(reply, '已生成。');
+});
+
+test('resolveFarcasterAssistantReplyText keeps generated-image timeout replies out of the generic error fallback', () => {
+  const reply = resolveFarcasterAssistantReplyText({
+    type: 'generated-image',
+    content: '',
+    data: null,
+  }, {
+    taskStatus: 'running',
+    timedOut: true,
+  });
+
+  assert.equal(reply, '图片生成中，请稍后再试。');
 });

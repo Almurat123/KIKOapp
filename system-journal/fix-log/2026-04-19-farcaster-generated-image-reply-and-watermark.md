@@ -16,6 +16,11 @@
 - Farcaster-originated generated-image tasks now request an opt-in public R2/CDN
   copy through the chat image storage owner. Ordinary web generated images stay
   private and continue using signed preview hydration.
+- Farcaster generated-image reply waiting now synthesizes image-aware fallback
+  text from the assistant message type and task status. A successful
+  tool-managed image turn no longer falls back to the generic English
+  `I ran into an issue processing that request. Please try again.` string just
+  because the assistant text field is empty.
 - The ImageGenerationSkill prompt now tells the main model how to handle
   Farcaster attached images: summarize visible traits into a new-image prompt
   rather than pretending true reference-image editing is wired.
@@ -30,6 +35,14 @@ not normal text, and Farcaster reply publication only accepted text.
 
 Without this change, a successful Farcaster image generation could leave the
 public reply with only fallback text or an error-like empty assistant response.
+
+Production runtime logs on 2026-04-19 confirmed that this was still happening
+for at least one real mention: the turn ended as
+`tool_managed_side_effect_response`, generated-output moderation saw
+`imageCount=1`, but the public Farcaster reply still published with the generic
+English empty-text fallback. The root bug was the bridge treating an empty
+assistant `content` field as failure even when the assistant message type had
+already switched to `generated-image`.
 
 ## Login And Model Boundary
 
@@ -77,6 +90,11 @@ publishing an expiring signed preview URL.
   public generated-image URL.
 - Verified in code that generated-image execution now moderates, previews, and
   stores `providerResult.imageBuffer` directly without watermark rewriting.
+- Verified in runtime log
+  `/Users/almurat/Downloads/logs.1776611031853.json` that the affected mention
+  finished with `tool_managed_side_effect_response`, `finalTextLength: 0`, and
+  generated-output moderation `imageCount: 1`, which matches the empty-text
+  fallback failure mode this fix hardens.
 - Verified in local SDK typings:
   - Neynar `publishCast` accepts `embeds?: Array<{ url: string }>`
   - Hub `CastAddBody.embeds` accepts `{ url }` entries
@@ -119,6 +137,13 @@ publishing an expiring signed preview URL.
   - Applied To: confirming internal generated-image model selection uses
     `grok-imagine-image`
   - Verification: verified in code
+- Source: `/Users/almurat/Downloads/logs.1776611031853.json`
+  - Kind: runtime observation
+  - Retrieved: 2026-04-19
+  - Applied To: confirming that a Farcaster mention could finish image
+    generation successfully while still publishing the generic empty-text
+    fallback
+  - Verification: verified in runtime log
 
 ## See Also
 

@@ -9,7 +9,10 @@
 //         Model-owned generated-image turns now finish as `generated-image`
 //         assistant rows rather than text rows, so the Farcaster bridge must
 //         return both reply text and hydrated image embeds to the outbound cast
-//         layer.
+//         layer. Production runtime logs then showed a public-reply gap: some
+//         successful generated-image turns still reached Farcaster publication
+//         with empty assistant text, which triggered the generic English error
+//         fallback instead of an image-ready acknowledgement.
 // Goal: enqueue Farcaster-originated chat work with enough context for the
 //       existing agent runtime, billing gates, vision-capable providers, and
 //       social reply publication of generated-image assets.
@@ -47,6 +50,12 @@
 // - Retrieved: 2026-04-19
 // - Applied To: preferring generated-image public URLs over signed preview URLs
 // - Verification: verified in targeted test
+// - Source: production runtime log /Users/almurat/Downloads/logs.1776611031853.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-19
+// - Applied To: synthesizing generated-image reply text when a tool-managed
+//   Farcaster turn reaches terminal state without assistant text
+// - Verification: verified in runtime log and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
@@ -78,6 +87,11 @@ export interface FarcasterAssistantReply {
   embeds: string[];
 }
 
+const DEFAULT_FARCASTER_ERROR_REPLY = 'I ran into an issue processing that request. Please try again.';
+const DEFAULT_FARCASTER_TIMEOUT_REPLY = 'I am still working on that. Please try again in a moment.';
+const DEFAULT_FARCASTER_GENERATED_IMAGE_READY_REPLY = '已生成。';
+const DEFAULT_FARCASTER_GENERATED_IMAGE_PENDING_REPLY = '图片生成中，请稍后再试。';
+
 function normalizeFarcasterReplyEmbedUrls(value: unknown): string[] {
   const rawUrls = Array.isArray(value) ? value : [];
   const deduped = new Set<string>();
@@ -100,8 +114,41 @@ function buildGeneratedImageFallbackText(generatedImage: any, content: string): 
   const status = String(generatedImage?.status || '').trim().toLowerCase();
   const errorMessage = String(generatedImage?.errorMessage || '').trim();
   if (status === 'failed' && errorMessage) return errorMessage;
-  if (status === 'complete') return '已生成。';
+  if (status === 'complete') return DEFAULT_FARCASTER_GENERATED_IMAGE_READY_REPLY;
   return '';
+}
+
+export function resolveFarcasterAssistantReplyText(
+  assistantMessage: any,
+  options?: {
+    taskStatus?: string | null;
+    timedOut?: boolean;
+  },
+): string {
+  const content = String(assistantMessage?.content || '').trim();
+  if (content) return content;
+
+  const taskStatus = String(options?.taskStatus || '').trim().toLowerCase();
+  const generatedImage = assistantMessage?.data?.generatedImage || null;
+  const generatedImageText = buildGeneratedImageFallbackText(generatedImage, content);
+  if (generatedImageText) return generatedImageText;
+
+  const messageType = String(assistantMessage?.type || '').trim().toLowerCase();
+  const isGeneratedImageTurn = messageType === 'generated-image' || Boolean(generatedImage);
+  if (isGeneratedImageTurn) {
+    if (options?.timedOut || ['pending', 'queued', 'running'].includes(taskStatus)) {
+      return DEFAULT_FARCASTER_GENERATED_IMAGE_PENDING_REPLY;
+    }
+    if (['error', 'cancelled'].includes(taskStatus)) {
+      return DEFAULT_FARCASTER_ERROR_REPLY;
+    }
+    return DEFAULT_FARCASTER_GENERATED_IMAGE_READY_REPLY;
+  }
+
+  if (options?.timedOut || ['pending', 'queued', 'running'].includes(taskStatus)) {
+    return DEFAULT_FARCASTER_TIMEOUT_REPLY;
+  }
+  return DEFAULT_FARCASTER_ERROR_REPLY;
 }
 
 export async function buildFarcasterAssistantReplyFromMessage(assistantMessage: any): Promise<FarcasterAssistantReply> {
@@ -259,7 +306,11 @@ export async function waitForFarcasterTaskAssistantReply(params: {
 }): Promise<FarcasterAssistantReply> {
   if (!params.taskId) {
     const assistantMessage = await chatRepo.getMessage(params.assistantMessageId);
-    return buildFarcasterAssistantReplyFromMessage(assistantMessage);
+    const reply = await buildFarcasterAssistantReplyFromMessage(assistantMessage);
+    return {
+      text: reply.text || resolveFarcasterAssistantReplyText(assistantMessage),
+      embeds: reply.embeds,
+    };
   }
 
   const timeoutMs = Math.max(1_000, Number(params.timeoutMs || 90_000));
@@ -274,7 +325,9 @@ export async function waitForFarcasterTaskAssistantReply(params: {
     if (!task || ['done', 'error', 'cancelled'].includes(task.status)) {
       const reply = await buildFarcasterAssistantReplyFromMessage(assistantMessage);
       return {
-        text: reply.text || 'I ran into an issue processing that request. Please try again.',
+        text: reply.text || resolveFarcasterAssistantReplyText(assistantMessage, {
+          taskStatus: task?.status || null,
+        }),
         embeds: reply.embeds,
       };
     }
@@ -285,7 +338,10 @@ export async function waitForFarcasterTaskAssistantReply(params: {
   const assistantMessage = await chatRepo.getMessage(params.assistantMessageId);
   const reply = await buildFarcasterAssistantReplyFromMessage(assistantMessage);
   return {
-    text: reply.text || 'I am still working on that. Please try again in a moment.',
+    text: reply.text || resolveFarcasterAssistantReplyText(assistantMessage, {
+      taskStatus: 'running',
+      timedOut: true,
+    }),
     embeds: reply.embeds,
   };
 }

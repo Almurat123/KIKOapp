@@ -98,6 +98,12 @@
 // - Retrieved: 2026-04-19
 // - Applied To: passing generated-image reply embeds through outbound mention replies
 // - Verification: verified in code and targeted tests
+// - Source: production runtime log /Users/almurat/Downloads/logs.1776611031853.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-19
+// - Applied To: removing duplicate publish-time empty-text fallback after the
+//   chat bridge already synthesizes generated-image acknowledgements
+// - Verification: verified in runtime log and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
@@ -790,7 +796,7 @@ export class FarcasterIngressWorker {
       conversationMappingId: mapping.id,
       parentHash: mention.castHash,
       parentAuthorFid: mention.authorFid,
-      text: trimCastText(assistantReply.text || 'I ran into an issue processing that request. Please try again.'),
+      text: trimCastText(assistantReply.text),
       embeds: assistantReply.embeds,
       idempotencyKey: `farcaster:reply:mention:${mention.castHash}`,
     });
