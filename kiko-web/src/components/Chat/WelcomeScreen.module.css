@@ -1117,6 +1117,8 @@
  * - image model quality uses the same inline control footprint as reasoning
  * - selector labels must truncate before fixed-size action buttons spill out
  *   of the shell
+ * - mobile selector buttons keep the label and chevron packed together; the
+ *   row spacer belongs outside the control, not between name and icon
  * - dropdowns may use soft depth but should avoid hard outlines
  * - do not reintroduce glass borders around routine welcome actions
  * Document Provenance:
@@ -1641,7 +1643,7 @@
 
   .modelButton {
     width: 100%;
-    justify-content: space-between;
+    justify-content: flex-start;
     padding: 0 8px;
     height: 30px !important;
     font-size: 13px;

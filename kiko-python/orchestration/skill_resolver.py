@@ -6,7 +6,10 @@ from __future__ import annotations
 # Reason: the Python orchestration layer now mirrors the model-led tool
 #         visibility rollout used by the Node chat path, but its skill loader
 #         also has to survive runtime layouts where `skills_exec` is absent
-#         instead of crashing the whole mount path.
+#         instead of crashing the whole mount path. Image prompting is now a
+#         first-class model skill, so this loader also needs prompt-file parity
+#         with Node (`prompt.exec.md`) and the same image-request versus
+#         prompt-coaching routing behavior.
 # Goal: keep Python tool exposure aligned with the main model's own semantic
 #       choice while preserving the existing skill prompt selection logic and
 #       making optional skill catalogs non-fatal.
@@ -18,6 +21,8 @@ from __future__ import annotations
 # - backend policy still blocks unsafe or unconfirmed side effects
 # - heuristics can guide prompts, but they must not hide tools in model-led mode
 # - import-time loaders must never assume optional directories exist
+# - `prompt.exec.md` is a valid prompt source on the Python path
+# - prompt-help-only image turns should load guidance without auto-generating
 # Document Provenance:
 # - Source: operator architecture review on 2026-04-19
 # - Kind: product instruction
@@ -29,14 +34,28 @@ from __future__ import annotations
 # - Retrieved: 2026-04-19
 # - Applied To: making `skills_exec` absence non-fatal during orchestration startup
 # - Verification: verified in code and targeted tests
+# - Source: OpenAI GPT-image-1.5 Prompting Guide
+# - Kind: official API doc
+# - Retrieved: 2026-04-19
+# - Applied To: Python-side image prompt guidance routing
+# - Verification: verified in docs and code
+# - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-image-prompt-skill-provenance.md
+# - Kind: repo doc
+# - Retrieved: 2026-04-19
+# - Applied To: `prompt.exec.md` loader parity and image prompt skill selection
+# - Verification: verified in code and tests
 # See also:
 # - /Users/almurat/KiKo/system-journal/INDEX.md
+# - /Users/almurat/KiKo/system-journal/design-language/image-prompt-guidance.md
+# - /Users/almurat/KiKo/system-journal/owner-map/image-prompt-skills.md
 # - /Users/almurat/KiKo/system-journal/adr/2026-04-19-model-led-tool-orchestration.md
 # - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-python-model-led-tool-visibility-alignment.md
 # - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-python-orchestration-skill-root-resilience.md
+# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-image-prompt-skill-provenance.md
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +67,29 @@ from .model_led_tool_orchestration import (
 )
 
 logger = logging.getLogger(__name__)
+
+IMAGE_GENERATION_QUERY_RE = re.compile(
+    r"\b(?:generate|create|make|design|draw|render|illustrate)\b.{0,40}\b(?:image|poster|cover|illustration|thumbnail|banner|hero|visual|artwork|ad|creative|mockup|photo)\b|"
+    r"\b(?:image|poster|cover|illustration|thumbnail|banner|hero|visual|artwork|ad|creative|mockup|photo)\b.{0,40}\b(?:generate|create|make|design|draw|render)\b|"
+    r"(?:做|生成|画|设计)(?:一张|一个|个)?[^。！？\n]{0,40}(?:图|图片|海报|封面|插画|配图|宣传图|视觉稿)",
+    re.IGNORECASE,
+)
+IMAGE_PROMPT_ADVICE_QUERY_RE = re.compile(
+    r"\b(?:prompt|prompts|image prompt)\b.{0,32}\b(?:how|write|writing|improve|optimi[sz]e|tutorial|guide|better)\b|"
+    r"\b(?:how|write|writing|improve|optimi[sz]e)\b.{0,32}\b(?:prompt|image prompt)\b|"
+    r"(?:图片|出图|海报|封面|插画|视觉稿)?提示词.{0,24}(?:怎么写|教程|优化|写法|模板|指南)|"
+    r"(?:怎么写|优化|改写).{0,24}(?:图片|出图|海报|封面|插画|视觉稿)?提示词|"
+    r"给我(?:写|改写|优化)一个(?:图片|出图|海报|封面|插画|视觉稿)?提示词",
+    re.IGNORECASE,
+)
+
+
+def _is_image_generation_query(query: str) -> bool:
+    return bool(IMAGE_GENERATION_QUERY_RE.search(query)) and not bool(IMAGE_PROMPT_ADVICE_QUERY_RE.search(query))
+
+
+def _is_image_prompting_query(query: str) -> bool:
+    return _is_image_generation_query(query) or bool(IMAGE_PROMPT_ADVICE_QUERY_RE.search(query))
 
 
 def _skills_root() -> Path:
@@ -65,12 +107,14 @@ def _load_skills(root: Path | None = None) -> list[dict[str, Any]]:
             continue
         skill_json = skill_dir / "skill.json"
         prompt_md = skill_dir / "prompt.md"
-        if not skill_json.exists() or not prompt_md.exists():
+        prompt_exec_md = skill_dir / "prompt.exec.md"
+        prompt_path = prompt_md if prompt_md.exists() else prompt_exec_md
+        if not skill_json.exists() or not prompt_path.exists():
             continue
         try:
             skills.append({
                 "meta": json.loads(skill_json.read_text(encoding="utf-8")),
-                "prompt": prompt_md.read_text(encoding="utf-8").strip(),
+                "prompt": prompt_path.read_text(encoding="utf-8").strip(),
             })
         except Exception:
             continue
@@ -100,6 +144,10 @@ def resolve_skills(snapshot: dict[str, Any], trading_intent: dict[str, Any] | No
             if settings.get("checkTokenBeforeSwap"):
                 selected.append("risk_security")
     else:
+        if _is_image_generation_query(query):
+            selected.extend(["image_generation", "image_prompting"])
+        elif _is_image_prompting_query(query):
+            selected.append("image_prompting")
         if any(word in query for word in ["wallet", "balance", "portfolio", "pnl", "余额"]):
             selected.append("wallet_portfolio")
         if any(word in query for word in ["risk", "safe", "honeypot", "rug", "风险", "安全吗"]):

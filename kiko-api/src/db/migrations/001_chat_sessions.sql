@@ -8,21 +8,29 @@
 -- Reason: fresh SQL bootstrap files must follow the current product default,
 --         which moved from GPT to free Kimi 2.5 Instant/Fast.
 -- Goal: keep newly bootstrapped chat_sessions rows aligned with the canonical
---       frontend/backend default.
+--       frontend/backend default and the persisted reasoning level for split-
+--       effort families.
 -- Owns: legacy SQL bootstrap defaults for chat session persistence.
 -- Does Not Own: Prisma-managed production migrations or per-user overrides.
 -- Design Language:
 -- - Bootstrap defaults must not drift from kiko-api/src/config/chatModels.ts.
 -- - Do not use historical migration literals as the product default source.
+-- - Bootstrap rows must also include a reasoning-level column so refreshes can
+--   reopen sessions with the saved effort state.
 -- Document Provenance:
 -- - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
 -- - Kind: repo doc
 -- - Retrieved: 2026-04-17
 -- - Applied To: legacy chat session bootstrap default
 -- - Verification: verified in code
+-- - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
+-- - Kind: repo doc
+-- - Retrieved: 2026-04-19
+-- - Applied To: legacy chat session bootstrap reasoning persistence
 -- See also:
 -- - /Users/almurat/KiKo/system-journal/INDEX.md
 -- - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
+-- - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
 
 -- =============================================
 -- Chat Sessions (Conversations)
@@ -32,6 +40,7 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
   user_id VARCHAR(100) NOT NULL,  -- Privy user ID (DID)
   title VARCHAR(500) DEFAULT 'New Chat',
   model VARCHAR(50) DEFAULT 'kimi-k2-5-instant',
+  reasoning_level VARCHAR(20) NOT NULL DEFAULT 'fast',
   status VARCHAR(20) DEFAULT 'active',  -- active, archived
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()

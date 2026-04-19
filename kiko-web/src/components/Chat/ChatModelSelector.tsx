@@ -43,6 +43,8 @@ import {
 // - keep the family selector and thinking selector adjacent
 // - mobile layouts must preserve a single control row, so long family names
 //   need compact labels without changing the persisted model id
+// - on mobile, the label and chevron stay packed together; do not stretch the
+//   arrow away from the name inside the selector button
 // - do not introduce a second persistence path for the same selected model
 // - do not guess per-family defaults when the actual model list already defines
 //   the available variants
@@ -85,6 +87,11 @@ import {
 // - Retrieved: 2026-04-18
 // - Applied To: keeping all mobile input-row controls on a single line via compact family labels
 // - Verification: verified in code
+// - Source: user screenshot on 2026-04-19 showing excessive mobile selector spacing
+// - Kind: product doc
+// - Retrieved: 2026-04-19
+// - Applied To: keeping selector labels and chevrons visually packed on mobile
+// - Verification: inferred
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-input-borderless-model-reasoning-selector.md

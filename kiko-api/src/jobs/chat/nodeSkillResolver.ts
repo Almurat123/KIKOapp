@@ -18,7 +18,13 @@
 //         explicitly asking for a visual deliverable. Product architecture
 //         review on 2026-04-19 moved the target path to always-on model-led
 //         all-tool visibility, leaving this resolver as hints and context
-//         contracts rather than ordinary tool visibility gates.
+//         contracts rather than ordinary tool visibility gates. The image path
+//         now also needs a companion prompt-guidance skill so prompt-help-only
+//         turns stay in coaching mode while real image requests can load both
+//         prompt structure and execution guidance. OpenAI-aligned live eval
+//         then showed prompt-coaching turns could still skip `read_skill_prompts`,
+//         so the resolver now needs an explicit image-prompt strategy that
+//         forces the model to load the prompt playbook before replying.
 // Goal: keep skill resolution aligned with the actual user task so Clanker
 //       launch requests surface the deploy skill, while onboarding/meta turns
 //       still stay lean.
@@ -41,6 +47,11 @@
 // - Context reads are explicit tools and should be front-loaded ahead of business tools when required.
 // - Intent envelopes are backend safety envelopes; do not describe them to the model as selected intent.
 // - The model-visible task menu owns single or multi-task choice, while this layer owns tool exposure and mutation safety.
+// - Prompt-help-only image turns should load image prompt guidance without auto-triggering image execution.
+// - Real image requests may load both `image_generation` and `image_prompting`, with generation first.
+// - Image prompt-coaching turns should explicitly read `read_skill_prompts` before answering so the OpenAI-aligned playbook actually reaches the model.
+// - OpenAI-first prompt coaching should not volunteer Midjourney/SD/other-model rewrites unless the user asked for them.
+// - Image prompt coaching is not a lean direct-answer turn; it must get a specialist context contract.
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/test.txt
 // - Kind: runtime observation
@@ -92,8 +103,26 @@
 // - Retrieved: 2026-04-19
 // - Applied To: always-on model-led all-tool visibility
 // - Verification: verified in code and targeted tests
+// - Source: OpenAI GPT-image-1.5 Prompting Guide
+// - Kind: official API doc
+// - Retrieved: 2026-04-19
+// - Applied To: ordering a dedicated prompt-guidance skill alongside the execution skill for image work
+// - Verification: verified in docs and code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-image-prompt-skill-provenance.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-19
+// - Applied To: prompt-guidance skill ordering and prompt-help-only routing
+// - Verification: verified in code and tests
+// - Source: local OpenAI-aligned live eval of image prompt coaching turns
+// - Kind: runtime observation
+// - Retrieved: 2026-04-19
+// - Applied To: requiring read_skill_prompts before image prompt coaching answers
+// - Verification: verified in runtime and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/image-prompt-guidance.md
+// - /Users/almurat/KiKo/system-journal/owner-map/image-prompt-skills.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-image-prompt-skill-openai-alignment-eval.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-direct-answer-tool-pruning.md
 // - /Users/almurat/KiKo/system-journal/design-language/clanker-token-deploy-skill.md
 // - /Users/almurat/KiKo/system-journal/owner-map/clanker-skill.md
@@ -103,6 +132,7 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-context-read-tools.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-model-selected-task-menu.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-v2-model-owned-image-generation-tool.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-image-prompt-skill-provenance.md
 // - /Users/almurat/KiKo/system-journal/adr/2026-04-19-model-led-tool-orchestration.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
@@ -232,6 +262,12 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     if (querySignals.imageGeneration) {
         strategyNotes.push('This turn is an image-generation request. If the user is clearly asking for a visual asset, optimize the prompt into structured image direction and call generate_image_from_intent directly.');
         strategyNotes.push('Do not ask for a second confirmation before generating. If a truly critical visual field is missing, ask one precise clarification instead of calling the tool.');
+        strategyNotes.push('If prompt structure is still weak before generation, call read_skill_prompts first so the request follows the OpenAI-aligned image prompting playbook.');
+    }
+    if (querySignals.imagePrompting && !querySignals.imageGeneration) {
+        strategyNotes.push('This turn is asking for image prompt guidance, not automatic image execution. Call read_skill_prompts before answering so the rewrite follows the OpenAI-aligned image prompting playbook.');
+        strategyNotes.push('Return one copy-ready prompt, the negative constraints, and a few single-variable refinements. Do not call generate_image_from_intent unless the user explicitly asks to generate now.');
+        strategyNotes.push('Do not volunteer Midjourney, Stable Diffusion, or other non-OpenAI prompt variants unless the user explicitly asks for another model.');
     }
     if (querySignals.clankerDeploy) {
         strategyNotes.push('This is a Clanker launch or Clanker history request. Use the Clanker skill prompt, ask only for hard missing launch requirements, use defaults for optional fields, keep launches in dry-run mode first, and only set confirmDeploy=true after the user confirms the exact launch details.');
@@ -296,6 +332,9 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     } else {
         if (querySignals.imageGeneration) {
             ensurePrimarySkill(selected, 'image_generation');
+            ensureSupportingSkill(selected, 'image_prompting');
+        } else if (querySignals.imagePrompting) {
+            ensurePrimarySkill(selected, 'image_prompting');
         }
         if (querySignals.wallet || asksWalletPnl) {
             ensurePrimarySkill(selected, 'wallet_portfolio');
@@ -880,9 +919,10 @@ function buildContextContract(params: {
     const optional = new Set<ChatContextBlockName>();
     const hasSocialInput = Boolean(snapshot.runtime?.socialInput);
     const hasSocialImages = Array.isArray(snapshot.runtime?.socialInput?.images) && snapshot.runtime.socialInput.images.length > 0;
+    const needsImagePromptPlaybook = querySignals.imagePrompting || querySignals.imageGeneration;
 
     const mode: ChatContextContract['mode'] = (() => {
-        if (intentEnvelope.primary_intent === 'general_answer') return 'lean';
+        if (intentEnvelope.primary_intent === 'general_answer' && !needsImagePromptPlaybook) return 'lean';
         if (intentEnvelope.primary_intent === 'meta_debug') return 'debug';
         if (intentEnvelope.execution_risk === 'mutation') return 'execution';
         if (intentEnvelope.domain === 'x' || intentEnvelope.domain === 'farcaster') return 'social';

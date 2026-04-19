@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-18
+// Updated: 2026-04-19
 // Author: Rowan
 // Reason: chat v2 needs explicit read-only context tools so the model can pull
 //         stable runtime context on demand instead of relying only on prompt
@@ -9,6 +9,9 @@
 //         tasks do not restart from scratch after each user reply.
 //         Follow-up prompt review clarified that tool accuracy depends on
 //         precise "when to use" descriptions for each read-context tool.
+//         OpenAI-aligned live evaluation of image prompt coaching then showed
+//         the model could skip `read_skill_prompts` unless its description made
+//         image prompt playbooks an explicit use case.
 // Goal: expose task-scoped session context as deterministic local tools while
 //       keeping mutation routing and business tools separate.
 // Owns: chat-only read-context tool definitions and context-block-to-tool mapping.
@@ -23,6 +26,7 @@
 // - workflow reads should expose carry-forward task state, not only raw pending-action flags
 // - workflow reads should return one durable worker_state object that prompt and runtime can share
 // - tool descriptions should encode trigger conditions, not generic capability labels
+// - read_skill_prompts must explicitly mention image prompt coaching when that skill is present
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/adr/2026-04-17-chat-v2-rewrite-plan.md
 // - Kind: repo doc
@@ -60,9 +64,17 @@
 // - Retrieved: 2026-04-18
 // - Applied To: trigger-focused context-read tool descriptions
 // - Verification: verified in code and targeted tests
+// - Source: local OpenAI-aligned live eval of image prompt coaching turns
+// - Kind: runtime observation
+// - Retrieved: 2026-04-19
+// - Applied To: expanding read_skill_prompts trigger wording to cover image prompt guidance
+// - Verification: verified in runtime and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/adr/2026-04-17-chat-v2-rewrite-plan.md
+// - /Users/almurat/KiKo/system-journal/design-language/image-prompt-guidance.md
+// - /Users/almurat/KiKo/system-journal/owner-map/image-prompt-skills.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-image-prompt-skill-openai-alignment-eval.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-context-read-tools.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-user-settings-contract.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-worker-context-contracts.md
@@ -396,7 +408,7 @@ export const ReadExecutionPlanTool: Tool = {
 export const ReadSkillPromptsTool: Tool = {
     definition: buildDefinition(
         'read_skill_prompts',
-        'Use after selecting a specialist task mode when domain workflow rules are needed, such as token analysis, wallet PnL, Polymarket, or meta-debug.',
+        'Use after selecting a specialist task mode when domain workflow rules are needed, including image prompt coaching/edit-preserve guidance, token analysis, wallet PnL, Polymarket, or meta-debug.',
     ),
     handler: async (_args, context) => buildSkillPromptsResult(context),
 };

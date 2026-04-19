@@ -3,6 +3,7 @@ import { chatApi } from '../services/api';
 import { usePrivy } from '@privy-io/react-auth';
 import { mergeTransactionCardData } from '../utils/transactionCardState';
 import { chatWSClient } from '../utils/chatWebSocket';
+import { findChatModelOption, hydrateChatModelOption } from '../components/Chat/chatConstants';
 
 // CONTEXT MEMORY
 // Updated: 2026-04-16
@@ -15,11 +16,15 @@ import { chatWSClient } from '../utils/chatWebSocket';
 //         received signed preview attachments. Generated-image assistant replies
 //         now also persist private image asset references, so hydration must
 //         preserve that structured message type instead of collapsing it into
-//         empty text rows during eventual consistency.
+//         empty text rows during eventual consistency. Session hydration now
+//         also needs to preserve the saved reasoning level so split-effort
+//         model families reopen with the same effort state rather than the
+//         default fallback.
 // Goal: Preserve richer local chat rendering during websocket -> DB eventual
 //       consistency, including copy-trade cards, transaction confirmations,
-//       generated-image replies, and current-turn user image previews while the
-//       durable signed attachment row is catching up.
+//       generated-image replies, current-turn user image previews, and the
+//       saved session reasoning level while the durable signed attachment row
+//       is catching up.
 // Owns: Merging local conversation state with freshly loaded session messages from the backend.
 // Does Not Own: Emitting websocket client actions, card component rendering, or backend message persistence order.
 // Design Language:
@@ -55,12 +60,19 @@ import { chatWSClient } from '../utils/chatWebSocket';
 // - Retrieved: 2026-04-18
 // - Applied To: preserving `generated-image` assistant message type in hydrated conversation state
 // - Verification: verified in code
+// - Source: operator bug report on 2026-04-19 that model selection and thinking
+//   strength reset after refresh
+// - Kind: product doc
+// - Retrieved: 2026-04-19
+// - Applied To: preserving session reasoning level during conversation hydration
+// - Verification: inferred from code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-copytrade-card-live-hydration.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-first-send-no-loading-chat-entry.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
 
 export interface Message {
   id: string;
@@ -103,6 +115,7 @@ export interface Conversation {
   createdAt: number;
   updatedAt: number;
   model?: string;
+  reasoningLevel?: string;
   activeTask?: {
     id: string;
     status: 'queued' | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
@@ -303,6 +316,7 @@ export const useConversations = () => {
             createdAt: new Date(s.createdAt || s.created_at).getTime(),
             updatedAt: new Date(s.updatedAt || s.updated_at).getTime(),
             model: s.model,
+            reasoningLevel: s.reasoningLevel || s.reasoning_level,
           }));
           setConversations(newConversations);
           conversationsRef.current = newConversations; // Sync ref immediately
@@ -316,13 +330,13 @@ export const useConversations = () => {
     }
   }, [ready, authenticated, getAccessToken]);
 
-  const createConversation = useCallback(async (title?: string, model?: string) => {
+  const createConversation = useCallback(async (title?: string, model?: string, reasoningLevel?: string) => {
     if (!authenticated) {
       console.warn('[useConversations] Cannot create conversation: not authenticated');
       return null;
     }
     try {
-      const resp = await chatApi.createSession(title, model);
+      const resp = await chatApi.createSession(title, model, reasoningLevel);
       if (resp && resp.success) {
         const s = resp.session;
         const newConv: Conversation = {
@@ -332,6 +346,7 @@ export const useConversations = () => {
           createdAt: new Date((s as any).createdAt || (s as any).created_at).getTime(),
           updatedAt: new Date((s as any).updatedAt || (s as any).updated_at).getTime(),
           model: s.model,
+          reasoningLevel: s.reasoningLevel || (s as any).reasoning_level,
         };
         // Sync ref synchronously before returning so immediate follow-up updates
         // (e.g. updateConversation(newId, { messages: [...] })) don't race and get dropped.
@@ -551,13 +566,22 @@ export const useConversations = () => {
 
         const existing = conversationsRef.current.find(c => c.id === id);
         const session: any = resp.session || {};
+        const sessionModel = findChatModelOption(session.model || existing?.model);
+        const hydratedSessionModel =
+          sessionModel?.kind === 'text'
+            ? hydrateChatModelOption({
+                id: session.model || existing?.model,
+                reasoningLevel: session.reasoningLevel || session.reasoning_level || existing?.reasoningLevel,
+              }) || sessionModel
+            : sessionModel;
         const nextConversation: Conversation = {
           id,
           title: session.title || existing?.title || 'New Chat',
           messages: mergedMessages,
           createdAt: existing?.createdAt ?? toMillis(session.createdAt || session.created_at) ?? Date.now(),
           updatedAt: toMillis(session.updatedAt || session.updated_at) ?? Date.now(),
-          model: session.model || existing?.model,
+          model: hydratedSessionModel?.id || session.model || existing?.model,
+          reasoningLevel: hydratedSessionModel?.reasoningLevel || session.reasoningLevel || session.reasoning_level || existing?.reasoningLevel,
           activeTask,
           pendingAIPrompt: existing?.pendingAIPrompt,
         };
@@ -567,6 +591,7 @@ export const useConversations = () => {
             title: nextConversation.title,
             messages: nextConversation.messages,
             model: nextConversation.model,
+            reasoningLevel: nextConversation.reasoningLevel,
             activeTask: nextConversation.activeTask,
             pendingAIPrompt: nextConversation.pendingAIPrompt,
           });

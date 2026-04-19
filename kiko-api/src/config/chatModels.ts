@@ -12,7 +12,9 @@
 //         aliases from stored user settings.
 // Goal: preserve a single canonical chat-model default and normalization rule
 //       across web chat, persisted user settings, X mention sessions, and
-//       Farcaster mention sessions.
+//       Farcaster mention sessions, while also providing a stable reasoning
+//       fallback for persisted model preferences that need to round-trip the
+//       selected effort / thinking level.
 // Owns: supported model ids, default model selection, and backend normalization.
 // Does Not Own: pricing, provider credentials, or frontend dropdown rendering.
 // Design Language:
@@ -20,6 +22,8 @@
 // - Normalize model ids at write boundaries before persisting them.
 // - Never let X mention sessions silently fall back to an unrelated legacy model.
 // - Do not duplicate model default strings across owner layers.
+// - Persisted model preferences must also carry a normalized reasoning level
+//   so split-effort families can reopen with the same control choice.
 // - Provider replacement must happen through model allowlists, not ad hoc aliases in callers.
 // - Remove provider modes that are not documented by the current official model page.
 // - Legacy removed ids may normalize to a surviving canonical id at the
@@ -58,6 +62,25 @@
 
 export const DEFAULT_CHAT_MODEL = 'kimi-k2-5-instant';
 
+export type SupportedChatReasoningLevel =
+  | 'none'
+  | 'fast'
+  | 'thinking'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh';
+
+const SUPPORTED_CHAT_REASONING_LEVELS = new Set<SupportedChatReasoningLevel>([
+  'none',
+  'fast',
+  'thinking',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+]);
+
 export const SUPPORTED_CHAT_MODELS = new Set([
   'glm-5',
   'kimi-k2-5-reasoning',
@@ -82,4 +105,29 @@ export function normalizeSupportedChatModel(model?: string | null): string {
     return 'glm-5';
   }
   return SUPPORTED_CHAT_MODELS.has(normalized) ? normalized : DEFAULT_CHAT_MODEL;
+}
+
+export function normalizeSupportedChatReasoningLevel(
+  value?: string | null
+): SupportedChatReasoningLevel | undefined {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return undefined;
+  return SUPPORTED_CHAT_REASONING_LEVELS.has(normalized as SupportedChatReasoningLevel)
+    ? (normalized as SupportedChatReasoningLevel)
+    : undefined;
+}
+
+export function inferSupportedChatReasoningLevel(model?: string | null): SupportedChatReasoningLevel {
+  const normalized = normalizeSupportedChatModel(model);
+  if (
+    normalized === 'glm-5' ||
+    normalized === 'kimi-k2-5-reasoning' ||
+    normalized === 'grok-4-1-fast-reasoning'
+  ) {
+    return 'thinking';
+  }
+  if (normalized === 'gpt-5.4-mini-2026-03-17') {
+    return 'low';
+  }
+  return 'fast';
 }

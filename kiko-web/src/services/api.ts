@@ -83,10 +83,33 @@ export interface TokenTransaction {
 /**
  * Chat Session
  */
+// CONTEXT MEMORY
+// Updated: 2026-04-19
+// Author: Rowan
+// Reason: chat sessions now need to round-trip both the selected model id and
+//         its reasoning strength so refreshes and conversation hydration keep
+//         GPT-family effort aligned with the saved session state.
+// Goal: keep the client session DTO aligned with backend persistence for model
+//       and reasoning restore.
+// Owns: chat-session request/response typing and session API envelopes.
+// Does Not Own: picker persistence, hydration policy, or backend defaults.
+// Design Language:
+// - session writes should carry the paired reasoning level when it matters
+// - session reads should expose the saved reasoning snapshot to callers
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-19
+// - Applied To: client session typing and session creation/update payloads
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
 export interface ChatSession {
     id: string;
     title: string;
     model?: string;
+    reasoningLevel?: string;
     createdAt: string;
     updatedAt: string;
     status: 'active' | 'archived' | 'deleted';
@@ -1118,10 +1141,10 @@ export const chatApi = {
     /**
      * Create a new chat session
      */
-    async createSession(title?: string, model?: string): Promise<{ success: boolean; session: ChatSession }> {
+    async createSession(title?: string, model?: string, reasoningLevel?: string): Promise<{ success: boolean; session: ChatSession }> {
         return chatFetch<{ success: boolean; session: ChatSession }>('/api/chat/sessions', {
             method: 'POST',
-            body: JSON.stringify({ title, model }),
+            body: JSON.stringify({ title, model, reasoningLevel }),
         });
     },
 
@@ -1141,7 +1164,7 @@ export const chatApi = {
     },
 
     /**
-     * Update session (title, model, status)
+     * Update session (title, model, reasoning level, status)
      */
     async updateSession(sessionId: string, updates: Partial<ChatSession>): Promise<{ success: boolean; session: ChatSession }> {
         return chatFetch<{ success: boolean; session: ChatSession }>(`/api/chat/sessions/${sessionId}`, {

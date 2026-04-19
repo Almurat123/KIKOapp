@@ -300,19 +300,25 @@ CREATE TABLE IF NOT EXISTS "WalletExport" (
 --         Instant/Fast model while the stored user setting still owns the
 --         per-user preference used by web, X, and Farcaster reply paths.
 -- Goal: keep the SQL snapshot aligned with the current product default and the
---       persisted per-user override.
--- Owns: default values in the generated SQL snapshot for persisted user settings.
+--       persisted per-user override, including the saved reasoning level used
+--       by split-effort model families on refresh.
+-- Owns: default values in the generated SQL snapshot for persisted user settings and session-level model metadata.
 -- Does Not Own: agent routing or explicit user preference writes.
 -- Document Provenance:
 -- - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
 -- - Kind: repo doc
 -- - Retrieved: 2026-04-17
 -- - Applied To: persisted default chat model and new-session fallback default
+-- - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
+-- - Kind: repo doc
+-- - Retrieved: 2026-04-19
+-- - Applied To: persisted default reasoning level and chat-session reasoning snapshot
 CREATE TABLE IF NOT EXISTS "UserSettings" (
   "id" TEXT PRIMARY KEY,
   "userId" TEXT UNIQUE NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
   "userRole" TEXT DEFAULT 'default',
   "defaultChatModel" TEXT DEFAULT 'kimi-k2-5-instant',
+  "defaultChatReasoningLevel" TEXT NOT NULL DEFAULT 'fast',
   "defaultSwapAmount" DOUBLE PRECISION DEFAULT 100,
   "defaultSwapUnit" TEXT DEFAULT 'native',
   "checkTokenBeforeSwap" BOOLEAN DEFAULT TRUE,
@@ -601,7 +607,8 @@ CREATE INDEX IF NOT EXISTS idx_token_rules_token ON token_rules(chain, address);
 -- Updated: 2026-04-17
 -- Author: Almurat
 -- Reason: brand-new sessions must default to the same Kimi Instant model that
---         the frontend and persisted user settings now use.
+--         the frontend and persisted user settings now use, and session rows
+--         now also preserve the selected reasoning level.
 -- Goal: keep the SQL snapshot aligned with the canonical new-session default.
 -- Owns: default values in the generated SQL snapshot for new chat sessions.
 -- Does Not Own: per-user preference selection.
@@ -610,11 +617,27 @@ CREATE INDEX IF NOT EXISTS idx_token_rules_token ON token_rules(chain, address);
 -- - Kind: repo doc
 -- - Retrieved: 2026-04-17
 -- - Applied To: default chat-session model for new sessions
+-- CONTEXT MEMORY
+-- Updated: 2026-04-19
+-- Author: Rowan
+-- Reason: chat sessions must remember both the model id and its reasoning
+--         level so refreshes reopen split-effort families in the same state
+--         instead of collapsing back to the default chat selection.
+-- Goal: keep the SQL snapshot aligned with Prisma and the live backend session
+--       restore behavior for model/reasoning persistence.
+-- Owns: the session table shape for persisted model metadata.
+-- Does Not Own: frontend dropdown state or task execution policy.
+-- Document Provenance:
+-- - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
+-- - Kind: repo doc
+-- - Retrieved: 2026-04-19
+-- - Applied To: session reasoning-level persistence and refresh hydration
 CREATE TABLE IF NOT EXISTS chat_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id VARCHAR(100) NOT NULL,  -- Privy user ID (DID)
   title VARCHAR(500) DEFAULT 'New Chat',
   model VARCHAR(50) DEFAULT 'kimi-k2-5-instant',
+  reasoning_level VARCHAR(20) NOT NULL DEFAULT 'fast',
   status VARCHAR(20) DEFAULT 'active',  -- active, archived
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()

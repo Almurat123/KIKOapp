@@ -1,0 +1,23 @@
+{
+    "id": "image_prompting",
+    "name": "Image Prompting",
+    "description": "Teach the model how to turn loose image requests into strong prompts and how to coach users on prompt writing without auto-generating an image.",
+    "intents": [
+        "TRADING"
+    ],
+    "tools": [],
+    "examples": {
+        "en": [
+            "Help me write a strong prompt for an ad poster",
+            "Improve this image prompt for photorealism",
+            "Give me an OpenAI-style prompt for a product mockup",
+            "How should I prompt an image edit so the face stays the same?"
+        ],
+        "zh": [
+            "帮我写一个广告海报的高质量提示词",
+            "优化一下这个图片提示词，让它更真实",
+            "给我一个适合 OpenAI 出图的产品 mockup 提示词",
+            "我该怎么写修图提示词，才能保持人脸不变？"
+        ]
+    }
+}

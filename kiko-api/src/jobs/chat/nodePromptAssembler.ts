@@ -38,7 +38,14 @@
 //         Clanker launch previews now also need to surface their prepared
 //         confirmation payload in WORKING_MEMORY so the model can help verify
 //         the exact deploy payload before the backend flips `confirmDeploy`
-//         during execution.
+//         during execution. Runtime log review on 2026-04-19 then showed chat
+//         route placeholder assistant rows could leak into provider history as
+//         empty assistant messages, causing GPT-5.4-class requests to fail with
+//         HTTP 400 before any visible output streamed. OpenAI-aligned live eval
+//         of the new image prompt coaching path later showed the main model
+//         could still answer directly without loading `read_skill_prompts`, so
+//         prompt assembly now needs a stronger system-level rule when matched
+//         specialist prompt playbooks exist.
 // Goal: keep generation messages explicit about surface mode, especially for
 //       Farcaster agent turns where short, direct replies are the default,
 //       replay stored reasoning only for provider/model paths that officially
@@ -62,6 +69,7 @@
 // - replay stored reasoning only for reasoning-capable provider aliases that explicitly support it
 // - fast/instant aliases must strip stored reasoning traces from assistant history
 // - reasoning-capable provider aliases may need non-null assistant content for tool-call turns
+// - provider history must drop empty placeholder assistant/user rows that have no replayable content
 // - social multimodal inputs belong only on the current user turn, not replayed history
 // - use real image parts only on provider/model paths verified to support them
 // - NVIDIA GLM stays text-only until its active endpoint documents image input
@@ -95,6 +103,8 @@
 // - Clanker deploy confirmations should expose the prepared launch payload in
 //   WORKING_MEMORY so the model can confirm the same payload the backend will
 //   execute
+// - when matched specialist prompt playbooks exist, prompt-coaching turns should
+//   load read_skill_prompts before drafting the answer
 // Document Provenance:
 // - Source: Neynar/Farcaster cast writing docs and runtime screenshots of
 //           report-style public replies
@@ -199,10 +209,23 @@
 // - Applied To: surfacing pending Clanker deploy confirmation payloads in the
 //   model-visible worker state summary
 // - Verification: verified in code and targeted tests
+// - Source: /Users/almurat/Downloads/logs.1776601253007.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-19
+// - Applied To: dropping empty placeholder assistant/user history rows before
+//   provider generation requests are sent
+// - Verification: verified in runtime log, code, and targeted tests
+// - Source: local OpenAI-aligned live eval of image prompt coaching turns
+// - Kind: runtime observation
+// - Retrieved: 2026-04-19
+// - Applied To: system-level read_skill_prompts rule for matched prompt playbooks
+// - Verification: verified in runtime and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/runtime-plan-visibility.md
 // - /Users/almurat/KiKo/system-journal/owner-map/chat-runtime-planning.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-image-prompt-skill-openai-alignment-eval.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-provider-history-empty-message-sanitization.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-runtime-plan-user-visible-hardcoding-fix.md
 // - /Users/almurat/KiKo/system-journal/design-language/social-agent-multimodal-input.md
 // - /Users/almurat/KiKo/system-journal/owner-map/social-agent-multimodal-input.md
@@ -638,7 +661,7 @@ function buildFallbackContextContract(
     !["general_answer", "assistant_meta"].includes(canonicalIntentName),
   );
   const queryLooksTaskScoped =
-    /(\b(buy|sell|swap|trade|bridge|deploy|analy[sz]e|analysis|risk|price|pnl|profit|trend|trending|market|bet|polymarket|token|wallet|balance|launch|launchpad|x|farcaster|cast|zora)\b|买|卖|换|交换|跨链|部署|分析|风险|价格|钱包|余额|代币|趋势|预测市场)/i.test(
+    /(\b(buy|sell|swap|trade|bridge|deploy|analy[sz]e|analysis|risk|price|pnl|profit|trend|trending|market|bet|polymarket|token|wallet|balance|launch|launchpad|prompt|image|poster|cover|illustration|edit|editing|rewrite|x|farcaster|cast|zora)\b|买|卖|换|交换|跨链|部署|分析|风险|价格|钱包|余额|代币|趋势|预测市场|提示词|图片|海报|封面|插画|改图|修图|改写)/i.test(
       rawQuery,
     );
   const hasTaskSignals = Boolean(
@@ -995,6 +1018,9 @@ export function assembleGenerationMessages(
   if (hasSkillPrompts && requiredContextNames.has("skill_prompts")) {
     systemParts.push(
       "Matched specialist guidance is available through the read_skill_prompts context tool when needed.",
+    );
+    systemParts.push(
+      "If this turn is a specialist prompt-coaching or rewrite request, call read_skill_prompts before drafting the answer so you follow the matched playbook instead of improvising generic advice.",
     );
   }
   if (isFarcasterAgentSurface(snapshot)) {
@@ -1735,12 +1761,15 @@ export function sanitizeProviderHistory(
   history: GenerationMessage[],
   model: string,
 ): GenerationMessage[] {
+  const providerSafeHistory = history.filter(
+    (msg) => !shouldDropProviderHistoryMessage(msg),
+  );
   if (
     String(model || "")
       .toLowerCase()
       .includes("grok")
   ) {
-    return history.flatMap((msg) => {
+    return providerSafeHistory.flatMap((msg) => {
       let content = String(msg.content || "");
       if (!content.trim()) {
         if (msg.role === "assistant" && msg.tool_calls) {
@@ -1763,7 +1792,7 @@ export function sanitizeProviderHistory(
   }
 
   if (replaysStoredReasoningHistory(model)) {
-    return history.map((msg) => {
+    return providerSafeHistory.map((msg) => {
       if (msg.role !== "assistant") return msg;
       return {
         role: msg.role,
@@ -1780,11 +1809,38 @@ export function sanitizeProviderHistory(
     });
   }
 
-  return history.map((msg) => {
+  return providerSafeHistory.map((msg) => {
     if (msg.role !== "assistant") return msg;
     const { reasoning_content, ...rest } = msg;
     return rest;
   });
+}
+
+function shouldDropProviderHistoryMessage(msg: GenerationMessage): boolean {
+  if (msg.role === "assistant") {
+    const hasVisibleContent =
+      typeof msg.content === "string" && msg.content.trim().length > 0;
+    const hasToolCalls =
+      Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
+    const hasReasoning =
+      typeof msg.reasoning_content === "string" &&
+      msg.reasoning_content.trim().length > 0;
+    return !hasVisibleContent && !hasToolCalls && !hasReasoning;
+  }
+
+  if (msg.role === "user") {
+    return !(typeof msg.content === "string" && msg.content.trim().length > 0);
+  }
+
+  if (msg.role === "tool") {
+    const hasVisibleContent =
+      typeof msg.content === "string" && msg.content.trim().length > 0;
+    const hasToolCallId =
+      typeof msg.tool_call_id === "string" && msg.tool_call_id.trim().length > 0;
+    return !hasVisibleContent && !hasToolCallId;
+  }
+
+  return false;
 }
 
 function replaysStoredReasoningHistory(model: string): boolean {

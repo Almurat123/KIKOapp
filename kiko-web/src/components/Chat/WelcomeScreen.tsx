@@ -13,7 +13,12 @@ import { usePrivy } from '@privy-io/react-auth';
 import { getUserSettings, saveUserSettings } from '../../services/userSettingsApi';
 import { LiquidGlassEffect } from '../Effects/LiquidGlassEffect';
 import { agentAttrs } from '../../agent/attrs';
-import { findChatModelOption, getDefaultChatModelOption, isTextChatModelOption } from './chatConstants';
+import {
+  findChatModelOption,
+  getDefaultChatModelOption,
+  hydrateChatModelOption,
+  isTextChatModelOption,
+} from './chatConstants';
 import { persistChatModelSelection, readStoredChatModelSelection } from './chatModelSelectionPersistence';
 import { ChatAttachmentTray } from './ChatAttachmentTray';
 import { COMPOSER_IMAGE_ACCEPT, type ComposerImageDraft } from './chatImageDrafts';
@@ -37,7 +42,10 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 //         that must not overwrite the remote default chat model. The selected
 //         model now writes to shared localStorage immediately on user choice so
 //         the reasoning state survives a quick refresh or welcome->chat handoff
-//         before the follow-up effect runs.
+//         before the follow-up effect runs. Remote settings sync now carries
+//         the paired reasoning level too, but local storage stays the first
+//         restore source so stale server defaults do not overwrite the current
+//         choice.
 // Goal: preserve a responsive welcome shell that can collect the first prompt
 //       immediately while deferring optional settings UI until the user opens
 //       it, while sharing the same local image-preview affordance and image-
@@ -99,6 +107,12 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 // - Retrieved: 2026-04-18
 // - Applied To: keeping generated-image picker selections local to the UI
 // - Verification: verified in code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-19
+// - Applied To: local-first restore and remote persistence of the welcome
+//   shell reasoning level
+// - Verification: verified in code
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-billing-and-gating.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-18
@@ -111,6 +125,7 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-homepage-welcome-shell-split.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-input-borderless-model-reasoning-selector.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-model-reasoning-selection-persistence.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-homepage-welcome-stardust-background-removal.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-local-image-composer-base.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-image-model-selector-sections.md
@@ -208,13 +223,19 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 
   useEffect(() => {
     if (!authenticated) return;
+    if (readStoredChatModelSelection()) return;
     let cancelled = false;
     const loadSavedModel = async () => {
       try {
         const token = await getAccessToken();
         if (!token) return;
         const settings = await getUserSettings(token);
-        const found = findChatModelOption(settings?.defaultChatModel);
+        const found =
+          hydrateChatModelOption({
+            id: settings?.defaultChatModel,
+            reasoningLevel: settings?.defaultChatReasoningLevel,
+          }) ||
+          findChatModelOption(settings?.defaultChatModel);
         if (!cancelled && found && found.id !== selectedModel.id) {
           setSelectedModel((current) => isTextChatModelOption(current) ? found : current);
         }
@@ -239,7 +260,10 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
       try {
         const token = await getAccessToken();
         if (!token) return;
-        await saveUserSettings(token, { defaultChatModel: selectedModel.id });
+        await saveUserSettings(token, {
+          defaultChatModel: selectedModel.id,
+          defaultChatReasoningLevel: selectedModel.reasoningLevel,
+        });
       } catch (error) {
         logger.warn('Failed to persist default chat model:', error);
       }

@@ -14,15 +14,18 @@
 //         worker could claim them before upload binding finished and then
 //         generate without images.
 // Goal: ensure every newly created chat session gets a normalized supported
-//       model that matches the product-default model policy, and let chat
+//       model that matches the product-default model policy, preserve the
+//       selected reasoning level for split-effort families, and let chat
 //       tasks remain non-claimable until request-time prerequisites finish.
-// Owns: chat session persistence defaults, task persistence defaults, and
-//       model normalization at write time.
+// Owns: chat session persistence defaults, persisted reasoning level defaults,
+//       task persistence defaults, and model normalization at write time.
 // Does Not Own: frontend dropdown state, model pricing, or X mention routing.
 // Design Language:
 // - Normalize model ids before persisting them into ChatSession.
 // - Use one canonical default model across all new session creation paths.
 // - Do not let empty model inputs silently fall back to a legacy model.
+// - Persisted sessions must retain the selected reasoning level alongside the
+//   normalized model id.
 // - Chat tasks that still depend on upload binding must not enter the queued
 //   worker pool.
 // Document Provenance:
@@ -46,10 +49,15 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 import prisma, { withRetry } from '../db/prisma.js';
-import { normalizeSupportedChatModel } from '../config/chatModels.js';
+import {
+    inferSupportedChatReasoningLevel,
+    normalizeSupportedChatModel,
+    normalizeSupportedChatReasoningLevel,
+} from '../config/chatModels.js';
 
 
 // Types (re-exported from Prisma or defined locally if needed)
@@ -58,6 +66,7 @@ export interface ChatSession {
     userId: string;
     title: string;
     model: string;
+    reasoningLevel: string;
     status: 'active' | 'archived';
     lastResponseId?: string;
     compactionCursor?: string;
@@ -122,14 +131,19 @@ export interface MessageChunk {
 export async function createSession(
     userId: string,
     title?: string,
-    model?: string
+    model?: string,
+    reasoningLevel?: string
 ): Promise<any> {
     const normalizedModel = normalizeSupportedChatModel(model);
+    const normalizedReasoningLevel =
+        normalizeSupportedChatReasoningLevel(reasoningLevel) ||
+        inferSupportedChatReasoningLevel(normalizedModel);
     return prisma.chatSession.create({
         data: {
             userId,
             title: title || 'New Chat',
             model: normalizedModel,
+            reasoningLevel: normalizedReasoningLevel,
             status: 'active'
         }
     });
@@ -159,11 +173,25 @@ export async function getUserSessions(
 
 export async function updateSession(
     sessionId: string,
-    updates: Partial<Pick<ChatSession, 'title' | 'model' | 'status'>>
+    updates: Partial<Pick<ChatSession, 'title' | 'model' | 'reasoningLevel' | 'status'>>
 ): Promise<any> {
+    const normalizedModel = updates.model !== undefined
+        ? normalizeSupportedChatModel(updates.model)
+        : undefined;
+    const normalizedReasoningLevel = updates.reasoningLevel !== undefined
+        ? normalizeSupportedChatReasoningLevel(updates.reasoningLevel)
+        : updates.model !== undefined
+            ? inferSupportedChatReasoningLevel(updates.model)
+            : undefined;
+
     return prisma.chatSession.update({
         where: { id: sessionId },
-        data: updates
+        data: {
+            ...(updates.title !== undefined ? { title: updates.title } : {}),
+            ...(normalizedModel !== undefined ? { model: normalizedModel } : {}),
+            ...(normalizedReasoningLevel !== undefined ? { reasoningLevel: normalizedReasoningLevel } : {}),
+            ...(updates.status !== undefined ? { status: updates.status } : {}),
+        }
     });
 }
 

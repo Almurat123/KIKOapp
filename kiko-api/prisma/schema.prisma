@@ -86,14 +86,16 @@ model WalletExport {
 //         per-user override used by web, X mention replies, and Farcaster
 //         mention replies.
 // Goal: preserve one source of truth for the user's default chat model and
-//       ensure new accounts start on the same Kimi Instant default as the
-//       frontend.
-// Owns: the persisted per-user default chat model value.
+//       reasoning strength, and ensure new accounts start on the same Kimi
+//       Instant default as the frontend.
+// Owns: the persisted per-user default chat model and default reasoning level.
 // Does Not Own: agent execution, billing, or per-channel reply policy.
 // Design Language:
 // - Keep the stored default aligned with the frontend default selector.
 // - Never infer a per-user model preference from session history alone.
 // - Do not change explicit user-selected models during unrelated migrations.
+// - Persisted defaults must carry the selected reasoning level alongside the
+//   selected model id.
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
 // - Kind: repo doc
@@ -101,10 +103,19 @@ model WalletExport {
 // - Applied To: persisted default chat model for new and existing users who
 //   have not explicitly changed away from the previous GPT default
 // - Verification: verified in code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-19
+// - Applied To: persisted default reasoning level for split-effort families
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
 model UserSettings {
   id                            String   @id @default(cuid())
   userId                        String   @unique
   defaultChatModel              String   @default("kimi-k2-5-instant")
+  defaultChatReasoningLevel     String   @default("fast")
   defaultSwapAmount             Float    @default(100)
   defaultSwapUnit               String   @default("native")
   checkTokenBeforeSwap          Boolean  @default(true)
@@ -728,12 +739,15 @@ model DirectSwapFeeExecution {
 }
 
 // ChatSession keeps the same Kimi Instant default so brand-new sessions created
-// without an explicit model stay aligned with the persisted user default above.
+// without an explicit model stay aligned with the persisted user default above,
+// and it now also preserves the selected reasoning level for split-effort
+// families.
 model ChatSession {
   id                       String        @id @default(cuid())
   userId                   String
   title                    String
   model                    String        @default("kimi-k2-5-instant")
+  reasoningLevel           String        @default("fast")
   status                   String        @default("active")
   createdAt                DateTime      @default(now())
   updatedAt                DateTime      @updatedAt
@@ -1620,10 +1634,29 @@ model chat_messages {
 }
 
 model chat_sessions {
+  // CONTEXT MEMORY
+  // Updated: 2026-04-19
+  // Author: Rowan
+  // Reason: chat sessions must persist the selected reasoning level alongside
+  //         the model id so reopening a session restores GPT-family strength
+  //         instead of collapsing to the default effort.
+  // Goal: keep Prisma schema aligned with backend session hydration and
+  //       session-level model persistence.
+  // Owns: persisted session metadata fields for model/reasoning restore.
+  // Does Not Own: frontend picker state or task execution policy.
+  // Document Provenance:
+  // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
+  // - Kind: repo doc
+  // - Retrieved: 2026-04-19
+  // - Applied To: session reasoning-level persistence and restore
+  // See also:
+  // - /Users/almurat/KiKo/system-journal/INDEX.md
+  // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
   id                         String          @id @db.VarChar
   user_id                    String          @db.VarChar
   title                      String          @db.VarChar
   model                      String          @db.VarChar
+  reasoning_level            String          @db.VarChar @default("fast")
   status                     String          @db.VarChar
   provider                   String?         @db.VarChar
   last_response_id           String?         @db.VarChar

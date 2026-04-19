@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assembleGenerationMessages } from "./nodePromptAssembler.js";
+import {
+  assembleGenerationMessages,
+  sanitizeProviderHistory,
+} from "./nodePromptAssembler.js";
 import type { CanonicalIntent } from "./canonicalIntent.js";
 import type {
   ChatContextSnapshot,
@@ -199,6 +202,64 @@ test("assembleGenerationMessages exposes context tools instead of pre-injecting 
   assert.equal(content.includes('"steps"'), false);
   assert.equal(content.includes('"sourceTypes"'), false);
   assert.equal(content.includes('"quick_swap"'), false);
+});
+
+test("sanitizeProviderHistory drops empty placeholder assistant rows before provider replay", () => {
+  const sanitized = sanitizeProviderHistory(
+    [
+      { role: "user", content: "Earlier question" },
+      { role: "assistant", content: "Earlier answer" },
+      { role: "user", content: "" },
+      { role: "assistant", content: "" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [{ id: "call-1", type: "function", function: { name: "get_token_info", arguments: "{}" } }],
+      },
+      {
+        role: "tool",
+        content: "{\"symbol\":\"KIKO\"}",
+        tool_call_id: "call-1",
+      },
+    ] as any,
+    "gpt-5.4-mini",
+  );
+
+  assert.deepEqual(
+    sanitized.map((message) => ({
+      role: message.role,
+      content: message.content,
+      toolCallId: message.tool_call_id,
+      hasToolCalls:
+        Array.isArray(message.tool_calls) && message.tool_calls.length > 0,
+    })),
+    [
+      {
+        role: "user",
+        content: "Earlier question",
+        toolCallId: undefined,
+        hasToolCalls: false,
+      },
+      {
+        role: "assistant",
+        content: "Earlier answer",
+        toolCallId: undefined,
+        hasToolCalls: false,
+      },
+      {
+        role: "assistant",
+        content: null,
+        toolCallId: undefined,
+        hasToolCalls: true,
+      },
+      {
+        role: "tool",
+        content: "{\"symbol\":\"KIKO\"}",
+        toolCallId: "call-1",
+        hasToolCalls: false,
+      },
+    ],
+  );
 });
 
 test("assembleGenerationMessages surfaces Clanker deploy confirmation payloads in worker memory", () => {

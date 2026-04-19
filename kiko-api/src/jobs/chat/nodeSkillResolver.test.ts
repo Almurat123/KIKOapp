@@ -184,6 +184,7 @@ test('routes capabilities questions to welcome skill without search', () => {
 test('routes image-generation requests to the generated-image skill and tool', () => {
     const resolution = resolveNodeSkills(makeSnapshot('帮我做一张赛博朋克风的产品海报'), null);
     assert.equal(resolution.selectedSkills[0], 'image_generation');
+    assert.ok(resolution.selectedSkills.includes('image_prompting'));
     assert.ok(resolution.allowedTools.includes('generate_image_from_intent'));
     assert.ok(resolution.strategyNotes.some((note) => note.includes('image-generation request')));
 });
@@ -203,6 +204,7 @@ test('model-led tool mode exposes the full registered tool catalog without keywo
 test('does not select the image-generation skill for prompt-writing advice', () => {
     const resolution = resolveNodeSkills(makeSnapshot('告诉我怎么写一个图片提示词'), null);
     assert.equal(resolution.allowAllTools, true);
+    assert.ok(resolution.selectedSkills.includes('image_prompting'));
     assert.ok(!resolution.selectedSkills.includes('image_generation'));
 });
 

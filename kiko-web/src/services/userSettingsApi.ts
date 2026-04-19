@@ -21,28 +21,37 @@ const userSettingsInFlight = new Map<string, Promise<UserSettings | null>>();
 // Reason: Chat and welcome surfaces were each re-reading `/api/users/settings`,
 //         which amplified rate limits during ordinary navigation and route churn.
 // Goal: reuse one recent settings snapshot across chat-related owners so model
-//       defaults and swap preferences do not re-hit the backend on every mount.
-// Owns: User-settings read dedupe, short-lived cache reuse, and cache invalidation after saves.
+//       defaults, reasoning strength, and swap preferences do not re-hit the
+//       backend on every mount.
+// Owns: User-settings read dedupe, short-lived cache reuse, cache invalidation
+//       after saves, and the cached remote default model/reasoning snapshot.
 // Does Not Own: Settings interpretation inside pages, auth token minting, or backend persistence rules.
 // Design Language:
 // - identical settings reads should share one request
 // - recent settings should be reused instead of reloaded on every mount
 // - forbidden local patch patterns: each chat surface fetching `/api/users/settings` independently
+// - remote default model saves must carry the paired reasoning level for split-effort families
 // Document Provenance:
 // - Source: Production console traces showing `/api/users/settings` 429s alongside token-page navigation
 // - Kind: runtime observation
 // - Retrieved: 2026-04-10
 // - Applied To: add shared cache and in-flight dedupe for user settings
+// - Source: operator bug report that model choice and thinking strength reset after refresh
+// - Kind: product doc
+// - Retrieved: 2026-04-19
+// - Applied To: caching and saving the paired default reasoning level
 // - Verification: partially verified
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
 // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-token-page-stray-read-rate-limit.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
 
 export interface UserSettings {
     // userRole removed
     defaultChatModel?: string;
+    defaultChatReasoningLevel?: string;
     defaultSwapAmount: number;
     defaultSwapUnit: string;
     checkTokenBeforeSwap: boolean;

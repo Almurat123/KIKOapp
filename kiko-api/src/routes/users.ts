@@ -14,7 +14,8 @@
 //         back to free Kimi 2.5 Instant/Fast when no explicit model is supplied.
 // Goal: preserve one stable owner for user-profile persistence, including the
 //       canonical in-app username field, verified social-account linkage state,
-//       and the user's saved default chat model for cross-channel replies.
+//       the user's saved default chat model for cross-channel replies, and the
+//       saved default reasoning strength needed by split-effort model families.
 // Owns: authenticated user settings routes, social identity sync endpoints, and
 //       persistence rules for the shared User row.
 // Does Not Own: Privy token verification, wallet custody, or X webhook ingress.
@@ -26,8 +27,8 @@
 //   persist a verified X linkage that Privy already knows.
 // - Verified Farcaster linkage must be server-derived from Privy, not trusted
 //   from frontend request bodies.
-// - Persist the user's default reply model in one backend setting row, not
-//   only in frontend localStorage.
+// - Persist the user's default reply model and reasoning strength in one
+//   backend setting row, not only in frontend localStorage.
 // Document Provenance:
 // - Source: current repo model catalog + website/X model binding requirement
 // - Kind: repo doc
@@ -43,6 +44,7 @@
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/owner-map/backend-swap-validation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-user-username-foundation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
@@ -57,12 +59,17 @@ import { trackLogin } from '../services/userActivityService.js';
 import { syncVerifiedPrivyFarcasterUser } from '../services/farcaster-agent/farcasterIdentityService.js';
 import { getCachedKikoFollowState, resolveKikoFollowState } from '../services/farcasterRelationshipService.js';
 import { buildXLinkUrl, getXContextForUser, serializeXContext, syncVerifiedPrivyXUser } from '../services/x/xIdentityService.js';
-import { normalizeSupportedChatModel } from '../config/chatModels.js';
+import {
+    inferSupportedChatReasoningLevel,
+    normalizeSupportedChatModel,
+    normalizeSupportedChatReasoningLevel,
+} from '../config/chatModels.js';
 
 // Types
 interface UserSettingsBody {
     // userRole removed 
     defaultChatModel?: string;
+    defaultChatReasoningLevel?: string;
     defaultSwapAmount?: number;
     defaultSwapUnit?: string;
     checkTokenBeforeSwap?: boolean;
@@ -175,11 +182,20 @@ export async function registerUserRoutes(app: FastifyInstance) {
                 }
 
                 // Upsert settings
+                const nextDefaultChatReasoningLevel =
+                    body.defaultChatReasoningLevel !== undefined
+                        ? normalizeSupportedChatReasoningLevel(body.defaultChatReasoningLevel)
+                        : body.defaultChatModel !== undefined
+                            ? inferSupportedChatReasoningLevel(body.defaultChatModel)
+                            : undefined;
                 const settings = await prisma.userSettings.upsert({
                     where: { userId: user.privyDid },
                     update: {
                         ...(body.defaultChatModel !== undefined
                             ? { defaultChatModel: normalizeSupportedChatModel(body.defaultChatModel) }
+                            : {}),
+                        ...(nextDefaultChatReasoningLevel !== undefined
+                            ? { defaultChatReasoningLevel: nextDefaultChatReasoningLevel }
                             : {}),
                         // userRole removed
                         defaultSwapAmount: body.defaultSwapAmount,
@@ -200,6 +216,9 @@ export async function registerUserRoutes(app: FastifyInstance) {
                     create: {
                         userId: user.privyDid,
                         defaultChatModel: normalizeSupportedChatModel(body.defaultChatModel),
+                        defaultChatReasoningLevel:
+                            nextDefaultChatReasoningLevel
+                            || inferSupportedChatReasoningLevel(body.defaultChatModel),
                         // userRole removed
                         defaultSwapAmount: body.defaultSwapAmount || 100,
                         defaultSwapUnit: body.defaultSwapUnit || 'native',

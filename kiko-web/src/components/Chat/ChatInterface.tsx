@@ -78,7 +78,9 @@ const LazyChatStrategyRuntime = React.lazy(() =>
 //         strength when the selected family exposes multiple effort levels.
 //         The selected model now writes to shared localStorage immediately on
 //         user choice so a fast refresh does not lose the reasoning state
-//         before the next effect flush.
+//         before the next effect flush. Remote settings sync now carries the
+//         paired reasoning level too, but local storage stays the first restore
+//         source so stale server defaults do not overwrite the current choice.
 //         Generated-image selections can now persist locally in the same picker
 //         state, but must not overwrite the authenticated user's default chat
 //         model because the backend chat setting only owns text models.
@@ -184,6 +186,11 @@ const LazyChatStrategyRuntime = React.lazy(() =>
 // - Retrieved: 2026-04-18
 // - Applied To: keeping generated-image picker selections out of remote chat defaults
 // - Verification: verified in code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-19
+// - Applied To: local-first restore and remote persistence of selected reasoning level
+// - Verification: verified in code
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-billing-and-gating.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-18
@@ -227,6 +234,7 @@ const LazyChatStrategyRuntime = React.lazy(() =>
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-chat-home-shell-regression-revert.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-first-send-no-loading-chat-entry.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-copytrade-card-live-hydration.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-local-image-composer-base.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
@@ -870,7 +878,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         try {
           const token = await getAccessToken();
           if (!token) return;
-          await saveUserSettings(token, { defaultChatModel: nextModel.id });
+          await saveUserSettings(token, {
+            defaultChatModel: nextModel.id,
+            defaultChatReasoningLevel: nextModel.reasoningLevel,
+          });
         } catch (error) {
           logger.warn('Failed to persist default chat model:', error);
         }
@@ -1574,13 +1585,19 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   useEffect(() => {
     if (!ready || !authenticated) return;
+    if (readStoredChatModelSelection()) return;
     let cancelled = false;
     const loadSavedModel = async () => {
       try {
         const token = await getAccessToken();
         if (!token) return;
         const settings = await getUserSettings(token);
-        const found = findChatModelOption(settings?.defaultChatModel);
+        const found =
+          hydrateChatModelOption({
+            id: settings?.defaultChatModel,
+            reasoningLevel: settings?.defaultChatReasoningLevel,
+          }) ||
+          findChatModelOption(settings?.defaultChatModel);
         if (!cancelled && found && isTextChatModelOption(found)) {
           setSelectedModel((current) => {
             if (!isTextChatModelOption(current)) {
@@ -1609,14 +1626,21 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   useEffect(() => {
     if (!conversationId || !currentConv?.model) return;
-    const found = MODEL_OPTIONS.find((model) => model.id === currentConv.model);
+    const currentSessionModel = findChatModelOption(currentConv.model);
+    const found =
+      currentSessionModel?.kind === 'text'
+        ? hydrateChatModelOption({
+            id: currentConv.model,
+            reasoningLevel: currentConv.reasoningLevel,
+          }) || currentSessionModel
+        : currentSessionModel;
     if (!found) return;
     setSelectedModel((current) => {
       if (current.id === found.id) return current;
       logger.debug('Syncing model from current conversation:', found.id);
       return found;
     });
-  }, [conversationId, currentConv?.model]);
+  }, [conversationId, currentConv?.model, currentConv?.reasoningLevel]);
 
   useEffect(() => {
     return () => {
@@ -2647,7 +2671,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
       let targetConversationId = conversationId;
       if (!targetConversationId) {
-        targetConversationId = await createConversation('Local UI Test', selectedModel.id);
+        targetConversationId = await createConversation('Local UI Test', selectedModel.id, selectedModel.reasoningLevel);
         if (!targetConversationId) {
           toast.error('Unable to create a chat for the local transaction card test.');
           return;
@@ -2798,7 +2822,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         setWelcomePendingMessages([userMsg, assistantMsg]);
       } else {
         if (!targetConversationId) {
-          targetConversationId = await createConversation('Local Image Flow Test', selectedModel.id);
+          targetConversationId = await createConversation('Local Image Flow Test', selectedModel.id, selectedModel.reasoningLevel);
           if (!targetConversationId) {
             toast.error('Unable to create a chat for the local image flow test.');
             return;
@@ -2926,7 +2950,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
       let targetConversationId = conversationId;
       if (!targetConversationId) {
-        targetConversationId = await createConversation('Local Image UI Test', selectedModel.id);
+        targetConversationId = await createConversation('Local Image UI Test', selectedModel.id, selectedModel.reasoningLevel);
         if (!targetConversationId) {
           toast.error('Unable to create a chat for the local image card test.');
           return;
@@ -3067,7 +3091,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       // Uploads already completed during image selection; sending only
       // creates the session/task and passes prepared upload ids.
       if (!currentConvId) {
-        const newId = await createConversation(trimmedText || 'Image upload', modelToUse.id);
+        const newId = await createConversation(
+          trimmedText || 'Image upload',
+          modelToUse.id,
+          modelToUse.reasoningLevel
+        );
         if (newId) {
           currentConvId = newId;
           currentConversationIdRef.current = newId;

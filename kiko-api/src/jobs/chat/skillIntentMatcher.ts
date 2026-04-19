@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-18
+// Updated: 2026-04-19
 // Author: Renata
 // Reason: Clanker token-launch queries were still being treated as generic
 //         trading traffic, which meant the dedicated launch prompt could be
@@ -10,7 +10,13 @@
 //         signal so the model only sees the internal image tool on real visual
 //         deliverable requests. The image signal must handle Chinese requests
 //         where style/use modifiers appear between the action and the asset
-//         noun, such as "做一张赛博朋克风的产品海报".
+//         noun, such as "做一张赛博朋克风的产品海报". Product now also requires a
+//         companion image-prompt guidance skill so prompt-advice turns do not
+//         fall back to generic help, and real image requests can load the
+//         prompt-writing playbook alongside the execution skill. OpenAI-aligned
+//         runtime evaluation then showed Chinese edit-prompt requests such as
+//         "改图提示词" could still miss image-prompt routing unless edit wording
+//         was treated as prompt-help intent too.
 // Goal: keep Clanker launch, history, and reward queries routed to the
 //       dedicated Clanker skill so the model sees the launch prompt before it
 //       attempts deployment, and expose the generated-image skill only on real
@@ -24,6 +30,9 @@
 // - `clanker_deploy` canonical intent must select the Clanker skill before generic token analysis.
 // - Plain capability questions such as "what can you do" should route to onboarding, not a generic market skill.
 // - Chinese visual-asset requests may include modifiers between the verb and noun; keep those routed to image generation.
+// - Image prompt coaching should route to a dedicated prompt skill, not to the image tool.
+// - Real image requests may load both the image-generation skill and the image-prompt guidance skill.
+// - Chinese edit-prompt wording such as 改图/修图/图像编辑提示词 should count as image prompt coaching.
 // Document Provenance:
 // - Source: Clanker Documentation, Deploy Token (v4.0.0)
 // - Kind: official API doc
@@ -45,10 +54,34 @@
 // - Retrieved: 2026-04-18
 // - Applied To: image-generation query signal and skill routing
 // - Verification: verified in code
+// - Source: OpenAI GPT-image-1.5 Prompting Guide
+// - Kind: official API doc
+// - Retrieved: 2026-04-19
+// - Applied To: adding a prompt-guidance skill alongside image-generation routing
+// - Verification: verified in docs and code
+// - Source: Google Imagen prompt guide
+// - Kind: official API doc
+// - Retrieved: 2026-04-19
+// - Applied To: prompt-advice routing and subject/context/style-driven image prompt guidance
+// - Verification: verified in docs and code
+// - Source: xAI Image Generation guide
+// - Kind: official API doc
+// - Retrieved: 2026-04-19
+// - Applied To: prompt-advice routing and iterative image prompt guidance
+// - Verification: verified in docs and code
+// - Source: local OpenAI-aligned live eval of image prompt coaching turns
+// - Kind: runtime observation
+// - Retrieved: 2026-04-19
+// - Applied To: matching Chinese edit-prompt phrasing such as 改图提示词 to image_prompting
+// - Verification: verified in runtime and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/image-prompt-guidance.md
+// - /Users/almurat/KiKo/system-journal/owner-map/image-prompt-skills.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-image-prompt-skill-openai-alignment-eval.md
 // - /Users/almurat/KiKo/system-journal/design-language/clanker-token-deploy-skill.md
 // - /Users/almurat/KiKo/system-journal/owner-map/clanker-skill.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-image-prompt-skill-provenance.md
 // - /Users/almurat/KiKo/system-journal/adr/2026-04-15-clanker-token-deploy-skill.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-lean-chat-context-exposure.md
@@ -65,6 +98,7 @@ export type NormalizedIntent =
     | 'WELCOME'
     | 'META_DEBUG'
     | 'IMAGE_GENERATION'
+    | 'IMAGE_PROMPTING'
     | 'SWAP'
     | 'CROSS_CHAIN'
     | 'COPY_TRADE'
@@ -100,6 +134,7 @@ export interface QuerySignals {
     market: boolean;
     clankerDeploy: boolean;
     imageGeneration: boolean;
+    imagePrompting: boolean;
     hasRequestedToken: boolean;
     socialChainEvidence: boolean;
 }
@@ -142,6 +177,7 @@ const SKILL_INTENT_MAP: Record<string, NormalizedIntent[]> = {
     market_macro: ['MARKET_MACRO'],
     clanker_deploy_token: ['CLANKER_DEPLOY'],
     image_generation: ['IMAGE_GENERATION'],
+    image_prompting: ['IMAGE_PROMPTING'],
 };
 
 const INTENT_SIGNAL_MAP: Record<NormalizedIntent, keyof QuerySignals> = {
@@ -160,11 +196,20 @@ const INTENT_SIGNAL_MAP: Record<NormalizedIntent, keyof QuerySignals> = {
     MARKET_MACRO: 'market',
     CLANKER_DEPLOY: 'clankerDeploy',
     IMAGE_GENERATION: 'imageGeneration',
+    IMAGE_PROMPTING: 'imagePrompting',
 };
 
 const CLANKER_DEPLOY_QUERY_RE = /\bclanker\b|\b(?:deploy|launch|create|mint)\s+(?:a\s+)?(?:token|coin|memecoin)\b|\btoken\s+(?:deploy|launch|launchpad)\b|部署代币|上线代币|创建代币|发币|发行代币/i;
 const IMAGE_GENERATION_QUERY_RE = /\b(?:generate|create|make|design|draw|render|illustrate)\b.{0,40}\b(?:image|poster|cover|illustration|thumbnail|banner|hero|visual|artwork|ad|creative|mockup|photo)\b|\b(?:image|poster|cover|illustration|thumbnail|banner|hero|visual|artwork|ad|creative|mockup|photo)\b.{0,40}\b(?:generate|create|make|design|draw|render)\b|(?:做|生成|画|设计)(?:一张|一个|个)?[^。！？\n]{0,40}(?:图|图片|海报|封面|插画|配图|宣传图|视觉稿)/i;
-const IMAGE_PROMPT_ADVICE_QUERY_RE = /\b(?:prompt|image prompt)\b.{0,24}\b(?:how|write|writing|improve|tutorial)\b|\b(?:提示词)\b.{0,24}(?:怎么写|教程|优化|写法)|告诉我怎么写(?:图片)?提示词/i;
+const IMAGE_PROMPT_ADVICE_QUERY_RE = /\b(?:prompt|prompts|image prompt)\b.{0,32}\b(?:how|write|writing|improve|optimi[sz]e|tutorial|guide|better)\b|\b(?:how|write|writing|improve|optimi[sz]e)\b.{0,32}\b(?:prompt|image prompt)\b|(?:图片|出图|海报|封面|插画|视觉稿)?提示词.{0,24}(?:怎么写|教程|优化|写法|模板|指南)|(?:怎么写|优化|改写).{0,24}(?:图片|出图|海报|封面|插画|视觉稿)?提示词|给我(?:写|改写|优化)一个(?:图片|出图|海报|封面|插画|视觉稿)?提示词|(?:改图|修图|改图片|修图片|改照片|修照片|图像编辑|图片编辑).{0,24}(?:提示词|prompt)|(?:帮我|给我|告诉我)(?:写|改写|优化).{0,24}(?:改图|修图|图像编辑).{0,12}(?:提示词|prompt)/i;
+
+function detectImageGenerationSignal(query: string): boolean {
+    return IMAGE_GENERATION_QUERY_RE.test(query) && !IMAGE_PROMPT_ADVICE_QUERY_RE.test(query);
+}
+
+function detectImagePromptingSignal(query: string): boolean {
+    return detectImageGenerationSignal(query) || IMAGE_PROMPT_ADVICE_QUERY_RE.test(query);
+}
 
 export function matchSkillsForQuery(params: {
     snapshot: ChatContextSnapshot;
@@ -333,12 +378,14 @@ function scoreTradingIntentBoost(
 export function detectQuerySignals(query: string, snapshot: ChatContextSnapshot, tradingIntent: TradingIntent | null, canonicalIntent?: CanonicalIntent | null): QuerySignals {
     const clankerDeploy = detectClankerDeploySignal(query);
     if (canonicalIntent) {
-        return deriveQuerySignalsFromCanonicalIntent(snapshot, tradingIntent, canonicalIntent, clankerDeploy);
+        return deriveQuerySignalsFromCanonicalIntent(snapshot, query, tradingIntent, canonicalIntent, clankerDeploy);
     }
     const hasRequestedToken = (snapshot.requestedTokenAddresses || []).length > 0 || (snapshot.requestedTokenSymbols || []).length > 0;
     const welcomeQuery = !tradingIntent
         && !hasRequestedToken
         && (GREETING_QUERY_RE.test(query) || PLATFORM_ONBOARDING_QUERY_RE.test(query));
+    const imageGeneration = detectImageGenerationSignal(query);
+    const imagePrompting = detectImagePromptingSignal(query);
 
     return {
         welcome: welcomeQuery,
@@ -362,7 +409,8 @@ export function detectQuerySignals(query: string, snapshot: ChatContextSnapshot,
         social: false,
         market: false,
         clankerDeploy,
-        imageGeneration: IMAGE_GENERATION_QUERY_RE.test(query) && !IMAGE_PROMPT_ADVICE_QUERY_RE.test(query),
+        imageGeneration,
+        imagePrompting,
         hasRequestedToken,
         socialChainEvidence: false,
     };
@@ -370,6 +418,7 @@ export function detectQuerySignals(query: string, snapshot: ChatContextSnapshot,
 
 function deriveQuerySignalsFromCanonicalIntent(
     snapshot: ChatContextSnapshot,
+    query: string,
     tradingIntent: TradingIntent | null,
     canonicalIntent: CanonicalIntent,
     clankerDeploy: boolean,
@@ -386,6 +435,8 @@ function deriveQuerySignalsFromCanonicalIntent(
             )
         );
     const requiredEvidence = new Set(canonicalIntent.evidenceRequirements || []);
+    const imageGeneration = detectImageGenerationSignal(query);
+    const imagePrompting = detectImagePromptingSignal(query);
 
     return {
         welcome: isAssistantMeta && canonicalIntent.taskMode === 'discover',
@@ -411,7 +462,8 @@ function deriveQuerySignalsFromCanonicalIntent(
         social: canonicalIntent.domain === 'x' || canonicalIntent.domain === 'farcaster' || canonicalIntent.intent === 'social_discovery',
         market: canonicalIntent.domain === 'market' || canonicalIntent.intent === 'market_macro',
         clankerDeploy: clankerDeploy || canonicalIntent.intent === 'clanker_deploy',
-        imageGeneration: false,
+        imageGeneration,
+        imagePrompting,
         hasRequestedToken,
         socialChainEvidence: requiredEvidence.has('native_search_results')
             && (

@@ -7,6 +7,36 @@ from orchestration.skill_resolver import resolve_skills
 
 
 class ModelLedToolVisibilityTests(unittest.TestCase):
+    def test_skill_loader_accepts_prompt_exec_md(self):
+        self.assertIn("image_generation", skill_resolver.SKILL_BY_ID)
+        self.assertIn("image_prompting", skill_resolver.SKILL_BY_ID)
+
+    def test_image_prompt_guidance_routes_without_auto_generation_only_prompt_help(self):
+        snapshot = {
+            "lastUserMessage": "告诉我怎么写一个图片提示词",
+            "model": "glm-5",
+            "runtime": {},
+            "toolDefinitions": [],
+        }
+
+        resolution = resolve_skills(snapshot, trading_intent=None)
+
+        self.assertIn("image_prompting", resolution["selectedSkills"])
+        self.assertNotIn("image_generation", resolution["selectedSkills"])
+
+    def test_image_generation_query_loads_prompt_guidance_and_generation_skill(self):
+        snapshot = {
+            "lastUserMessage": "帮我做一张赛博朋克风的产品海报",
+            "model": "glm-5",
+            "runtime": {},
+            "toolDefinitions": [],
+        }
+
+        resolution = resolve_skills(snapshot, trading_intent=None)
+
+        self.assertIn("image_generation", resolution["selectedSkills"])
+        self.assertIn("image_prompting", resolution["selectedSkills"])
+
     def test_skill_resolver_exposes_full_registry_when_model_led_enabled(self):
         snapshot = {
             "lastUserMessage": "请分析我的钱包资产结构",

@@ -47,6 +47,8 @@
 //   owners, not this route owner.
 // - Hydrate signed preview URLs at response time and never expose R2 object keys.
 // - Preserve selected GPT reasoning effort in task context instead of inferring it later.
+// - Persist the user-facing reasoning level on new chat sessions so refreshes
+//   can restore GPT-family strength instead of collapsing to the default.
 // - Generated-image turns reuse the chat transcript but must not be normalized into text model ids.
 // - Generated-image route validation may create chat messages and tasks, but provider execution belongs to the generated-image task owner.
 // - Text chat routes should broadcast task status only; assistant `message_start`
@@ -94,6 +96,7 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-stream-duplicate-and-tool-loop-diagnostics.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-local-image-composer-base.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
@@ -132,6 +135,7 @@ import { buildGeneratedImagePendingData, startGeneratedImageChatTask } from '../
 interface CreateSessionBody {
     title?: string;
     model?: string;
+    reasoningLevel?: string;
 }
 
 interface PrepareImageUploadsBody {
@@ -178,6 +182,7 @@ interface GenerateImageBody {
 interface UpdateSessionBody {
     title?: string;
     model?: string;
+    reasoningLevel?: string;
     status?: 'active' | 'archived';
 }
 
@@ -360,8 +365,8 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     return reply.code(401).send({ error: 'Unauthorized' });
                 }
 
-                const { title, model } = request.body;
-                const session = await chatRepo.createSession(userId, title, model);
+                const { title, model, reasoningLevel } = request.body;
+                const session = await chatRepo.createSession(userId, title, model, reasoningLevel);
 
                 return reply.send({
                     success: true,
