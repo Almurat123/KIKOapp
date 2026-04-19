@@ -28,7 +28,7 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-19
+// Updated: 2026-04-20
 // Author: Rowan
 // Reason: generated-image chat turns do not fit the text worker contract. They
 //         need one owner that can acquire per-user concurrency, reserve billing
@@ -49,6 +49,10 @@ import { LogCode } from '../config/logRegistry.js';
 //         requirement entirely. This owner now has to preserve provider output
 //         bytes through moderation and storage without post-generation
 //         watermark rewriting.
+//         Farcaster runtime then showed a successful generated-image tool turn
+//         could publish only text if the social bridge missed the assistant
+//         message image payload, so this owner now records final image output
+//         into the task toolContext before marking the task terminal.
 // Goal: execute one generated-image chat task end to end while preserving the
 //       chat session/message/task model, strict image safety gates, billing
 //       reservation semantics, provider-specific capability metadata and
@@ -76,6 +80,8 @@ import { LogCode } from '../config/logRegistry.js';
 //   must not rewrite final pixels with a server watermark
 // - publish a public generated-image copy only when the source surface requires
 //   durable URL embeds; ordinary web chat generated images stay private
+// - record terminal generated-image output in task context before task status
+//   becomes done/error so social surfaces have a deterministic media fallback
 // Document Provenance:
 // - Source: OpenAI Image generation guide
 // - Kind: official API doc
@@ -119,6 +125,11 @@ import { LogCode } from '../config/logRegistry.js';
 // - Retrieved: 2026-04-19
 // - Applied To: removing all server-side pixel watermark rewriting from this owner
 // - Verification: verified in code
+// - Source: production runtime log /Users/almurat/Downloads/logs.1776622156347.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: task-context fallback media for Farcaster generated-image replies
+// - Verification: verified in runtime log and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
@@ -127,6 +138,7 @@ import { LogCode } from '../config/logRegistry.js';
 // - /Users/almurat/KiKo/system-journal/design-language/generated-image-safety.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-v2-model-owned-image-generation-tool.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-farcaster-generated-image-english-media-reply.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 const GENERATED_IMAGE_MAX_CONCURRENCY = Math.max(1, Number(process.env.GENERATED_IMAGE_MAX_CONCURRENCY || '2') || 2);
@@ -300,6 +312,39 @@ async function publishGeneratedImageMessageState(params: {
     });
 }
 
+async function recordGeneratedImageTaskOutput(params: {
+    taskId: string;
+    state: GeneratedImageMessageState;
+    source?: string | null;
+}): Promise<void> {
+    try {
+        const task = await chatRepo.getTask(params.taskId);
+        const existingContext = task?.toolContext && typeof task.toolContext === 'object'
+            ? task.toolContext
+            : {};
+        await chatRepo.updateTaskToolContext(params.taskId, {
+            ...existingContext,
+            generatedImage: {
+                ...(existingContext.generatedImage || {}),
+                source: params.source || existingContext.generatedImage?.source || null,
+                output: {
+                    status: params.state.status,
+                    provider: params.state.provider,
+                    providerModel: params.state.providerModel,
+                    quality: params.state.quality,
+                    images: params.state.images,
+                    errorMessage: params.state.errorMessage || null,
+                },
+            },
+        });
+    } catch (error) {
+        logger.warn(LogCode.SYS_INFO, 'Generated image task output context record failed', {
+            taskId: params.taskId,
+            error: error instanceof Error ? error.message : String(error),
+        });
+    }
+}
+
 function broadcastTaskStatus(params: {
     userId: string;
     sessionId: string;
@@ -345,6 +390,10 @@ async function failGeneratedImageTask(params: {
         sessionId: params.sessionId,
         assistantMessageId: params.assistantMessageId,
         messageStatus: 'error',
+        state: failedState,
+    });
+    await recordGeneratedImageTaskOutput({
+        taskId: params.taskId,
         state: failedState,
     });
     await chatRepo.updateTaskStatus(params.taskId, 'error', params.errorMessage);
@@ -582,6 +631,11 @@ async function runGeneratedImageChatTask(params: StartGeneratedImageChatTaskPara
             state: completedState,
         });
         currentState = completedState;
+        await recordGeneratedImageTaskOutput({
+            taskId: params.taskId,
+            state: completedState,
+            source: params.source || 'web',
+        });
         await markGeneratedImageUsageCompleted(params.taskId);
         await chatRepo.updateTaskStatus(params.taskId, 'done');
         chatWS.broadcastToUser(params.userId, {

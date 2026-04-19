@@ -12,6 +12,7 @@ import {
   getFarcasterInboundIgnoreReason,
 } from './farcasterIngressWorker.js';
 import {
+  buildFarcasterAssistantReplyFromGeneratedImageState,
   buildFarcasterAssistantReplyFromMessage,
   resolveFarcasterAssistantReplyText,
 } from './farcasterChatBridge.js';
@@ -244,7 +245,7 @@ test('farcasterReplyService persists and publishes generated-image embeds', asyn
       farcasterFid: 877398,
       parentHash: '0xparent',
       parentAuthorFid: 877398,
-      text: '已生成。',
+      text: 'Generated.',
       embeds: ['https://cdn.example/generated.png', 'data:image/png;base64,skip'],
       idempotencyKey: 'farcaster:reply:mention:0xparent',
     });
@@ -284,8 +285,28 @@ test('buildFarcasterAssistantReplyFromMessage prefers public embeds from generat
     },
   });
 
-  assert.equal(reply.text, '已生成。');
+  assert.equal(reply.text, 'Generated.');
   assert.deepEqual(reply.embeds, ['https://cdn.example/public-generated.png']);
+});
+
+test('buildFarcasterAssistantReplyFromGeneratedImageState uses task output fallback embeds', async () => {
+  const reply = await buildFarcasterAssistantReplyFromGeneratedImageState({
+    status: 'complete',
+    images: [
+      {
+        id: 'generated-1',
+        publicUrl: 'https://cdn.example/task-output.png',
+        name: 'generated.png',
+        type: 'image/png',
+        size: 123,
+        width: 1024,
+        height: 1024,
+      },
+    ],
+  });
+
+  assert.equal(reply.text, 'Generated.');
+  assert.deepEqual(reply.embeds, ['https://cdn.example/task-output.png']);
 });
 
 test('resolveFarcasterAssistantReplyText acknowledges terminal generated-image turns without assistant text', () => {
@@ -297,7 +318,7 @@ test('resolveFarcasterAssistantReplyText acknowledges terminal generated-image t
     taskStatus: 'done',
   });
 
-  assert.equal(reply, '已生成。');
+  assert.equal(reply, 'Generated.');
 });
 
 test('resolveFarcasterAssistantReplyText keeps generated-image timeout replies out of the generic error fallback', () => {
@@ -310,5 +331,5 @@ test('resolveFarcasterAssistantReplyText keeps generated-image timeout replies o
     timedOut: true,
   });
 
-  assert.equal(reply, '图片生成中，请稍后再试。');
+  assert.equal(reply, 'Image generation is still running. Please try again in a moment.');
 });

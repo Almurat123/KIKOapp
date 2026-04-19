@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-19
+// Updated: 2026-04-20
 // Author: Linh Tran
 // Reason: Farcaster mention ingress now prefers the dedicated Neynar webhook
 //         route when enabled, while this module still owns webhook-disabled
@@ -9,7 +9,9 @@
 //         reply continuation under bot-authored parent casts so Farcaster users
 //         do not have to mention the bot on every follow-up turn. Generated
 //         image replies now need media embed URLs propagated through both the
-//         Neynar publish path and the Hub fallback.
+//         Neynar publish path and the Hub fallback. Runtime validation for
+//         generated-image replies now needs embed-count logging at the publish
+//         owner so text-only public casts are visible in production logs.
 // Goal: keep mention retrieval, cast parsing, and reply publication
 //       centralized while preserving deterministic source selection,
 //       transient-error recovery, a webhook-first ingress split, and
@@ -35,6 +37,7 @@
 // - Avoid leaking provider-specific payload shapes into the worker.
 // - Normalize cast image-bearing embeds before they leave this owner.
 // - Normalize outbound cast embed URLs before provider-specific publish calls.
+// - Log outbound embed count without logging media URLs.
 // Document Provenance:
 // - Source: Neynar webhook documentation and notifications API
 // - Kind: official API doc
@@ -88,6 +91,11 @@
 // - Retrieved: 2026-04-19
 // - Applied To: outbound cast reply embeds
 // - Verification: verified in code
+// - Source: production runtime log /Users/almurat/Downloads/logs.1776622156347.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: publish-time embed-count diagnostics for generated-image replies
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
@@ -98,6 +106,7 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-mention-hub-fallback.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-mention-hub-request-failover.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-farcaster-generated-image-english-media-reply.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import {
   CastId,
@@ -634,6 +643,7 @@ export class FarcasterApiClient {
       logger.info(LogCode.SYS_INFO, '[Farcaster] cast reply published via Neynar', {
         parentHash: params.parentHash,
         parentAuthorFid: params.parentAuthorFid,
+        embedCount: embeds.length,
       });
       return neynarReply;
     }

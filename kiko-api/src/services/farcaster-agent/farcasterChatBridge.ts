@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-19
+// Updated: 2026-04-20
 // Author: Linh Tran
 // Reason: Farcaster polling ingress needs a dedicated bridge into the shared
 //         chat worker so mention threads can reuse the same AI runtime without
@@ -12,7 +12,11 @@
 //         layer. Production runtime logs then showed a public-reply gap: some
 //         successful generated-image turns still reached Farcaster publication
 //         with empty assistant text, which triggered the generic English error
-//         fallback instead of an image-ready acknowledgement.
+//         fallback instead of an image-ready acknowledgement. A later
+//         production check showed the acknowledgement was still Chinese and the
+//         cast embed list could be empty even after image generation completed,
+//         so Farcaster publication must use English status text and fall back to
+//         generated-image task output media before publishing.
 // Goal: enqueue Farcaster-originated chat work with enough context for the
 //       existing agent runtime, billing gates, vision-capable providers, and
 //       social reply publication of generated-image assets.
@@ -29,6 +33,8 @@
 //   client-safe hydration; do not expect image turns to have assistant text.
 // - Farcaster generated-image embeds must prefer durable public media URLs and
 //   use signed preview URLs only for legacy rows that predate public copies.
+// - Farcaster public replies are international-facing; generated-image fallback
+//   text must stay English and must not reintroduce Chinese status copy.
 // Document Provenance:
 // - Source: repo code review of X chat bridge
 // - Kind: repo doc
@@ -56,11 +62,18 @@
 // - Applied To: synthesizing generated-image reply text when a tool-managed
 //   Farcaster turn reaches terminal state without assistant text
 // - Verification: verified in runtime log and code
+// - Source: production runtime log /Users/almurat/Downloads/logs.1776622156347.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: English-only generated-image Farcaster fallback text and
+//   task-output image embed fallback before cast publication
+// - Verification: verified in runtime log and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-farcaster-generated-image-english-media-reply.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import * as chatRepo from '../../repositories/chatRepository.js';
 import { trackChatMessage } from '../userActivityService.js';
@@ -89,8 +102,8 @@ export interface FarcasterAssistantReply {
 
 const DEFAULT_FARCASTER_ERROR_REPLY = 'I ran into an issue processing that request. Please try again.';
 const DEFAULT_FARCASTER_TIMEOUT_REPLY = 'I am still working on that. Please try again in a moment.';
-const DEFAULT_FARCASTER_GENERATED_IMAGE_READY_REPLY = '已生成。';
-const DEFAULT_FARCASTER_GENERATED_IMAGE_PENDING_REPLY = '图片生成中，请稍后再试。';
+const DEFAULT_FARCASTER_GENERATED_IMAGE_READY_REPLY = 'Generated.';
+const DEFAULT_FARCASTER_GENERATED_IMAGE_PENDING_REPLY = 'Image generation is still running. Please try again in a moment.';
 
 function normalizeFarcasterReplyEmbedUrls(value: unknown): string[] {
   const rawUrls = Array.isArray(value) ? value : [];
@@ -151,16 +164,19 @@ export function resolveFarcasterAssistantReplyText(
   return DEFAULT_FARCASTER_ERROR_REPLY;
 }
 
-export async function buildFarcasterAssistantReplyFromMessage(assistantMessage: any): Promise<FarcasterAssistantReply> {
-  const content = String(assistantMessage?.content || '').trim();
-  const generatedImage = assistantMessage?.data?.generatedImage || null;
+export async function buildFarcasterAssistantReplyFromGeneratedImageState(
+  generatedImage: any,
+  content = '',
+): Promise<FarcasterAssistantReply> {
   if (!generatedImage) {
     return {
-      text: content,
+      text: String(content || '').trim(),
       embeds: [],
     };
   }
 
+  const rawImages = Array.isArray(generatedImage?.images) ? generatedImage.images : [];
+  const rawEmbedUrls = normalizeFarcasterReplyEmbedUrls(rawImages.map((image: any) => image?.publicUrl || image?.previewUrl || image?.url));
   let hydratedGeneratedImage = generatedImage;
   try {
     const hydratedData = await hydrateGeneratedChatImageDataForClient({ generatedImage });
@@ -170,11 +186,26 @@ export async function buildFarcasterAssistantReplyFromMessage(assistantMessage: 
   }
 
   const images = Array.isArray(hydratedGeneratedImage?.images) ? hydratedGeneratedImage.images : [];
-  const embedUrls = normalizeFarcasterReplyEmbedUrls(images.map((image: any) => image?.publicUrl || image?.previewUrl || image?.url));
+  const embedUrls = normalizeFarcasterReplyEmbedUrls([
+    ...rawEmbedUrls,
+    ...images.map((image: any) => image?.publicUrl || image?.previewUrl || image?.url),
+  ]);
   return {
-    text: buildGeneratedImageFallbackText(hydratedGeneratedImage, content),
+    text: buildGeneratedImageFallbackText(hydratedGeneratedImage, String(content || '').trim()),
     embeds: String(hydratedGeneratedImage?.status || '').toLowerCase() === 'complete' ? embedUrls : [],
   };
+}
+
+export async function buildFarcasterAssistantReplyFromMessage(assistantMessage: any): Promise<FarcasterAssistantReply> {
+  const content = String(assistantMessage?.content || '').trim();
+  const generatedImage = assistantMessage?.data?.generatedImage || null;
+  if (!generatedImage) {
+    return {
+      text: content,
+      embeds: [],
+    };
+  }
+  return buildFarcasterAssistantReplyFromGeneratedImageState(generatedImage, content);
 }
 
 export async function enqueueFarcasterAgentMessage(params: {
@@ -324,11 +355,17 @@ export async function waitForFarcasterTaskAssistantReply(params: {
 
     if (!task || ['done', 'error', 'cancelled'].includes(task.status)) {
       const reply = await buildFarcasterAssistantReplyFromMessage(assistantMessage);
+      const outputReply = reply.embeds.length > 0
+        ? reply
+        : await buildFarcasterAssistantReplyFromGeneratedImageState(
+          task?.toolContext?.generatedImage?.output,
+          reply.text,
+        );
       return {
-        text: reply.text || resolveFarcasterAssistantReplyText(assistantMessage, {
+        text: outputReply.text || reply.text || resolveFarcasterAssistantReplyText(assistantMessage, {
           taskStatus: task?.status || null,
         }),
-        embeds: reply.embeds,
+        embeds: outputReply.embeds.length > 0 ? outputReply.embeds : reply.embeds,
       };
     }
 

@@ -75,6 +75,7 @@ owner boundaries, and major fixes.
 - [Fix Log: 2026-04-19 Image Generation Policy Documentation](./fix-log/2026-04-19-image-generation-policy-documentation.md)
 - [Fix Log: 2026-04-19 Generated Image Client Preview Hydration](./fix-log/2026-04-19-generated-image-client-preview-hydration.md)
 - [Fix Log: 2026-04-19 Farcaster Generated Image Reply And Watermark Removal](./fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md)
+- [Fix Log: 2026-04-20 Farcaster Generated Image English Media Reply](./fix-log/2026-04-20-farcaster-generated-image-english-media-reply.md)
 - [Fix Log: 2026-04-18 Chat V2 Model-Owned Image Generation Tool](./fix-log/2026-04-18-chat-v2-model-owned-image-generation-tool.md)
 - [Fix Log: 2026-04-18 Generated Image Local UI Test Mode](./fix-log/2026-04-18-generated-image-local-ui-test-mode.md)
 - [Fix Log: 2026-04-19 Chat Image Native Lightbox Unification](./fix-log/2026-04-19-chat-image-native-lightbox-unification.md)

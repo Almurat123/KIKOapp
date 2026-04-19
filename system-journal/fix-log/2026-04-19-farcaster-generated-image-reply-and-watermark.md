@@ -9,7 +9,7 @@
   extra provider/artist marks inside the generated scene.
 - Farcaster generated-image assistant rows are now converted into reply payloads
   containing:
-  - short fallback text, currently `已生成。`
+  - short fallback text, currently `Generated.`
   - durable generated-image public URLs as cast embeds
 - Farcaster outbound delivery now persists those embed URLs and passes them to
   both the Neynar signer publish path and the Hub fallback publish path.
@@ -21,6 +21,9 @@
   tool-managed image turn no longer falls back to the generic English
   `I ran into an issue processing that request. Please try again.` string just
   because the assistant text field is empty.
+- 2026-04-20 follow-up: the Farcaster public fallback text was changed to
+  English-only and task-output media is now used as a publication fallback when
+  the assistant message image payload cannot supply embed URLs.
 - The ImageGenerationSkill prompt now tells the main model how to handle
   Farcaster attached images: summarize visible traits into a new-image prompt
   rather than pretending true reference-image editing is wired.
