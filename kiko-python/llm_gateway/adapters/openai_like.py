@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # CONTEXT MEMORY
-# Updated: 2026-04-18
+# Updated: 2026-04-20
 # Author: Rowan
 # Reason: KiKo is removing the old DeepSeek gateway path and replacing it with
 #         NVIDIA-hosted Kimi and GLM models while keeping the existing internal
@@ -34,7 +34,14 @@ from __future__ import annotations
 #         live GLM-5 regression showed no `reasoning_delta` reached Node because
 #         the raw HTTP gateway serialized SDK-only `extra_body` as a nested JSON
 #         field; NVIDIA expects those provider-specific options in the actual
-#         request body when KiKo is not using the OpenAI SDK.
+#         request body when KiKo is not using the OpenAI SDK. OpenAI 400
+#         incidents now also need provider-side request-shape diagnostics so
+#         local and production logs can identify rejected request fields without
+#         changing model-led intent or tool exposure policy. The raw OpenAI
+#         error later proved GPT-5.4 chat/completions rejects function tools
+#         when `reasoning_effort` is present, so this adapter must omit that
+#         unsupported parameter combination while preserving the existing full
+#         tool catalog.
 # Goal: normalize NVIDIA Kimi/GLM requests and reasoning deltas into the same
 #       gateway event protocol already consumed by KiKo's Node/Python runtimes.
 # Owns: provider-family resolution, provider request shaping, SSE normalization,
@@ -58,6 +65,10 @@ from __future__ import annotations
 # - Upstream timeout and transport failures must surface stable codes, not raw
 #   `terminated` strings.
 # - SDK-only `extra_body` wrappers must be flattened before direct HTTP calls.
+# - OpenAI diagnostics may log request keys and tool schema summaries, but must
+#   not log prompt text, image URLs, secrets, or full tool schemas.
+# - GPT-5.4 chat/completions with function tools must not include
+#   `reasoning_effort`; Responses API is the future path for tool+reasoning.
 # Document Provenance:
 # - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
 # - Kind: official API doc
@@ -117,8 +128,27 @@ from __future__ import annotations
 # - Applied To: distinguishing SDK `extra_body` examples from raw HTTP body
 #   shaping for `chat_template_kwargs` and Kimi `thinking` controls
 # - Verification: verified in docs and targeted tests
+# - Source: /Users/almurat/Downloads/logs.1776615188393.json
+# - Kind: runtime observation
+# - Retrieved: 2026-04-20
+# - Applied To: adding OpenAI request-shape diagnostics for HTTP 400s that
+#   previously logged only provider status and raw body length downstream
+# - Verification: verified from existing runtime logs and local request-shape tests
+# - Source: OpenAI Chat Completions API reference and GPT-5.4 latest-model guide
+# - Kind: official API doc
+# - Retrieved: 2026-04-20
+# - Applied To: logging tool schema and reasoning parameter shape instead of
+#   changing KiKo tool exposure policy
+# - Verification: verified in docs, applied in code
+# - Source: /Users/almurat/KiKo/test.txt
+# - Kind: runtime observation
+# - Retrieved: 2026-04-20
+# - Applied To: omitting `reasoning_effort` for GPT-5.4 chat/completions
+#   requests that include function tools
+# - Verification: verified from raw OpenAI error excerpt and local unit tests
 # See also:
 # - /Users/almurat/KiKo/system-journal/INDEX.md
+# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-openai-400-request-shape-diagnostics.md
 # - /Users/almurat/KiKo/system-journal/design-language/social-agent-multimodal-input.md
 # - /Users/almurat/KiKo/system-journal/owner-map/social-agent-multimodal-input.md
 # - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-kimi-grok-social-image-input.md
@@ -130,6 +160,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import time
@@ -141,6 +172,7 @@ from grok.message_content import messages_have_image_content
 
 from ..schemas import GatewayEvent, GenerateRequest
 
+logger = logging.getLogger(__name__)
 
 OPENAI_API_URL = os.getenv("OPENAI_API_URL", "https://api.openai.com/v1/chat/completions")
 NVIDIA_API_URL = os.getenv("NVIDIA_API_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
@@ -159,6 +191,8 @@ def _normalized_model(model: str) -> str:
 
 
 OPENAI_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
+OPENAI_TOOL_DESCRIPTION_WARN_LIMIT = 1024
+OPENAI_TOOL_LOG_SAMPLE_LIMIT = 12
 NVIDIA_KIMI_REASONING_TEMPERATURE = 0.6
 NVIDIA_KIMI_INSTANT_TEMPERATURE = 0.4
 NVIDIA_GLM_TEMPERATURE = 0.6
@@ -176,6 +210,99 @@ def _normalize_reasoning_effort(value: Any) -> str | None:
     if normalized in OPENAI_REASONING_EFFORTS:
         return normalized
     return None
+
+
+def _should_omit_openai_reasoning_effort_for_chat_tools(
+    model: str,
+    tools: list[dict[str, Any]] | None,
+    reasoning_effort: str | None,
+) -> bool:
+    if not reasoning_effort or not tools:
+        return False
+    return _normalized_model(model).startswith("gpt-5.4")
+
+
+def _build_openai_request_body(req: GenerateRequest) -> tuple[dict[str, Any], str | None]:
+    reasoning_effort = _normalize_reasoning_effort(
+        (req.tool_context or {}).get("reasoningEffort") or (req.tool_context or {}).get("reasoning_effort"),
+    )
+    tools = req.tools or []
+    omit_reasoning_effort = _should_omit_openai_reasoning_effort_for_chat_tools(
+        req.model,
+        tools,
+        reasoning_effort,
+    )
+    body: dict[str, Any] = {
+        "model": req.model,
+        "messages": [m.model_dump(exclude_none=True) for m in req.messages],
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    }
+    if reasoning_effort and not omit_reasoning_effort:
+        body["reasoning_effort"] = reasoning_effort
+    # OpenAI chat/completions rejects metadata unless store=true.
+    # Keep gateway behavior stable and avoid provider-specific failures.
+    if tools:
+        body["tools"] = tools
+        body["tool_choice"] = "auto"
+    return body, reasoning_effort if omit_reasoning_effort else None
+
+
+def _summarize_openai_request_shape(body: dict[str, Any]) -> dict[str, Any]:
+    tools = body.get("tools") if isinstance(body.get("tools"), list) else []
+    invalid_names: list[dict[str, Any]] = []
+    long_descriptions: list[dict[str, Any]] = []
+    non_object_parameters: list[dict[str, Any]] = []
+    total_tool_schema_bytes = 0
+    first_tool_names: list[str] = []
+
+    for index, tool in enumerate(tools):
+        if not isinstance(tool, dict):
+            continue
+        function = tool.get("function")
+        if not isinstance(function, dict):
+            continue
+        name = str(function.get("name") or "")
+        if len(first_tool_names) < OPENAI_TOOL_LOG_SAMPLE_LIMIT:
+            first_tool_names.append(name)
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name):
+            invalid_names.append({"index": index, "name": name[:96], "name_len": len(name)})
+        description = str(function.get("description") or "")
+        if len(description) > OPENAI_TOOL_DESCRIPTION_WARN_LIMIT:
+            long_descriptions.append({
+                "index": index,
+                "name": name[:96],
+                "description_len": len(description),
+            })
+        parameters = function.get("parameters")
+        if parameters is not None and not isinstance(parameters, dict):
+            non_object_parameters.append({
+                "index": index,
+                "name": name[:96],
+                "parameters_type": type(parameters).__name__,
+            })
+        try:
+            total_tool_schema_bytes += len(json.dumps(tool, ensure_ascii=False, default=str))
+        except Exception:
+            total_tool_schema_bytes += len(str(tool))
+
+    return {
+        "request_keys": sorted(body.keys()),
+        "message_count": len(body.get("messages") or []),
+        "tool_count": len(tools),
+        "first_tool_names": first_tool_names,
+        "reasoning_effort": body.get("reasoning_effort"),
+        "has_reasoning_object": isinstance(body.get("reasoning"), dict),
+        "stream": body.get("stream"),
+        "stream_options_keys": sorted((body.get("stream_options") or {}).keys()) if isinstance(body.get("stream_options"), dict) else [],
+        "total_tool_schema_bytes": total_tool_schema_bytes,
+        "invalid_tool_names": invalid_names[:OPENAI_TOOL_LOG_SAMPLE_LIMIT],
+        "invalid_tool_name_count": len(invalid_names),
+        "long_tool_descriptions": long_descriptions[:OPENAI_TOOL_LOG_SAMPLE_LIMIT],
+        "long_tool_description_count": len(long_descriptions),
+        "non_object_tool_parameters": non_object_parameters[:OPENAI_TOOL_LOG_SAMPLE_LIMIT],
+        "non_object_tool_parameter_count": len(non_object_parameters),
+    }
 
 
 def _resolve_nvidia_request_profile(model: str) -> tuple[str, float | None, dict[str, Any] | None]:
@@ -380,22 +507,23 @@ async def _stream_openai(req: GenerateRequest, provider: str):
         yield GatewayEvent(event_type="error", provider="openai", payload={"message": "OPENAI_API_KEY missing"})
         return
 
-    reasoning_effort = _normalize_reasoning_effort(
-        (req.tool_context or {}).get("reasoningEffort") or (req.tool_context or {}).get("reasoning_effort"),
-    )
-    body: dict[str, Any] = {
-        "model": req.model,
-        "messages": [m.model_dump(exclude_none=True) for m in req.messages],
-        "stream": True,
-        "stream_options": {"include_usage": True},
-    }
-    if reasoning_effort:
-        body["reasoning_effort"] = reasoning_effort
-    # OpenAI chat/completions rejects metadata unless store=true.
-    # Keep gateway behavior stable and avoid provider-specific failures.
-    if req.tools:
-        body["tools"] = req.tools
-        body["tool_choice"] = "auto"
+    body, omitted_reasoning_effort = _build_openai_request_body(req)
+    if omitted_reasoning_effort:
+        logger.warning(
+            "llm_gateway.openai_reasoning_effort_omitted_for_tools model=%s reasoning_effort=%s tool_count=%s endpoint=chat_completions reason=%s",
+            req.model,
+            omitted_reasoning_effort,
+            len(req.tools or []),
+            "OpenAI rejects function tools with reasoning_effort for GPT-5.4 chat/completions; use Responses API for tool+reasoning.",
+        )
+    request_shape = _summarize_openai_request_shape(body)
+    logger.info("llm_gateway.openai_request_shape %s", request_shape)
+    if (
+        request_shape["invalid_tool_name_count"]
+        or request_shape["long_tool_description_count"]
+        or request_shape["non_object_tool_parameter_count"]
+    ):
+        logger.warning("llm_gateway.openai_tool_schema_suspect %s", request_shape)
 
     async for ev in _stream_sse(
         provider=provider,

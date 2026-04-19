@@ -1,39 +1,62 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-10
+// Updated: 2026-04-20
 // Author: Almurat
 // Reason: X mention sessions must inherit the authenticated user's saved
 //         default model instead of falling back to an unrelated repository
 //         default. Existing X-linked sessions must also be able to realign when
-//         the user changes their preferred model on the website.
+//         the user changes their preferred model on the website. Agent-created
+//         chat history also needs readable titles that distinguish repeated
+//         sessions from the same author, so new X sessions now use the shared
+//         social-agent title shape: `HH:mm x message-prefix`.
 // Goal: keep X conversation mapping and X session model selection deterministic
-//       and tied to persisted user preference.
+//       and tied to persisted user preference, while giving newly-created X
+//       chat sessions a time/platform/message-prefix title.
 // Owns: X conversation mapping creation/reuse and the model assigned to the
-//       underlying chat session for X channels.
+//       underlying chat session for X channels, plus the X-side inputs to the
+//       shared social-agent session title helper.
 // Does Not Own: authenticated user settings writes, agent execution, or webhook parsing.
 // Design Language:
 // - New X sessions must receive an explicit normalized model when available.
 // - Reused X sessions may be updated to the user's latest saved model.
 // - Do not let X mention sessions silently drift to a legacy default model.
+// - New X session titles must use `HH:mm x message-prefix`; do not fall back to
+//   handle-only titles when the inbound message text is available.
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-10
 // - Applied To: using persisted per-user model preference for X mention sessions
 // - Verification: verified in code
+// - Source: operator request on 2026-04-20
+// - Kind: product doc
+// - Retrieved: 2026-04-20
+// - Applied To: X agent-created session title format
+// - Verification: verified in targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-social-agent-session-title-format.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import prisma from '../../db/prisma.js';
 import * as chatRepo from '../../repositories/chatRepository.js';
 import { normalizeSupportedChatModel } from '../../config/chatModels.js';
+import { buildSocialAgentSessionTitle } from '../socialAgentSessionTitle.js';
 import type { XChannel } from './types.js';
 
 export const MAX_DM_ROUND_TRIPS = 30;
 
-export function buildXSessionTitle(params: { channel: XChannel; username?: string | null }): string {
+export function buildXSessionTitle(params: {
+  channel: XChannel;
+  username?: string | null;
+  initialMessageText?: string | null;
+  createdAt?: Date;
+}): string {
   const handle = params.username ? `@${String(params.username).replace(/^@/, '')}` : '@unknown';
-  return params.channel === 'dm' ? `X DM ${handle}` : `X Mention ${handle}`;
+  return buildSocialAgentSessionTitle({
+    platform: 'x',
+    text: params.initialMessageText || handle,
+    createdAt: params.createdAt,
+  });
 }
 
 export function shouldRolloverDmConversation(mapping: { channel: string; roundTripCount: number }): boolean {
@@ -49,10 +72,15 @@ async function createConversationMapping(params: {
   xDmConversationId?: string | null;
   rolloverCount?: number;
   preferredModel?: string | null;
+  initialMessageText?: string | null;
 }) {
   const session = await chatRepo.createSession(
     params.userId,
-    buildXSessionTitle({ channel: params.channel, username: params.xUsername }),
+    buildXSessionTitle({
+      channel: params.channel,
+      username: params.xUsername,
+      initialMessageText: params.initialMessageText,
+    }),
     normalizeSupportedChatModel(params.preferredModel),
   );
 
@@ -79,6 +107,7 @@ export async function findOrCreateXConversation(params: {
   rootTweetId?: string | null;
   xDmConversationId?: string | null;
   preferredModel?: string | null;
+  initialMessageText?: string | null;
 }) {
   if (params.channel === 'mention' && params.rootTweetId) {
     const existing = await prisma.xConversationMapping.findFirst({

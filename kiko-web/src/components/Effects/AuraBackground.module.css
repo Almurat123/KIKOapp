@@ -1,0 +1,33 @@
+.auraContainer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  z-index: 0;
+  pointer-events: none;
+  background-color: #050505;
+}
+
+.topGlow,
+.highlightGlow,
+.staticGlow,
+.staticHighlight,
+.veil {
+  position: absolute;
+  inset: 0;
+}
+
+.blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(40px);
+  will-change: transform;
+  mix-blend-mode: screen;
+}
+
+.staticHighlight {
+  background: radial-gradient(circle at 28% 28%, rgba(255, 255, 255, 0.06) 0px, rgba(255, 255, 255, 0) 45%);
+}
+
+.veil {
+  background: rgba(0, 0, 0, 0.2);
+}

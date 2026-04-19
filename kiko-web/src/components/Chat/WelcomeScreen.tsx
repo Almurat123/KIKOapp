@@ -5,13 +5,13 @@ import {
   Settings,
 } from 'lucide-react';
 import styles from './WelcomeScreen.module.css';
-import { useThemeContext } from '../../contexts/ThemeContext';
 import { useSmartSuggestions } from './useSmartSuggestions.tsx';
 import { ChatInputSuggestions } from './ChatInputSuggestions';
 import { logger } from '../../utils/logger';
 import { usePrivy } from '@privy-io/react-auth';
 import { getUserSettings, saveUserSettings } from '../../services/userSettingsApi';
 import { LiquidGlassEffect } from '../Effects/LiquidGlassEffect';
+import { AuraBackground } from '../Effects/AuraBackground';
 import { agentAttrs } from '../../agent/attrs';
 import {
   findChatModelOption,
@@ -19,7 +19,10 @@ import {
   hydrateChatModelOption,
   isTextChatModelOption,
 } from './chatConstants';
-import { persistChatModelSelection, readStoredChatModelSelection } from './chatModelSelectionPersistence';
+import {
+  persistChatModelSelection,
+  readStoredChatModelSelection,
+} from './chatModelSelectionPersistence';
 import { ChatAttachmentTray } from './ChatAttachmentTray';
 import { COMPOSER_IMAGE_ACCEPT, type ComposerImageDraft } from './chatImageDrafts';
 import { ChatModelSelector } from './ChatModelSelector';
@@ -27,7 +30,7 @@ import { ChatModelSelector } from './ChatModelSelector';
 const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsModal').then((m) => ({ default: m.CustomAISettingsModal })));
 
 // CONTEXT MEMORY
-// Updated: 2026-04-18
+// Updated: 2026-04-20
 // Author: Rowan
 // Reason: The welcome screen is the lightweight first-paint owner for the
 //         homepage, so its optional settings surface must not pin the heavier
@@ -36,27 +39,32 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 //         first-send prompt composition does not split into a second UI path,
 //         including image-only sends. The welcome shell also stays free of the
 //         animated particle backdrop so first paint remains visually calm and
-//         does not depend on a GPU-backed background scene. It now mirrors the
+//         does not depend on a GPU-backed background scene. The homepage
+//         backdrop now also has to match the MakeDream AI chat aura exactly,
+//         so this owner mounts that shared aura background without layering a
+//         second homepage-specific ambient treatment above it. It now mirrors the
 //         same borderless model/reasoning selector pair used by the live chat
 //         composer, including locally remembered image-model quality choices
 //         that must not overwrite the remote default chat model. The selected
 //         model now writes to shared localStorage immediately on user choice so
 //         the reasoning state survives a quick refresh or welcome->chat handoff
 //         before the follow-up effect runs. Remote settings sync now carries
-//         the paired reasoning level too, but local storage stays the first
-//         restore source so stale server defaults do not overwrite the current
-//         choice.
+//         the paired reasoning level too, and the shared snapshot now also
+//         remembers the last control level per family so switching away and
+//         back restores the same reasoning or quality choice instead of the
+//         family default.
 // Goal: preserve a responsive welcome shell that can collect the first prompt
 //       immediately while deferring optional settings UI until the user opens
 //       it, while sharing the same local image-preview affordance and image-
-//       only send eligibility as live chat, and without owning animated page
-//       backdrops or model-policy chrome.
+//       only send eligibility as live chat, and while presenting the exact
+//       MakeDream-matched aura background without extra homepage-only overlays
+//       or model-policy chrome.
 // Owns: welcome-screen prompt collection, model selection persistence, local
 //       draft preview placement, borderless model/reasoning picker placement,
-//       local image-model quality selection, and the local settings-modal entry
-//       point for the welcome shell.
+//       local image-model quality selection, homepage aura-background
+//       placement, and the local settings-modal entry point for the welcome shell.
 // Does Not Own: full chat runtime boot, conversation creation, chat message
-//       rendering, animated background scenes, or model catalog policy.
+//       rendering, homepage aura implementation details, or model catalog policy.
 // Design Language:
 // - welcome-shell controls should stay lightweight and immediately interactive
 // - optional modal surfaces must load on demand
@@ -71,6 +79,7 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 //   default chat model
 // - disabled image variants must not survive local-storage restore as the
 //   active welcome selection
+// - homepage ambient layers must not recolor or dilute the MakeDream aura once mounted
 // Document Provenance:
 // - Source: Vite production build output warning about static import preventing chunk split
 // - Kind: build evidence
@@ -102,6 +111,16 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 // - Retrieved: 2026-04-17
 // - Applied To: recording the welcome shell backdrop correction and owner boundary
 // - Verification: verified in code
+// - Source: /Users/almurat/MakeDream/MakeDreamEditor/Sources/MobileHomeSupport.swift (`MobileLiquidAuraBackground`)
+// - Kind: repo doc
+// - Retrieved: 2026-04-20
+// - Applied To: mounting the MakeDream-matched aura background on the homepage
+// - Verification: verified in code
+// - Source: /Users/almurat/MakeDream/MakeDreamEditor/Sources/MobileChatScreen.swift (`MobileAIChatCanvas`)
+// - Kind: repo doc
+// - Retrieved: 2026-04-20
+// - Applied To: preserving the same darkened aura appearance instead of a brighter homepage variant
+// - Verification: verified in code
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-image-model-selector-sections.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-18
@@ -130,6 +149,7 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-local-image-composer-base.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-image-model-selector-sections.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-billing-and-gating.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-homepage-makedream-aura-parity.md
 // - /Users/almurat/KiKo/kiko-web/src/components/Chat/chatModelSelectionPersistence.ts
 
 interface WelcomeScreenProps {
@@ -210,15 +230,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   const skipInitialRemoteModelPersistRef = useRef(true);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
-  // Save model selection to localStorage whenever it changes
+  // Save the selected model snapshot and its family control memory whenever it changes.
   useEffect(() => {
-    try {
-      localStorage.setItem('kiko-selected-model', JSON.stringify(selectedModel));
-      // Dispatch custom event to notify other components
-      window.dispatchEvent(new CustomEvent('kiko-model-changed', { detail: selectedModel }));
-    } catch (e) {
-      logger.warn('Failed to save model selection to localStorage:', e);
-    }
+    persistChatModelSelection(selectedModel);
   }, [selectedModel]);
 
   useEffect(() => {
@@ -270,8 +284,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
     };
     void persist();
   }, [authenticated, getAccessToken, selectedModel.id]);
-  const { resolvedTheme } = useThemeContext();
-
   // Smart Suggestions Hook
   const {
     suggestions: smartSuggestions,
@@ -355,7 +367,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   };
 
   return (
-    <div className={`${styles.welcomeContainer} ${styles[resolvedTheme]}`}>
+    <div className={styles.welcomeContainer}>
+      <AuraBackground />
+
       {/* Background Ambient Light */}
       <div className={styles.ambientLight}>
         <div className={styles.centerLight}></div>

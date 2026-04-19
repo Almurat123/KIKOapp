@@ -1,21 +1,29 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-20
 // Author: Linh Tran
 // Reason: Farcaster mention replies need deterministic session reuse keyed by
 //         thread/root cast instead of reusing X-specific conversation storage.
 //         Direct reply continuation also needs a bounded list of bot-authored
 //         outbound casts so Hub fallback can watch only casts the bot actually
-//         wrote, not whole public threads.
+//         wrote, not whole public threads. Agent-created chat history also
+//         needs readable titles that distinguish repeated sessions from the
+//         same author, so new Farcaster sessions now use the shared social-agent
+//         title shape: `HH:mm farcaster message-prefix`.
 // Goal: keep Farcaster conversation mapping and session model selection tied to
-//       the linked user's persisted chat preference, while exposing a narrow
-//       continuation target list for no-mention replies to the bot.
+//       the linked user's persisted chat preference, expose a narrow
+//       continuation target list for no-mention replies to the bot, and give
+//       newly-created Farcaster chat sessions a time/platform/message-prefix
+//       title.
 // Owns: Farcaster conversation mapping creation/reuse and model sync for the
-//       underlying shared chat session.
+//       underlying shared chat session, plus the Farcaster-side inputs to the
+//       shared social-agent session title helper.
 // Does Not Own: polling, user linking writes, or outbound cast publication.
 // Design Language:
 // - Reuse one active session per linked user and root cast thread.
 // - New Farcaster sessions must get an explicit normalized model.
 // - Reused sessions may be realigned to the latest saved user model.
+// - New Farcaster session titles must use `HH:mm farcaster message-prefix`; do
+//   not fall back to handle-only titles when the inbound cast text is available.
 // - Reply-continuation polling may read recent `lastOutboundCastHash` values, but
 //   it must not decide provider fetch policy or broaden admission beyond direct
 //   replies to bot-authored casts.
@@ -30,14 +38,21 @@
 // - Retrieved: 2026-04-17
 // - Applied To: exposing recent bot outbound cast hashes as bounded continuation targets
 // - Verification: verified in code
+// - Source: operator request on 2026-04-20
+// - Kind: product doc
+// - Retrieved: 2026-04-20
+// - Applied To: Farcaster agent-created session title format
+// - Verification: verified in targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-social-agent-session-title-format.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-farcaster-direct-reply-continuation.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import prisma from '../../db/prisma.js';
 import * as chatRepo from '../../repositories/chatRepository.js';
 import { normalizeSupportedChatModel } from '../../config/chatModels.js';
+import { buildSocialAgentSessionTitle } from '../socialAgentSessionTitle.js';
 import type { FarcasterChannel } from './types.js';
 
 export interface FarcasterReplyContinuationTarget {
@@ -47,9 +62,17 @@ export interface FarcasterReplyContinuationTarget {
   lastOutboundCastHash: string;
 }
 
-export function buildFarcasterSessionTitle(params: { username?: string | null }): string {
+export function buildFarcasterSessionTitle(params: {
+  username?: string | null;
+  initialMessageText?: string | null;
+  createdAt?: Date;
+}): string {
   const handle = params.username ? `@${String(params.username).replace(/^@/, '')}` : '@unknown';
-  return `Farcaster ${handle}`;
+  return buildSocialAgentSessionTitle({
+    platform: 'farcaster',
+    text: params.initialMessageText || handle,
+    createdAt: params.createdAt,
+  });
 }
 
 async function createConversationMapping(params: {
@@ -60,10 +83,14 @@ async function createConversationMapping(params: {
   rootCastHash?: string | null;
   parentCastHash?: string | null;
   preferredModel?: string | null;
+  initialMessageText?: string | null;
 }) {
   const session = await chatRepo.createSession(
     params.userId,
-    buildFarcasterSessionTitle({ username: params.farcasterUsername }),
+    buildFarcasterSessionTitle({
+      username: params.farcasterUsername,
+      initialMessageText: params.initialMessageText,
+    }),
     normalizeSupportedChatModel(params.preferredModel),
   );
 
@@ -89,6 +116,7 @@ export async function findOrCreateFarcasterConversation(params: {
   rootCastHash?: string | null;
   parentCastHash?: string | null;
   preferredModel?: string | null;
+  initialMessageText?: string | null;
 }) {
   const existing = await prisma.farcasterConversationMapping.findFirst({
     where: {

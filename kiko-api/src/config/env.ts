@@ -3,7 +3,7 @@
  * Validates and loads environment variables
  */
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-20
 // Author: Almurat
 // Reason: X OAuth now depends on explicit operator allowlisting, encrypted
 //         bot-token storage, a distinct CRC signing secret for webhook setup,
@@ -43,6 +43,8 @@
 // - NVIDIA GLM/Kimi are free-model traffic and can share one optional KIKO cap.
 // - GLM must stay on one canonical product id unless the official hosted docs add another documented mode.
 // - GPT and Grok are premium-model traffic and share one daily free quota.
+// - Generated-image free allowance is backend-owned, env-driven, and must not
+//   be inferred from client-side counters or chat billing knobs.
 // - `USAGE_LIMITS_TIERS_JSON` may define `freeModelLimit` and `premiumLimit`;
 //   legacy `dailyLimit` must still map into the premium limit for backward compatibility.
 // - Quota env parsing must normalize model ids once and never depend on ad hoc caller string rewrites.
@@ -98,11 +100,23 @@
 // - Retrieved: 2026-04-16
 // - Applied To: dual-limit parsing for `USAGE_LIMITS_TIERS_JSON` with billing-env fallbacks
 // - Verification: verified in code
+// - Source: /Users/almurat/KiKo/system-journal/design-language/generated-image-billing.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-20
+// - Applied To: env-driven generated-image daily free allowance parsing
+// - Verification: verified in code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-generated-image-free-allowance-env-control.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-20
+// - Applied To: the generated-image free-output env knob and default fallback
+// - Verification: verified in code
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/design-language/chat-usage-quota-policy.md
 // - system-journal/owner-map/chat-usage-quota.md
 // - system-journal/fix-log/2026-04-16-free-premium-chat-usage-quota-rework.md
+// - system-journal/design-language/generated-image-billing.md
+// - system-journal/fix-log/2026-04-20-generated-image-free-allowance-env-control.md
 // - system-journal/owner-map/farcaster-neynar-webhook-ingress.md
 // - system-journal/fix-log/2026-04-15-farcaster-neynar-webhook-ingress.md
 // - system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
@@ -239,6 +253,9 @@ export interface EnvConfig {
         premiumModels: string[];
         modelPricing: Record<string, { promptUsdPer1M: number; completionUsdPer1M: number; cachedPromptUsdPer1M?: number }>;
     };
+    generatedImage: {
+        dailyFreeOutputs: number;
+    };
     usageLimits: {
         enabled: boolean;
         chainId: number;
@@ -338,6 +355,7 @@ function validateEnv(): EnvConfig {
     const billingMinLiquidityUsd = parseFloat(process.env.BILLING_DEXSCREENER_MIN_LIQUIDITY_USD || '5000');
     const billingDailyFreeModelLimit = parseInt(process.env.BILLING_DAILY_FREE_MODEL_LIMIT || '0', 10);
     const billingDailyFreePremium = parseInt(process.env.BILLING_DAILY_FREE_PREMIUM || '8', 10);
+    const generatedImageDailyFreeOutputs = parseInt(process.env.GENERATED_IMAGE_DAILY_FREE_OUTPUTS || '2', 10);
     const billingUsdMultiplier = parseFloat(process.env.BILLING_USD_MULTIPLIER || '3');
     const billingToolPricePerCall = parseFloat(process.env.BILLING_TOOL_PRICE_PER_CALL || '0.005');
     const billingTermsVersion = process.env.BILLING_TERMS_VERSION || 'billing-terms-v1';
@@ -621,6 +639,9 @@ function validateEnv(): EnvConfig {
             freeModels,
             premiumModels,
             modelPricing,
+        },
+        generatedImage: {
+            dailyFreeOutputs: Number.isFinite(generatedImageDailyFreeOutputs) ? Math.max(0, generatedImageDailyFreeOutputs) : 2,
         },
         usageLimits: {
             enabled: usageLimitsEnabled,

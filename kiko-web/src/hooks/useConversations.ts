@@ -6,7 +6,7 @@ import { chatWSClient } from '../utils/chatWebSocket';
 import { findChatModelOption, hydrateChatModelOption } from '../components/Chat/chatConstants';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-20
 // Author: Rowan Hale
 // Reason: Conversation hydration must not erase live-rendered assistant cards
 //         while the database row is still catching up. The chat-image upload
@@ -19,7 +19,9 @@ import { findChatModelOption, hydrateChatModelOption } from '../components/Chat/
 //         empty text rows during eventual consistency. Session hydration now
 //         also needs to preserve the saved reasoning level so split-effort
 //         model families reopen with the same effort state rather than the
-//         default fallback.
+//         default fallback. A 2026-04-20 streaming regression showed an
+//         in-flight `loadConversation()` could capture an old local snapshot,
+//         then overwrite later WebSocket chunks with a shorter DB row.
 // Goal: Preserve richer local chat rendering during websocket -> DB eventual
 //       consistency, including copy-trade cards, transaction confirmations,
 //       generated-image replies, current-turn user image previews, and the
@@ -34,6 +36,11 @@ import { findChatModelOption, hydrateChatModelOption } from '../components/Chat/
 // - Forbidden local patch pattern: replacing live non-text assistant cards with stale plain-text DB rows.
 // - Forbidden local patch pattern: dropping image preview attachments during the send-time DB update race.
 // - Forbidden local patch pattern: replacing a generated-image assistant row with an empty text placeholder during hydration.
+// - Forbidden local patch pattern: preserving a route-local conversation and
+//   active task after the backend has already returned a hard session-not-found.
+// - Forbidden local patch pattern: letting an older session hydration response
+//   replace a same-id assistant message with shorter same-prefix content while
+//   the live stream has already advanced.
 // Document Provenance:
 // - Source: Copy-trade live card regression logs (`/Users/almurat/Downloads/logs.1775995828927.json`) and runtime screenshot (`/Users/almurat/Downloads/IMG_4739.PNG`)
 // - Kind: runtime observation
@@ -66,6 +73,19 @@ import { findChatModelOption, hydrateChatModelOption } from '../components/Chat/
 // - Retrieved: 2026-04-19
 // - Applied To: preserving session reasoning level during conversation hydration
 // - Verification: inferred from code
+// - Source: operator report on 2026-04-19 that a Farcaster-triggered chat route
+//   stayed loading after the backing session disappeared
+// - Kind: runtime observation
+// - Retrieved: 2026-04-19
+// - Applied To: clearing orphan local conversation state when the backend
+//   returns a hard session-not-found
+// - Verification: verified in code
+// - Source: /Users/almurat/KiKo/test.txt
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: preserving latest same-id assistant stream content across
+//   concurrent `loadConversation()` hydration responses
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-copytrade-card-live-hydration.md
@@ -73,6 +93,8 @@ import { findChatModelOption, hydrateChatModelOption } from '../components/Chat/
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-orphan-session-loading-state.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-chat-stream-hydration-stale-overwrite.md
 
 export interface Message {
   id: string;
@@ -143,6 +165,13 @@ function normalizeActiveTaskStatus(status: unknown): ConversationActiveTaskStatu
   return 'cancelled';
 }
 
+function isHardSessionMissingError(error: unknown): boolean {
+  const message = String((error as { message?: unknown })?.message || '')
+    .trim()
+    .toLowerCase();
+  return message === 'session not found' || message.includes('http 404');
+}
+
 function getPlanActivityLength(data: any): number {
   const activity = data?.agentRuntime?.plan?.activity;
   return Array.isArray(activity) ? activity.length : 0;
@@ -180,31 +209,60 @@ function isRichAssistantMessageType(type: Message['type'] | undefined): boolean 
   return Boolean(type && type !== 'text');
 }
 
+function shouldPreferLongerLocalText(dbTextRaw: unknown, localTextRaw: unknown): boolean {
+  const dbText = String(dbTextRaw || '');
+  const localText = String(localTextRaw || '');
+  if (!localText || localText.length <= dbText.length) return false;
+  return !dbText || localText.startsWith(dbText);
+}
+
 function mergeAssistantMessageFromLocal(dbMessage: any, localMessage: any) {
   const dbType = dbMessage?.type || 'text';
   const localType = localMessage?.type || 'text';
   const localIsRich = isRichAssistantMessageType(localType);
   const dbIsPlainText = dbType === 'text';
+  const preferLocalContent = shouldPreferLongerLocalText(dbMessage?.content, localMessage?.content);
+  const preferLocalReasoning = shouldPreferLongerLocalText(dbMessage?.reasoning_content, localMessage?.reasoning_content);
+  if (preferLocalContent || preferLocalReasoning) {
+    console.log('[useConversations] Preserving newer local assistant stream over stale DB hydration:', {
+      messageId: dbMessage?.id || localMessage?.id,
+      dbContentLength: String(dbMessage?.content || '').length,
+      localContentLength: String(localMessage?.content || '').length,
+      dbReasoningLength: String(dbMessage?.reasoning_content || '').length,
+      localReasoningLength: String(localMessage?.reasoning_content || '').length,
+      dbStatus: dbMessage?.status,
+      localStatus: localMessage?.status,
+    });
+  }
+  const baseMessage = (preferLocalContent || preferLocalReasoning)
+    ? {
+        ...dbMessage,
+        content: preferLocalContent ? localMessage.content : dbMessage.content,
+        reasoning_content: preferLocalReasoning ? localMessage.reasoning_content : dbMessage.reasoning_content,
+        status: localMessage.status || dbMessage.status,
+        data: mergeAgentRuntimeData(dbMessage.data, localMessage.data),
+      }
+    : dbMessage;
 
   if (!localIsRich) {
-    return dbMessage;
+    return baseMessage;
   }
 
   if (localType === 'transaction-status-card') {
     if (dbIsPlainText) {
       return {
-        ...dbMessage,
+        ...baseMessage,
         type: localType,
-        data: mergeAgentRuntimeData(localMessage.data ?? dbMessage.data, localMessage.data),
+        data: mergeAgentRuntimeData(localMessage.data ?? baseMessage.data, localMessage.data),
       };
     }
 
     if (dbType === 'transaction-status-card') {
       return {
-        ...dbMessage,
+        ...baseMessage,
         type: localType,
         data: mergeAgentRuntimeData(
-          mergeTransactionCardData(dbMessage.data ?? {}, localMessage.data ?? {}),
+          mergeTransactionCardData(baseMessage.data ?? {}, localMessage.data ?? {}),
           localMessage.data,
         ),
       };
@@ -213,11 +271,11 @@ function mergeAssistantMessageFromLocal(dbMessage: any, localMessage: any) {
 
   if (dbIsPlainText || dbType === localType) {
     return {
-      ...dbMessage,
+      ...baseMessage,
       type: localType,
       data: mergeAgentRuntimeData(
         {
-          ...(dbMessage.data ?? {}),
+          ...(baseMessage.data ?? {}),
           ...(localMessage.data ?? {}),
         },
         localMessage.data,
@@ -225,7 +283,7 @@ function mergeAssistantMessageFromLocal(dbMessage: any, localMessage: any) {
     };
   }
 
-  return dbMessage;
+  return baseMessage;
 }
 
 function getLocalAttachmentPreviews(message: any): any[] {
@@ -414,10 +472,11 @@ export const useConversations = () => {
 
     const loadPromise = (async () => {
 
-    // CRITICAL: Get current local messages BEFORE loading from database
-    // This preserves messages that haven't been saved to DB yet (e.g., during AI thinking)
-    const currentConv = conversationsRef.current.find(c => c.id === id);
-    const localMessages = currentConv?.messages || [];
+    // Fallback snapshot only. The merge below re-reads the latest local state
+    // after the network response so an old hydration request cannot erase
+    // WebSocket chunks that arrived while the request was in flight.
+    const requestStartConv = conversationsRef.current.find(c => c.id === id);
+    const requestStartLocalMessages = requestStartConv?.messages || [];
 
     // Fetch full session with messages
     try {
@@ -441,6 +500,9 @@ export const useConversations = () => {
         })),
       });
       if (resp.success) {
+        const mergeTimeConv = conversationsRef.current.find(c => c.id === id);
+        const localMessages = mergeTimeConv?.messages || requestStartLocalMessages;
+
         // Map backend messages to frontend format
         const dbMessages = resp.messages.map((m: any) => ({
           id: m.id,
@@ -624,6 +686,15 @@ export const useConversations = () => {
         return resp.activeTask || null;
       }
     } catch (error) {
+      if (isHardSessionMissingError(error)) {
+        pendingLocalUserMessagesRef.current.delete(id);
+        const nextConversations = conversationsRef.current.filter((conversation) => conversation.id !== id);
+        conversationsRef.current = nextConversations;
+        setConversations(nextConversations);
+        setActiveConversationId((current) => (current === id ? null : current));
+        console.warn('[useConversations] Removed orphan local conversation after session 404:', id);
+        return null;
+      }
       console.error('[useConversations] Failed to load session messages:', error);
     }
     return null;

@@ -1,6 +1,6 @@
 # Generated Image Billing
 
-Updated: 2026-04-18
+Updated: 2026-04-20
 
 ## Purpose
 
@@ -15,7 +15,8 @@ server-owned context and billing consent.
 1. Generated-image usage must be stored in a dedicated ledger, not
    `billing_usage_ledger`.
 2. Free generated-image allowance is counted on the backend per authenticated
-   user and UTC day.
+   user and UTC day, and the free-output count is env-configurable with a
+   default of 2.
 3. Reservation rows in `reserved` or `completed` state count against free-image
    allowance so concurrent requests cannot oversubscribe the quota.
 4. Paid generated-image runs require active billing consent before the provider
@@ -39,8 +40,8 @@ server-owned context and billing consent.
 
 - `gpt-image-1.5`: visible, disabled, no free allowance, no generation route
   enabled yet.
-- `grok-imagine-image`: enabled, first 2 output images per user per UTC day are
-  free.
+- `grok-imagine-image`: enabled, first `GENERATED_IMAGE_DAILY_FREE_OUTPUTS`
+  output images per user per UTC day are free. Default: 2.
 - `grok-imagine-image-pro`: visible, disabled.
 
 ## Document Provenance
@@ -66,10 +67,21 @@ server-owned context and billing consent.
   - Applied To: GPT disabled, Grok normal free allowance, Grok Pro disabled,
     and consent-required paid fallback
   - Verification: verified in code
+- Source: /Users/almurat/KiKo/kiko-api/src/config/env.ts
+  - Kind: repo doc
+  - Retrieved: 2026-04-20
+  - Applied To: `GENERATED_IMAGE_DAILY_FREE_OUTPUTS` parsing and default fallback
+  - Verification: verified in code
+- Source: /Users/almurat/KiKo/kiko-api/src/services/generatedImageBilling.ts
+  - Kind: repo doc
+  - Retrieved: 2026-04-20
+  - Applied To: the backend free-output limit consumed by generated-image billing
+  - Verification: verified in code
 
 ## See Also
 
 - /Users/almurat/KiKo/system-journal/INDEX.md
 - /Users/almurat/KiKo/system-journal/owner-map/generated-image-billing.md
 - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-billing-and-gating.md
+- /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-generated-image-free-allowance-env-control.md
 - /Users/almurat/KiKo/system-journal/design-language/generated-image-safety.md

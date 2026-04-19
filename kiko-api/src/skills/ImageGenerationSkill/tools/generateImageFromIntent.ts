@@ -11,7 +11,7 @@ import {
 } from '../../../services/generatedImagePromptOptimizer.js';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-19
+// Updated: 2026-04-20
 // Author: Rowan
 // Reason: chat v2 now needs an internal image-generation skill that the main
 //         model can call directly from the ordinary chat surface. Product
@@ -20,7 +20,10 @@ import {
 //         without exposing provider-specific args or forcing a separate model picker.
 //         Farcaster-originated tool calls must preserve their source label so
 //         generated-image storage can publish a stable public embed URL instead
-//         of an expiring private preview URL.
+//         of an expiring private preview URL. A 2026-04-20 runtime trace showed
+//         ordinary Web chat users with linked Farcaster profiles were being
+//         misclassified as Farcaster-originated image tasks, forcing public URL
+//         publication and failing when the local public CDN base was absent.
 // Goal: expose one intent-level `generate_image_from_intent` tool that rewrites
 //       image direction into a controlled provider prompt and then converts the
 //       current assistant turn into a generated-image task inside the same transcript.
@@ -35,6 +38,8 @@ import {
 // - forbidden local patch pattern: passing raw provider-only prompt fragments back into visible chat history
 // - preserve social source labels when delegating into generated-image execution
 //   so downstream storage can decide whether a public publication copy is needed
+// - linked Farcaster profile data is identity context only; it must not by itself
+//   turn ordinary Web chat image generation into social publication
 // Document Provenance:
 // - Source: operator requirement on 2026-04-18 for model-owned image generation inside main chat
 // - Kind: product doc
@@ -51,6 +56,12 @@ import {
 // - Retrieved: 2026-04-19
 // - Applied To: propagating Farcaster source into generated-image execution
 // - Verification: verified in code
+// - Source: /Users/almurat/KiKo/test.txt
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: requiring explicit Farcaster page/runtime source before public
+//   generated-image publication is requested
+// - Verification: verified in code and targeted test
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/generated-image-safety.md
@@ -58,6 +69,7 @@ import {
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-v2-model-owned-image-generation-tool.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-generated-image-source-classification.md
 
 function resolveImageToolContext(context?: Record<string, any>) {
     const snapshot = context?.__snapshot || null;
@@ -78,7 +90,7 @@ function resolveImageToolContext(context?: Record<string, any>) {
 function resolveGeneratedImageSource(context?: Record<string, any>, snapshot?: any): 'farcaster' | 'chat-v2-tool' {
     const currentPage = String(context?.currentPage || snapshot?.runtime?.currentPage || '').trim().toLowerCase();
     const pageContext = String(context?.pageContext || snapshot?.runtime?.pageContext || '').trim().toLowerCase();
-    if (currentPage === 'farcaster' || pageContext === 'farcaster_agent' || context?.farcaster || snapshot?.runtime?.farcaster) {
+    if (currentPage === 'farcaster' || pageContext === 'farcaster_agent') {
         return 'farcaster';
     }
     return 'chat-v2-tool';
@@ -266,4 +278,8 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
         };
     },
     permissions: 'authenticated',
+};
+
+export const __generateImageFromIntentTest = {
+    resolveGeneratedImageSource,
 };

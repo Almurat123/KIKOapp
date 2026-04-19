@@ -27,7 +27,11 @@ import { getStoredSlippageBps } from '@/config/slippageConfig';
 import { getUserSettings, saveUserSettings } from '../../services/userSettingsApi';
 import { ChatMessageList } from './ChatMessageList';
 import { ChatComposer } from './ChatComposer';
-import { persistChatModelSelection, readStoredChatModelSelection } from './chatModelSelectionPersistence';
+import {
+  persistChatModelSelection,
+  readStoredChatModelSelection,
+  readStoredChatModelSelectionState,
+} from './chatModelSelectionPersistence';
 import {
   assistantMessageHasStreamingContent,
   isEffectivelyStreamingAssistantMessage,
@@ -69,7 +73,7 @@ const LazyChatStrategyRuntime = React.lazy(() =>
 );
 
 // CONTEXT MEMORY
-// Updated: 2026-04-19
+// Updated: 2026-04-20
 // Author: Rowan
 // Reason: First-send interaction and live assistant-card rendering both depend
 //         on this owner preserving a single in-place chat surface while websocket
@@ -85,8 +89,10 @@ const LazyChatStrategyRuntime = React.lazy(() =>
 //         The selected model now writes to shared localStorage immediately on
 //         user choice so a fast refresh does not lose the reasoning state
 //         before the next effect flush. Remote settings sync now carries the
-//         paired reasoning level too, but local storage stays the first restore
-//         source so stale server defaults do not overwrite the current choice.
+//         paired reasoning level too, and the shared snapshot now also
+//         remembers the last control level per family so switching away and
+//         back restores the same reasoning or quality choice instead of the
+//         family default.
 //         Generated-image selections can now persist locally in the same picker
 //         state, but must not overwrite the authenticated user's default chat
 //         model because the backend chat setting only owns text models.
@@ -1558,26 +1564,20 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   useEffect(() => {
     const syncModelFromStorage = () => {
       try {
-        const saved = localStorage.getItem('kiko-selected-model');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          const found =
-            hydrateChatModelOption(parsed) ||
-            coerceSelectableChatModelOption(findChatModelOption(parsed.id));
-          if (found) {
-            setSelectedModel((current) => {
-              const sameSelection =
-                found.id === current.id &&
-                found.reasoningLevel === current.reasoningLevel &&
-                found.reasoningEffort === current.reasoningEffort &&
-                found.kind === current.kind;
-              if (!sameSelection) {
-                logger.debug('Syncing model from localStorage:', found.id);
-                return found;
-              }
-              return current;
-            });
-          }
+        const found = readStoredChatModelSelectionState()?.selectedModel;
+        if (found) {
+          setSelectedModel((current) => {
+            const sameSelection =
+              found.id === current.id &&
+              found.reasoningLevel === current.reasoningLevel &&
+              found.reasoningEffort === current.reasoningEffort &&
+              found.kind === current.kind;
+            if (!sameSelection) {
+              logger.debug('Syncing model from localStorage:', found.id);
+              return found;
+            }
+            return current;
+          });
         }
       } catch (e) {
         logger.warn('Failed to sync model from localStorage:', e);
@@ -1643,11 +1643,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             if (current.id === found.id) {
               return current;
             }
-            try {
-              localStorage.setItem('kiko-selected-model', JSON.stringify(found));
-            } catch (error) {
-              logger.warn('Failed to persist model selection from saved settings:', error);
-            }
             return found;
           });
         }
@@ -1688,13 +1683,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     };
   }, []);
 
-  // Save model selection to localStorage whenever it changes
+  // Save the selected model snapshot and its family control memory whenever it changes.
   useEffect(() => {
-    try {
-      localStorage.setItem('kiko-selected-model', JSON.stringify(selectedModel));
-    } catch (e) {
-      logger.warn('Failed to save model selection to localStorage:', e);
-    }
+    persistChatModelSelection(selectedModel);
   }, [selectedModel]);
 
   // Start from null so first mount on /chat/:id is treated as a switch and triggers loadConversation.

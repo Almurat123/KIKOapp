@@ -22,6 +22,9 @@ temporarily unavailable.
 6. Keep parent-owned detail hydration on the parent route. Child embeds should
    render the resolved snapshot instead of re-reading the same entity to fill an
    optional field.
+7. Treat hard `404` / `Session not found` responses as authoritative absence,
+   not transient load failures. Clear orphan local loading state instead of
+   preserving ghost tasks or placeholders.
 
 ## Forbidden Local Patch Patterns
 
@@ -32,9 +35,13 @@ temporarily unavailable.
   browser one-by-one.
 - Letting a chart or other child visual re-query a parent-hydrated token detail
   endpoint just to recover optional display metadata.
+- Preserving a route-local loading state after the backend has already said the
+  entity does not exist.
 
 ## Related Outcomes
 
 - Trending reads may fall back to stale cache on 429 or short network failures.
 - Strategy and copy-trade lists should remain partially visible when one source
   is throttled.
+- Chat routes should clear local ghost spinners when the backing session is
+  gone instead of pretending the task is still active.

@@ -10,9 +10,10 @@ import {
     type ChatModelControlLevel,
     type ChatModelOption,
 } from './chatConstants';
+import { getStoredChatModelControlLevelForFamily } from './chatModelSelectionPersistence';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-18
+// Updated: 2026-04-20
 // Author: Rowan
 // Reason: The chat composer and welcome shell now present two borderless
 //         selectors in the input row: one for the model family and, when a
@@ -50,6 +51,8 @@ import {
 //   the available variants
 // - disabled model families and quality variants may stay visible, but must not
 //   fire selection handlers
+// - when switching back to a family, restore that family's last saved control
+//   level before falling back to the current row or family default
 // Document Provenance:
 // - Source: user screenshot request showing a borderless model + reasoning row
 // - Kind: product doc
@@ -179,7 +182,11 @@ export const ChatModelSelector: React.FC<ChatModelSelectorProps> = ({
 
     const handleFamilySelect = (familyId: string, disabled?: boolean) => {
         if (disabled) return;
-        const nextModel = findChatModelOptionByFamilyAndReasoning(familyId, selectedModel.reasoningLevel);
+        const savedControlLevel = getStoredChatModelControlLevelForFamily(familyId);
+        const nextModel = findChatModelOptionByFamilyAndReasoning(
+            familyId,
+            savedControlLevel || selectedModel.reasoningLevel
+        );
         if (nextModel) {
             onSelectModel(nextModel);
         }

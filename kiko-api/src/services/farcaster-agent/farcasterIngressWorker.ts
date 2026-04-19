@@ -743,6 +743,7 @@ export class FarcasterIngressWorker {
       rootCastHash: mention.rootCastHash || mention.castHash,
       parentCastHash: mention.parentHash || null,
       preferredModel,
+      initialMessageText: mention.text,
     });
 
     // Guard: stop responding in conversations that have exceeded the round-trip

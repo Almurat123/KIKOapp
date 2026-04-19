@@ -576,6 +576,7 @@ export class XIngressWorker {
       channel: 'mention',
       rootTweetId: mention.conversationId || mention.id,
       preferredModel,
+      initialMessageText: mention.text,
     });
     await syncXConversationModel({
       chatSessionId: mapping.chatSessionId,

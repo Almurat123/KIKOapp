@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { env } from '../config/env.js';
 import { buildGeneratedImageBillingDecision } from './generatedImageBilling.js';
 
 test('GPT image stays disabled even though pricing is known', () => {
@@ -84,6 +85,30 @@ test('Grok normal uses remaining free output image before paid spillover', () =>
     assert.equal(decision.freeImageCount, 1);
     assert.equal(decision.billedImageCount, 1);
     assert.equal(decision.usdCost, 0.02);
+});
+
+test('Grok normal free output allowance can be tuned from env', () => {
+    const originalFreeOutputs = env.generatedImage.dailyFreeOutputs;
+    env.generatedImage.dailyFreeOutputs = 5;
+
+    try {
+        const decision = buildGeneratedImageBillingDecision({
+            dateUtc: '2026-04-18',
+            model: 'grok-imagine-image',
+            quality: 'normal',
+            imageCount: 1,
+            freeOutputImagesUsed: 4,
+            hasBillingConsent: false,
+        });
+
+        assert.equal(decision.allowed, true);
+        assert.equal(decision.freeOutputImageLimit, 5);
+        assert.equal(decision.freeImageCount, 1);
+        assert.equal(decision.billedImageCount, 0);
+        assert.equal(decision.usdCost, 0);
+    } finally {
+        env.generatedImage.dailyFreeOutputs = originalFreeOutputs;
+    }
 });
 
 test('Grok pro remains disabled even though pricing is known', () => {

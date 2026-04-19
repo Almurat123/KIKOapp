@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # CONTEXT MEMORY
-# Updated: 2026-04-18
+# Updated: 2026-04-20
 # Author: Rowan
 # Reason: the generation SSE owner has to survive partial provider tool-call
 #         deltas where arguments arrive but the function name is blank, because
@@ -10,7 +10,10 @@ from __future__ import annotations
 #         exceptions can tear down the SSE stream and leak raw `terminated`
 #         transport strings downstream, so this owner now also has to catch
 #         upstream timeout/transport failures and convert them into stable
-#         generation error events.
+#         generation error events. A later OpenAI 400 incident then showed
+#         length-only logging was not enough to diagnose provider request-shape
+#         failures, so this owner now also has to emit one truncated raw error
+#         excerpt for production debugging.
 # Goal: preserve a clean generation stream contract that can repair strongly
 #       identifiable empty-name tool calls before emitting final SSE events.
 # Owns: conversion from provider streaming events into generation SSE events.
@@ -20,6 +23,7 @@ from __future__ import annotations
 # - repair empty tool names only from declared tool schemas and parsed arguments
 # - unresolved empty tool calls may be dropped, but only after explicit logging
 # - upstream stream failures must become structured SSE error events, not abrupt disconnects
+# - provider 4xx/5xx logs must keep one truncated raw error excerpt so request-shape failures are diagnosable from production logs
 # Document Provenance:
 # - Source: production/runtime log showing an empty-name wallet PnL tool call
 # - Kind: runtime observation
@@ -32,8 +36,14 @@ from __future__ import annotations
 # - Applied To: converting upstream timeout/transport failures into structured
 #   generation error events instead of raw `terminated`
 # - Verification: verified in runtime and code
+# - Source: /Users/almurat/Downloads/logs.1776615188393.json
+# - Kind: runtime observation
+# - Retrieved: 2026-04-20
+# - Applied To: logging a truncated raw provider error excerpt for OpenAI 400 diagnosis
+# - Verification: verified in code and local syntax check
 # See also:
 # - /Users/almurat/KiKo/system-journal/INDEX.md
+# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-openai-400-request-shape-diagnostics.md
 # - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-generation-empty-tool-call-repair.md
 # - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-glm-mode-alignment-and-stream-timeout-hardening.md
 # - /Users/almurat/KiKo/system-journal/conflicts.md
@@ -55,6 +65,24 @@ from .schemas import GenerationRequest
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="kiko-generation", version="1.0.0")
+
+
+def summarize_gateway_error_detail(raw_detail: Any, limit: int = 600) -> str | None:
+    if raw_detail in (None, "", b""):
+        return None
+    try:
+        if isinstance(raw_detail, (dict, list)):
+            serialized = json.dumps(raw_detail, ensure_ascii=False)
+        else:
+            serialized = str(raw_detail)
+    except Exception:
+        serialized = repr(raw_detail)
+    collapsed = " ".join(serialized.split()).strip()
+    if not collapsed:
+        return None
+    if len(collapsed) <= limit:
+        return collapsed
+    return f"{collapsed[: limit - 3]}..."
 
 
 @app.get("/health")
@@ -125,11 +153,12 @@ async def stream_generation(body: GenerationRequest):
                     })
                 elif event_type == "error":
                     raw_detail = payload.get("raw")
+                    raw_excerpt = summarize_gateway_error_detail(raw_detail)
                     request_tail = payload.get("request_tail")
                     error_code = payload.get("code")
                     request_tail_size = len(request_tail) if isinstance(request_tail, list) else 0
                     logger.error(
-                        "generation.gateway_error session_id=%s task_id=%s model=%s provider_request_id=%s code=%s message=%s raw_len=%s request_tail_size=%s",
+                        "generation.gateway_error session_id=%s task_id=%s model=%s provider_request_id=%s code=%s message=%s raw_len=%s raw_excerpt=%s request_tail_size=%s",
                         body.metadata.get("session_id"),
                         body.metadata.get("task_id"),
                         body.model,
@@ -137,6 +166,7 @@ async def stream_generation(body: GenerationRequest):
                         error_code,
                         payload.get("message", "LLM gateway error"),
                         len(str(raw_detail or "")),
+                        raw_excerpt,
                         request_tail_size,
                     )
                     yield encode_event("error", {

@@ -5,7 +5,7 @@ description: "KiKo Privacy Policy — how we collect, use, and protect your data
 
 # Privacy Policy
 
-**Effective Date: February 20, 2026 | Version: v2.0**
+**Effective Date: April 19, 2026 | Version: v2.1**
 
 This Privacy Policy explains how KIKO MiniApp (the "Service") collects, uses, and protects data as you use it. The Service is developed and maintained by KIKO contributors (the "KIKO Contributors").
 
@@ -17,16 +17,20 @@ This Privacy Policy explains how KIKO MiniApp (the "Service") collects, uses, an
 - **Third-party Login Identifiers (OAuth ID)**: When you sign in via Farcaster or other social accounts, we receive the unique identifier from that platform to recognize your account.
 - **Wallet Address**: Your on-chain wallet address, used to associate transaction records and settings.
 - **Chat Input Content**: Natural language instructions you enter in the chat interface, used for AI parsing and on-chain operation execution.
+- **Image Prompts and Reference Images**: Prompts, uploaded source images, edit instructions, and other image-generation inputs that you provide.
 
 ### 1.2 Automatically Generated Data
 - **Session Information**: Session creation time, AI model used, session title, and other metadata.
 - **Transaction Records**: On-chain transaction hashes, token information, transaction amounts, and other data used for history display.
 - **Usage Activity Data**: Message count, copy-trading configuration status, and aggregated statistics used to optimize the service.
+- **Generated Images and Moderation Metadata**: Generated image assets, revised prompts, moderation decisions, and sharing targets for any image-generation request.
 
 ### 1.3 Data We Do NOT Collect
 - **IP Addresses**: The Service uses Cloudflare edge network for delivery and security before requests reach KIKO's servers. KIKO does not store any user IP addresses.
 - **Private Keys or Seed Phrases**: Your private key is independently managed by third-party provider Privy and cannot be accessed or stored by KIKO.
 - **Biometric Data or Identity Documents**: The Service does not require any KYC information.
+
+Generated images may remain private in your account history unless you explicitly share them to a public surface that requires a durable URL or embed.
 
 ---
 
@@ -36,9 +40,11 @@ This Privacy Policy explains how KIKO MiniApp (the "Service") collects, uses, an
 |---|---|
 | OAuth ID / Wallet Address | Account identification, settings sync, security verification |
 | Chat Input Content | AI instruction parsing, on-chain operation execution, context understanding |
+| Image Prompts / Reference Images | Image generation, image editing, moderation, and safety filtering |
 | Session Metadata | History display, service continuity |
 | Transaction Records | Transaction history lookup, copy-trading analysis |
 | Usage Activity Data | Service quality monitoring, quota management |
+| Generated Images | History display, private storage, user-initiated sharing, and output review |
 
 The Service will **NOT** use your data for advertising, selling to third parties, or any purposes unrelated to providing the Service.
 
@@ -104,6 +110,14 @@ The Service relies on the following third-party service providers to process dat
 | **DeepSeek** | Instruction intent parsing, backup AI conversation model |
 | **OpenAI** | Chat content safety review (Moderation API) |
 
+**Image Generation**
+
+| Provider | Purpose |
+|---|---|
+| **OpenAI** | Image generation and image moderation for GPT image features |
+| **xAI / Grok** | Image generation for Grok image features |
+| **Cloudflare R2** | Private storage for uploaded and generated image assets |
+
 **Security & Social**
 
 | Provider | Purpose |
@@ -114,6 +128,8 @@ The Service relies on the following third-party service providers to process dat
 | **Cloudflare** | Edge network, caching, and edge security |
 
 KIKO Contributors do not control how these third-party service providers process data. The Service only transmits the minimum necessary data to these providers (typically wallet addresses and query parameters) to complete the Service. Chat content is only transmitted to AI model providers.
+
+For image-generation features, prompts, reference images, moderation data, and generated outputs may be transmitted to the applicable image provider and moderation service, and may be stored privately so the Service can display your image history and deliver sharing links when you choose to publish them.
 
 ---
 
@@ -152,4 +168,4 @@ This policy may be updated as the Service evolves. Significant changes will be a
 
 **Questions about this Privacy Policy? Contact KIKO Contributors via the official Farcaster channel.**
 
-*Last updated: February 20, 2026*
+*Last updated: April 19, 2026*

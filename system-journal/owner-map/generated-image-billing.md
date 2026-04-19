@@ -1,6 +1,6 @@
 # Owner Map: Generated Image Billing
 
-Updated: 2026-04-18
+Updated: 2026-04-20
 
 ## Owned Layers
 
@@ -15,10 +15,11 @@ Updated: 2026-04-18
 ### Generated image billing service owner
 
 Owns: model normalization, free-vs-paid image reservation decisions, billing
-consent checks, reservation locking, and reservation status transitions.
+consent checks, reservation locking, reservation status transitions, and
+consuming the env-configured daily free-output allowance.
 
 Does not own: provider HTTP calls, prompt orchestration, moderation, or
-frontend picker chrome.
+frontend picker chrome, or env parsing itself.
 
 ### Billing repository owner
 
@@ -44,8 +45,13 @@ provider outcome is known.
 
 - Source: /Users/almurat/KiKo/system-journal/design-language/generated-image-billing.md
   - Kind: repo doc
-  - Retrieved: 2026-04-18
+  - Retrieved: 2026-04-20
   - Applied To: splitting service and repository responsibilities
+  - Verification: verified in code
+- Source: /Users/almurat/KiKo/kiko-api/src/config/env.ts
+  - Kind: repo doc
+  - Retrieved: 2026-04-20
+  - Applied To: env-side parsing of `GENERATED_IMAGE_DAILY_FREE_OUTPUTS`
   - Verification: verified in code
 - Source: operator requirement on 2026-04-18
   - Kind: product doc
@@ -58,3 +64,4 @@ provider outcome is known.
 - /Users/almurat/KiKo/system-journal/INDEX.md
 - /Users/almurat/KiKo/system-journal/design-language/generated-image-billing.md
 - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-billing-and-gating.md
+- /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-generated-image-free-allowance-env-control.md

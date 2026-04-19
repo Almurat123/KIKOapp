@@ -1,4 +1,27 @@
-const isDevelopment = import.meta.env.DEV || import.meta.env.MODE === 'development';
+// CONTEXT MEMORY
+// Updated: 2026-04-20
+// Author: Almurat
+// Reason: Frontend regression tests import shared helpers in a Node runtime
+//         where Vite's `import.meta.env` object is absent. The logger must not
+//         crash on import just because the build-time env shim is missing.
+// Goal: keep browser logging behavior unchanged while making Node/test imports
+//       safe and silent outside Vite.
+// Owns: env-safe logger initialization and redacted console output.
+// Does Not Own: caller-side test setup or feature flags.
+// Design Language:
+// - treat missing Vite env as non-development
+// - never throw during logger import
+// - preserve redaction behavior regardless of runtime
+// Document Provenance:
+// - Source: local Node test crash when importing chat model persistence helper
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: safe `import.meta.env` access in logger init
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-chat-model-family-control-memory.md
+const isDevelopment = import.meta.env?.DEV || import.meta.env?.MODE === 'development';
 
 /**
  * 敏感词脱敏处理

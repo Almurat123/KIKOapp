@@ -59,7 +59,7 @@ var env_js_1 = require("../config/env.js");
 var billingRepository_js_1 = require("../repositories/billingRepository.js");
 var billingService_js_1 = require("./billing/billingService.js");
 // CONTEXT MEMORY
-// Updated: 2026-04-18
+// Updated: 2026-04-20
 // Author: Rowan
 // Reason: generated-image billing must not reuse chat quota logic. Image
 //         generation has stricter anti-abuse requirements: the free allowance
@@ -67,7 +67,9 @@ var billingService_js_1 = require("./billing/billingService.js");
 //         disabled even though pricing is already known, unavailable variants
 //         must fail closed, and generated-image reservations must stay bound to
 //         one server-owned request context so frontend state cannot mint extra
-//         free runs or replay a reservation across contexts.
+//         free runs or replay a reservation across contexts. The Grok normal
+//         free-image allowance is env-driven so ops can raise or lower the
+//         daily count without code changes.
 // Goal: expose one server-side owner for generated-image availability,
 //       free-image accounting, paid-cost calculation, and reservation/finalize
 //       transitions.
@@ -79,6 +81,7 @@ var billingService_js_1 = require("./billing/billingService.js");
 // Design Language:
 // - generated-image billing must be separate from chat usage quota
 // - free-image allowance is resolved on the backend from authenticated user id
+// - free-image allowance may be tuned from env, but the backend remains the only source of truth
 // - reservation ids must be bound to a server-owned context id
 // - unavailable image models fail closed even if the frontend exposes them
 // - generated-image reservation replays must match the original server-owned context
@@ -110,11 +113,22 @@ var billingService_js_1 = require("./billing/billingService.js");
 // - Retrieved: 2026-04-18
 // - Applied To: GPT image disabled with no free allowance, Grok normal daily free allowance, Grok Pro disabled, and consent-required paid fallback
 // - Verification: verified in code
+// - Source: /Users/almurat/KiKo/system-journal/design-language/generated-image-billing.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-20
+// - Applied To: env-driven generated-image free-output allowance
+// - Verification: verified in code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-generated-image-free-allowance-env-control.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-20
+// - Applied To: configurable image free-count default and env knob
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/generated-image-billing.md
 // - /Users/almurat/KiKo/system-journal/owner-map/generated-image-billing.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-billing-and-gating.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-generated-image-free-allowance-env-control.md
 // - /Users/almurat/KiKo/system-journal/design-language/generated-image-safety.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 var GENERATED_IMAGE_RESERVATION_LOCK_TTL_SECONDS = 8;
@@ -123,7 +137,9 @@ var GPT_IMAGE_15_MEDIUM_PRICE_USD_PER_OUTPUT = 0.034;
 var GPT_IMAGE_15_HIGH_PRICE_USD_PER_OUTPUT = 0.133;
 var GROK_IMAGE_PRICE_USD_PER_OUTPUT = 0.02;
 var GROK_IMAGE_PRO_PRICE_USD_PER_OUTPUT = 0.07;
-var GROK_IMAGE_FREE_OUTPUTS_PER_DAY = 2;
+function getGrokImageFreeOutputsPerDay() {
+    return Math.max(0, Number(env_js_1.env.generatedImage.dailyFreeOutputs || 0));
+}
 function normalizeImageCount(value) {
     var normalized = Math.floor(Number(value || 1));
     if (!Number.isFinite(normalized) || normalized <= 0)
@@ -172,7 +188,7 @@ function normalizeGeneratedImageRequest(model, quality) {
             modelFamily: 'grok-imagine-image',
             quality: 'normal',
             enabled: true,
-            freeOutputImageLimit: GROK_IMAGE_FREE_OUTPUTS_PER_DAY,
+            freeOutputImageLimit: getGrokImageFreeOutputsPerDay(),
             pricePerOutputImageUsd: GROK_IMAGE_PRICE_USD_PER_OUTPUT,
         };
     }
