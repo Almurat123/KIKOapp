@@ -11,6 +11,7 @@ import {
   FarcasterIngressWorker,
   getFarcasterInboundIgnoreReason,
 } from './farcasterIngressWorker.js';
+import { buildFarcasterAssistantReplyFromMessage } from './farcasterChatBridge.js';
 
 after(async () => {
   await prisma.$disconnect().catch(() => {});
@@ -202,4 +203,84 @@ test('farcasterReplyService treats concurrent idempotency insert races as alread
     (farcasterApiClient as any).isConfigured = originalIsConfigured;
     (farcasterApiClient as any).publishCastReply = originalPublishCastReply;
   }
+});
+
+test('farcasterReplyService persists and publishes generated-image embeds', async () => {
+  const delivery = prisma.farcasterMessageDelivery as any;
+  const originalFindUnique = delivery.findUnique;
+  const originalCreate = delivery.create;
+  const originalUpdate = delivery.update;
+  const originalIsConfigured = (farcasterApiClient as any).isConfigured;
+  const originalPublishCastReply = (farcasterApiClient as any).publishCastReply;
+  let createdPayload: any = null;
+  let publishedParams: any = null;
+
+  delivery.findUnique = async () => null;
+  delivery.create = async (args: any) => {
+    createdPayload = args.data.payload;
+    return {
+      id: 'delivery-embeds',
+      idempotencyKey: args.data.idempotencyKey,
+      status: 'pending',
+      attemptCount: 1,
+      updatedAt: new Date(),
+    } as any;
+  };
+  delivery.update = async (args: any) => ({
+    id: args.where.id,
+    ...args.data,
+  });
+  (farcasterApiClient as any).isConfigured = () => true;
+  (farcasterApiClient as any).publishCastReply = async (params: any) => {
+    publishedParams = params;
+    return { hash: '0xsent', raw: null };
+  };
+
+  try {
+    const result = await farcasterReplyService.replyToMention({
+      farcasterFid: 877398,
+      parentHash: '0xparent',
+      parentAuthorFid: 877398,
+      text: '已生成。',
+      embeds: ['https://cdn.example/generated.png', 'data:image/png;base64,skip'],
+      idempotencyKey: 'farcaster:reply:mention:0xparent',
+    });
+
+    assert.equal(result, true);
+    assert.deepEqual(createdPayload?.embeds, ['https://cdn.example/generated.png']);
+    assert.deepEqual(publishedParams?.embeds, ['https://cdn.example/generated.png']);
+  } finally {
+    delivery.findUnique = originalFindUnique;
+    delivery.create = originalCreate;
+    delivery.update = originalUpdate;
+    (farcasterApiClient as any).isConfigured = originalIsConfigured;
+    (farcasterApiClient as any).publishCastReply = originalPublishCastReply;
+  }
+});
+
+test('buildFarcasterAssistantReplyFromMessage prefers public embeds from generated-image messages', async () => {
+  const reply = await buildFarcasterAssistantReplyFromMessage({
+    content: '',
+    type: 'generated-image',
+    data: {
+      generatedImage: {
+        status: 'complete',
+        images: [
+          {
+            id: 'generated-1',
+            publicUrl: 'https://cdn.example/public-generated.png',
+            previewUrl: 'https://signed.example/generated.png',
+            name: 'generated.png',
+            type: 'image/png',
+            size: 123,
+            width: 1024,
+            height: 1024,
+          },
+        ],
+      },
+    },
+  });
+
+  assert.equal(reply.text, '已生成。');
+  assert.deepEqual(reply.embeds, ['https://cdn.example/public-generated.png']);
 });

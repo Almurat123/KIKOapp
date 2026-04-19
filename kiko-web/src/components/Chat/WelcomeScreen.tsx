@@ -13,7 +13,8 @@ import { usePrivy } from '@privy-io/react-auth';
 import { getUserSettings, saveUserSettings } from '../../services/userSettingsApi';
 import { LiquidGlassEffect } from '../Effects/LiquidGlassEffect';
 import { agentAttrs } from '../../agent/attrs';
-import { findChatModelOption, getDefaultChatModelOption, hydrateChatModelOption } from './chatConstants';
+import { findChatModelOption, getDefaultChatModelOption, isTextChatModelOption } from './chatConstants';
+import { persistChatModelSelection, readStoredChatModelSelection } from './chatModelSelectionPersistence';
 import { ChatAttachmentTray } from './ChatAttachmentTray';
 import { COMPOSER_IMAGE_ACCEPT, type ComposerImageDraft } from './chatImageDrafts';
 import { ChatModelSelector } from './ChatModelSelector';
@@ -21,7 +22,7 @@ import { ChatModelSelector } from './ChatModelSelector';
 const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsModal').then((m) => ({ default: m.CustomAISettingsModal })));
 
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-18
 // Author: Rowan
 // Reason: The welcome screen is the lightweight first-paint owner for the
 //         homepage, so its optional settings surface must not pin the heavier
@@ -32,7 +33,11 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 //         animated particle backdrop so first paint remains visually calm and
 //         does not depend on a GPU-backed background scene. It now mirrors the
 //         same borderless model/reasoning selector pair used by the live chat
-//         composer.
+//         composer, including locally remembered image-model quality choices
+//         that must not overwrite the remote default chat model. The selected
+//         model now writes to shared localStorage immediately on user choice so
+//         the reasoning state survives a quick refresh or welcome->chat handoff
+//         before the follow-up effect runs.
 // Goal: preserve a responsive welcome shell that can collect the first prompt
 //       immediately while deferring optional settings UI until the user opens
 //       it, while sharing the same local image-preview affordance and image-
@@ -40,7 +45,8 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 //       backdrops or model-policy chrome.
 // Owns: welcome-screen prompt collection, model selection persistence, local
 //       draft preview placement, borderless model/reasoning picker placement,
-//       and the local settings-modal entry point for the welcome shell.
+//       local image-model quality selection, and the local settings-modal entry
+//       point for the welcome shell.
 // Does Not Own: full chat runtime boot, conversation creation, chat message
 //       rendering, animated background scenes, or model catalog policy.
 // Design Language:
@@ -53,6 +59,10 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 // - welcome shells should not ship a persistent particle/canvas backdrop
 // - picker buttons should read as inline text actions, not boxed pills
 // - model family and reasoning strength are separate controls but one persisted model id
+// - generated-image quality can be selected locally without changing the remote
+//   default chat model
+// - disabled image variants must not survive local-storage restore as the
+//   active welcome selection
 // Document Provenance:
 // - Source: Vite production build output warning about static import preventing chunk split
 // - Kind: build evidence
@@ -84,14 +94,28 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 // - Retrieved: 2026-04-17
 // - Applied To: recording the welcome shell backdrop correction and owner boundary
 // - Verification: verified in code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-image-model-selector-sections.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-18
+// - Applied To: keeping generated-image picker selections local to the UI
+// - Verification: verified in code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-billing-and-gating.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-18
+// - Applied To: coercing disabled image variants to a selectable local fallback on restore
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
 // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-homepage-welcome-shell-split.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-input-borderless-model-reasoning-selector.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-model-reasoning-selection-persistence.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-homepage-welcome-stardust-background-removal.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-local-image-composer-base.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-image-model-selector-sections.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-billing-and-gating.md
+// - /Users/almurat/KiKo/kiko-web/src/components/Chat/chatModelSelectionPersistence.ts
 
 interface WelcomeScreenProps {
   onSuggestionClick: (text: string) => void;
@@ -163,17 +187,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 
   // Load selected model from localStorage or use default
   const getInitialModel = () => {
-    try {
-      const saved = localStorage.getItem('kiko-selected-model');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        const found = hydrateChatModelOption(parsed) || findChatModelOption(parsed.id);
-        if (found) return found;
-      }
-    } catch (e) {
-      logger.warn('Failed to load saved model from localStorage:', e);
-    }
-    return getDefaultChatModelOption();
+    return readStoredChatModelSelection() || getDefaultChatModelOption();
   };
 
   const [selectedModel, setSelectedModel] = useState(getInitialModel);
@@ -202,7 +216,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         const settings = await getUserSettings(token);
         const found = findChatModelOption(settings?.defaultChatModel);
         if (!cancelled && found && found.id !== selectedModel.id) {
-          setSelectedModel(found);
+          setSelectedModel((current) => isTextChatModelOption(current) ? found : current);
         }
       } catch (error) {
         logger.warn('Failed to load saved default chat model:', error);
@@ -220,6 +234,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
       skipInitialRemoteModelPersistRef.current = false;
       return;
     }
+    if (!isTextChatModelOption(selectedModel)) return;
     const persist = async () => {
       try {
         const token = await getAccessToken();
@@ -390,6 +405,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                   page="welcome"
                   selectedModel={selectedModel}
                   onSelectModel={(model) => {
+                    persistChatModelSelection(model);
                     setSelectedModel(model);
                     logger.debug('[WelcomeScreen] Model changed to:', model.id);
                   }}

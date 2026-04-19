@@ -1,9 +1,14 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-18
 // Author: Rowan
 // Reason: chat v2 needs explicit read-only context tools so the model can pull
 //         stable runtime context on demand instead of relying only on prompt
 //         pre-injection.
+//         Product review on 2026-04-18 clarified that the worker also needs a
+//         carry-forward view of already-confirmed session state so multi-turn
+//         tasks do not restart from scratch after each user reply.
+//         Follow-up prompt review clarified that tool accuracy depends on
+//         precise "when to use" descriptions for each read-context tool.
 // Goal: expose task-scoped session context as deterministic local tools while
 //       keeping mutation routing and business tools separate.
 // Owns: chat-only read-context tool definitions and context-block-to-tool mapping.
@@ -15,6 +20,9 @@
 // - plan/skill/evidence reads should expose runtime structure, not replay full user-facing prose
 // - user settings should be returned as one normalized contract, not mixed prose plus raw flags
 // - session and wallet context should use worker-facing snake_case contracts instead of raw runtime objects
+// - workflow reads should expose carry-forward task state, not only raw pending-action flags
+// - workflow reads should return one durable worker_state object that prompt and runtime can share
+// - tool descriptions should encode trigger conditions, not generic capability labels
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/adr/2026-04-17-chat-v2-rewrite-plan.md
 // - Kind: repo doc
@@ -36,18 +44,36 @@
 // - Retrieved: 2026-04-17
 // - Applied To: normalized read_user_context and read_wallet_state payloads
 // - Verification: verified in code and targeted tests
+// - Source: product owner correction in local runtime thread about missing
+//   context continuity across turns
+// - Kind: product instruction / runtime observation
+// - Retrieved: 2026-04-18
+// - Applied To: carry-forward task state in read_workflow_state
+// - Verification: verified in code
+// - Source: product-owner runtime review of KiKo chat architecture
+// - Kind: product instruction / runtime observation
+// - Retrieved: 2026-04-18
+// - Applied To: durable worker_state object in read_workflow_state
+// - Verification: verified in code and targeted tests
+// - Source: product-owner runtime review of prompt/skill clarity and tool accuracy
+// - Kind: product instruction / runtime observation
+// - Retrieved: 2026-04-18
+// - Applied To: trigger-focused context-read tool descriptions
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/adr/2026-04-17-chat-v2-rewrite-plan.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-context-read-tools.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-user-settings-contract.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-worker-context-contracts.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-work-protocol-refactor.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 import type { Tool, ToolContext } from '../../tooling/registry.js';
 import type { ChatContextBlockName, ChatContextSnapshot } from './contracts.js';
 import { buildUserSettingsContract } from './userSettingsContract.js';
 import { buildSessionContextContract, buildWalletStateContract } from './workerContextContracts.js';
+import { buildWorkerConversationState } from './workerStateBuilder.js';
 
 export const CONTEXT_READ_TOOL_BY_BLOCK: Partial<Record<ChatContextBlockName, string>> = {
     user_settings: 'read_user_settings',
@@ -124,9 +150,13 @@ function buildUserContextResult(context?: ToolContext) {
 function buildWorkflowStateResult(context?: ToolContext) {
     const snapshot = getSnapshot(context);
     if (!snapshot) return buildMissingContextResult('read_workflow_state');
+    const workerState = buildWorkerConversationState(snapshot);
     const actionState = snapshot.conversationActionState || null;
+    const preparedSelection = snapshot.polymarketSelection?.preparedSelection || null;
     return stripEmptyEntries({
         available: true,
+        workerState,
+        carryForwardRule: workerState.carry_forward_rule,
         pendingAction: actionState?.pendingAction || 'none',
         canExecute: actionState?.canExecute ?? false,
         needsClarification: actionState?.needsClarification ?? false,
@@ -134,6 +164,19 @@ function buildWorkflowStateResult(context?: ToolContext) {
         pendingConfirmation: snapshot.confirmationState?.kind || null,
         timeContext: snapshot.normalizedIntent?.timeContext || null,
         recentTools: normalizeRecentToolCalls(snapshot),
+        carryForwardState: stripEmptyEntries({
+            token_symbols: Array.isArray(snapshot.requestedTokenSymbols) ? snapshot.requestedTokenSymbols.slice(0, 6) : undefined,
+            token_addresses: Array.isArray(snapshot.requestedTokenAddresses) ? snapshot.requestedTokenAddresses.slice(0, 4) : undefined,
+            prepared_polymarket_selection: preparedSelection
+                ? stripEmptyEntries({
+                    question: preparedSelection.question,
+                    outcome: preparedSelection.outcome,
+                    token_id: preparedSelection.tokenId,
+                    amount_usd: preparedSelection.amountUsd,
+                    market_slug: preparedSelection.marketSlug,
+                })
+                : undefined,
+        }),
         polymarketSelection: snapshot.polymarketSelection || null,
     });
 }
@@ -273,7 +316,7 @@ function buildDefinition(name: string, description: string) {
 export const ReadUserSettingsTool: Tool = {
     definition: buildDefinition(
         'read_user_settings',
-        'Read KiKo chat user settings for this turn as a normalized execution-preference contract.',
+        'Use when execution preferences matter: quote-before-swap behavior, swap defaults, safety flags, fast/direct mode, or copy-trade preferences. Returns a normalized settings contract.',
     ),
     handler: async (_args, context) => buildUserSettingsResult(context),
 };
@@ -281,7 +324,7 @@ export const ReadUserSettingsTool: Tool = {
 export const ReadUserContextTool: Tool = {
     definition: buildDefinition(
         'read_user_context',
-        'Read worker session context: wallet identity, connected/requested/effective chain, surface, and requested entities.',
+        'Use when the answer depends on session identity or chain scope: connected wallet, requested/effective chain, current surface, or requested token/address entities.',
     ),
     handler: async (_args, context) => buildUserContextResult(context),
 };
@@ -289,7 +332,7 @@ export const ReadUserContextTool: Tool = {
 export const ReadWorkflowStateTool: Tool = {
     definition: buildDefinition(
         'read_workflow_state',
-        'Read pending action state, confirmation state, recent tool activity, and other internal workflow state for this turn.',
+        'Use for multi-turn continuity, short follow-ups, confirmations, selected markets/tokens, pending quotes/orders, recent tools, or the next worker action. Returns durable task/execution/evidence state.',
     ),
     handler: async (_args, context) => buildWorkflowStateResult(context),
 };
@@ -297,7 +340,7 @@ export const ReadWorkflowStateTool: Tool = {
 export const ReadWalletStateTool: Tool = {
     definition: buildDefinition(
         'read_wallet_state',
-        'Read worker wallet state: connected wallet, active chain, compact balances, and snapshot timestamps.',
+        'Use before claiming balances, holdings, portfolio/PnL prerequisites, active-chain funds, or trade affordability. Returns compact wallet and balance state.',
     ),
     handler: async (_args, context) => buildWalletStateResult(context),
 };
@@ -305,7 +348,7 @@ export const ReadWalletStateTool: Tool = {
 export const ReadTokenContextTool: Tool = {
     definition: buildDefinition(
         'read_token_context',
-        'Read cached token context for this turn, including requested token hints and prefetched token info.',
+        'Use before claiming token identity, contract facts, symbol/address resolution, token snapshot data, holder/creator/risk context, or token launch facts.',
     ),
     handler: async (_args, context) => buildTokenContextResult(context),
 };
@@ -313,7 +356,7 @@ export const ReadTokenContextTool: Tool = {
 export const ReadLaunchpadContextTool: Tool = {
     definition: buildDefinition(
         'read_launchpad_context',
-        'Read launchpad-specific context for this turn, including cached launch metadata and token snapshot.',
+        'Use for token deploy/launchpad/Clanker/fair-launch tasks. Returns cached launch metadata and token snapshot context.',
     ),
     handler: async (_args, context) => buildLaunchpadContextResult(context),
 };
@@ -321,7 +364,7 @@ export const ReadLaunchpadContextTool: Tool = {
 export const ReadSocialThreadContextTool: Tool = {
     definition: buildDefinition(
         'read_social_thread_context',
-        'Read current social-thread text context for this turn, such as Farcaster or X thread content.',
+        'Use for X/Farcaster thread-aware replies when surrounding posts change the meaning or answer. Returns current social-thread text context.',
     ),
     handler: async (_args, context) => buildSocialThreadContextResult(context),
 };
@@ -329,7 +372,7 @@ export const ReadSocialThreadContextTool: Tool = {
 export const ReadSocialImagesTool: Tool = {
     definition: buildDefinition(
         'read_social_images',
-        'Read uploaded or inbound social image labels and URLs for the current turn.',
+        'Use when uploaded/inbound images affect the answer and image metadata or URLs are not already visible in the current multimodal message.',
     ),
     handler: async (_args, context) => buildSocialImagesResult(context),
 };
@@ -337,7 +380,7 @@ export const ReadSocialImagesTool: Tool = {
 export const ReadProviderNativeEvidenceTool: Tool = {
     definition: buildDefinition(
         'read_provider_native_evidence',
-        'Read provider-native search evidence already gathered in this turn, including query summaries, citations, and compact result fields.',
+        'Use after provider-native search has run and the answer needs citations, query summaries, or realtime evidence already gathered in this turn.',
     ),
     handler: async (_args, context) => buildProviderNativeEvidenceResult(context),
 };
@@ -345,7 +388,7 @@ export const ReadProviderNativeEvidenceTool: Tool = {
 export const ReadExecutionPlanTool: Tool = {
     definition: buildDefinition(
         'read_execution_plan',
-        'Read the compact internal execution plan state for this turn, including step ids, statuses, and preferred tools.',
+        'Use only for meta-debug or runtime-progress reasoning. Returns compact internal plan state; do not quote plan labels as answer content.',
     ),
     handler: async (_args, context) => buildExecutionPlanResult(context),
 };
@@ -353,7 +396,7 @@ export const ReadExecutionPlanTool: Tool = {
 export const ReadSkillPromptsTool: Tool = {
     definition: buildDefinition(
         'read_skill_prompts',
-        'Read the matched skill prompts for this turn when specialist task guidance is required.',
+        'Use after selecting a specialist task mode when domain workflow rules are needed, such as token analysis, wallet PnL, Polymarket, or meta-debug.',
     ),
     handler: async (_args, context) => buildSkillPromptsResult(context),
 };

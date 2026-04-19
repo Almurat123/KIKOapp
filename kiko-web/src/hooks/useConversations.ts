@@ -12,11 +12,14 @@ import { chatWSClient } from '../utils/chatWebSocket';
 //         path now persists private message attachment references, but hydration
 //         can still race the backend update, so DB hydration must merge local
 //         previews into matching user rows only when the DB row has not yet
-//         received signed preview attachments.
+//         received signed preview attachments. Generated-image assistant replies
+//         now also persist private image asset references, so hydration must
+//         preserve that structured message type instead of collapsing it into
+//         empty text rows during eventual consistency.
 // Goal: Preserve richer local chat rendering during websocket -> DB eventual
-//       consistency, including copy-trade cards, transaction confirmations, and
-//       current-turn user image previews while the durable signed attachment row
-//       is catching up.
+//       consistency, including copy-trade cards, transaction confirmations,
+//       generated-image replies, and current-turn user image previews while the
+//       durable signed attachment row is catching up.
 // Owns: Merging local conversation state with freshly loaded session messages from the backend.
 // Does Not Own: Emitting websocket client actions, card component rendering, or backend message persistence order.
 // Design Language:
@@ -25,6 +28,7 @@ import { chatWSClient } from '../utils/chatWebSocket';
 // - Only merge by message ID inside this owner; transport/runtime event ordering belongs elsewhere.
 // - Forbidden local patch pattern: replacing live non-text assistant cards with stale plain-text DB rows.
 // - Forbidden local patch pattern: dropping image preview attachments during the send-time DB update race.
+// - Forbidden local patch pattern: replacing a generated-image assistant row with an empty text placeholder during hydration.
 // Document Provenance:
 // - Source: Copy-trade live card regression logs (`/Users/almurat/Downloads/logs.1775995828927.json`) and runtime screenshot (`/Users/almurat/Downloads/IMG_4739.PNG`)
 // - Kind: runtime observation
@@ -46,11 +50,17 @@ import { chatWSClient } from '../utils/chatWebSocket';
 // - Retrieved: 2026-04-16
 // - Applied To: local attachment merge remains only a race fallback for durable backend attachments
 // - Verification: verified in code
+// - Source: operator request on 2026-04-18 to execute generated-image replies inside chat
+// - Kind: product doc
+// - Retrieved: 2026-04-18
+// - Applied To: preserving `generated-image` assistant message type in hydrated conversation state
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-copytrade-card-live-hydration.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-first-send-no-loading-chat-entry.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
 
 export interface Message {
   id: string;
@@ -67,7 +77,8 @@ export interface Message {
     | 'chart-card'
     | 'transaction-status-card'
     | 'plan-card'
-    | 'polymarket-embed';
+    | 'polymarket-embed'
+    | 'generated-image';
   data?: any;
   citations?: Array<string | { url: string; avatar_url?: string }>;
   reasoning_content?: string;

@@ -1,3 +1,30 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-19
+// Author: Rowan
+// Reason: runtime Markdown warnings showed ReactMarkdown sometimes calls the
+//         code renderer with `inline` undefined for inline backtick content.
+//         Treating that case as a block returned `<div>` nodes inside `<p>`,
+//         causing invalid DOM nesting and hydration risk during streaming.
+// Goal: render true inline code as inline elements even when the renderer omits
+//       the inline flag, while preserving fenced/code-looking blocks as copyable
+//       code panels.
+// Owns: Markdown code span/block presentation inside chat bubbles.
+// Does Not Own: Markdown parsing, message streaming, or syntax theme selection.
+// Design Language:
+// - inline code must never return block-level elements
+// - fenced or language-tagged code may render as a block with copy controls
+// - metadata tokens may stay inline only when the Markdown parser placed them inline
+// - diagnostics and fixes must not alter raw assistant content
+// Document Provenance:
+// - Source: operator browser console warning for cmo5a4f1h03sjj5et046ndecy
+// - Kind: runtime observation
+// - Retrieved: 2026-04-19
+// - Applied To: inline fallback when ReactMarkdown omits the inline boolean
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-streaming-markdown-restore.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-stream-duplicate-and-tool-loop-diagnostics.md
 import React, { useMemo, useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -104,6 +131,8 @@ export const MarkdownCode: React.FC<MarkdownCodeProps> = ({
   const rawCode = useMemo(() => stringifyChildren(children).replace(/\n$/, ''), [children]);
   const languageMatch = /language-([\w-]+)/.exec(className || '');
   const language = languageMatch?.[1]?.toLowerCase() || 'text';
+  const shouldTreatAsInline =
+    inline === true || (inline !== false && !languageMatch && !rawCode.includes('\n'));
   const lines = useMemo(
     () =>
       rawCode
@@ -124,7 +153,7 @@ export const MarkdownCode: React.FC<MarkdownCodeProps> = ({
       (!isMetadataOnly && looksLikeCode(rawCode))
     );
 
-  if (inline) {
+  if (shouldTreatAsInline) {
     if (isHexScalar) {
       return <span className={styles.plainAddress}>{rawCode}</span>;
     }

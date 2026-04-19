@@ -9,14 +9,15 @@
   skill/policy resolution handoff,
   direct trade follow-up execution,
   fast swap pre-generation execution,
-  fast greeting shortcut,
+  the then-existing fast greeting shortcut,
   orchestration retries for stale provider continuation ids.
 - Simplified `chatWorker.ts` so it now owns task lifecycle, broker completion,
   moderation, persistence handoff, and cleanup, while delegating turn execution
   to the dedicated runner.
 - Kept `buildFastDirectAssistantResponse` available from `chatWorker.ts` via
-  re-export so existing tests and callers do not need a simultaneous path
-  update.
+  re-export at that time so existing tests and callers did not need a
+  simultaneous path update. That compatibility export was later removed on
+  2026-04-18 when worker-authored reply macros were deleted.
 
 ## Why
 
@@ -32,13 +33,15 @@ legacy worker code.
 - Turn runner owns v2 per-turn execution logic.
 - New v2 logic should land in the runner owner, not reopen the worker shell.
 - Compatibility exports may remain temporarily when they reduce migration churn.
+- Temporary reply shortcuts should still be removable without reopening worker ownership.
 
 ## Verification
 
 - Verified in code that `chatWorker.ts` now delegates turn execution to
   `runChatV2Turn(...)`.
 - Verified in code that `chatV2TurnRunner.ts` now owns normalization, direct
-  follow-up branches, fast greeting bypass, and orchestration retry logic.
+  follow-up branches, the then-existing fast greeting bypass, and orchestration
+  retry logic.
 - Verified with targeted tests:
   `kiko-api/src/jobs/chatWorker.test.ts`
   `kiko-api/src/jobs/chat/contextReadTools.test.ts`

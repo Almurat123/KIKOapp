@@ -1,5 +1,8 @@
 # 2026-04-17 Direct Welcome Fast Path Hardcoded Reply Guard
 
+Superseded for runtime behavior by
+`/Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-hardcoded-reply-path-removal.md`.
+
 ## What Changed
 
 - Restricted `buildFastDirectAssistantResponse` to bare greetings only.

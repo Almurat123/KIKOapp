@@ -24,6 +24,8 @@
 //   through unchanged across supported deploy chains.
 // - Successful deployments should surface the Clanker token page URL from the
 //   returned token address when the API provides one.
+// - Agent-mode deployment receipts should also include token explorer URLs and
+//   deployment transaction explorer URLs when the API returns a hash.
 // - Clanker reward percentages are stored as API `allocation` percentages, not local basis-point math, for HTTP deploy requests.
 // - Claimed-fee history is an indexed analytics view, not proof of total lifetime fees.
 // - Claiming rewards is prepared as a transaction object; KiKo must not sign it here.
@@ -61,6 +63,11 @@
 // - Retrieved: 2026-04-17
 // - Applied To: wrapped-native pair defaults and `maxLpFee` compatibility mapping
 // - Verification: verified in local dependency exports
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-19
+// - Applied To: deployment receipt token and transaction URL fields
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/clanker-token-deploy-skill.md
@@ -68,6 +75,7 @@
 // - /Users/almurat/KiKo/system-journal/adr/2026-04-15-clanker-token-deploy-skill.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-devbuy-and-token-url.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
 import { randomBytes } from 'node:crypto';
 import { CLANKERS, WETH_ADDRESSES } from 'clanker-sdk';
 import { Clanker } from 'clanker-sdk/v4';
@@ -83,6 +91,7 @@ import {
     monadTestnet,
     unichain,
 } from 'viem/chains';
+import { buildAddressExplorerUrl, buildTransactionExplorerUrl } from '../utils/executionLinks.js';
 
 type Address = `0x${string}`;
 
@@ -370,6 +379,28 @@ function extractClankerTokenAddress(value: unknown): string | undefined {
     return undefined;
 }
 
+function extractClankerTransactionHash(value: unknown): string | undefined {
+    if (!value || typeof value !== 'object') return undefined;
+    const record = value as Record<string, unknown>;
+    const directCandidates = [
+        record.txHash,
+        record.transactionHash,
+        record.hash,
+        record.deployTxHash,
+        record.deploymentTxHash,
+    ];
+    for (const candidate of directCandidates) {
+        if (typeof candidate === 'string' && /^0x[a-fA-F0-9]{64}$/.test(candidate)) {
+            return candidate;
+        }
+    }
+    for (const nestedKey of ['data', 'result', 'payload', 'transaction']) {
+        const nestedHash = extractClankerTransactionHash(record[nestedKey]);
+        if (nestedHash) return nestedHash;
+    }
+    return undefined;
+}
+
 function normalizeDeployPayload(input: DeployClankerTokenInput) {
     const chainId = Number(input.chainId || 8453);
     if (!DEPLOY_SUPPORTED_CHAIN_IDS.has(chainId)) {
@@ -599,12 +630,18 @@ export async function deployClankerToken(
         body: JSON.stringify(payload),
     });
     const tokenAddress = extractClankerTokenAddress(result);
+    const txHash = extractClankerTransactionHash(result);
+    const chainId = Number((payload as any).chainId || input.chainId || 8453);
     return {
         success: true,
         dryRun: false,
         result,
         tokenAddress,
         tokenUrl: tokenAddress ? buildClankerTokenPageUrl(tokenAddress) : undefined,
+        tokenExplorerUrl: buildAddressExplorerUrl(chainId, tokenAddress),
+        txHash,
+        txUrl: buildTransactionExplorerUrl(chainId, txHash),
+        explorerUrl: buildTransactionExplorerUrl(chainId, txHash),
     };
 }
 
@@ -718,6 +755,9 @@ export async function prepareClankerClaimRewards(input: {
 
     return {
         chainId,
+        tokenAddress: input.tokenAddress,
+        tokenUrl: buildClankerTokenPageUrl(input.tokenAddress),
+        tokenExplorerUrl: buildAddressExplorerUrl(chainId, input.tokenAddress),
         transaction: {
             ...tx,
             abi: undefined,

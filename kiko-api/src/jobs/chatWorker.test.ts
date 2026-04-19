@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test, { mock } from 'node:test';
 import { moderationClient } from '../services/moderationClient.js';
-import { ChatWorker, buildFastDirectAssistantResponse, isEmptyAssistantCompletion } from './chatWorker.js';
+import { ChatWorker, isEmptyAssistantCompletion } from './chatWorker.js';
 import { ChatStreamBroker } from './chat/streamBroker.js';
 
 test('ChatWorker starts the broker and emits progress before wallet hydration begins', async () => {
@@ -102,36 +102,4 @@ test('empty assistant completion is always rejected for orchestrated assistant t
     assert.equal(isEmptyAssistantCompletion(''), true);
     assert.equal(isEmptyAssistantCompletion('   '), true);
     assert.equal(isEmptyAssistantCompletion('answer'), false);
-});
-
-test('direct assistant fast path is limited to bare greetings', () => {
-    const welcomeResolution = {
-        querySignals: {
-            welcome: true,
-        },
-    } as any;
-
-    assert.match(
-        buildFastDirectAssistantResponse({ lastUserMessage: '你好' }, welcomeResolution) || '',
-        /我是 KiKo/,
-    );
-    assert.match(
-        buildFastDirectAssistantResponse({ lastUserMessage: 'Hi' }, welcomeResolution) || '',
-        /I'm KiKo/,
-    );
-    assert.equal(
-        buildFastDirectAssistantResponse({ lastUserMessage: '你能做什么' }, welcomeResolution),
-        null,
-    );
-    assert.equal(
-        buildFastDirectAssistantResponse({ lastUserMessage: 'who are you?' }, welcomeResolution),
-        null,
-    );
-    assert.equal(
-        buildFastDirectAssistantResponse(
-            { lastUserMessage: '你告诉我你的技能又告诉你要设置这些和能设置这些吗？' },
-            welcomeResolution,
-        ),
-        null,
-    );
 });

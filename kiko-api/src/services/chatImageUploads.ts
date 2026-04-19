@@ -1,28 +1,42 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-19
 // Author: Rowan
 // Reason: web chat now supports user-uploaded image turns and refreshed chat
-//         history must still render the image bubble. This owner provides the
-//         private storage boundary: browser-to-R2 upload, Redis task bindings,
-//         server-side image sanitation, durable private object references in
-//         ChatMessage.data, and short-lived signed read URLs for model and UI
-//         consumption.
-// Goal: let current-turn chat images reach vision-capable models and remain
-//       visible in chat history without persisting image binaries or public image
-//       URLs in the main database, while enforcing type/size/dimension safety at
-//       the storage boundary.
+//         history must still render the image bubble. Generated-image replies
+//         now reuse the same private image boundary so assistant-created images
+//         do not live as public provider URLs or oversized DB blobs. This owner
+//         therefore provides the private storage boundary for both browser
+//         uploads and assistant-generated output assets: browser-to-R2 upload,
+//         Redis task bindings, server-side image sanitation, durable private
+//         object references in ChatMessage.data, and short-lived signed read
+//         URLs for model and UI consumption. Farcaster publication is the one
+//         exception that needs a durable public URL because casts embed URLs
+//         instead of uploaded binaries; that public copy is opt-in per
+//         generated-image task and must not make ordinary web chat images public.
+// Goal: let current-turn chat images reach vision-capable models and let
+//       assistant-generated image replies remain visible in chat history without
+//       persisting image binaries or public image URLs in the main database,
+//       while enforcing type/size/dimension safety at the storage boundary, and
+//       publish stable public generated-image URLs only for social surfaces that
+//       require URL embeds.
 // Owns: temporary chat-image upload preparation, Redis binding state, R2 object
-//       validation/sanitation, private message attachment metadata, short-lived
-//       signed read URLs, and post-task Redis cleanup.
-// Does Not Own: chat message persistence, UI draft previews, or provider-specific
-//               multimodal prompt assembly.
+//       validation/sanitation, private message attachment metadata for both
+//       user uploads and assistant-generated replies, short-lived signed read
+//       URLs, opt-in public generated-image publication copies, and post-task
+//       Redis cleanup.
+// Does Not Own: chat message persistence, UI draft previews, image-provider
+//               invocation, or prompt assembly.
 // Design Language:
-// - Chat images are durable private history assets once the user sends them.
+// - Chat images are durable private history assets once the user sends them or the assistant generates them.
 // - Store private object references in ChatMessage.data, never public image URLs.
 // - Browser uploads should use short-lived presigned PUT URLs.
 // - Browser-uploaded objects should be finalized immediately after PUT so send
 //   can bind already-sanitized metadata instead of doing heavy image work.
 // - Model and history reads should use short-lived signed GET URLs generated only when needed.
+// - Farcaster generated-image replies must use durable public URL embeds, not
+//   expiring signed preview URLs.
+// - Public generated-image copies are opt-in by task source; do not publish
+//   ordinary web chat images.
 // - Strip metadata and normalize image formats before model access.
 // - Reject mismatched content types, oversize files, and extreme image dimensions.
 // - Task cleanup must remove Redis bindings, not user-sent history images.
@@ -47,10 +61,22 @@
 // - Retrieved: 2026-04-16
 // - Applied To: durable private chat image attachments with regenerated signed previews
 // - Verification: verified in code
+// - Source: operator request on 2026-04-18 to persist generated-image replies
+// - Kind: product doc
+// - Retrieved: 2026-04-18
+// - Applied To: reusing the same private R2 image boundary for assistant-generated image replies
+// - Verification: verified in code
+// - Source: operator correction on 2026-04-19 for production-stable Farcaster image embeds
+// - Kind: product doc
+// - Retrieved: 2026-04-19
+// - Applied To: opt-in public generated-image URL publication for Farcaster cast embeds
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/social-agent-multimodal-input.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-local-image-composer-base.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
@@ -79,6 +105,10 @@ const PRESIGNED_PUT_TTL_SECONDS = Math.max(60, Number(process.env.CHAT_IMAGE_UPL
 const PRESIGNED_GET_TTL_SECONDS = Math.max(300, Number(process.env.CHAT_IMAGE_UPLOAD_GET_TTL_SECONDS || '3600'));
 const IMAGE_CACHE_CONTROL = process.env.CHAT_IMAGE_UPLOAD_CACHE_CONTROL || 'private, max-age=3600';
 const CHAT_IMAGE_PREFIX = String(process.env.CHAT_IMAGE_UPLOAD_PREFIX || 'chat-uploads').replace(/^\/+|\/+$/g, '');
+const CHAT_GENERATED_IMAGE_PREFIX = String(process.env.CHAT_GENERATED_IMAGE_PREFIX || `${CHAT_IMAGE_PREFIX}/generated`).replace(/^\/+|\/+$/g, '');
+const CHAT_GENERATED_IMAGE_PUBLIC_PREFIX = String(process.env.CHAT_GENERATED_IMAGE_PUBLIC_PREFIX || `${CHAT_IMAGE_PREFIX}/generated-public`).replace(/^\/+|\/+$/g, '');
+const CHAT_GENERATED_IMAGE_PUBLIC_BASE_URL = String(process.env.CHAT_GENERATED_IMAGE_PUBLIC_BASE_URL || '').trim().replace(/\/+$/g, '');
+const GENERATED_IMAGE_PUBLIC_CACHE_CONTROL = process.env.CHAT_GENERATED_IMAGE_PUBLIC_CACHE_CONTROL || 'public, max-age=31536000, immutable';
 const MAX_IMAGE_PIXELS = CHAT_IMAGE_UPLOAD_MAX_DIMENSION * CHAT_IMAGE_UPLOAD_MAX_DIMENSION;
 
 type SupportedImageFormat = 'jpeg' | 'png' | 'webp';
@@ -109,6 +139,8 @@ interface PreparedUploadRecord {
 export interface TaskImageRecord {
     uploadId: string;
     objectKey: string;
+    publicObjectKey?: string | null;
+    publicUrl?: string | null;
     originalFileName: string;
     contentType: string;
     size: number;
@@ -155,7 +187,10 @@ export interface ChatImageModelInput {
 
 export interface ChatImageMessageAttachment {
     id: string;
-    objectKey: string;
+    objectKey?: string | null;
+    publicObjectKey?: string | null;
+    publicUrl?: string | null;
+    previewUrl?: string | null;
     name: string;
     type: string;
     size: number;
@@ -166,6 +201,7 @@ export interface ChatImageMessageAttachment {
 export interface ChatImageClientAttachment {
     id: string;
     previewUrl: string;
+    publicUrl?: string | null;
     name: string;
     type: string;
     size: number;
@@ -307,6 +343,27 @@ function buildObjectKey(userId: string, uploadId: string): string {
     return `${CHAT_IMAGE_PREFIX}/${safeUserPathSegment(userId)}/${dayStamp}/${uploadId}`;
 }
 
+function buildGeneratedObjectKey(userId: string, assistantMessageId: string): string {
+    const dayStamp = new Date().toISOString().slice(0, 10);
+    const sanitizedMessageId = String(assistantMessageId || randomUUID()).replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 120) || randomUUID();
+    return `${CHAT_GENERATED_IMAGE_PREFIX}/${safeUserPathSegment(userId)}/${dayStamp}/${sanitizedMessageId}`;
+}
+
+function buildGeneratedPublicObjectKey(userId: string, assistantMessageId: string): string {
+    const dayStamp = new Date().toISOString().slice(0, 10);
+    const sanitizedMessageId = String(assistantMessageId || randomUUID()).replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 120) || randomUUID();
+    return `${CHAT_GENERATED_IMAGE_PUBLIC_PREFIX}/farcaster/${safeUserPathSegment(userId)}/${dayStamp}/${sanitizedMessageId}.png`;
+}
+
+function buildPublicObjectUrl(objectKey: string): string | null {
+    if (!CHAT_GENERATED_IMAGE_PUBLIC_BASE_URL) return null;
+    const encodedPath = String(objectKey || '')
+        .split('/')
+        .map((segment) => encodeURIComponent(segment))
+        .join('/');
+    return `${CHAT_GENERATED_IMAGE_PUBLIC_BASE_URL}/${encodedPath}`;
+}
+
 async function headObjectWithRetry(objectKey: string, attempts = 4): Promise<{ contentLength: number; contentType: string } | null> {
     const client = getS3Client();
     const { bucket } = getRequiredUploadConfig();
@@ -341,7 +398,7 @@ async function getObjectBuffer(objectKey: string): Promise<Buffer> {
     return Buffer.from(bytes || []);
 }
 
-async function putObjectBuffer(objectKey: string, body: Buffer, contentType: string): Promise<void> {
+async function putObjectBuffer(objectKey: string, body: Buffer, contentType: string, cacheControl = IMAGE_CACHE_CONTROL): Promise<void> {
     const client = getS3Client();
     const { bucket } = getRequiredUploadConfig();
     await client.send(new PutObjectCommand({
@@ -349,7 +406,7 @@ async function putObjectBuffer(objectKey: string, body: Buffer, contentType: str
         Key: objectKey,
         Body: body,
         ContentType: contentType,
-        CacheControl: IMAGE_CACHE_CONTROL,
+        CacheControl: cacheControl,
     }));
 }
 
@@ -376,8 +433,16 @@ function resolveNormalizedOutputFormat(inputFormat: SupportedImageFormat): { for
     return { format: 'png', contentType: 'image/png' };
 }
 
-async function sanitizeStoredImage(record: PreparedUploadRecord): Promise<TaskImageRecord> {
-    const objectBuffer = await getObjectBuffer(record.objectKey);
+async function sanitizeImageBufferToTaskRecord(params: {
+    uploadId: string;
+    objectKey: string;
+    publicObjectKey?: string | null;
+    publicUrl?: string | null;
+    originalFileName: string;
+    objectBuffer: Buffer;
+    preferredContentType?: string | null;
+}): Promise<TaskImageRecord> {
+    const objectBuffer = params.objectBuffer;
     if (objectBuffer.length === 0) {
         throw new ChatImageUploadError('Uploaded image could not be read from storage.');
     }
@@ -420,17 +485,33 @@ async function sanitizeStoredImage(record: PreparedUploadRecord): Promise<TaskIm
         throw new ChatImageUploadError(`Images must be ${CHAT_IMAGE_UPLOAD_MAX_DIMENSION}px or smaller on each side.`);
     }
 
-    await putObjectBuffer(record.objectKey, sanitizedBuffer, output.contentType);
+    await putObjectBuffer(params.objectKey, sanitizedBuffer, output.contentType);
+    if (params.publicObjectKey && params.publicUrl) {
+        await putObjectBuffer(params.publicObjectKey, sanitizedBuffer, output.contentType, GENERATED_IMAGE_PUBLIC_CACHE_CONTROL);
+    }
 
     return {
-        uploadId: record.uploadId,
-        objectKey: record.objectKey,
-        originalFileName: record.originalFileName,
+        uploadId: params.uploadId,
+        objectKey: params.objectKey,
+        publicObjectKey: params.publicObjectKey || null,
+        publicUrl: params.publicUrl || null,
+        originalFileName: params.originalFileName,
         contentType: output.contentType,
         size: sanitizedBuffer.length,
         width: sanitizedMeta.width || null,
         height: sanitizedMeta.height || null,
     };
+}
+
+async function sanitizeStoredImage(record: PreparedUploadRecord): Promise<TaskImageRecord> {
+    const objectBuffer = await getObjectBuffer(record.objectKey);
+    return sanitizeImageBufferToTaskRecord({
+        uploadId: record.uploadId,
+        objectKey: record.objectKey,
+        originalFileName: record.originalFileName,
+        objectBuffer,
+        preferredContentType: record.expectedContentType,
+    });
 }
 
 function isPreparedUploadFinalized(record: PreparedUploadRecord): boolean {
@@ -749,6 +830,8 @@ export function buildChatImageMessageAttachments(images: TaskImageRecord[]): Cha
     return images.map((image, index) => ({
         id: image.uploadId || `image-${index + 1}`,
         objectKey: image.objectKey,
+        publicObjectKey: image.publicObjectKey || null,
+        publicUrl: image.publicUrl || null,
         name: image.originalFileName || `image-${index + 1}`,
         type: image.contentType,
         size: image.size,
@@ -757,10 +840,9 @@ export function buildChatImageMessageAttachments(images: TaskImageRecord[]): Cha
     }));
 }
 
-export async function hydrateChatImageAttachmentsForClient(data: any): Promise<any> {
-    const attachments = data?.attachments;
+export async function hydrateChatImageAttachmentListForClient(attachments: any[]): Promise<ChatImageClientAttachment[]> {
     if (!Array.isArray(attachments) || attachments.length === 0) {
-        return data;
+        return [];
     }
 
     const hydratedAttachments = await Promise.all(attachments.map(async (attachment: any, index: number): Promise<ChatImageClientAttachment | null> => {
@@ -774,6 +856,7 @@ export async function hydrateChatImageAttachmentsForClient(data: any): Promise<a
             size: Number(attachment?.size || 0),
             width: attachment?.width ?? null,
             height: attachment?.height ?? null,
+            publicUrl: String(attachment?.publicUrl || '').trim() || null,
         };
 
         if (!objectKey) {
@@ -797,9 +880,37 @@ export async function hydrateChatImageAttachmentsForClient(data: any): Promise<a
         }
     }));
 
+    return hydratedAttachments.filter((attachment): attachment is ChatImageClientAttachment => Boolean(attachment));
+}
+
+export async function hydrateChatImageAttachmentsForClient(data: any): Promise<any> {
+    const attachments = data?.attachments;
+    if (!Array.isArray(attachments) || attachments.length === 0) {
+        return data;
+    }
+
+    const hydratedAttachments = await hydrateChatImageAttachmentListForClient(attachments);
+
     return {
         ...(data || {}),
-        attachments: hydratedAttachments.filter((attachment): attachment is ChatImageClientAttachment => Boolean(attachment)),
+        attachments: hydratedAttachments,
+    };
+}
+
+export async function hydrateGeneratedChatImageDataForClient(data: any): Promise<any> {
+    const generatedImage = data?.generatedImage;
+    const images = generatedImage?.images;
+    if (!generatedImage || !Array.isArray(images) || images.length === 0) {
+        return data;
+    }
+
+    const hydratedImages = await hydrateChatImageAttachmentListForClient(images);
+    return {
+        ...(data || {}),
+        generatedImage: {
+            ...generatedImage,
+            images: hydratedImages,
+        },
     };
 }
 
@@ -838,6 +949,41 @@ export async function loadTaskChatImageInputs(taskId: string): Promise<ChatImage
     });
 
     return modelInputs;
+}
+
+export async function storeGeneratedChatImage(params: {
+    userId: string;
+    assistantMessageId: string;
+    buffer: Buffer;
+    contentType?: string | null;
+    fileName?: string | null;
+    publishPublic?: boolean;
+}): Promise<TaskImageRecord> {
+    const userId = String(params.userId || '').trim();
+    const assistantMessageId = String(params.assistantMessageId || '').trim();
+    if (!userId) {
+        throw new ChatImageUploadError('Generated image storage requires user id.', 500);
+    }
+    if (!assistantMessageId) {
+        throw new ChatImageUploadError('Generated image storage requires assistant message id.', 500);
+    }
+    const objectKey = buildGeneratedObjectKey(userId, assistantMessageId);
+    const publicObjectKey = params.publishPublic ? buildGeneratedPublicObjectKey(userId, assistantMessageId) : null;
+    const publicUrl = publicObjectKey ? buildPublicObjectUrl(publicObjectKey) : null;
+    if (params.publishPublic && !publicUrl) {
+        throw new ChatImageUploadError('Generated image public URL base is not configured for social publishing.', 503);
+    }
+    const uploadId = `generated-${assistantMessageId}`;
+    const originalFileName = normalizeOriginalFileName(params.fileName || 'generated-image');
+    return sanitizeImageBufferToTaskRecord({
+        uploadId,
+        objectKey,
+        publicObjectKey,
+        publicUrl,
+        originalFileName,
+        objectBuffer: Buffer.from(params.buffer || []),
+        preferredContentType: params.contentType || undefined,
+    });
 }
 
 export async function cleanupTaskChatImageUploads(taskId: string, options: { deleteObjects?: boolean } = {}): Promise<void> {

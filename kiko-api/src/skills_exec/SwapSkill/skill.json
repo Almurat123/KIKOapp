@@ -8,6 +8,7 @@
     "tools": [
         "prepare_swap_transaction",
         "simulate_swap",
+        "switch_wallet_chain",
         "get_wallet_info",
         "get_token_info",
         "check_token_risk"

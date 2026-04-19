@@ -1,6 +1,6 @@
 # Design Language: Clanker Token Deploy Skill
 
-Updated: 2026-04-17
+Updated: 2026-04-19
 Author: Renata
 
 ## Purpose
@@ -18,6 +18,11 @@ claim preparation.
 - Real deployments require an explicit `confirmDeploy=true` argument after the
   user has confirmed the exact launch payload, including any defaults that will
   be used for omitted optional fields.
+- Dry-run previews must be preserved as confirmation-ready state so the model
+  can confirm the exact prepared launch payload on the next turn.
+- The execute handoff should reuse the prepared launch payload and only then
+  set `confirmDeploy=true`; that flag is an execution detail, not a user-facing
+  preview field.
 - Runtime policy must classify `confirmDeploy=true` Clanker launches as
   `TOKEN_DEPLOY_MUTATION`; prompt-only confirmation rules are not sufficient.
 - Provider gateways must treat `TOKEN_DEPLOY_MUTATION` as node-controlled hard
@@ -51,6 +56,8 @@ claim preparation.
   not be used to infer deploy chain support.
 - Successful deploy responses should be converted into a Clanker token page
   URL using the returned token address.
+- Successful deploy receipts should clear older preview bindings instead of
+  reviving stale dry-run state.
 - Reward splits for the HTTP API are expressed as `allocation` percentages and
   must sum to 100 across 1 to 7 recipients.
 - Claimed-fee history must be described as beta indexed event history, not a
@@ -110,10 +117,28 @@ claim preparation.
 - Verification: verified in code and tests
 
 - Source: /Users/almurat/KiKo/kiko-api/src/jobs/chat/executionGate.ts
-- Kind: repo doc
-- Retrieved: 2026-04-17
-- Applied To: `confirmDeploy=true` confirmation-token gate
-- Verification: verified in code and tests
+  - Kind: repo doc
+  - Retrieved: 2026-04-17
+  - Applied To: `confirmDeploy=true` confirmation-token gate
+  - Verification: verified in code and tests
+
+- Source: /Users/almurat/KiKo/kiko-api/src/jobs/chat/conversationStateResolver.ts
+  - Kind: repo doc
+  - Retrieved: 2026-04-19
+  - Applied To: turning Clanker dry-run previews into reusable confirmation state
+  - Verification: verified in code and tests
+
+- Source: /Users/almurat/KiKo/kiko-api/src/jobs/chat/workerStateBuilder.ts
+  - Kind: repo doc
+  - Retrieved: 2026-04-19
+  - Applied To: replaying the prepared launch payload on the execute handoff
+  - Verification: verified in code and tests
+
+- Source: /Users/almurat/KiKo/kiko-api/src/jobs/chat/nodePromptAssembler.ts
+  - Kind: repo doc
+  - Retrieved: 2026-04-19
+  - Applied To: exposing pending Clanker deploy payloads in worker memory
+  - Verification: verified in code and tests
 
 - Source: /Users/almurat/KiKo/kiko-python/grok/router.py
 - Kind: repo doc
@@ -146,4 +171,5 @@ claim preparation.
 - system-journal/owner-map/clanker-skill.md
 - system-journal/adr/2026-04-15-clanker-token-deploy-skill.md
 - system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
+- system-journal/fix-log/2026-04-19-clanker-dry-run-confirmation-continuity.md
 - system-journal/fix-log/2026-04-17-clanker-devbuy-and-token-url.md

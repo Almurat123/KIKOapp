@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-18
 // Author: Rowan
 // Reason: chat text could arrive through WebSocket but still appear all at once
 //         if RootLayout buffered multiple chunks into one animation-frame flush.
@@ -8,12 +8,22 @@
 //         them before the next frame. RootLayout also owns whether chat
 //         completion events may refresh the sidebar quota summary; those
 //         refreshes must stay on chat routes so browse pages do not inherit
-//         chat-driven read traffic.
+//         chat-driven read traffic. Generated-image replies now also enter the
+//         transcript through `message_start`, so this owner must preserve the
+//         backend-declared message type and initial data instead of forcing every
+//         assistant placeholder to start as plain text. Chat v2 now also needs
+//         `message_start` to be able to retag an already-created assistant
+//         placeholder as `generated-image` mid-turn when the model switches the
+//         reply into the image tool path. A 2026-04-19 deploy-token loop showed
+//         duplicate backend starts can look like frontend subscription leaks, so
+//         this layer now logs duplicate starts by assistant id before mutating state.
 // Goal: make the frontend state boundary observable: incoming chunk count,
 //       pending buffer size, flush timing, and message length before/after merge,
 //       while applying content/reasoning chunks immediately once the target
-//       assistant message already exists in local state and keeping usage
-//       refresh broadcasts route-scoped.
+//       assistant message already exists in local state, preserving backend
+//       message metadata such as generated-image placeholders, including
+//       same-message type/data upgrades, and keeping usage refresh broadcasts
+//       route-scoped.
 // Owns: authenticated chat WebSocket subscription, conversation state merging,
 //       and chat-route usage-refresh broadcasts.
 // Does Not Own: backend chunk generation, browser WebSocket transport, or bubble styling.
@@ -23,6 +33,9 @@
 // - requestAnimationFrame batching should be visible as flush logs
 // - once a target assistant message exists locally, content/reasoning chunks should not wait for a coalescing flush
 // - chat-driven quota refreshes must not leak onto non-chat browse pages
+// - `message_start` must preserve backend-declared assistant message types and initial data
+// - duplicate `message_start` diagnostics must be keyed by session/message id,
+//   not by task id, because the route copy may lack task id while the broker copy has it
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/test.txt
 // - Kind: runtime observation
@@ -39,10 +52,28 @@
 // - Retrieved: 2026-04-17
 // - Applied To: route-scoped suppression of chat usage-summary refreshes on token and other browse pages
 // - Verification: verified in code
+// - Source: operator request on 2026-04-18 to stream generated-image placeholders into chat
+// - Kind: product doc
+// - Retrieved: 2026-04-18
+// - Applied To: preserving generated-image message type/data from `message_start`
+// - Verification: verified in code
+// - Source: operator requirement on 2026-04-18 for model-owned image generation inside main chat
+// - Kind: product doc
+// - Retrieved: 2026-04-18
+// - Applied To: allowing `message_start` to retag an existing assistant row as generated-image
+// - Verification: verified in code
+// - Source: operator browser console and app.log trace cmo5a4f1h03sjj5et046ndecy
+// - Kind: runtime observation
+// - Retrieved: 2026-04-19
+// - Applied To: duplicate message_start diagnostics and stream event correlation
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-stream-diagnostics.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-token-page-read-burst-isolation.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-v2-model-owned-image-generation-tool.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-stream-duplicate-and-tool-loop-diagnostics.md
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { usePrivy } from '@privy-io/react-auth';
@@ -112,6 +143,7 @@ export const RootLayout: React.FC = () => {
     const lastResumeSyncAtRef = useRef(0);
     const firstChunkLoggedRef = useRef<Set<string>>(new Set());
     const streamChunkStatsRef = useRef<Map<string, { chunks: number; contentLength: number; reasoningLength: number; lastAtMs: number }>>(new Map());
+    const messageStartSeenRef = useRef<Map<string, { seq: number | null; taskId: string | null; atMs: number }>>(new Map());
 
     useEffect(() => {
         isChatRouteRef.current = location.pathname === '/' || location.pathname.startsWith('/chat/');
@@ -387,12 +419,34 @@ export const RootLayout: React.FC = () => {
             // --- Message Start ---
             if (event.type === 'message_start') {
                 const messageId = event.data.messageId || event.data.message_id;
+                const messageType = event.data.messageType || event.data.message_type || 'text';
+                const initialData = event.data.data;
+                const startTaskId = event.data.taskId || event.data.task_id || null;
                 console.log('[RootLayout] message_start:', messageId, targetSessionId);
                 if (!messageId) return;
+                const messageStartKey = `${targetSessionId}:${messageId}`;
+                const previousStart = messageStartSeenRef.current.get(messageStartKey);
+                const nowMs = performance.now();
+                if (previousStart) {
+                    chatStreamDebug('root-message-start-duplicate', {
+                        sessionId: targetSessionId,
+                        messageId,
+                        seq: event.seq ?? null,
+                        taskId: startTaskId,
+                        previousSeq: previousStart.seq,
+                        previousTaskId: previousStart.taskId,
+                        msSincePreviousStart: Math.round(nowMs - previousStart.atMs),
+                    });
+                }
+                messageStartSeenRef.current.set(messageStartKey, {
+                    seq: event.seq ?? null,
+                    taskId: startTaskId,
+                    atMs: nowMs,
+                });
                 logger.debug('[ChatStream] message_start received', {
                     sessionId: targetSessionId,
                     messageId,
-                    taskId: event.data.taskId || event.data.task_id || null,
+                    taskId: startTaskId,
                     activeConversationId,
                 });
 
@@ -406,7 +460,8 @@ export const RootLayout: React.FC = () => {
                     status: 'streaming',
                     citations: existingPending?.citations || [],
                     usage: existingPending?.usage,
-                    data: existingPending?.data,
+                    type: messageType || existingPending?.type,
+                    data: initialData ?? existingPending?.data,
                 });
 
                 // Update Conversation State
@@ -421,15 +476,28 @@ export const RootLayout: React.FC = () => {
                         reasoning_content: '',
                         status: 'streaming',
                         timestamp: new Date().toISOString(),
-                        type: 'text',
+                        type: messageType,
                         citations: [],
-                        data: existingPending?.data,
+                        data: existingPending?.data || initialData,
                     };
                     updateConversation(targetSessionId, {
                         messages: [...targetConv.messages, newMsg],
                         activeTask: shouldKeepExistingTask
                             ? existingTask
                             : { id: `task-${messageId}`, status: 'running' }
+                    });
+                } else if (targetConv) {
+                    updateConversation(targetSessionId, {
+                        messages: targetConv.messages.map((message) => (
+                            message.id === messageId
+                                ? {
+                                    ...message,
+                                    type: messageType || message.type,
+                                    data: initialData ?? message.data,
+                                    status: 'streaming',
+                                }
+                                : message
+                        )),
                     });
                 }
             }
@@ -966,6 +1034,9 @@ export const RootLayout: React.FC = () => {
                             messages: finalizedMessages,
                             activeTask: null,
                         });
+                        if (isChatRouteRef.current && typeof window !== 'undefined') {
+                            window.dispatchEvent(new CustomEvent('kiko-usage-refresh'));
+                        }
                     } else if (status === 'running' || status === 'pending') {
                         if (!currentTask && !hasStreamingAssistant && latestAssistant?.status === 'complete') {
                             console.log('[RootLayout] Ignoring stale running task_status after completion', {

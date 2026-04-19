@@ -1,4 +1,4 @@
-cid# Token Alert Skill
+# Token Alert Skill
 
 Manage price and market cap alerts for tokens. Set automated notifications or trading positions.
 

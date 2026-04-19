@@ -1,15 +1,20 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-19
 // Author: Linh Tran
 // Reason: Farcaster polling ingress needs a dedicated bridge into the shared
 //         chat worker so mention threads can reuse the same AI runtime without
 //         pretending to be X conversations. Farcaster social-agent turns now
 //         also need structured thread/image metadata for the current turn while
 //         still persisting a plain text transport message for audit/history.
+//         Model-owned generated-image turns now finish as `generated-image`
+//         assistant rows rather than text rows, so the Farcaster bridge must
+//         return both reply text and hydrated image embeds to the outbound cast
+//         layer.
 // Goal: enqueue Farcaster-originated chat work with enough context for the
-//       existing agent runtime, billing gates, and vision-capable providers.
+//       existing agent runtime, billing gates, vision-capable providers, and
+//       social reply publication of generated-image assets.
 // Owns: Farcaster-to-chat task creation, social-agent context handoff, and
-//       assistant text waiting logic.
+//       assistant reply waiting logic.
 // Does Not Own: mention polling, reply publishing, or user linking.
 // Design Language:
 // - Reuse the shared chat worker and usage guards.
@@ -17,6 +22,10 @@
 // - Carry Farcaster profile context into toolContext.
 // - Keep structured social multimodal context separate from the canonical
 //   stored message string.
+// - Generated-image assistant rows should become Farcaster cast embeds after
+//   client-safe hydration; do not expect image turns to have assistant text.
+// - Farcaster generated-image embeds must prefer durable public media URLs and
+//   use signed preview URLs only for legacy rows that predate public copies.
 // Document Provenance:
 // - Source: repo code review of X chat bridge
 // - Kind: repo doc
@@ -28,10 +37,21 @@
 // - Retrieved: 2026-04-16
 // - Applied To: preserving Farcaster cast image context for the current model turn
 // - Verification: verified in docs and code
+// - Source: operator requirement on 2026-04-19 for Farcaster generated-image replies
+// - Kind: product doc
+// - Retrieved: 2026-04-19
+// - Applied To: extracting generated-image preview URLs for Farcaster outbound embeds
+// - Verification: verified in code and targeted test
+// - Source: operator correction on 2026-04-19 for production-stable Farcaster image embeds
+// - Kind: product doc
+// - Retrieved: 2026-04-19
+// - Applied To: preferring generated-image public URLs over signed preview URLs
+// - Verification: verified in targeted test
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import * as chatRepo from '../../repositories/chatRepository.js';
 import { trackChatMessage } from '../userActivityService.js';
@@ -42,6 +62,7 @@ import { chatWorker } from '../../jobs/chatWorker.js';
 import { normalizeSupportedChatModel } from '../../config/chatModels.js';
 import { buildFarcasterProfileUrl } from './farcasterIdentityService.js';
 import { env } from '../../config/env.js';
+import { hydrateGeneratedChatImageDataForClient } from '../chatImageUploads.js';
 import type { SocialAgentInput } from '../socialAgentInput.js';
 
 function normalizeTaskModel(model?: string): string {
@@ -50,6 +71,63 @@ function normalizeTaskModel(model?: string): string {
 
 function buildUsageLimitMessage(usageDecision: any): string {
   return getUsageLimitMessage(usageDecision);
+}
+
+export interface FarcasterAssistantReply {
+  text: string;
+  embeds: string[];
+}
+
+function normalizeFarcasterReplyEmbedUrls(value: unknown): string[] {
+  const rawUrls = Array.isArray(value) ? value : [];
+  const deduped = new Set<string>();
+  for (const raw of rawUrls) {
+    const url = String(raw || '').trim();
+    if (!url) continue;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') continue;
+      deduped.add(parsed.toString());
+    } catch {
+      continue;
+    }
+  }
+  return Array.from(deduped).slice(0, 2);
+}
+
+function buildGeneratedImageFallbackText(generatedImage: any, content: string): string {
+  if (content) return content;
+  const status = String(generatedImage?.status || '').trim().toLowerCase();
+  const errorMessage = String(generatedImage?.errorMessage || '').trim();
+  if (status === 'failed' && errorMessage) return errorMessage;
+  if (status === 'complete') return '已生成。';
+  return '';
+}
+
+export async function buildFarcasterAssistantReplyFromMessage(assistantMessage: any): Promise<FarcasterAssistantReply> {
+  const content = String(assistantMessage?.content || '').trim();
+  const generatedImage = assistantMessage?.data?.generatedImage || null;
+  if (!generatedImage) {
+    return {
+      text: content,
+      embeds: [],
+    };
+  }
+
+  let hydratedGeneratedImage = generatedImage;
+  try {
+    const hydratedData = await hydrateGeneratedChatImageDataForClient({ generatedImage });
+    hydratedGeneratedImage = hydratedData?.generatedImage || generatedImage;
+  } catch {
+    hydratedGeneratedImage = generatedImage;
+  }
+
+  const images = Array.isArray(hydratedGeneratedImage?.images) ? hydratedGeneratedImage.images : [];
+  const embedUrls = normalizeFarcasterReplyEmbedUrls(images.map((image: any) => image?.publicUrl || image?.previewUrl || image?.url));
+  return {
+    text: buildGeneratedImageFallbackText(hydratedGeneratedImage, content),
+    embeds: String(hydratedGeneratedImage?.status || '').toLowerCase() === 'complete' ? embedUrls : [],
+  };
 }
 
 export async function enqueueFarcasterAgentMessage(params: {
@@ -174,14 +252,14 @@ export async function enqueueFarcasterAgentMessage(params: {
   };
 }
 
-export async function waitForFarcasterTaskAssistantText(params: {
+export async function waitForFarcasterTaskAssistantReply(params: {
   taskId?: string | null;
   assistantMessageId: string;
   timeoutMs?: number;
-}) {
+}): Promise<FarcasterAssistantReply> {
   if (!params.taskId) {
     const assistantMessage = await chatRepo.getMessage(params.assistantMessageId);
-    return String(assistantMessage?.content || '').trim();
+    return buildFarcasterAssistantReplyFromMessage(assistantMessage);
   }
 
   const timeoutMs = Math.max(1_000, Number(params.timeoutMs || 90_000));
@@ -194,13 +272,29 @@ export async function waitForFarcasterTaskAssistantText(params: {
     ]);
 
     if (!task || ['done', 'error', 'cancelled'].includes(task.status)) {
-      const content = String(assistantMessage?.content || '').trim();
-      return content || 'I ran into an issue processing that request. Please try again.';
+      const reply = await buildFarcasterAssistantReplyFromMessage(assistantMessage);
+      return {
+        text: reply.text || 'I ran into an issue processing that request. Please try again.',
+        embeds: reply.embeds,
+      };
     }
 
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
   const assistantMessage = await chatRepo.getMessage(params.assistantMessageId);
-  return String(assistantMessage?.content || '').trim() || 'I am still working on that. Please try again in a moment.';
+  const reply = await buildFarcasterAssistantReplyFromMessage(assistantMessage);
+  return {
+    text: reply.text || 'I am still working on that. Please try again in a moment.',
+    embeds: reply.embeds,
+  };
+}
+
+export async function waitForFarcasterTaskAssistantText(params: {
+  taskId?: string | null;
+  assistantMessageId: string;
+  timeoutMs?: number;
+}) {
+  const reply = await waitForFarcasterTaskAssistantReply(params);
+  return reply.text;
 }

@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-18
 // Author: Rowan
 // Reason: Chat worker traces showed a simple "Hi, who are you?" turn still paid
 //         for hidden GLM canonical normalization and then a full GLM main
@@ -23,22 +23,25 @@
 //         and orchestration retries. The rewrite now also needs an explicit
 //         runtime-mode switch above that runner so rollout and fallback policy
 //         live at the entry boundary instead of inside hidden worker branches.
-// Goal: keep the full agent loop for real work, but let deterministic
-//       bare greetings complete without invoking a slow provider model, while
-//       surfacing normalization reasoning through the normal assistant reasoning
-//       area so users get live runtime feedback, and let obvious non-chain turns
-//       bypass canonical normalization entirely, while treating uploaded chat
-//       images as one-turn model inputs whose private objects can still back
-//       refreshed chat history.
+//         Product correction on 2026-04-18 then removed the remaining worker
+//         greeting macro entirely, so this file no longer exports or owns any
+//         normal assistant reply shortcut. Chat v2 now also needs a guarded
+//         terminal path for tool-managed reply channels so externally managed
+//         tasks are not overwritten as successful text completions.
+// Goal: keep the full agent loop for real work while surfacing normalization
+//       reasoning through the normal assistant reasoning area so users get live
+//       runtime feedback, let obvious non-chain turns bypass canonical
+//       normalization entirely, and treat uploaded chat images as one-turn model
+//       inputs whose private objects can still back refreshed chat history, and
+//       let tool-owned reply channels keep their own task status when they
+//       already finalized the turn.
 // Owns: worker-level task lifecycle, moderation gates, broker completion,
 //       persistence handoff, and task-time image binding cleanup.
 // Does Not Own: provider streaming transport, frontend chunk animation, skill
 //               prompt content, or the internal chat v2 turn pipeline.
 // Design Language:
-// - only bare greetings should use deterministic direct-response copy
-// - assistant capability, skill, and meta-debug questions must go through normal model generation
-// - deterministic fast-path text should still be chunked so frontend streaming can be verified
-// - slow provider models must not be called for bare greetings, but product-copy shortcuts must not override substantive questions
+// - worker must not author normal assistant reply text
+// - assistant capability, skill, meta-debug, and greeting questions must go through normal model generation
 // - billing and output moderation still run through the normal worker terminal path
 // - normalization reasoning should stream into the same reasoning surface as the
 //   assistant when available, with a short label that makes the phase obvious
@@ -83,8 +86,13 @@
 //           questions were answered with the fixed KiKo intro macro
 // - Kind: runtime observation
 // - Retrieved: 2026-04-17
-// - Applied To: restricting the direct fast path to bare greetings only
+// - Applied To: first restricting and later fully removing the direct greeting macro
 // - Verification: verified in code and targeted tests
+// - Source: /Users/almurat/Downloads/logs.1776445174160.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-18
+// - Applied To: removing the last worker-authored greeting reply path and its compatibility export
+// - Verification: verified in runtime and code
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-worker-entry-boundary.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-17
@@ -95,19 +103,24 @@
 // - Retrieved: 2026-04-17
 // - Applied To: explicit runtime-mode dispatch before chat turn execution
 // - Verification: verified in code and targeted tests
+// - Source: operator requirement on 2026-04-18 for model-owned image generation inside main chat
+// - Kind: product doc
+// - Retrieved: 2026-04-18
+// - Applied To: preserving tool-managed generated-image task status on terminal turns
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/chat-direct-response-policy.md
 // - /Users/almurat/KiKo/system-journal/owner-map/chat-runtime-planning.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-worker-entry-boundary.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-runtime-mode-switch.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-direct-welcome-fast-path-hardcoded-reply-guard.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-direct-welcome-fast-path.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-hardcoded-reply-path-removal.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-stream-diagnostics.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-normalization-reasoning-runtime-surface.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-direct-answer-tool-pruning.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-non-chain-normalization-bypass.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-v2-model-owned-image-generation-tool.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import * as chatRepo from '../repositories/chatRepository.js';
 import { chatWS } from '../services/chatWebSocket.js';
@@ -338,8 +351,10 @@ export class ChatWorker {
                     toolContext: task.toolContext,
                     toolCallNames: broker.getToolResults().map((item) => item.name),
                 });
-                await this.repo.updateTaskStatus(task.id, 'done');
-                this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'done' });
+                if (turnResult.terminalOwner !== 'external') {
+                    await this.repo.updateTaskStatus(task.id, 'done');
+                    this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'done' });
+                }
                 return;
             }
             logger.info(LogCode.AI_ORCHESTRATOR, 'ChatWorker: generation loop finished', {
@@ -650,4 +665,3 @@ function buildOutputModerationErrorMessage(moderated: { verification?: any }): s
 }
 
 export const chatWorker = new ChatWorker();
-export { buildFastDirectAssistantResponse } from './chat/chatV2TurnRunner.js';

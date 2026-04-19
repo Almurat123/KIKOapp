@@ -1,3 +1,27 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-19
+// Author: Renata
+// Reason: Polymarket executor results need to carry market slug/URL receipt
+//         context back to agent tools after CLOB order creation, position close,
+//         and cancel-replace flows.
+// Goal: keep CLOB execution responsible for order side effects while preserving
+//       user-visible receipt metadata for downstream Agent replies.
+// Owns: signed Polymarket order posting, local action persistence, and executor
+//       result metadata returned to tools.
+// Does Not Own: market discovery, chat prompt policy, or frontend rendering.
+// Design Language:
+// - order ids are receipts; market URLs are user-facing context
+// - cancel + replace must surface both old and new order ids through callers
+// - never fabricate a market URL when no market slug is available
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-19
+// - Applied To: Polymarket executor market URL return fields
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
 /**
  * Polymarket Order Executor (EOA Mode)
  * 
@@ -16,6 +40,7 @@ import crypto from 'crypto';
 import { notificationService } from './notifications/farcaster/index.js';
 import { VoidSigner } from 'ethers';
 import { getOpenOrdersForUser } from './polymarketDataService.js';
+import { buildPolymarketMarketUrl } from '../utils/executionLinks.js';
 
 // CLOB API endpoints
 const CLOB_API = 'https://clob.polymarket.com';
@@ -154,6 +179,7 @@ export interface SellOrderParams {
     assetId?: string;    // Direct asset token ID
     shares: number;
     minPrice: number;
+    marketSlug?: string;
 }
 
 /**
@@ -176,7 +202,7 @@ export function isClobConfigured(): boolean {
 /**
  * Place a buy order on Polymarket
  */
-export async function placeBuyOrder(params: BuyOrderParams): Promise<{ success: boolean; orderId?: string; error?: string }> {
+export async function placeBuyOrder(params: BuyOrderParams): Promise<{ success: boolean; orderId?: string; error?: string; marketSlug?: string; marketUrl?: string }> {
     console.log('[PolymarketExecutor] Placing BUY order:', {
         tokenId: params.tokenId.slice(0, 20) + '...',
         price: params.price,
@@ -311,7 +337,11 @@ export async function placeBuyOrder(params: BuyOrderParams): Promise<{ success: 
             }
         }
 
-        return result;
+        return {
+            ...result,
+            marketSlug: params.marketSlug,
+            marketUrl: buildPolymarketMarketUrl(params.marketSlug),
+        };
 
     } catch (error: any) {
         console.error('[PolymarketExecutor] Buy order failed:', error);
@@ -322,7 +352,7 @@ export async function placeBuyOrder(params: BuyOrderParams): Promise<{ success: 
 /**
  * Place a sell order on Polymarket
  */
-export async function placeSellOrder(params: SellOrderParams): Promise<{ success: boolean; orderId?: string; error?: string }> {
+export async function placeSellOrder(params: SellOrderParams): Promise<{ success: boolean; orderId?: string; error?: string; marketSlug?: string; marketUrl?: string }> {
     console.log('[PolymarketExecutor] Placing SELL order:', {
         positionId: params.positionId,
         assetId: params.assetId,
@@ -337,6 +367,7 @@ export async function placeSellOrder(params: SellOrderParams): Promise<{ success
         }
 
         let assetId = params.assetId;
+        let marketSlug = String(params.marketSlug || '').trim();
 
         // If positionId provided, try to find assetId in DB
         if (params.positionId && !assetId) {
@@ -349,6 +380,7 @@ export async function placeSellOrder(params: SellOrderParams): Promise<{ success
                 });
                 if (position) {
                     assetId = position.assetId;
+                    marketSlug = position.marketSlug || '';
                 }
             }
         }
@@ -443,7 +475,11 @@ export async function placeSellOrder(params: SellOrderParams): Promise<{ success
             }
         }
 
-        return result;
+        return {
+            ...result,
+            marketSlug,
+            marketUrl: buildPolymarketMarketUrl(marketSlug),
+        };
 
     } catch (error: any) {
         console.error('[PolymarketExecutor] Sell order failed:', error);
@@ -733,6 +769,7 @@ export interface ModifyOrderParams {
     outcome?: string;
     amountUsd?: number;
     shares?: number;
+    marketSlug?: string;
 }
 
 function clampFraction(value: number): number {
@@ -799,6 +836,8 @@ export async function closePosition(params: ClosePositionParams): Promise<{
     success: boolean;
     orderId?: string;
     error?: string;
+    marketSlug?: string;
+    marketUrl?: string;
 }> {
     console.log('[PolymarketExecutor] Closing position request:', params.positionId);
 
@@ -806,6 +845,7 @@ export async function closePosition(params: ClosePositionParams): Promise<{
         let assetId = '';
         let shares = params.shares || 0;
         let dbPosition: any = null;
+        let marketSlug = '';
 
         // 1. Try to find as a DB UUID (length is 36 for standard UUIDs)
         if (params.positionId.length === 36 || params.positionId.includes('-')) {
@@ -816,6 +856,7 @@ export async function closePosition(params: ClosePositionParams): Promise<{
 
             if (dbPosition) {
                 assetId = dbPosition.assetId;
+                marketSlug = dbPosition.marketSlug || '';
                 if (shares <= 0) shares = dbPosition.shares;
             }
         }
@@ -868,10 +909,15 @@ export async function closePosition(params: ClosePositionParams): Promise<{
             positionId: dbPosition ? dbPosition.id : undefined,
             assetId: assetId,
             shares: shares,
-            minPrice: sellPrice
+            minPrice: sellPrice,
+            marketSlug,
         });
 
-        return result;
+        return {
+            ...result,
+            marketSlug: result.marketSlug || marketSlug,
+            marketUrl: result.marketUrl || buildPolymarketMarketUrl(marketSlug),
+        };
 
     } catch (error: any) {
         console.error('[PolymarketExecutor] Close position failed:', error);
@@ -935,6 +981,8 @@ export async function modifyOrder(params: ModifyOrderParams): Promise<{
     newOrderId?: string;
     error?: string;
     cancelledOriginal?: boolean;
+    marketSlug?: string;
+    marketUrl?: string;
 }> {
     console.log('[PolymarketExecutor] Modifying order:', params.orderId);
 
@@ -958,6 +1006,7 @@ export async function modifyOrder(params: ModifyOrderParams): Promise<{
         const tokenId = params.tokenId || existing.assetId;
         const question = params.question || existing.title || 'Polymarket Order';
         const outcome = params.outcome || existing.outcome || '';
+        const marketSlug = String(params.marketSlug || '').trim();
 
         const cancelResult = await cancelOrder({
             userId: params.userId,
@@ -986,13 +1035,16 @@ export async function modifyOrder(params: ModifyOrderParams): Promise<{
                 userId: params.userId,
                 assetId: tokenId,
                 shares,
-                minPrice: params.newPrice
+                minPrice: params.newPrice,
+                marketSlug,
             });
 
             return {
                 success: result.success,
                 newOrderId: result.orderId,
                 cancelledOriginal: true,
+                marketSlug: result.marketSlug || marketSlug,
+                marketUrl: result.marketUrl || buildPolymarketMarketUrl(marketSlug),
                 error: result.success ? undefined : `Original order was cancelled, but replacement failed: ${result.error}`
             };
         }
@@ -1018,7 +1070,7 @@ export async function modifyOrder(params: ModifyOrderParams): Promise<{
             amountUsd: replacementAmountUsd,
             question,
             outcome,
-            marketSlug: 'direct-trade',
+            marketSlug: marketSlug || 'direct-trade',
             conditionId: ''
         });
 
@@ -1026,6 +1078,8 @@ export async function modifyOrder(params: ModifyOrderParams): Promise<{
             success: result.success,
             newOrderId: result.orderId,
             cancelledOriginal: true,
+            marketSlug: result.marketSlug || marketSlug,
+            marketUrl: result.marketUrl || buildPolymarketMarketUrl(marketSlug),
             error: result.success ? undefined : `Original order was cancelled, but replacement failed: ${result.error}`
         };
     } catch (error: any) {

@@ -18,6 +18,28 @@ test('buildNeynarCastReplyParams uses NeynarAPIClient wrapper keys', () => {
   });
 });
 
+test('buildNeynarCastReplyParams maps generated-image URLs into Neynar embeds', () => {
+  assert.deepEqual(buildNeynarCastReplyParams({
+    signerUuid: 'signer-uuid',
+    text: 'generated',
+    parentHash: '0xparent',
+    parentAuthorFid: 1576616,
+    idem: 'reply-idem',
+    embeds: [
+      ' https://cdn.example/generated.png ',
+      'data:image/png;base64,not-public',
+      'https://cdn.example/generated.png',
+    ],
+  }), {
+    signerUuid: 'signer-uuid',
+    text: 'generated',
+    parent: '0xparent',
+    parentAuthorFid: 1576616,
+    idem: 'reply-idem',
+    embeds: [{ url: 'https://cdn.example/generated.png' }],
+  });
+});
+
 test('normalizeNeynarCastHash rejects malformed cast hashes before publish', () => {
   assert.equal(normalizeNeynarCastHash('a2827859051455dd5cb7b0c1b33bb9cf4a8b0edb'), '0xa2827859051455dd5cb7b0c1b33bb9cf4a8b0edb');
   assert.equal(normalizeNeynarCastHash('0xA2827859051455DD5CB7B0C1B33BB9CF4A8B0EDB'), '0xa2827859051455dd5cb7b0c1b33bb9cf4a8b0edb');

@@ -1,3 +1,27 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-19
+// Author: Renata
+// Reason: Agent-mode cross-chain receipts need both the source-chain
+//         transaction explorer URL and the LI.FI tracker URL so users can
+//         verify submitted bridge work while settlement continues.
+// Goal: keep cross-chain quote/execute flow clear: quotes stay simulations,
+//       submitted transactions return concrete txHash and tracker URLs.
+// Owns: cross-chain tool schemas, LI.FI quote/submit result shaping, and
+//       transaction-card lifecycle data for this skill.
+// Does Not Own: LI.FI route availability, Privy signing, or chain support policy.
+// Design Language:
+// - quotes must not imply execution
+// - submitted bridge transactions must expose txHash, source explorer URL, and LI.FI tracker URL
+// - approval hashes are separate receipts from bridge hashes
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-19
+// - Applied To: cross-chain receipt URL result fields and status cards
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
 import { Tool } from '../../tooling/registry.js';
 import axios from 'axios';
 import { logger } from '../../utils/logger.js';
@@ -6,6 +30,7 @@ import { parseUnits, formatUnits, Interface } from 'ethers';
 import { getErc20Allowance, getTransactionReceipt } from '../../services/rpcManager.js';
 import { chatWS } from '../../services/chatWebSocket.js';
 import { updateMessage } from '../../repositories/chatRepository.js';
+import { buildLiFiTransactionUrl, buildTransactionExplorerUrl } from '../../utils/executionLinks.js';
 
 /**
  * [Configuration]: Supported Chains & Wrapped Tokens
@@ -552,6 +577,7 @@ async function monitorCrossChainLifecycle(params: {
     });
 
     const baseCard = {
+        sourceExplorerUrl: buildTransactionExplorerUrl(fromChainId, txHash),
         tokenInSymbol: fromToken,
         tokenOutSymbol: toToken,
         amountIn,
@@ -563,7 +589,8 @@ async function monitorCrossChainLifecycle(params: {
         chainId: Number(fromChainId),
         txHash,
         bridgeTool,
-        explorerLink: `https://scan.li.fi/tx/${txHash}`,
+        explorerLink: buildLiFiTransactionUrl(txHash),
+        lifiExplorerUrl: buildLiFiTransactionUrl(txHash),
     };
 
     const lifiApiKey = process.env.LIFI_API_KEY;
@@ -721,14 +748,14 @@ export const PrepareCrossChainTxTool: Tool<CrossChainArgs> = {
         parameters: {
             type: 'object',
             properties: {
-                fromChain: { type: 'string' },
-                toChain: { type: 'string' },
-                fromToken: { type: 'string' },
-                toToken: { type: 'string' },
+                fromChain: { type: 'string', description: 'Source chain ID or chain name, for example "base", "ethereum", or "8453".' },
+                toChain: { type: 'string', description: 'Destination chain ID or chain name, for example "solana", "arbitrum", or "42161".' },
+                fromToken: { type: 'string', description: 'Source token symbol or contract address on the source chain.' },
+                toToken: { type: 'string', description: 'Destination token symbol or contract address on the destination chain.' },
                 fromAmount: { type: 'string', description: 'Amount to bridge. Prefer a human-readable numeric string like "10" or "0.5"; atomic/base-unit values are also accepted.' },
-                fromAddress: { type: 'string' },
-                toAddress: { type: 'string' },
-                slippage: { type: 'number' }
+                fromAddress: { type: 'string', description: 'Source wallet address. If omitted, KiKo resolves the user embedded wallet for the source chain.' },
+                toAddress: { type: 'string', description: 'Recipient wallet address. If omitted, KiKo resolves the user embedded wallet for the destination chain.' },
+                slippage: { type: 'number', description: 'Maximum slippage as a decimal fraction, for example 0.005 for 0.5%.' }
             },
             required: ['fromChain', 'toChain', 'fromToken', 'toToken', 'fromAmount']
         }
@@ -876,6 +903,24 @@ export const PrepareCrossChainTxTool: Tool<CrossChainArgs> = {
                         });
 
                         logger.info(LogCode.EXE_TX_BROADCAST, `[CrossChain] Approval Sent: ${approveTxHash}. Waiting for confirmation...`);
+                        const approvalExplorerUrl = buildTransactionExplorerUrl(fromChainId, approveTxHash);
+
+                        chatWS.broadcastToUser(userId, {
+                            type: 'client_action',
+                            sessionId: context?.sessionId,
+                            data: {
+                                action: {
+                                    type: 'show_transaction_status_card',
+                                    data: buildTxCardData('approving', {
+                                        txHash: approveTxHash,
+                                        txUrl: approvalExplorerUrl,
+                                        explorerUrl: approvalExplorerUrl,
+                                        message: 'Approval transaction sent. Waiting for confirmation...',
+                                        isLoading: true,
+                                    }),
+                                }
+                            }
+                        });
 
                         // 4. Wait for Confirmation (Polling)
                         // Poll up to 120 seconds (60 attempts * 2s)
@@ -954,17 +999,27 @@ export const PrepareCrossChainTxTool: Tool<CrossChainArgs> = {
                         });
                     }
 
+                    const sourceExplorerUrl = buildTransactionExplorerUrl(fromChainId, txHash);
+                    const lifiExplorerUrl = buildLiFiTransactionUrl(txHash);
                     const resultPayload = {
                         success: true,
                         txHash: txHash,
-                        summary: `✅ Cross-chain transaction submitted! ${args.fromAmount} ${args.fromToken} -> ${args.toToken}. Track status below.`,
+                        sourceExplorerUrl,
+                        explorerUrl: sourceExplorerUrl,
+                        lifiExplorerUrl,
+                        explorerLink: lifiExplorerUrl,
+                        summary: `✅ Cross-chain transaction submitted! ${args.fromAmount} ${args.fromToken} -> ${args.toToken}. Transaction: ${txHash}. Source explorer: ${sourceExplorerUrl || 'unavailable'}. LI.FI tracker: ${lifiExplorerUrl || 'unavailable'}.`,
                         __client_action: {
                             type: 'show_transaction_status_card',
                             data: buildTxCardData('pending', {
                                 txHash,
                                 bridgeTool: quote.tool,
                                 estimatedDuration: quote.estimate.executionDuration,
-                                explorerLink: `https://scan.li.fi/tx/${txHash}`,
+                                txUrl: sourceExplorerUrl,
+                                explorerUrl: sourceExplorerUrl,
+                                sourceExplorerUrl,
+                                explorerLink: lifiExplorerUrl,
+                                lifiExplorerUrl,
                                 message: 'Cross-chain transaction submitted. Waiting for bridge confirmation...',
                                 isLoading: true,
                             }),

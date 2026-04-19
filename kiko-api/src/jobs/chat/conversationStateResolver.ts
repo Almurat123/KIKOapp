@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-19
 // Author: Renata
 // Reason: Farcaster inbound mentions are persisted with transport wrapper text
 //         that can pollute token-symbol extraction and canonical intent
@@ -7,9 +7,14 @@
 //         query before downstream routing.
 // Goal: keep execution confirmation state deterministic while recovering the
 //       effective user query from wrapped transport text before entity
-//       extraction or later orchestration stages consume it, and preserve
+//       extraction or later orchestration stages consume it, preserve
 //       non-order mutation action classes when the generic confirmation carrier
-//       stores prepared tool execution.
+//       stores prepared tool execution, and carry explicit source/binding
+//       metadata forward into the worker state.
+//         Clanker dry-run previews now also need to survive as reusable
+//         confirmation state so the model can confirm the exact prepared
+//         launch payload and the backend can replay it with `confirmDeploy`
+//         only at execution handoff.
 // Owns: reconstructing conversation confirmation state from recent tool traces
 //       and recovering literal user query text from wrapped chat ingress.
 // Does Not Own: webhook ingress formatting, tool execution, or copy-trade persistence.
@@ -21,6 +26,12 @@
 // - downstream intent routing should see the literal user query, not ingress scaffolding
 // - generic order_confirmation payloads must preserve TOKEN_DEPLOY_MUTATION
 //   instead of collapsing every non-trade mutation back to ORDER_MUTATION
+// - confirmation state should retain source tool and capture time when known
+// - swap confirmation should carry quote metadata when the preflight tool returned it
+// - Clanker dry-run previews are confirmation-ready state and must not be
+//   discarded just because the original tool call used `confirmDeploy=false`
+// - successful Clanker receipts clear stale previews instead of reusing older
+//   dry-run state after execution
 // Document Provenance:
 // - Source: Farcaster mention runtime logs showing "FARCASTER" and "CURRENT"
 //           leaking into requested token symbols and forcing social_discovery routing
@@ -38,23 +49,38 @@
 // - Retrieved: 2026-04-17
 // - Applied To: preserving TOKEN_DEPLOY_MUTATION confirmation action class
 // - Verification: verified in code and targeted tests
+// - Source: product-owner runtime review of KiKo chat architecture
+// - Kind: product instruction / runtime observation
+// - Retrieved: 2026-04-18
+// - Applied To: explicit confirmation source/binding metadata
+// - Verification: verified in code and targeted tests
+// - Source: local runtime observation of Clanker dry-run preview / confirm
+//           mismatch in the current KiKo thread
+// - Kind: runtime observation
+// - Retrieved: 2026-04-19
+// - Applied To: converting Clanker dry-run previews into reusable confirmation
+//   state and clearing them after successful deploys
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-wallet-audit-provenance.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-query-unwrapping-and-wallet-guard.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-clanker-dry-run-confirmation-continuity.md
 import type {
     ChatContextSnapshot,
     ChatHistoryMessage,
     ConversationActionState,
     RecentToolTrace,
+    TradeQuoteState,
     TradeConfirmationState,
 } from './contracts.js';
 import type { ActionClass } from './controlPolicy.js';
 import { isExplicitChainSwitchRequest } from './chainIntent.js';
 import { extractTradeAssetCandidates } from '../../services/ai/tradeSemantics.js';
 import { shouldSupersedePendingSwapConfirmation } from './swapConfirmationSupersession.js';
+import { computeConfirmationToken } from './executionGate.js';
 
 const EVM_ADDR_RE = /\b0x[a-fA-F0-9]{40}\b/g;
 const SOL_ADDR_RE = /\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/g;
@@ -146,7 +172,7 @@ export function buildConversationActionState(snapshot: ChatContextSnapshot): Con
     const normalizedIntent = snapshot.normalizedIntent || null;
     const wantsConfirmation = normalizedIntent?.taskMode === 'confirm' || normalizedIntent?.taskMode === 'execute';
     const carriesMutationIntent = normalizedIntent
-        ? ['swap', 'cross_chain_swap', 'copy_trade', 'polymarket_order'].includes(String(normalizedIntent.intent || ''))
+        ? ['swap', 'cross_chain_swap', 'copy_trade', 'polymarket_order', 'clanker_deploy'].includes(String(normalizedIntent.intent || ''))
         : true;
     const explicitChainSwitch = isExplicitChainSwitchRequest(raw, normalizedIntent);
     const toolTrace = snapshot.recentToolTrace || null;
@@ -289,8 +315,19 @@ function resolveSwapConfirmationFromToolTrace(trace: RecentToolTrace | null): Tr
         const args = (call?.args && typeof call.args === 'object') ? call.args as Record<string, any> : {};
         if (toolName === 'get_cross_chain_quote' || toolName === 'prepare_cross_chain_tx') {
             if (!args.fromToken || !args.toToken || !args.fromAmount) continue;
+            const quote = buildTradeQuoteState(toolName, args, call?.result, extractCallTimestamp(call), true);
             return {
                 kind: 'swap_confirmation',
+                sourceTool: toolName,
+                capturedAt: extractCallTimestamp(call),
+                binding: {
+                    binding_kind: 'preflight_quote',
+                    tool_name: toolName,
+                    action_class: 'TRADE_MUTATION',
+                    source_tool: toolName,
+                    captured_at: extractCallTimestamp(call),
+                },
+                quote,
                 swap: {
                     tokenIn: String(args.fromToken),
                     tokenOut: String(args.toToken),
@@ -302,8 +339,19 @@ function resolveSwapConfirmationFromToolTrace(trace: RecentToolTrace | null): Tr
             };
         }
         if (!args.token_in || !args.token_out || !args.amount_in) continue;
+        const quote = buildTradeQuoteState(toolName, args, call?.result, extractCallTimestamp(call), false);
         return {
             kind: 'swap_confirmation',
+            sourceTool: toolName,
+            capturedAt: extractCallTimestamp(call),
+            binding: {
+                binding_kind: 'preflight_quote',
+                tool_name: toolName,
+                action_class: 'TRADE_MUTATION',
+                source_tool: toolName,
+                captured_at: extractCallTimestamp(call),
+            },
+            quote,
             swap: {
                 tokenIn: String(args.token_in),
                 tokenOut: String(args.token_out),
@@ -321,6 +369,11 @@ function resolveOrderConfirmationFromToolTrace(trace: RecentToolTrace | null): T
     for (let idx = calls.length - 1; idx >= 0; idx -= 1) {
         const call = calls[idx];
         const result = (call?.result && typeof call.result === 'object') ? call.result : {};
+        if (String(call?.tool || '').trim() === 'deploy_clanker_token') {
+            const clankerConfirmation = resolveClankerDeployConfirmationFromToolTrace(call, result);
+            if (clankerConfirmation) return clankerConfirmation;
+            if (isClankerDeployExecutionReceipt(result)) return null;
+        }
         const payload = (result?.confirmation_payload && typeof result.confirmation_payload === 'object')
             ? result.confirmation_payload
             : null;
@@ -341,6 +394,16 @@ function resolveOrderConfirmationFromToolTrace(trace: RecentToolTrace | null): T
         if (toolName === 'create_copy_trade_config' || toolName === 'create_polymarket_copy_config') {
             return {
                 kind: 'copy_trade_confirmation',
+                sourceTool: String(call.tool || toolName),
+                capturedAt: extractCallTimestamp(call),
+                binding: {
+                    binding_kind: 'prepared_confirmation',
+                    binding_key: confirmationToken,
+                    tool_name: toolName,
+                    action_class: normalizeConfirmationActionClass(actionClass),
+                    source_tool: String(call.tool || toolName),
+                    captured_at: extractCallTimestamp(call),
+                },
                 copyTrade: {
                     targetWallet: String(orderPayload.args.target_wallet || orderPayload.args.targetWallet || ''),
                     buyAmountUsd: Number(orderPayload.args.buy_amount_usd || orderPayload.args.bet_size_usd || 0),
@@ -357,6 +420,16 @@ function resolveOrderConfirmationFromToolTrace(trace: RecentToolTrace | null): T
 
         return {
             kind: 'order_confirmation',
+            sourceTool: String(call.tool || toolName),
+            capturedAt: extractCallTimestamp(call),
+            binding: {
+                binding_kind: 'prepared_confirmation',
+                binding_key: confirmationToken,
+                tool_name: toolName,
+                action_class: normalizeConfirmationActionClass(actionClass),
+                source_tool: String(call.tool || toolName),
+                captured_at: extractCallTimestamp(call),
+            },
             order: orderPayload,
         };
     }
@@ -370,6 +443,76 @@ function normalizeConfirmationActionClass(actionClass: ActionClass): ActionClass
     return 'ORDER_MUTATION';
 }
 
+function resolveClankerDeployConfirmationFromToolTrace(
+    call: any,
+    result: Record<string, any>,
+): TradeConfirmationState | null {
+    if (result?.requires_confirmation !== true && result?.dryRun !== true) return null;
+    const launchArgs = extractClankerDeployLaunchArgs(call, result);
+    if (!launchArgs) return null;
+    const executionArgs = buildClankerDeployExecutionArgs(launchArgs);
+    const confirmationToken = computeConfirmationToken('deploy_clanker_token', executionArgs);
+    return {
+        kind: 'order_confirmation',
+        sourceTool: String(call?.tool || 'deploy_clanker_token'),
+        capturedAt: extractCallTimestamp(call),
+        binding: {
+            binding_kind: 'prepared_confirmation',
+            binding_key: confirmationToken,
+            tool_name: 'deploy_clanker_token',
+            action_class: 'TOKEN_DEPLOY_MUTATION',
+            source_tool: String(call?.tool || 'deploy_clanker_token'),
+            captured_at: extractCallTimestamp(call),
+        },
+        order: {
+            toolName: 'deploy_clanker_token',
+            args: executionArgs,
+            confirmationToken,
+            actionClass: 'TOKEN_DEPLOY_MUTATION',
+        },
+    };
+}
+
+function extractClankerDeployLaunchArgs(call: any, result: Record<string, any>): Record<string, any> | null {
+    const confirmationPayload = (result?.confirmation_payload && typeof result.confirmation_payload === 'object')
+        ? result.confirmation_payload as Record<string, any>
+        : null;
+    if (confirmationPayload?.args && typeof confirmationPayload.args === 'object') {
+        return confirmationPayload.args as Record<string, any>;
+    }
+    const dryRunPayload = (result?.payload && typeof result.payload === 'object')
+        ? result.payload as Record<string, any>
+        : null;
+    if (dryRunPayload) return dryRunPayload;
+    if (call?.args && typeof call.args === 'object') {
+        return call.args as Record<string, any>;
+    }
+    return null;
+}
+
+function buildClankerDeployExecutionArgs(args: Record<string, any>): Record<string, any> {
+    return {
+        ...(args || {}),
+        confirmDeploy: true,
+    };
+}
+
+function isClankerDeployExecutionReceipt(result: Record<string, any>): boolean {
+    if (!result || result.dryRun === true) return false;
+    return Boolean(
+        result.success === true
+        || result.tokenAddress
+        || result.token_address
+        || result.txHash
+        || result.transactionHash
+        || result.hash
+        || result.txUrl
+        || result.tx_url
+        || result.explorerUrl
+        || result.explorer_url
+    );
+}
+
 function compareMessagesChronologically(a: any, b: any): number {
     const aIndex = Number(a?.message_index || a?.messageIndex || 0);
     const bIndex = Number(b?.message_index || b?.messageIndex || 0);
@@ -377,6 +520,83 @@ function compareMessagesChronologically(a: any, b: any): number {
     const aCreated = Date.parse(String(a?.created_at || a?.createdAt || 0)) || 0;
     const bCreated = Date.parse(String(b?.created_at || b?.createdAt || 0)) || 0;
     return aCreated - bCreated;
+}
+
+function extractCallTimestamp(call: any): string | null {
+    const value = String(
+        call?.finishedAt
+        || call?.result?.finishedAt
+        || call?.result?.timestamp
+        || call?.result?.quotedAt
+        || '',
+    ).trim();
+    return value || null;
+}
+
+function buildTradeQuoteState(
+    toolName: string,
+    args: Record<string, any>,
+    result: any,
+    fallbackTimestamp: string | null,
+    isCrossChain: boolean,
+): TradeQuoteState {
+    const quoteResult = result && typeof result === 'object' ? result as Record<string, any> : {};
+    const expiresAt = normalizeTimestamp(
+        quoteResult.expiresAt
+        || quoteResult.expires_at
+        || quoteResult.quoteExpiresAt
+        || quoteResult.validUntil,
+    );
+    const staleState = resolveQuoteStaleState(expiresAt, quoteResult);
+    return {
+        quote_id: normalizeString(quoteResult.quoteId || quoteResult.quote_id || quoteResult.id),
+        tool_name: toolName,
+        token_in: isCrossChain ? normalizeString(args.fromToken) : normalizeString(args.token_in),
+        token_out: isCrossChain ? normalizeString(args.toToken) : normalizeString(args.token_out),
+        amount_in: isCrossChain ? normalizeString(args.fromAmount) : normalizeString(args.amount_in),
+        chain_id: isCrossChain ? normalizeNumber(args.fromChain) : normalizeNumber(args.chain_id),
+        to_chain: isCrossChain ? normalizeNumber(args.toChain) : undefined,
+        is_cross_chain: isCrossChain,
+        expected_out: quoteResult.expected_out_human
+            ?? quoteResult.expected_out
+            ?? quoteResult.amountOut
+            ?? quoteResult.amount_out
+            ?? quoteResult.outputAmount
+            ?? null,
+        price_impact: quoteResult.price_impact ?? quoteResult.priceImpact ?? null,
+        quoted_at: normalizeTimestamp(quoteResult.quotedAt || quoteResult.quoted_at || quoteResult.timestamp) || fallbackTimestamp,
+        expires_at: expiresAt,
+        stale: staleState.stale,
+        stale_reason: staleState.reason,
+    };
+}
+
+function resolveQuoteStaleState(expiresAt: string | null, result: Record<string, any>): { stale: boolean; reason: string | null } {
+    if (result.expired === true || result.stale === true) {
+        return { stale: true, reason: 'quote_marked_stale_by_tool' };
+    }
+    if (!expiresAt) return { stale: false, reason: null };
+    const expiresMs = Date.parse(expiresAt);
+    if (!Number.isFinite(expiresMs)) return { stale: false, reason: null };
+    if (expiresMs <= Date.now()) return { stale: true, reason: 'quote_expired' };
+    return { stale: false, reason: null };
+}
+
+function normalizeTimestamp(value: unknown): string | null {
+    const text = normalizeString(value);
+    if (!text) return null;
+    const parsed = Date.parse(text);
+    return Number.isFinite(parsed) ? new Date(parsed).toISOString() : text;
+}
+
+function normalizeString(value: unknown): string | null {
+    const text = String(value ?? '').trim();
+    return text || null;
+}
+
+function normalizeNumber(value: unknown): number | null {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed !== 0 ? parsed : null;
 }
 
 function collectRecentUserMessages(messages: any[], limit: number) {

@@ -1,6 +1,6 @@
 # Chat Runtime Planning Owner Map
 
-Updated: 2026-04-17
+Updated: 2026-04-18
 
 ## Owned Layers
 
@@ -57,7 +57,8 @@ Does not own: deciding whether a runtime card is visible in the product UI.
 
 ### Frontend message bubble
 
-Owns: transcript presentation and the decision to hide runtime plans by default.
+Owns: transcript presentation and normalized runtime plan rendering whenever
+backend state exists.
 
 Does not own: mutating backend runtime state or changing tool execution policy.
 
@@ -68,6 +69,18 @@ Does not own: mutating backend runtime state or changing tool execution policy.
   - Kind: runtime observation
   - Retrieved: 2026-04-17
   - Applied To: separating internal orchestration state from user-facing chat.
+  - Verification: verified in code and targeted tests.
+- Source: operator requirement in local runtime thread to restore visible plan
+  cards in normal chat.
+  - Kind: product doc
+  - Retrieved: 2026-04-18
+  - Applied To: frontend ownership of normal transcript plan-card visibility.
+  - Verification: verified in code.
+- Source: operator runtime transcript showing warmup plan labels rendered as
+  answer-adjacent copy.
+  - Kind: runtime observation
+  - Retrieved: 2026-04-18
+  - Applied To: task-planner hints and frontend ownership of scaffold normalization.
   - Verification: verified in code and targeted tests.
 - Source: `kiko-api/src/jobs/chat/streamBroker.ts`
   - Kind: repo doc
@@ -95,6 +108,8 @@ Does not own: mutating backend runtime state or changing tool execution policy.
 
 - /Users/almurat/KiKo/system-journal/INDEX.md
 - /Users/almurat/KiKo/system-journal/design-language/runtime-plan-visibility.md
+- /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-runtime-plan-visibility-and-nvidia-reasoning-restore.md
+- /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-plan-card-internal-scaffold-filter.md
 - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-runtime-plan-user-visible-hardcoding-fix.md
 - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-worker-entry-boundary.md
 - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-runtime-mode-switch.md

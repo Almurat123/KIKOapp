@@ -1,6 +1,6 @@
 # Owner Map: Clanker Skill
 
-Updated: 2026-04-17
+Updated: 2026-04-19
 Author: Renata
 
 ## Owners
@@ -22,6 +22,15 @@ Author: Renata
   `TOKEN_DEPLOY_MUTATION` action class and Clanker deploy mutation allowlist.
 - `kiko-api/src/jobs/chat/executionGate.ts` owns the `confirmDeploy=true`
   confirmation-token gate for real deploy execution.
+- `kiko-api/src/jobs/chat/conversationStateResolver.ts` owns turning Clanker
+  dry-run previews into reusable confirmation state and preserving the
+  `TOKEN_DEPLOY_MUTATION` action class.
+- `kiko-api/src/jobs/chat/workerStateBuilder.ts` owns replaying the prepared
+  Clanker launch payload on the execute handoff and rebuilding the binding
+  token from the normalized execute args.
+- `kiko-api/src/jobs/chat/nodePromptAssembler.ts` owns surfacing pending
+  Clanker deploy confirmation payloads in worker memory so the model can help
+  confirm them.
 - `kiko-python/grok/router.py` owns Grok gateway enforcement that keeps
   `TOKEN_DEPLOY_MUTATION` node-controlled and prevents extra SDK tool exposure.
 - `kiko-api/src/skills_exec/ClankerSkill/skill.json` and
@@ -39,6 +48,8 @@ Author: Renata
 - The Clanker skill does not persist a KiKo-local deployment ledger yet.
 - The Clanker skill does not treat Clanker beta claimed-fee indexing as
   complete lifetime accounting.
+- The Clanker skill does not own the local `confirmDeploy` execution flag; that
+  flag is replayed only at the worker execute handoff.
 - The Clanker skill hard-requires name and symbol for payload preparation.
   Admin is only a blocking question when runtime cannot provide a tagged user
   wallet, and chain is only blocking when a user-requested non-default chain is
@@ -114,10 +125,29 @@ Author: Renata
   - Applied To: Grok gateway mutation-class enforcement
   - Verification: verified in code and syntax check
 
+- Source: /Users/almurat/KiKo/kiko-api/src/jobs/chat/conversationStateResolver.ts
+  - Kind: repo doc
+  - Retrieved: 2026-04-19
+  - Applied To: Clanker dry-run preview confirmation reconstruction
+  - Verification: verified in code and tests
+
+- Source: /Users/almurat/KiKo/kiko-api/src/jobs/chat/workerStateBuilder.ts
+  - Kind: repo doc
+  - Retrieved: 2026-04-19
+  - Applied To: Clanker execute-handoff binding replay
+  - Verification: verified in code and tests
+
+- Source: /Users/almurat/KiKo/kiko-api/src/jobs/chat/nodePromptAssembler.ts
+  - Kind: repo doc
+  - Retrieved: 2026-04-19
+  - Applied To: pending Clanker deploy payload visibility in prompt memory
+  - Verification: verified in code and tests
+
 ## See Also
 
 - system-journal/INDEX.md
 - system-journal/design-language/clanker-token-deploy-skill.md
 - system-journal/adr/2026-04-15-clanker-token-deploy-skill.md
 - system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
+- system-journal/fix-log/2026-04-19-clanker-dry-run-confirmation-continuity.md
 - system-journal/fix-log/2026-04-17-clanker-devbuy-and-token-url.md

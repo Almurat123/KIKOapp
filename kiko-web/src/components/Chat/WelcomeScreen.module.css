@@ -1088,10 +1088,12 @@
   gap: 14px;
   padding: 0 10px;
   justify-content: flex-start;
+  width: 100%;
+  min-width: 0;
 }
 
 /* CONTEXT MEMORY
- * Updated: 2026-04-17
+ * Updated: 2026-04-18
  * Author: Rowan
  * Reason: The welcome shell now mirrors the live composer with a borderless
  *         inline model/reasoning selector pair and matching transparent icon
@@ -1107,9 +1109,14 @@
  * - first-paint input-row actions should feel borderless and low-chrome
  * - keep enough horizontal breathing room so selected pills do not hug the
  *   row edges
+ * - mobile action rows must stay on one line inside the input shell
  * - the add-image action stays neutral at rest and highlights only on hover
  * - icon buttons should stay transparent at rest and only pick up hover fill
  * - model family and reasoning strength stay separate controls
+ * - text and image model families stay separated inside the model menu
+ * - image model quality uses the same inline control footprint as reasoning
+ * - selector labels must truncate before fixed-size action buttons spill out
+ *   of the shell
  * - dropdowns may use soft depth but should avoid hard outlines
  * - do not reintroduce glass borders around routine welcome actions
  * Document Provenance:
@@ -1123,9 +1130,26 @@
  * - Retrieved: 2026-04-17
  * - Applied To: documenting the borderless welcome-shell selector rewrite
  * - Verification: verified in code
+ * - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-image-model-selector-sections.md
+ * - Kind: repo doc
+ * - Retrieved: 2026-04-18
+ * - Applied To: styling Text/Image selector sections and shared quality control
+ * - Verification: verified in code
+ * - Source: MDN flex property reference
+ * - Kind: official API doc
+ * - Retrieved: 2026-04-18
+ * - Applied To: forcing selector flex items to opt out of min-content overflow
+ * - Verification: verified in code
+ * - Source: MDN text-overflow reference
+ * - Kind: official API doc
+ * - Retrieved: 2026-04-18
+ * - Applied To: truncating long selector labels so the mobile row can stay on one line
+ * - Verification: verified in code
  * See also:
  * - /Users/almurat/KiKo/system-journal/INDEX.md
  * - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-input-borderless-model-reasoning-selector.md
+ * - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-image-model-selector-sections.md
+ * - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-composer-mobile-containment.md
  * - /Users/almurat/KiKo/kiko-web/src/components/Chat/ChatModelSelector.tsx
  * - /Users/almurat/KiKo/kiko-web/src/components/Chat/WelcomeScreen.tsx
  * - /Users/almurat/KiKo/kiko-web/src/components/Chat/ChatComposer.tsx
@@ -1136,12 +1160,14 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  flex-shrink: 0;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .modelSelector {
   position: relative;
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .modelButton {
@@ -1162,6 +1188,8 @@
   transition: background-color 0.2s, color 0.2s;
   position: relative;
   overflow: hidden;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .modelButton::before,
@@ -1179,6 +1207,14 @@
   font-weight: 500;
   font-size: inherit;
   color: inherit;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelNameCompact {
+  display: none;
 }
 
 .chevron {
@@ -1207,6 +1243,29 @@
   animation: slideUp 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   min-width: 100%;
   width: max-content;
+}
+
+.modelDropdownSection {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 0;
+}
+
+.modelDropdownSection + .modelDropdownSection {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.modelDropdownSectionLabel {
+  padding: 4px 10px 3px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: #71717a;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 @keyframes slideUp {
@@ -1240,6 +1299,18 @@
 .modelOption:hover {
   background: rgba(255, 255, 255, 0.05);
   color: #f4f4f5;
+}
+
+.modelOptionDisabled,
+.modelOption:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.modelOptionDisabled:hover,
+.modelOption:disabled:hover {
+  background: transparent;
+  color: #a1a1aa;
 }
 
 .modelOptionActive {
@@ -1420,6 +1491,14 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
 }
 
+.light .modelDropdownSection + .modelDropdownSection {
+  border-top-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+.light .modelDropdownSectionLabel {
+  color: #6b7280 !important;
+}
+
 .light .modelOption {
   color: #374151 !important;
 }
@@ -1427,6 +1506,18 @@
 .light .modelOption:hover {
   background: rgba(0, 0, 0, 0.05) !important;
   color: #111827 !important;
+}
+
+.light .modelOptionDisabled,
+.light .modelOption:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.light .modelOptionDisabled:hover,
+.light .modelOption:disabled:hover {
+  background: transparent !important;
+  color: #374151 !important;
 }
 
 .light .modelOptionActive {
@@ -1514,6 +1605,87 @@
 /* --- Adaptive Mobile Layout (iPhone Pro / standard screen optimization) --- */
 
 @media (max-width: 768px) {
+  .inputContainer {
+    min-width: 0;
+  }
+
+  .inputWrapper {
+    min-width: 0;
+  }
+
+  .textareaContainer {
+    padding: 10px 12px;
+    min-width: 0;
+    gap: 10px;
+  }
+
+  .inputActions {
+    flex-wrap: nowrap;
+    gap: 6px;
+    padding: 0;
+  }
+
+  .modelSelectors {
+    width: auto;
+    flex: 1 1 auto;
+    gap: 6px;
+  }
+
+  .modelSelector {
+    flex: 1 1 0;
+  }
+
+  .modelSelector:last-child {
+    flex: 0 0 82px;
+  }
+
+  .modelButton {
+    width: 100%;
+    justify-content: space-between;
+    padding: 0 8px;
+    height: 30px !important;
+    font-size: 13px;
+  }
+
+  .modelNameFull {
+    display: none;
+  }
+
+  .modelNameCompact {
+    display: inline;
+  }
+
+  .uploadButton,
+  .settingsButton {
+    width: 28px !important;
+    height: 28px !important;
+    min-width: 28px !important;
+    min-height: 28px !important;
+  }
+
+  .uploadButton svg,
+  .settingsButton svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .sendButton {
+    margin-left: 0;
+    width: 30px !important;
+    height: 30px !important;
+    min-width: 30px !important;
+    min-height: 30px !important;
+  }
+
+  .sendButton svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .modelDropdown {
+    max-width: min(calc(100vw - 32px), 320px);
+  }
+
 
   /* Ensure only 3 bubbles are visible on mobile width */
   .gridContainer>.card:nth-child(n+4) {

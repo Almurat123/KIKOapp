@@ -1,3 +1,26 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-19
+// Author: Renata
+// Reason: Polymarket bet preparation must carry market URLs into confirmation
+//         payloads so the eventual order receipt can show a user-clickable
+//         market link instead of only an opaque token id.
+// Goal: preserve exact market selection evidence while preparing order
+//       confirmation payloads.
+// Owns: Polymarket research/quote/prep tool result shaping.
+// Does Not Own: order placement, credential setup, or CLOB execution.
+// Design Language:
+// - never fabricate market slugs or token ids
+// - when a verified market slug exists, include its Polymarket URL
+// - confirmation payloads should carry receipt context forward
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-19
+// - Applied To: prepare_polymarket_bet market URL propagation
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
 import { Tool } from '../../../tooling/registry.js';
 import { getTradesByAssetId } from '../../../services/polymarketTradeService.js';
 import { getExecutablePrice } from '../../../services/polymarketDataService.js';
@@ -6,6 +29,7 @@ import { buildPolymarketFundingPlan } from '../../../services/polymarketFundingP
 import { getEventDetails, resolveAuthoritativePolymarketSelection, verifyPolymarketSelection } from '../../../services/polymarket.js';
 import { resolvePolymarketSelectionMatch } from '../../../jobs/chat/polymarketSelectionState.js';
 import { computeConfirmationToken } from '../../../jobs/chat/executionGate.js';
+import { buildPolymarketMarketUrl } from '../../../utils/executionLinks.js';
 
 /**
  * Get Market Activity Tool
@@ -250,6 +274,7 @@ export const PreparePolymarketBetTool: Tool = {
         const effectiveOutcome = selectionMatch?.outcome || args.outcome;
         const effectiveMarketId = selectionMatch?.marketId || args.market_id;
         const effectiveMarketSlug = selectionMatch?.marketSlug || args.market_slug;
+        const effectiveMarketUrl = buildPolymarketMarketUrl(effectiveMarketSlug);
         const seedTokenId = selectionMatch?.tokenId || tokenId;
 
         const [event, selectionValidation] = await Promise.all([
@@ -355,6 +380,8 @@ export const PreparePolymarketBetTool: Tool = {
                 amount_usd: args.amount_usd,
                 question: effectiveQuestion,
                 outcome: effectiveOutcome,
+                ...(effectiveMarketSlug ? { market_slug: effectiveMarketSlug } : {}),
+                ...(effectiveMarketUrl ? { market_url: effectiveMarketUrl } : {}),
             }
             : null;
 
@@ -406,6 +433,8 @@ export const PreparePolymarketBetTool: Tool = {
                 token_id: tokenId,
                 resolved_token_id: effectiveTokenId !== tokenId ? effectiveTokenId : null,
                 amount_usd: args.amount_usd ?? null,
+                market_slug: effectiveMarketSlug ?? null,
+                market_url: effectiveMarketUrl ?? null,
             },
             selection_validation: {
                 valid: selectionIsValid,
@@ -414,6 +443,7 @@ export const PreparePolymarketBetTool: Tool = {
                 event_id: selectionValidation.eventId,
                 market_id: selectionValidation.marketId,
                 market_slug: selectionValidation.marketSlug,
+                market_url: buildPolymarketMarketUrl(selectionValidation.marketSlug) ?? null,
                 condition_id: selectionValidation.conditionId,
                 resolved_token_id: selectionValidation.resolvedTokenId,
                 resolved_outcome: selectionValidation.resolvedOutcome,
@@ -428,6 +458,7 @@ export const PreparePolymarketBetTool: Tool = {
                     reason: authoritativeSelection.reason,
                     market_id: authoritativeSelection.marketId,
                     market_slug: authoritativeSelection.marketSlug,
+                    market_url: buildPolymarketMarketUrl(authoritativeSelection.marketSlug) ?? null,
                     condition_id: authoritativeSelection.conditionId,
                     resolved_token_id: authoritativeSelection.resolvedTokenId,
                     resolved_outcome: authoritativeSelection.resolvedOutcome,
@@ -441,6 +472,7 @@ export const PreparePolymarketBetTool: Tool = {
                     reason: 'event_lookup_failed',
                     market_id: args.market_id ?? selectionValidation.marketId ?? null,
                     market_slug: args.market_slug ?? selectionValidation.marketSlug ?? null,
+                    market_url: buildPolymarketMarketUrl(args.market_slug ?? selectionValidation.marketSlug) ?? null,
                     condition_id: null,
                     resolved_token_id: null,
                     resolved_outcome: null,
@@ -473,6 +505,7 @@ export const PreparePolymarketBetTool: Tool = {
                 event_lookup_ok: Boolean(event),
                 market_id_used: effectiveMarketId ?? selectionValidation.marketId ?? null,
                 market_slug_used: effectiveMarketSlug ?? selectionValidation.marketSlug ?? null,
+                market_url: effectiveMarketUrl ?? buildPolymarketMarketUrl(selectionValidation.marketSlug) ?? null,
                 selection_state_match: selectionMatch,
             },
             requires_confirmation: Boolean(safeOrderArgs || swapFundingConfirmation),

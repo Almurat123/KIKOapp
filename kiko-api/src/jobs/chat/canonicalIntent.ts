@@ -10,7 +10,9 @@
 //         into generic token analysis or free-form clarification. Product owner
 //         correction on 2026-04-18 moved default task selection to the main
 //         model, so canonical normalization state also needs an explicit
-//         `model_selected_task_menu` bypass marker.
+//         `model_selected_task_menu` bypass marker. A later runtime correction
+//         removed backend-authored clarification copy so canonical intent stays
+//         structured state only, not a source of worker-written user replies.
 // Goal: keep canonical intent normalization usable while filtering malformed
 //       wallet entities out of downstream execution paths, and preserve
 //       deterministic bypass state for non-chain turns that must not re-enter
@@ -26,6 +28,7 @@
 // - deterministic normalization bypass must be explicit state, not hidden worker memory
 // - Clanker launch/deploy turns are canonical `clanker_deploy`, not generic token analysis
 // - model-selected task-menu bypass means no backend canonical intent was chosen for the user-facing turn
+// - canonical normalization may request clarification as state, but backend-authored clarification prose is forbidden
 // Document Provenance:
 // - Source: chat transcript + runtime logs + production database inspection for BSC copy-trade target wallets
 // - Kind: runtime observation
@@ -47,6 +50,11 @@
 // - Retrieved: 2026-04-18
 // - Applied To: `model_selected_task_menu` deterministic bypass marker
 // - Verification: verified in code and targeted tests
+// - Source: /Users/almurat/Downloads/logs.1776445174160.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-18
+// - Applied To: removing backend-authored canonical clarification reply text
+// - Verification: verified in runtime and then removed in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
@@ -55,6 +63,7 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-non-chain-normalization-bypass.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-model-selected-task-menu.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-hardcoded-reply-path-removal.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import type { ChatContextSnapshot } from './contracts.js';
 import { resolveBinaryLocale } from './runtimeLocale.js';
@@ -422,21 +431,4 @@ export function applyCanonicalIntentToSnapshot(snapshot: ChatContextSnapshot, in
         requestedTokenSymbols,
         normalizedIntent: intent,
     };
-}
-
-export function buildCanonicalIntentClarification(params: {
-    snapshot: ChatContextSnapshot;
-    reasonCode?: NormalizationReasonCode;
-}): string {
-    const locale = resolveBinaryLocale(String(params.snapshot.lastUserMessage || ''));
-    if (locale === 'zh') {
-        if (params.reasonCode === 'normalization_entity_conflict') {
-            return '我识别到你的请求里有冲突的链或实体信息。请明确告诉我要分析哪个链、哪个地址或哪个市场。';
-        }
-        return '我需要先确认你的目标再继续。请直接告诉我你要做什么、对象是什么，以及如果相关的话是哪个链或市场。';
-    }
-    if (params.reasonCode === 'normalization_entity_conflict') {
-        return 'I detected conflicting chain or entity hints in your request. Please specify the exact chain, address, or market you want me to work on.';
-    }
-    return 'I need one clarification before continuing. Please state the exact task, target address or market, and chain if it matters.';
 }

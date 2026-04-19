@@ -1,0 +1,285 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-19
+// Author: Rowan
+// Reason: model-owned image generation needs one server-owned optimizer boundary
+//         between the chat model's intent-level tool call and the provider
+//         prompt sent into generated-image execution. The product requirement
+//         is to let the main model decide when to generate, while still keeping
+//         prompt control, brand/safety defaults, and negative constraints out of
+//         free-form provider prompting. Generated images now also receive the
+//         product-required `AI-generated` provenance mark after provider generation, so
+//         this optimizer must avoid asking the provider to draw or suppress the
+//         final disclosure label itself.
+// Goal: accept intent-level image-generation arguments, normalize them into one
+//       structured prompt spec, and compile a provider prompt plus a short
+//       user-safe summary without leaking provider-only controls into chat history.
+// Owns: structured image prompt normalization, server-owned prompt controls,
+//       negative constraint defaults, and prompt-summary generation.
+// Does Not Own: provider HTTP request shape, task execution, billing, safety
+//               moderation, or frontend rendering.
+// Design Language:
+// - the chat model may propose structured image fields, but the server owns the final provider prompt
+// - prompt summaries are transcript-safe; full provider prompts stay inside execution owners
+// - image prompt control should be additive and deterministic, not a second hidden model call
+// - the required KiKo `AI-generated` disclosure label is applied after provider output;
+//   provider prompts should only block extra provider/artist marks inside the scene
+// - forbidden local patch pattern: letting provider-specific prompt strings leak directly into visible assistant history
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-18
+// - Applied To: reusing transcript-native generated-image execution instead of a separate UI path
+// - Verification: verified in code
+// - Source: operator requirement on 2026-04-18 for model-owned image generation with prompt optimization
+// - Kind: product doc
+// - Retrieved: 2026-04-18
+// - Applied To: intent-level tool contract plus server-owned prompt compilation
+// - Verification: verified in code
+// - Source: operator requirement on 2026-04-19 for generated-image `AI-generated` watermark
+// - Kind: product doc
+// - Retrieved: 2026-04-19
+// - Applied To: preventing optimizer defaults from conflicting with server-side watermarking
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/generated-image-safety.md
+// - /Users/almurat/KiKo/system-journal/design-language/generated-image-billing.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-v2-model-owned-image-generation-tool.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
+
+export type GeneratedImageIntentMode = 'generate' | 'edit';
+
+export interface GeneratedImageReferenceImage {
+    url?: string | null;
+    description?: string | null;
+    purpose?: string | null;
+}
+
+export interface GeneratedImageIntentInput {
+    user_intent: string;
+    style_hint?: string | null;
+    aspect_ratio?: string | null;
+    reference_images?: GeneratedImageReferenceImage[] | null;
+    safety_level?: string | null;
+    edit_or_generate?: GeneratedImageIntentMode | string | null;
+    subject?: string | null;
+    scene?: string | null;
+    composition?: string | null;
+    style?: string | null;
+    lighting?: string | null;
+    camera?: string | null;
+    constraints?: string[] | null;
+    negative_constraints?: string[] | null;
+}
+
+export interface OptimizedGeneratedImagePromptSpec {
+    editOrGenerate: GeneratedImageIntentMode;
+    subject: string;
+    scene: string;
+    composition: string;
+    style: string;
+    lighting: string;
+    camera: string;
+    aspectRatio: string;
+    safetyLevel: 'standard' | 'strict';
+    constraints: string[];
+    negativeConstraints: string[];
+    referenceImages: GeneratedImageReferenceImage[];
+}
+
+export interface OptimizedGeneratedImagePrompt {
+    spec: OptimizedGeneratedImagePromptSpec;
+    optimizedPromptSummary: string;
+    providerPrompt: string;
+}
+
+const DEFAULT_ASPECT_RATIO = '1:1';
+const DEFAULT_STYLE = 'high-quality, cohesive visual design';
+const DEFAULT_LIGHTING = 'clean, intentional lighting';
+const DEFAULT_CAMERA = 'framing that matches the requested composition';
+const DEFAULT_COMPOSITION = 'single clear focal point with balanced composition';
+const DEFAULT_SCENE = 'a visually coherent scene that matches the request';
+
+function normalizeText(value: unknown): string {
+    return String(value || '').trim().replace(/\s+/g, ' ');
+}
+
+function normalizeList(values: unknown): string[] {
+    if (!Array.isArray(values)) return [];
+    return values
+        .map((value) => normalizeText(value))
+        .filter(Boolean);
+}
+
+function dedupe(items: string[]): string[] {
+    return Array.from(new Set(items.filter(Boolean)));
+}
+
+function normalizeSafetyLevel(value: unknown): 'standard' | 'strict' {
+    const normalized = normalizeText(value).toLowerCase();
+    if (normalized === 'strict' || normalized === 'high') return 'strict';
+    return 'standard';
+}
+
+function inferIntentMode(params: GeneratedImageIntentInput): GeneratedImageIntentMode {
+    const declared = normalizeText(params.edit_or_generate).toLowerCase();
+    if (declared === 'edit') return 'edit';
+    if (Array.isArray(params.reference_images) && params.reference_images.length > 0) {
+        return 'edit';
+    }
+    return 'generate';
+}
+
+function inferSubject(params: GeneratedImageIntentInput): string {
+    return normalizeText(params.subject) || normalizeText(params.user_intent);
+}
+
+function inferScene(params: GeneratedImageIntentInput): string {
+    return normalizeText(params.scene) || DEFAULT_SCENE;
+}
+
+function inferComposition(params: GeneratedImageIntentInput): string {
+    return normalizeText(params.composition) || DEFAULT_COMPOSITION;
+}
+
+function inferStyle(params: GeneratedImageIntentInput): string {
+    return normalizeText(params.style) || normalizeText(params.style_hint) || DEFAULT_STYLE;
+}
+
+function inferLighting(params: GeneratedImageIntentInput): string {
+    return normalizeText(params.lighting) || DEFAULT_LIGHTING;
+}
+
+function inferCamera(params: GeneratedImageIntentInput): string {
+    return normalizeText(params.camera) || DEFAULT_CAMERA;
+}
+
+function normalizeReferenceImages(value: unknown): GeneratedImageReferenceImage[] {
+    if (!Array.isArray(value)) return [];
+    const normalized: GeneratedImageReferenceImage[] = [];
+    for (const item of value) {
+        if (!item || typeof item !== 'object') continue;
+        const url = normalizeText((item as GeneratedImageReferenceImage).url);
+        const description = normalizeText((item as GeneratedImageReferenceImage).description);
+        const purpose = normalizeText((item as GeneratedImageReferenceImage).purpose);
+        if (!url && !description) continue;
+        normalized.push({
+            url: url || null,
+            description: description || null,
+            purpose: purpose || null,
+        });
+    }
+    return normalized;
+}
+
+function buildDefaultConstraints(spec: {
+    aspectRatio: string;
+    safetyLevel: 'standard' | 'strict';
+}): string[] {
+    const base = [
+        `target aspect ratio ${spec.aspectRatio}`,
+        'clear primary subject and readable silhouette',
+        'strong composition with natural depth and consistent perspective',
+        'high detail, polished finish, and coherent color palette',
+        'include text only if the user explicitly asked for text in the image',
+    ];
+    if (spec.safetyLevel === 'strict') {
+        base.push('stay within a conservative brand-safe visual range');
+    }
+    return base;
+}
+
+function buildDefaultNegativeConstraints(safetyLevel: 'standard' | 'strict'): string[] {
+    const base = [
+        'no provider-generated watermark, artist signature, or logo inside the scene',
+        'no unintended extra limbs or duplicated subjects',
+        'no distorted anatomy',
+        'no blurry low-detail output',
+        'no broken hands or malformed facial features',
+        'no random unreadable text',
+    ];
+    if (safetyLevel === 'strict') {
+        base.push('no graphic violence');
+        base.push('no explicit nudity');
+        base.push('no hateful or extremist imagery');
+    }
+    return base;
+}
+
+function buildProviderPrompt(spec: OptimizedGeneratedImagePromptSpec): string {
+    const lines = [
+        `Create an original ${spec.editOrGenerate === 'edit' ? 'image revision' : 'image'} from this direction.`,
+        `Subject: ${spec.subject}`,
+        `Scene: ${spec.scene}`,
+        `Composition: ${spec.composition}`,
+        `Style: ${spec.style}`,
+        `Lighting: ${spec.lighting}`,
+        `Camera framing: ${spec.camera}`,
+        `Aspect ratio target: ${spec.aspectRatio}`,
+        `Hard constraints: ${spec.constraints.join('; ')}`,
+        `Avoid: ${spec.negativeConstraints.join('; ')}`,
+    ];
+    if (spec.referenceImages.length > 0) {
+        const referenceSummary = spec.referenceImages
+            .map((item, index) => {
+                const parts = [
+                    item.description ? `desc=${item.description}` : '',
+                    item.purpose ? `purpose=${item.purpose}` : '',
+                ].filter(Boolean);
+                return `reference ${index + 1}${parts.length > 0 ? ` (${parts.join(', ')})` : ''}`;
+            })
+            .join('; ');
+        lines.push(`Reference guidance: ${referenceSummary}`);
+    }
+    lines.push('Keep the image visually clean, intentional, and faithful to the requested subject.');
+    return lines.join('\n');
+}
+
+function buildPromptSummary(spec: OptimizedGeneratedImagePromptSpec): string {
+    const summaryBits = [
+        spec.subject,
+        spec.style !== DEFAULT_STYLE ? spec.style : '',
+        spec.composition !== DEFAULT_COMPOSITION ? spec.composition : '',
+        spec.aspectRatio !== DEFAULT_ASPECT_RATIO ? `${spec.aspectRatio} frame` : '',
+    ].filter(Boolean);
+    return summaryBits.join(' | ');
+}
+
+export function optimizeGeneratedImagePrompt(input: GeneratedImageIntentInput): OptimizedGeneratedImagePrompt {
+    const userIntent = normalizeText(input.user_intent);
+    if (!userIntent) {
+        throw new Error('user_intent is required for image generation.');
+    }
+
+    const safetyLevel = normalizeSafetyLevel(input.safety_level);
+    const spec: OptimizedGeneratedImagePromptSpec = {
+        editOrGenerate: inferIntentMode(input),
+        subject: inferSubject(input),
+        scene: inferScene(input),
+        composition: inferComposition(input),
+        style: inferStyle(input),
+        lighting: inferLighting(input),
+        camera: inferCamera(input),
+        aspectRatio: normalizeText(input.aspect_ratio) || DEFAULT_ASPECT_RATIO,
+        safetyLevel,
+        constraints: dedupe([
+            ...buildDefaultConstraints({
+                aspectRatio: normalizeText(input.aspect_ratio) || DEFAULT_ASPECT_RATIO,
+                safetyLevel,
+            }),
+            ...normalizeList(input.constraints),
+        ]),
+        negativeConstraints: dedupe([
+            ...buildDefaultNegativeConstraints(safetyLevel),
+            ...normalizeList(input.negative_constraints),
+        ]),
+        referenceImages: normalizeReferenceImages(input.reference_images),
+    };
+
+    return {
+        spec,
+        optimizedPromptSummary: buildPromptSummary(spec),
+        providerPrompt: buildProviderPrompt(spec),
+    };
+}

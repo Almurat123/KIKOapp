@@ -1,13 +1,15 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-19
 // Author: Linh Tran / Almurat
 // Reason: Snapchain-based Farcaster mention replies still need the same
 //         delivery idempotency and retry accounting as other social surfaces,
 //         but with cast hashes and parent reply semantics instead of tweet IDs.
 //         Public link/bot-loop prevention also depends on idempotency surviving
-//         concurrent attempts without throwing duplicate-key errors.
+//         concurrent attempts without throwing duplicate-key errors. Generated
+//         image replies now need outbound cast embeds persisted in the delivery
+//         payload and passed through to the Farcaster publication owner.
 // Goal: keep outbound Farcaster reply publication deterministic and persisted,
-//       including concurrent idempotency races.
+//       including concurrent idempotency races and generated-image media embeds.
 // Owns: Farcaster outbound delivery rows and cast-reply publication.
 // Does Not Own: mention polling, AI generation, or user linking.
 // Design Language:
@@ -16,6 +18,8 @@
 // - Update conversation mapping after a successful provider write.
 // - Treat a concurrent unique-key collision as "already reserved" and do not
 //   publish a second cast.
+// - Persist outbound embed URLs with the delivery attempt so media publication
+//   retries remain auditable and deterministic.
 // Document Provenance:
 // - Source: @farcaster/hub-nodejs README and dist typings
 // - Kind: local SDK source
@@ -29,10 +33,16 @@
 // - Retrieved: 2026-04-17
 // - Applied To: preserving delivery idempotency under concurrent bind attempts
 // - Verification: verified in code
+// - Source: operator requirement on 2026-04-19 for Farcaster generated-image replies
+// - Kind: product doc
+// - Retrieved: 2026-04-19
+// - Applied To: preserving and publishing generated-image cast embeds
+// - Verification: verified in targeted test
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-farcaster-self-loop-bind-spam-guard.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import prisma from '../../db/prisma.js';
 import { logger } from '../../utils/logger.js';
@@ -41,6 +51,23 @@ import { farcasterApiClient } from './farcasterApiClient.js';
 import { markFarcasterConversationOutbound } from './farcasterConversationService.js';
 
 type DeliveryType = 'reply' | 'notification';
+
+function normalizeFarcasterCastEmbedUrls(value: unknown): string[] {
+  const rawUrls = Array.isArray(value) ? value : [];
+  const deduped = new Set<string>();
+  for (const raw of rawUrls) {
+    const url = String(raw || '').trim();
+    if (!url) continue;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') continue;
+      deduped.add(parsed.toString());
+    } catch {
+      continue;
+    }
+  }
+  return Array.from(deduped).slice(0, 2);
+}
 
 async function createOrReuseDelivery(params: {
   userId?: string | null;
@@ -140,8 +167,10 @@ export class FarcasterReplyService {
     userId?: string | null;
     conversationMappingId?: string | null;
     idempotencyKey: string;
+    embeds?: string[] | null;
   }): Promise<boolean> {
     if (!this.isConfigured()) return false;
+    const embeds = normalizeFarcasterCastEmbedUrls(params.embeds);
     const { record, alreadySent } = await createOrReuseDelivery({
       userId: params.userId,
       farcasterFid: params.farcasterFid,
@@ -154,6 +183,7 @@ export class FarcasterReplyService {
         parentHash: params.parentHash,
         parentAuthorFid: params.parentAuthorFid,
         text: params.text,
+        embeds,
       },
     });
     if (alreadySent) return true;
@@ -164,6 +194,7 @@ export class FarcasterReplyService {
         parentHash: params.parentHash,
         parentAuthorFid: params.parentAuthorFid,
         idem: params.idempotencyKey,
+        embeds,
       });
       await prisma.farcasterMessageDelivery.update({
         where: { id: record.id },

@@ -1,6 +1,64 @@
 import prisma from '../db/prisma.js';
 import { Prisma } from '@prisma/client';
 
+// CONTEXT MEMORY
+// Updated: 2026-04-18
+// Author: Rowan
+// Reason: chat token usage and generated-image billing now need separate ledgers.
+//         Chat usage is keyed by assistant-message id, but generated-image
+//         usage must reserve against a server-owned request/context id before a
+//         provider call so free-image quotas cannot be bypassed by frontend or
+//         retry-state drift.
+// Goal: keep billing persistence split by product surface while still exposing
+//       one aggregate paid-USD view for the daily billing job.
+// Owns: raw SQL persistence and aggregation for chat usage, generated-image
+//       usage reservations, billing consent, and daily charge staging.
+// Does Not Own: request-time quota decisions, frontend model availability, or
+//               image safety checks.
+// Design Language:
+// - chat and generated-image traffic must not share one idempotency key space
+// - generated-image free quota must be counted from reserved or completed rows
+// - only completed paid generated-image rows may enter the daily billing charge
+// - billing aggregates must stay additive across ledgers
+// - forbidden local patch patterns: squeezing generated-image state into
+//   `billing_usage_ledger` with synthetic assistant ids
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/design-language/generated-image-billing.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-18
+// - Applied To: separating generated-image reservation storage from chat usage
+// - Verification: verified in code
+// - Source: xAI Grok Imagine Image and Grok Imagine Image Pro model pages
+// - Kind: official API doc
+// - Retrieved: 2026-04-18
+// - Applied To: storing per-image paid image generation usage in a dedicated ledger
+// - Verification: verified in docs
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/generated-image-billing.md
+// - /Users/almurat/KiKo/system-journal/owner-map/generated-image-billing.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-billing-and-gating.md
+// - /Users/almurat/KiKo/system-journal/conflicts.md
+
+export type GeneratedImageUsageRecord = {
+    requestId: string;
+    userId: string;
+    provider: string;
+    model: string;
+    modelFamily: string;
+    quality: string;
+    status: string;
+    imageCount: number;
+    freeImageCount: number;
+    billedImageCount: number;
+    usdCost: number;
+    dateUtc: string;
+    contextType: string;
+    contextId: string;
+    source: string | null;
+    failureReason: string | null;
+};
+
 export async function getDailyUsageCount(
     userId: string,
     dateUtc: string,
@@ -43,11 +101,21 @@ export async function getDailyTotalUsageCount(userId: string, dateUtc: string): 
 
 export async function getDailyPaidUsdTotal(userId: string, dateUtc: string): Promise<number> {
     const rows = await prisma.$queryRaw<{ total: number | string | null }[]>`
-        SELECT COALESCE(SUM(usd_cost), 0) AS total
-        FROM billing_usage_ledger
-        WHERE user_id = ${userId}
-          AND date_utc = ${dateUtc}::date
-          AND is_free = FALSE
+        SELECT COALESCE(SUM(total_usd), 0) AS total
+        FROM (
+            SELECT usd_cost AS total_usd
+            FROM billing_usage_ledger
+            WHERE user_id = ${userId}
+              AND date_utc = ${dateUtc}::date
+              AND is_free = FALSE
+            UNION ALL
+            SELECT usd_cost AS total_usd
+            FROM generated_image_usage_ledger
+            WHERE user_id = ${userId}
+              AND date_utc = ${dateUtc}::date
+              AND status = 'completed'
+              AND billed_image_count > 0
+        ) paid_usage
     `;
     return Number(rows[0]?.total || 0);
 }
@@ -125,16 +193,191 @@ export async function clearBillingBlock(userId: string, dateUtc: string): Promis
 
 export async function getDailyAggregates(dateUtc: string): Promise<Array<{ user_id: string; total_usd: number }>> {
     const rows = await prisma.$queryRaw<{ user_id: string; total_usd: number | string }[]>`
-        SELECT user_id, COALESCE(SUM(usd_cost), 0) AS total_usd
-        FROM billing_usage_ledger
-        WHERE date_utc = ${dateUtc}::date
-          AND is_free = FALSE
+        SELECT user_id, COALESCE(SUM(total_usd), 0) AS total_usd
+        FROM (
+            SELECT user_id, usd_cost AS total_usd
+            FROM billing_usage_ledger
+            WHERE date_utc = ${dateUtc}::date
+              AND is_free = FALSE
+            UNION ALL
+            SELECT user_id, usd_cost AS total_usd
+            FROM generated_image_usage_ledger
+            WHERE date_utc = ${dateUtc}::date
+              AND status = 'completed'
+              AND billed_image_count > 0
+        ) paid_usage
         GROUP BY user_id
     `;
     return rows.map(row => ({
         user_id: row.user_id,
         total_usd: Number(row.total_usd || 0)
     }));
+}
+
+export async function findGeneratedImageUsageRecord(requestId: string): Promise<GeneratedImageUsageRecord | null> {
+    const rows = await prisma.$queryRaw<Array<{
+        request_id: string;
+        user_id: string;
+        provider: string;
+        model: string;
+        model_family: string;
+        quality: string;
+        status: string;
+        image_count: number | bigint;
+        free_image_count: number | bigint;
+        billed_image_count: number | bigint;
+        usd_cost: number | string | null;
+        date_utc: string;
+        context_type: string;
+        context_id: string;
+        source: string | null;
+        failure_reason: string | null;
+    }>>`
+        SELECT
+            request_id,
+            user_id,
+            provider,
+            model,
+            model_family,
+            quality,
+            status,
+            image_count,
+            free_image_count,
+            billed_image_count,
+            usd_cost,
+            date_utc::text AS date_utc,
+            context_type,
+            context_id,
+            source,
+            failure_reason
+        FROM generated_image_usage_ledger
+        WHERE request_id = ${requestId}
+        LIMIT 1
+    `;
+
+    const row = rows[0];
+    if (!row) return null;
+    return {
+        requestId: row.request_id,
+        userId: row.user_id,
+        provider: row.provider,
+        model: row.model,
+        modelFamily: row.model_family,
+        quality: row.quality,
+        status: row.status,
+        imageCount: Number(row.image_count || 0),
+        freeImageCount: Number(row.free_image_count || 0),
+        billedImageCount: Number(row.billed_image_count || 0),
+        usdCost: Number(row.usd_cost || 0),
+        dateUtc: row.date_utc,
+        contextType: row.context_type,
+        contextId: row.context_id,
+        source: row.source || null,
+        failureReason: row.failure_reason || null,
+    };
+}
+
+export async function getDailyGeneratedImageReservationSummary(params: {
+    userId: string;
+    dateUtc: string;
+    modelFamily: string;
+}): Promise<{ imageCount: number; freeImageCount: number; billedImageCount: number; usdCost: number }> {
+    const rows = await prisma.$queryRaw<Array<{
+        image_count: number | bigint;
+        free_image_count: number | bigint;
+        billed_image_count: number | bigint;
+        usd_cost: number | string | null;
+    }>>`
+        SELECT
+            COALESCE(SUM(image_count), 0)::bigint AS image_count,
+            COALESCE(SUM(free_image_count), 0)::bigint AS free_image_count,
+            COALESCE(SUM(billed_image_count), 0)::bigint AS billed_image_count,
+            COALESCE(SUM(usd_cost), 0) AS usd_cost
+        FROM generated_image_usage_ledger
+        WHERE user_id = ${params.userId}
+          AND date_utc = ${params.dateUtc}::date
+          AND model_family = ${params.modelFamily}
+          AND status IN ('reserved', 'completed')
+    `;
+
+    const row = rows[0];
+    return {
+        imageCount: Number(row?.image_count || 0),
+        freeImageCount: Number(row?.free_image_count || 0),
+        billedImageCount: Number(row?.billed_image_count || 0),
+        usdCost: Number(row?.usd_cost || 0),
+    };
+}
+
+export async function insertGeneratedImageUsageReservation(params: {
+    requestId: string;
+    userId: string;
+    provider: string;
+    model: string;
+    modelFamily: string;
+    quality: string;
+    status?: string;
+    imageCount: number;
+    freeImageCount: number;
+    billedImageCount: number;
+    usdCost: number;
+    dateUtc: string;
+    contextType: string;
+    contextId: string;
+    source?: string | null;
+}, tx: Prisma.TransactionClient = prisma): Promise<void> {
+    await tx.$executeRaw`
+        INSERT INTO generated_image_usage_ledger (
+            id,
+            request_id,
+            user_id,
+            provider,
+            model,
+            model_family,
+            quality,
+            status,
+            image_count,
+            free_image_count,
+            billed_image_count,
+            usd_cost,
+            date_utc,
+            context_type,
+            context_id,
+            source
+        ) VALUES (
+            gen_random_uuid(),
+            ${params.requestId},
+            ${params.userId},
+            ${params.provider},
+            ${params.model},
+            ${params.modelFamily},
+            ${params.quality},
+            ${params.status || 'reserved'},
+            ${params.imageCount},
+            ${params.freeImageCount},
+            ${params.billedImageCount},
+            ${params.usdCost},
+            ${params.dateUtc}::date,
+            ${params.contextType},
+            ${params.contextId},
+            ${params.source || null}
+        )
+        ON CONFLICT (request_id) DO NOTHING
+    `;
+}
+
+export async function updateGeneratedImageUsageStatus(params: {
+    requestId: string;
+    status: 'completed' | 'failed' | 'cancelled';
+    failureReason?: string | null;
+}, tx: Prisma.TransactionClient = prisma): Promise<void> {
+    await tx.$executeRaw`
+        UPDATE generated_image_usage_ledger
+        SET status = ${params.status},
+            failure_reason = ${params.failureReason || null},
+            updated_at = NOW()
+        WHERE request_id = ${params.requestId}
+    `;
 }
 
 export async function upsertDailyBilling(params: {

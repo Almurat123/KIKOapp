@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 # CONTEXT MEMORY
-# Updated: 2026-04-16
+# Updated: 2026-04-19
 # Author: Rowan
 # Reason: orchestration can also receive merged tool deltas with a blank
 #         function name even though the argument shape clearly maps to one
-#         allowed tool; dropping those calls creates avoidable routing noise.
+#         allowed tool; dropping those calls creates avoidable routing noise,
+#         and the service now threads skill-resolution guidance into prompt
+#         assembly so Python stays aligned with the model-led tool rollout.
 # Goal: keep orchestration rounds stable by repairing empty tool names whenever
-#       the allowed tool schema makes the match deterministic.
+#       the allowed tool schema makes the match deterministic and by preserving
+#       the same model-led guidance surface as the Node path.
 # Owns: orchestration-round assembly, provider event adaptation, and tool-call
 #       forwarding inside the Python orchestration service.
 # Does Not Own: final chat rendering, provider SDK behavior, or external tool handlers.
@@ -239,7 +242,7 @@ class OrchestrationService:
                 for item in snapshot.get("toolDefinitions") or []
                 if item["name"] in allowed_tool_names
             ]
-            messages = assemble_messages(snapshot, skill_resolution["skillPrompts"], provider_info)
+            messages = assemble_messages(snapshot, skill_resolution["skillPrompts"], provider_info, skill_resolution)
             logger.info(
                 "orchestration.run_prepared run_id=%s tool_count=%s message_count=%s allowed_tools=%s",
                 state.run_id,

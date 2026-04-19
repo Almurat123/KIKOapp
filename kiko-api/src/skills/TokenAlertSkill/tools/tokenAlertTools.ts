@@ -2,6 +2,31 @@ import { prisma } from '../../../db/prisma.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import type { Tool } from '../../../tooling/registry.js';
+import { buildAddressExplorerUrl } from '../../../utils/executionLinks.js';
+
+// CONTEXT MEMORY
+// Updated: 2026-04-19
+// Author: Renata
+// Reason: Agent-mode token alert receipts need to show the exact watched token
+//         plus a user-clickable chain explorer URL, especially when the alert
+//         can later trigger an automated buy or sell.
+// Goal: keep alert creation/list/removal replies grounded in persisted rule ids
+//       and concrete token links without implying an immediate transaction hash.
+// Owns: agent-facing token alert tool result shaping.
+// Does Not Own: alert trigger execution, swap receipts, or notification delivery.
+// Design Language:
+// - alert creation is a configuration receipt, not a trade receipt
+// - include token explorer URLs for watched contracts
+// - do not invent tx hashes for future automated actions
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-19
+// - Applied To: token alert receipt result fields
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
 
 /**
  * Tool to set a price or market cap alert for a token
@@ -63,7 +88,10 @@ export const SetTokenAlertTool: Tool = {
             return {
                 success: true,
                 message: `Alert set! I will ${action} when the ${targetType} of ${tokenAddress.slice(0, 6)} is ${ruleType} ${conditionValue.toLocaleString()}.`,
-                ruleId: rule.id
+                ruleId: rule.id,
+                tokenAddress: rule.address,
+                chainId: rule.chainId,
+                tokenUrl: buildAddressExplorerUrl(rule.chainId, rule.address),
             };
         } catch (error: any) {
             logger.error(LogCode.SYS_ERROR, 'Failed to set token alert', { error: error.message });
@@ -105,7 +133,10 @@ export const ListTokenAlertsTool: Tool = {
             return {
                 success: true,
                 message: `Your active alerts:\n${alertList}`,
-                alerts: rules
+                alerts: rules.map((rule) => ({
+                    ...rule,
+                    tokenUrl: buildAddressExplorerUrl(rule.chainId, rule.address),
+                }))
             };
         } catch (error: any) {
             return { success: false, message: `Error fetching alerts: ${error.message}` };
@@ -137,7 +168,14 @@ export const RemoveTokenAlertTool: Tool = {
                 where: { id: ruleId, userId }
             });
 
-            return { success: true, message: `Alert #${ruleId} has been removed.` };
+            return {
+                success: true,
+                message: `Alert #${ruleId} has been removed.`,
+                ruleId,
+                tokenAddress: rule.address,
+                chainId: rule.chainId,
+                tokenUrl: buildAddressExplorerUrl(rule.chainId, rule.address),
+            };
         } catch (error: any) {
             return { success: false, message: `Failed to remove alert: ${error.message}` };
         }

@@ -1,3 +1,26 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-19
+// Author: Renata
+// Reason: Polymarket copy-trade configuration receipts need target profile URLs
+//         and copied-position market URLs so Agent-mode replies expose concrete
+//         follow targets rather than only short wallet fragments.
+// Goal: keep Polymarket copy config results auditable while leaving actual
+//       copied trade execution receipts to the copy-trade workers.
+// Owns: Polymarket copy config and position tool result shaping.
+// Does Not Own: copied trade execution, CLOB order settlement, or notification delivery.
+// Design Language:
+// - config receipts should include full target wallet and profile URL when known
+// - copied position listings should include market URLs when market slugs exist
+// - do not invent target or market URLs when identifiers are missing
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-19
+// - Applied To: Polymarket copy config and position URL fields
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
 /**
  * Polymarket Copy Trade AI Tools
  * Tools for AI to create and manage Polymarket copy trade configurations
@@ -7,6 +30,7 @@ import { Tool } from '../../../tooling/registry.js';
 import prisma from '../../../db/prisma.js';
 import { getWalletPositions, getWalletStats } from '../../../services/polymarketDataService.js';
 import { checkTradingReadiness } from '../../../services/polymarketApprovalService.js';
+import { buildPolymarketMarketUrl, buildPolymarketProfileUrl } from '../../../utils/executionLinks.js';
 
 async function ensurePolymarketUser(params: {
     userId: string;
@@ -85,6 +109,7 @@ function summarizeCopyConfig(config: {
     return {
         id: config.id,
         target_wallet: config.targetWallet,
+        target_wallet_url: buildPolymarketProfileUrl(config.targetWallet),
         bet_size_usd: config.betSizeUsd,
         max_open_bets: config.maxOpenBets,
         mirror_sell: config.mirrorSell,
@@ -134,6 +159,7 @@ export const CreatePolymarketCopyConfigTool: Tool = {
         }
 
         const targetWallet = args.target_wallet.toLowerCase();
+        const targetWalletUrl = buildPolymarketProfileUrl(targetWallet);
         const betSizeUsd = args.bet_size_usd || 10;
         const mirrorSell = args.mirror_sell !== false;
 
@@ -151,6 +177,8 @@ export const CreatePolymarketCopyConfigTool: Tool = {
                 existing_config: {
                     id: existingConfig.id,
                     target: existingConfig.targetWallet.slice(0, 10) + '...',
+                    target_wallet: existingConfig.targetWallet,
+                    target_wallet_url: buildPolymarketProfileUrl(existingConfig.targetWallet),
                     bet_size: `$${existingConfig.betSizeUsd}`,
                     status: existingConfig.status
                 }
@@ -193,6 +221,8 @@ export const CreatePolymarketCopyConfigTool: Tool = {
             config: {
                 id: config.id,
                 target_wallet: targetWallet.slice(0, 10) + '...',
+                target_wallet_full: targetWallet,
+                target_wallet_url: targetWalletUrl,
                 bet_size: `$${betSizeUsd}`,
                 mirror_sell: mirrorSell,
                 status: initialStatus
@@ -445,6 +475,8 @@ export const ListPolymarketPositionsTool: Tool = {
             positions: positions.map(p => ({
                 id: p.id.slice(-6),
                 question: p.question.slice(0, 60),
+                market_slug: p.marketSlug,
+                market_url: buildPolymarketMarketUrl(p.marketSlug) || null,
                 outcome: p.outcome,
                 entry_price: `$${p.entryPrice.toFixed(2)}`,
                 shares: p.shares.toFixed(1),

@@ -1,28 +1,30 @@
-import React, { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 import clsx from 'clsx';
+import { NativeLightbox } from '../Common/NativeLightbox';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import styles from './ChatAttachmentTray.module.css';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-19
 // Author: Rowan
 // Reason: the chat surface now needs one reusable attachment preview row for
 //         pre-send composer drafts, optimistic user-message rendering, and
 //         refreshed signed history attachments, matching a GPT-style thumbnail
 //         strip without duplicating preview UI logic across the welcome screen,
-//         live chat composer, and sent message bubbles.
+//         live chat composer, and sent message bubbles. Thumbnail clicks now
+//         use the same shared NativeLightbox viewer as the social page and the
+//         generated-image card.
 // Goal: render compact image thumbnails with optional remove affordances in a
 //       visually stable row that works in both light and dark chat surfaces,
-//       and let any rendered thumbnail open a full-screen preview.
+//       and let any rendered thumbnail open the shared lightbox viewer.
 // Owns: local attachment thumbnail rendering, upload-state overlays, and
-//       remove-button/full-screen preview presentation.
+//       remove-button / shared lightbox presentation.
 // Does Not Own: file selection, validation, object-URL lifecycle, or upload transport.
 // Design Language:
 // - composer and message attachment previews share one visual language
 // - thumbnail rows should stay compact and horizontally scannable
-// - thumbnail click opens a full-screen preview in every chat surface
+// - thumbnail click opens the shared NativeLightbox viewer in every chat surface
 // - remove actions belong only to draft previews, not sent messages
 // Document Provenance:
 // - Source: user-provided GPT-style attachment preview references on 2026-04-16
@@ -35,12 +37,20 @@ import styles from './ChatAttachmentTray.module.css';
 // - Retrieved: 2026-04-17
 // - Applied To: thumbnail click-to-preview behavior across welcome, composer, and sent bubbles
 // - Verification: verified in code
+// - Source: operator request on 2026-04-19
+// - Kind: product doc
+// - Retrieved: 2026-04-19
+// - Applied To: reusing the shared NativeLightbox viewer for chat-uploaded
+//   images so chat and social page previews behave the same
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/chat-image-viewing.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
 // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-local-image-composer-base.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-image-native-lightbox-unification.md
 
 type AttachmentPreview = {
     id: string;
@@ -65,63 +75,10 @@ export const ChatAttachmentTray: React.FC<ChatAttachmentTrayProps> = ({
     className,
 }) => {
     const { resolvedTheme } = useThemeContext();
-    const [previewAttachment, setPreviewAttachment] = useState<AttachmentPreview | null>(null);
-
-    useEffect(() => {
-        if (!previewAttachment || typeof document === 'undefined') return undefined;
-
-        const previousOverflow = document.body.style.overflow;
-        const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') {
-                setPreviewAttachment(null);
-            }
-        };
-
-        document.body.style.overflow = 'hidden';
-        document.addEventListener('keydown', handleKeyDown);
-
-        return () => {
-            document.body.style.overflow = previousOverflow;
-            document.removeEventListener('keydown', handleKeyDown);
-        };
-    }, [previewAttachment]);
+    const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+    const previewImages = useMemo(() => attachments.map((attachment) => attachment.previewUrl), [attachments]);
 
     if (!attachments.length) return null;
-
-    const lightbox = previewAttachment && typeof document !== 'undefined'
-        ? createPortal(
-            <div
-                className={clsx(styles.lightboxBackdrop, styles[resolvedTheme])}
-                role="dialog"
-                aria-modal="true"
-                aria-label={`Preview ${previewAttachment.name}`}
-                onClick={() => setPreviewAttachment(null)}
-            >
-                <button
-                    type="button"
-                    className={styles.lightboxCloseButton}
-                    aria-label="Close image preview"
-                    onClick={() => setPreviewAttachment(null)}
-                >
-                    <X size={22} strokeWidth={2.4} aria-hidden="true" />
-                </button>
-                <figure
-                    className={styles.lightboxFigure}
-                    onClick={(event) => event.stopPropagation()}
-                >
-                    <img
-                        src={previewAttachment.previewUrl}
-                        alt={previewAttachment.name}
-                        className={styles.lightboxImage}
-                    />
-                    <figcaption className={styles.lightboxCaption}>
-                        {previewAttachment.name}
-                    </figcaption>
-                </figure>
-            </div>,
-            document.body,
-        )
-        : null;
 
     return (
         <>
@@ -135,7 +92,7 @@ export const ChatAttachmentTray: React.FC<ChatAttachmentTrayProps> = ({
                 role="list"
                 aria-label="Selected image attachments"
             >
-                {attachments.map((attachment) => (
+                {attachments.map((attachment, index) => (
                     <div
                         key={attachment.id}
                         className={clsx(styles.attachmentCard, compact && styles.attachmentCardCompact)}
@@ -144,7 +101,7 @@ export const ChatAttachmentTray: React.FC<ChatAttachmentTrayProps> = ({
                         <button
                             type="button"
                             className={styles.previewButton}
-                            onClick={() => setPreviewAttachment(attachment)}
+                            onClick={() => setPreviewIndex(index)}
                             aria-label={`Open ${attachment.name} full screen`}
                         >
                             <img
@@ -172,7 +129,12 @@ export const ChatAttachmentTray: React.FC<ChatAttachmentTrayProps> = ({
                     </div>
                 ))}
             </div>
-            {lightbox}
+            <NativeLightbox
+                isOpen={previewIndex !== null}
+                onClose={() => setPreviewIndex(null)}
+                images={previewImages}
+                initialIndex={previewIndex === null ? 0 : Math.min(previewIndex, previewImages.length - 1)}
+            />
         </>
     );
 };

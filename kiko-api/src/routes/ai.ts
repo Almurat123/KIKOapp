@@ -4,7 +4,7 @@
  * Supports NVIDIA/OpenAI/Grok tool calls for web search with real-time streaming
  */
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-18
 // Author: Rowan
 // Reason: the direct backend AI proxy still used the old NVIDIA Kimi model id
 //         and self-hosted thinking flag shape even after the Python gateway was
@@ -18,7 +18,9 @@
 //         payloads must include both free and premium quota state. Later product
 //         tuning also required colder, lighter NVIDIA defaults so routine KiKo
 //         agent turns do not inherit provider showcase temperatures or long
-//         reasoning by default.
+//         reasoning by default. Official NVIDIA doc verification later showed
+//         GLM-5 does not expose a documented Fast/Instant hosted mode, so this
+//         route must stop treating plain `glm-5` as a no-thinking fast alias.
 // Goal: keep the fallback/direct AI route aligned with the same NVIDIA hosted
 //       API contract used by the main generation gateway so local tests behave
 //       the same across both paths.
@@ -32,6 +34,7 @@
 // - Plain assistant content must never be mirrored into reasoning output.
 // - Usage-limit errors expose free/premium quota state, not legacy token-tier caps.
 // - Direct-route NVIDIA defaults must stay colder and lighter for routine agent turns.
+// - GLM hosted modes must match the current official NVIDIA docs, not stale synthetic aliases.
 // Document Provenance:
 // - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
 // - Kind: official API doc
@@ -59,11 +62,16 @@
 // - Retrieved: 2026-04-16
 // - Applied To: direct-route NVIDIA default temperature and thinking profiles
 // - Verification: verified in code
+// - Source: NVIDIA NIM model page for z-ai/glm5
+// - Kind: official API doc
+// - Retrieved: 2026-04-18
+// - Applied To: collapsing direct-route GLM aliases into one preserved-thinking profile
+// - Verification: verified in docs and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-free-premium-chat-usage-quota-rework.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-lite-defaults.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-glm-mode-alignment-and-stream-timeout-hardening.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
@@ -127,12 +135,22 @@ const NVIDIA_API_URL = process.env.NVIDIA_API_URL || 'https://integrate.api.nvid
 const OPENAI_API_URL = process.env.OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions';
 const NVIDIA_KIMI_REASONING_TEMPERATURE = 0.6;
 const NVIDIA_KIMI_INSTANT_TEMPERATURE = 0.4;
-const NVIDIA_GLM_REASONING_TEMPERATURE = 0.6;
-const NVIDIA_GLM_FAST_TEMPERATURE = 0.3;
+const NVIDIA_GLM_TEMPERATURE = 0.6;
 
 function normalizeModel(model?: string): string {
     const normalized = (model || '').toLowerCase().trim();
     if (!normalized) return 'glm-5';
+    if (
+        normalized === 'glm5'
+        || normalized === 'z-ai/glm5'
+        || normalized === 'z-ai/glm-5'
+        || normalized === 'glm-5-reasoning'
+        || normalized === 'glm5-reasoning'
+        || normalized === 'z-ai/glm5-reasoning'
+        || normalized === 'z-ai/glm-5-reasoning'
+    ) {
+        return 'glm-5';
+    }
     return normalized;
 }
 
@@ -162,12 +180,7 @@ function resolveNvidiaUpstreamModel(model: string): {
             defaultTemperature: NVIDIA_KIMI_INSTANT_TEMPERATURE,
         };
     }
-    if (
-        normalized === 'glm-5-reasoning'
-        || normalized === 'glm5-reasoning'
-        || normalized === 'z-ai/glm5-reasoning'
-        || normalized === 'z-ai/glm-5-reasoning'
-    ) {
+    if (normalized === 'glm-5' || normalized === 'glm5' || normalized === 'z-ai/glm5' || normalized === 'z-ai/glm-5') {
         return {
             model: 'z-ai/glm5',
             extraBody: {
@@ -176,18 +189,7 @@ function resolveNvidiaUpstreamModel(model: string): {
                     clear_thinking: false,
                 },
             },
-            defaultTemperature: NVIDIA_GLM_REASONING_TEMPERATURE,
-        };
-    }
-    if (normalized === 'glm-5' || normalized === 'glm5' || normalized === 'z-ai/glm5' || normalized === 'z-ai/glm-5') {
-        return {
-            model: 'z-ai/glm5',
-            extraBody: {
-                chat_template_kwargs: {
-                    enable_thinking: false,
-                },
-            },
-            defaultTemperature: NVIDIA_GLM_FAST_TEMPERATURE,
+            defaultTemperature: NVIDIA_GLM_TEMPERATURE,
         };
     }
     return { model: normalized };

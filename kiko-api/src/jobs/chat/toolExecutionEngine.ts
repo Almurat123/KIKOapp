@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-14
+// Updated: 2026-04-18
 // Author: Rowan
 // Reason: this layer arbitrates local tool execution and must distinguish
 //         actual failures from confirmation checkpoints. Copy-trade wallet
@@ -7,10 +7,16 @@
 //         wallet args cannot outrank the user's literal wallet string, and so
 //         multiple latest-message wallet literals cannot be silently auto-picked.
 //         It also carries wallet-binding provenance through confirmation turns
-//         so the persistence owner can audit the final wallet.
+//         so the persistence owner can audit the final wallet. Product review
+//         on 2026-04-18 clarified that tool results also need a stable
+//         continuation contract so the worker stops guessing what to do after a
+//         successful read, business result, or confirmation checkpoint. Chat v2
+//         now also needs an explicit side-effect terminal path so a tool can
+//         fully manage the reply without being misclassified as an empty text turn.
 // Goal: preserve hard policy enforcement while surfacing confirmation-required
 //       order mutations as soft checkpoints instead of user-facing failures,
-//       while preventing malformed copy-trade target wallets from reaching tools.
+//       while preventing malformed copy-trade target wallets from reaching tools
+//       and allowing tool-owned reply channels to terminate the turn cleanly.
 // Owns: local tool policy gating, execution handoff, and gate-result shaping.
 // Does Not Own: model planning, conversation confirmation state, or UI rendering.
 // Design Language:
@@ -20,6 +26,7 @@
 // - exact user wallet literals outrank malformed model-produced copy-trade args
 // - multiple latest-message wallet literals are a hard ambiguity, not a model choice
 // - wallet-binding provenance follows the confirmation payload but is not a public tool argument
+// - every tool result should carry a continuation contract for the next worker step
 // Document Provenance:
 // - Source: runtime observation of copytrade confirmation payloads rendering as plan errors
 // - Kind: runtime observation
@@ -31,6 +38,17 @@
 // - Retrieved: 2026-04-13
 // - Applied To: repairing malformed copy-trade target_wallet args from exact user-provided addresses before tool execution and blocking ambiguous multi-wallet input
 // - Verification: verified in unit tests and code review
+// - Source: product owner correction in local runtime thread about unclear
+//   tool-followup behavior
+// - Kind: product instruction / runtime observation
+// - Retrieved: 2026-04-18
+// - Applied To: stable continuation contracts on orchestrator tool results
+// - Verification: verified in code
+// - Source: operator requirement on 2026-04-18 for model-owned image generation inside main chat
+// - Kind: product doc
+// - Retrieved: 2026-04-18
+// - Applied To: side-effect terminal continuation for tool-managed generated-image replies
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
@@ -39,10 +57,12 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-wallet-entity-hardening.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-wallet-deterministic-extraction.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-wallet-audit-provenance.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-work-protocol-refactor.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-v2-model-owned-image-generation-tool.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import { toolRegistry } from '../../tooling/registry.js';
 import { ensureToolRegistryInitialized } from '../../tooling/bootstrap.js';
-import type { OrchestratorToolCall, OrchestratorToolResult } from './contracts.js';
+import type { OrchestratorToolCall, OrchestratorToolResult, ToolContinuationContract } from './contracts.js';
 import { checkToolAgainstPolicy, createPolicyError, type ControlPolicySnapshot } from './controlPolicy.js';
 import { checkMutationExecutionGate } from './executionGate.js';
 import { isStrictWalletAddress } from '../../utils/validation.js';
@@ -87,6 +107,12 @@ export class ToolExecutionEngine {
                     policy_decision_id: policyCheck.policyDecisionId,
                 },
                 metadata: { source: 'policy_guard' },
+                continuation: buildToolContinuationContract({
+                    toolName: sanitizedCall.name,
+                    ok: false,
+                    source: 'policy_guard',
+                    reasonCode: policyCheck.code,
+                }),
             };
         }
 
@@ -113,6 +139,12 @@ export class ToolExecutionEngine {
                         source: 'execution_gate',
                         confirmationRequired: true,
                     },
+                    continuation: buildToolContinuationContract({
+                        toolName: sanitizedCall.name,
+                        ok: true,
+                        source: 'execution_gate',
+                        confirmationRequired: true,
+                    }),
                 };
             }
             const blockedError = mutationGate.error || createPolicyError(
@@ -134,6 +166,12 @@ export class ToolExecutionEngine {
                     policy_decision_id: blockedError.policyDecisionId,
                 },
                 metadata: { source: 'execution_gate' },
+                continuation: buildToolContinuationContract({
+                    toolName: sanitizedCall.name,
+                    ok: false,
+                    source: 'execution_gate',
+                    reasonCode: blockedError.code,
+                }),
             };
         }
 
@@ -146,6 +184,12 @@ export class ToolExecutionEngine {
                 ok: true,
                 result: shortCircuitResult,
                 metadata: { source: 'node_context' },
+                continuation: buildToolContinuationContract({
+                    toolName: sanitizedCall.name,
+                    ok: true,
+                    source: 'node_context',
+                    result: shortCircuitResult,
+                }),
             };
         }
         try {
@@ -160,6 +204,12 @@ export class ToolExecutionEngine {
                     error: normalizedFailure,
                     result,
                     metadata: { source: 'tool_runtime' },
+                    continuation: buildToolContinuationContract({
+                        toolName: sanitizedCall.name,
+                        ok: false,
+                        source: 'tool_runtime',
+                        result,
+                    }),
                 };
             }
             return {
@@ -169,6 +219,12 @@ export class ToolExecutionEngine {
                 ok: true,
                 result,
                 metadata: { source: 'tool_runtime' },
+                continuation: buildToolContinuationContract({
+                    toolName: sanitizedCall.name,
+                    ok: true,
+                    source: 'tool_runtime',
+                    result,
+                }),
             };
         } catch (error: any) {
             return {
@@ -177,6 +233,11 @@ export class ToolExecutionEngine {
                 arguments: sanitizedCall.arguments || {},
                 ok: false,
                 error: error?.message || String(error),
+                continuation: buildToolContinuationContract({
+                    toolName: sanitizedCall.name,
+                    ok: false,
+                    source: 'tool_runtime',
+                }),
             };
         }
     }
@@ -299,6 +360,12 @@ export class ToolExecutionEngine {
                 ...extraResult,
             },
             metadata: { source: 'copytrade_wallet_binding_guard' },
+            continuation: buildToolContinuationContract({
+                toolName: call.name,
+                ok: false,
+                source: 'copytrade_wallet_binding_guard',
+                reasonCode,
+            }),
         };
     }
 
@@ -424,4 +491,119 @@ export class ToolExecutionEngine {
             return { symbol, balance: String(raw) };
         });
     }
+}
+
+function buildToolContinuationContract(params: {
+    toolName: string;
+    ok: boolean;
+    source?: string;
+    result?: any;
+    reasonCode?: string;
+    confirmationRequired?: boolean;
+}): ToolContinuationContract {
+    const toolName = String(params.toolName || '').trim();
+    const source = String(params.source || '').trim();
+    const isContextRead = toolName.startsWith('read_');
+    const resolvedState = isContextRead
+        ? [toolName.replace(/^read_/, '')]
+        : resolveStateHintsFromToolResult(params.result);
+
+    if (params.confirmationRequired || params.result?.requires_confirmation === true) {
+        return {
+            next_action: 'ask_user_confirmation',
+            can_answer_now: true,
+            reason: 'This tool reached a confirmation checkpoint and needs the user to approve the prepared action.',
+            resolved_state: resolvedState,
+            reusable_for_next_turn: true,
+        };
+    }
+
+    if (params.result?.handled_response === true) {
+        return {
+            next_action: 'complete_with_side_effect',
+            can_answer_now: false,
+            reason: 'This tool already delivered or updated the user-visible reply through a managed side-effect channel.',
+            resolved_state: resolvedState,
+            reusable_for_next_turn: false,
+        };
+    }
+
+    if (!params.ok) {
+        if (String(params.reasonCode || '').trim() === 'TOOL_BUDGET_EXCEEDED') {
+            return {
+                next_action: 'answer_now',
+                can_answer_now: true,
+                reason: 'This tool path hit the tool budget and the worker should answer from current evidence instead of looping.',
+                resolved_state: resolvedState,
+                reusable_for_next_turn: false,
+            };
+        }
+        return {
+            next_action: 'handle_tool_failure',
+            can_answer_now: true,
+            reason: `The tool did not complete successfully${source ? ` (${source})` : ''}. Explain the failure or choose a more specific next step.`,
+            resolved_state: resolvedState,
+            reusable_for_next_turn: false,
+        };
+    }
+
+    if (isContextRead) {
+        return {
+            next_action: 'read_more_context',
+            can_answer_now: true,
+            reason: 'This context read updated worker state. Reuse it immediately and only call more tools if a specific evidence gap remains.',
+            resolved_state: resolvedState,
+            reusable_for_next_turn: true,
+        };
+    }
+
+    return {
+        next_action: 'answer_now',
+        can_answer_now: true,
+        reason: 'This tool returned usable evidence. Answer now unless a specific missing field requires one more tool.',
+        resolved_state: resolvedState,
+        reusable_for_next_turn: true,
+        missing_evidence: resolveMissingEvidenceHints(params.result),
+        next_tool: resolveSuggestedNextTool(params.result),
+    };
+}
+
+function resolveStateHintsFromToolResult(result: any): string[] {
+    if (!result || typeof result !== 'object') return [];
+    const hints = new Set<string>();
+    if (result.tokenSnapshot || result.prefetchedTokenInfo || result.requestedAddresses || result.requestedSymbols) {
+        hints.add('token_context');
+    }
+    if (result.pendingAction || result.pendingConfirmation || result.polymarketSelection || result.carryForwardState) {
+        hints.add('workflow_state');
+    }
+    if (result.context_kind === 'wallet_state' || result.wallet || result.balances) {
+        hints.add('wallet_state');
+    }
+    return Array.from(hints);
+}
+
+function resolveMissingEvidenceHints(result: any): string[] | undefined {
+    if (!result || typeof result !== 'object') return undefined;
+    if (Array.isArray(result.missing_evidence)) {
+        return result.missing_evidence.filter((value: unknown): value is string => typeof value === 'string' && value.trim().length > 0);
+    }
+    if (result.followUpCapabilities?.batchWalletPnlFollowup === 'requires_separate_batch_query') {
+        return ['wallet_pnl_ranking'];
+    }
+    if (result.followUpCapabilities?.directProfitRanking && result.followUpCapabilities.directProfitRanking !== 'ready_from_current_rows') {
+        return ['profit_ranking'];
+    }
+    return undefined;
+}
+
+function resolveSuggestedNextTool(result: any): string | null {
+    if (!result || typeof result !== 'object') return null;
+    if (typeof result.next_tool === 'string' && result.next_tool.trim().length > 0) {
+        return result.next_tool.trim();
+    }
+    if (result.followUpCapabilities?.batchWalletPnlFollowup === 'requires_separate_batch_query') {
+        return 'analyze_wallet_pnl_batch';
+    }
+    return null;
 }

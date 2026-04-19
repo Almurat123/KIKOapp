@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-18
+// Updated: 2026-04-19
 // Author: Renata
 // Reason: Clanker launch turns now need a first-class skill note so the model
 //         sees the deploy prompt, collects missing launch fields, and keeps
@@ -13,16 +13,23 @@
 //         envelopes are backend safety/tool gates rather than task verdicts.
 //         The same correction requires multi-mode task selection because one
 //         user request may combine social, image, token, wallet, and execution
-//         work.
+//         work. Product now also requires a generated-image specialist route so
+//         the main model can call an internal image tool only when the user is
+//         explicitly asking for a visual deliverable. Product architecture
+//         review on 2026-04-19 moved the target path to always-on model-led
+//         all-tool visibility, leaving this resolver as hints and context
+//         contracts rather than ordinary tool visibility gates.
 // Goal: keep skill resolution aligned with the actual user task so Clanker
 //       launch requests surface the deploy skill, while onboarding/meta turns
 //       still stay lean.
-// Owns: skill-to-tool exposure, preferred tool ranking, and query-shape-driven
-//       tool gating for Node orchestration.
+// Owns: resolver-scoped skill hints, preferred tool ranking, and legacy
+//       query-shape-driven tool hints under model-led orchestration.
 // Does Not Own: provider request transport, websocket rendering, or message persistence.
 // Design Language:
-// - Direct onboarding/meta turns should default to zero tool exposure.
-// - Tool exposure should follow the matched skill boundary, not a soft-policy fallback to all tools.
+// - Direct onboarding/meta turns can stay lean in selected skill prompts while
+//   registered tool visibility remains model-led.
+// - Tool exposure should not fall back to local keyword gates for normal chat.
+// - In model-led mode, semantic tool choice belongs to the main model; this layer may advise but must not hide registered tools.
 // - Clanker launch flows should surface explicit dry-run and confirmation guidance before a real deploy.
 // - Clanker deploy intent envelopes are mutation workflows, even when the first tool call is a dry-run preview.
 // - Session tool history may inform follow-up analysis, but must not reopen tool access for direct meta turns.
@@ -75,6 +82,16 @@
 // - Retrieved: 2026-04-18
 // - Applied To: demoting resolver intent wording to backend safety phase guidance and allowing multi-mode task choice
 // - Verification: verified in code and targeted tests
+// - Source: operator requirement on 2026-04-18 for model-owned image generation inside main chat
+// - Kind: product doc
+// - Retrieved: 2026-04-18
+// - Applied To: generated-image skill routing and tool exposure
+// - Verification: verified in code
+// - Source: operator architecture review on 2026-04-19
+// - Kind: product instruction
+// - Retrieved: 2026-04-19
+// - Applied To: always-on model-led all-tool visibility
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-direct-answer-tool-pruning.md
@@ -85,6 +102,8 @@
 // - /Users/almurat/KiKo/system-journal/adr/2026-04-17-chat-v2-rewrite-plan.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-context-read-tools.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-model-selected-task-menu.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-v2-model-owned-image-generation-tool.md
+// - /Users/almurat/KiKo/system-journal/adr/2026-04-19-model-led-tool-orchestration.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 import { LogCode } from '../../config/logRegistry.js';
@@ -94,6 +113,7 @@ import { resolveCanonicalChainRef } from './chainIntent.js';
 import type { ChatContextBlockName, ChatContextContract, ChatContextSnapshot } from './contracts.js';
 import { CONTEXT_READ_TOOL_BY_BLOCK } from './contextReadTools.js';
 import type { CanonicalIntent } from './canonicalIntent.js';
+import { isModelLedToolOrchestrationEnabled, resolveModelLedToolNames } from './modelLedToolOrchestration.js';
 import {
     detectQuerySignals,
     matchSkillsForQuery,
@@ -209,6 +229,10 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const asksWalletPnl = querySignals.pnl;
     const hasRequestedToken = querySignals.hasRequestedToken;
     const requiresSocialChainEvidence = querySignals.socialChainEvidence;
+    if (querySignals.imageGeneration) {
+        strategyNotes.push('This turn is an image-generation request. If the user is clearly asking for a visual asset, optimize the prompt into structured image direction and call generate_image_from_intent directly.');
+        strategyNotes.push('Do not ask for a second confirmation before generating. If a truly critical visual field is missing, ask one precise clarification instead of calling the tool.');
+    }
     if (querySignals.clankerDeploy) {
         strategyNotes.push('This is a Clanker launch or Clanker history request. Use the Clanker skill prompt, ask only for hard missing launch requirements, use defaults for optional fields, keep launches in dry-run mode first, and only set confirmDeploy=true after the user confirms the exact launch details.');
     }
@@ -270,6 +294,9 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
             }
         }
     } else {
+        if (querySignals.imageGeneration) {
+            ensurePrimarySkill(selected, 'image_generation');
+        }
         if (querySignals.wallet || asksWalletPnl) {
             ensurePrimarySkill(selected, 'wallet_portfolio');
         }
@@ -589,7 +616,11 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         preferredTools,
     });
 
-    if (!isLeanDirectAnswerTurn) {
+    if (isModelLedToolOrchestrationEnabled()) {
+        allowedTools = resolveModelLedToolNames(snapshot);
+        allowAllTools = true;
+        strategyNotes.push('Model-led tool orchestration is enabled: all registered tools are visible to the main model, and backend control policy still blocks unsafe or unconfirmed side effects.');
+    } else if (!isLeanDirectAnswerTurn) {
         strategyNotes.push('Chat v2 exposes only matched business tools plus explicit context-read tools. Read the required context first instead of assuming the full registry is available.');
     }
 

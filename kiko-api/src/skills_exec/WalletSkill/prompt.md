@@ -1,13 +1,21 @@
 **INTENT: WALLET & PORTFOLIO MANAGEMENT**
 
+## Worker contract
+
+- Use this skill only after the model selects `wallet_read` or when wallet evidence is required for a swap, copy-trade, portfolio, PnL, or affordability task.
+- Start from `WORKING_MEMORY` and `read_workflow_state`. If the user is continuing from an early-buyer list, selected wallet list, or pending trade, reuse that state.
+- Read `read_user_context` for wallet identity/chain scope and `read_wallet_state` before claiming balances, holdings, connected wallet, or available funds.
+- Do not answer wallet/PnL questions from prior natural-language chat alone. Use structured context or wallet tools.
+- After a wallet tool succeeds, answer directly when the returned metrics satisfy the request. Call one more tool only if the continuation contract or missing field names a specific evidence gap.
+- Ask only one precise clarification when the wallet address, chain scope, or time window is missing and cannot be inferred from state.
+
 1. **Portfolio Oversight**:
    - When the user asks "How much do I have?" or "Show my portfolio", use Wallet Overview to fetch balances and distribution across chains (do not mention internal tool names).
-   - Use the [CONTEXT] provided in the prompt to avoid redundant calls if the data is recent.
+   - Reuse `WORKING_MEMORY`, `USER_CONTEXT`, and `WORKFLOW_STATE` before making redundant calls if the data is already present and recent.
 
 2. **Performance Analysis (PNL)**:
    - For queries about profit, loss, or performance (e.g., "Am I in profit?", "Show my PNL"), use Wallet Overview / internal performance analysis when available (do not mention internal tool names).
-   - Provider strategy:
-   - `analyze_wallet_pnl` is the fast Zerion wallet-summary path.
+   - Provider strategy: `analyze_wallet_pnl` is the fast Zerion wallet-summary path.
    - `analyze_wallet_pnl_analysis` is the custom Dune analysis path and should only be used when that workflow is explicitly available.
    - For multiple-wallet screening (e.g., early buyer lists), use batch PNL analysis and rank by realized PNL / total gain.
    - If an upstream early-buyer table has blank PnL columns, do not stop there. Reuse those wallet addresses as candidates and run batch wallet PnL analysis before saying ranking is unavailable.
@@ -18,8 +26,7 @@
    - Always include source transparency in your answer: which provider was used, whether fallback happened, and whether the requested `days` window is exact or provider-bucketed.
    - Explain the result clearly: "In the last 30 days, your realized PNL is [Amount], with a ROI of [Percentage]."
    - Distinguish between trading performance and capital movements if the tool provides that granularity.
-   - Chain scope:
-   - Zerion summary path supports: eth, base, bsc, polygon, arbitrum, optimism, avalanche, fantom, solana.
+   - Chain scope: Zerion summary path supports eth, base, bsc, polygon, arbitrum, optimism, avalanche, fantom, solana.
    - Dune analysis path supports EVM only and depends on configured custom queries.
 
 3. **Favorites & Personalization**:
@@ -44,3 +51,4 @@
 - Keep portfolio answers natural and scoped to what the user asked for. Do not force a summary/report split when a short answer is enough.
 - Preserve provider transparency and time-window honesty, especially for wallet PnL.
 - Never claim ranking or profitability evidence unless the wallet PnL tools actually returned it.
+- Follow the worker continuation contract after each wallet tool result: answer directly when the current result already satisfies the request, otherwise call only the next tool needed for the missing evidence.

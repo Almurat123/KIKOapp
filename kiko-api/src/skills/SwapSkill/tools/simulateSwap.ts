@@ -14,7 +14,7 @@ export const SimulateSwapTool: Tool = {
                 token_in: { type: 'string', description: 'Address or symbol of source token (the token being sold)' },
                 token_out: { type: 'string', description: 'Address or symbol of destination token (the token being bought)' },
                 amount_in: { type: 'string', description: 'Amount of token_in to sell. Must be a numeric value. When user specifies a target output amount (e.g., "buy 1 USDC"), first calculate the required input using price context.' },
-                chain_id: { type: 'number', description: 'Chain ID' },
+                chain_id: { type: 'number', description: 'Numeric chain ID where the simulated swap should run, such as 8453 for Base or 1 for Ethereum.' },
                 slippage: { type: 'number', description: 'Max slippage percentage (e.g. 0.5)', default: 1.0 }
             },
             required: ['token_in', 'token_out', 'amount_in', 'chain_id']

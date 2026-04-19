@@ -1,25 +1,36 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-19
 // Author: Rowan
 // Reason: backend stream diagnostics need a matching browser receive boundary
-//         to prove whether chunks arrive individually or already coalesced.
+//         to prove whether chunks arrive individually or already coalesced. A
+//         2026-04-19 deploy-token loop showed operators also need listener
+//         counts and event ordinals to distinguish duplicate backend events
+//         from duplicate frontend subscriptions after HMR or reconnects.
 // Goal: log WebSocket receive timing, event type, sequence number, payload size,
-//       and delta length before RootLayout mutates conversation state.
+//       delta length, event ordinal, and listener count before RootLayout
+//       mutates conversation state.
 // Owns: browser WebSocket connection, event normalization, ACK, and sync.
 // Does Not Own: conversation state merging, message rendering, or backend chunk generation.
 // Design Language:
 // - frontend receive diagnostics must use the same session/message/seq ids as backend WS logs
 // - diagnostics log metadata only, not raw assistant text
 // - production diagnostics require an explicit browser/env opt-in
+// - subscription diagnostics must identify duplicate listeners without logging auth tokens
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/test.txt
 // - Kind: runtime observation
 // - Retrieved: 2026-04-16
 // - Applied To: correlating WebSocket receive cadence with backend broadcasts
 // - Verification: verified in code
+// - Source: operator browser console and app.log trace cmo5a4f1h03sjj5et046ndecy
+// - Kind: runtime observation
+// - Retrieved: 2026-04-19
+// - Applied To: browser listener-count and event-ordinal diagnostics
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-stream-diagnostics.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-stream-duplicate-and-tool-loop-diagnostics.md
 import { getAuthToken, clearAuthTokenCache } from './authToken';
 import { getRuntimeConfigUrl, getEnvUrl } from './runtimeConfig';
 import { adaptLoopbackUrlForBrowser, isLocalLikeHost } from './runtimeHosts';
@@ -95,6 +106,7 @@ export class ChatWebSocketClient {
     private connectionPromise: Promise<void> | null = null;
     private connectionResolver: (() => void) | null = null;
     private lastStreamEventAt = 0;
+    private eventOrdinal = 0;
 
     // Sequence tracking: sessionId -> last received sequence number
     private lastReceivedSeq: Map<string, number> = new Map();
@@ -200,9 +212,11 @@ export class ChatWebSocketClient {
                 }
 
                 const now = performance.now();
+                const eventOrdinal = ++this.eventOrdinal;
                 const dataPayload = data.data || {};
                 const deltaText = dataPayload.content ?? dataPayload.delta ?? dataPayload.reasoning_content ?? '';
                 chatStreamDebug('ws-receive', {
+                    eventOrdinal,
                     eventType: data.type,
                     sessionId: data.sessionId,
                     seq: data.seq ?? null,
@@ -212,6 +226,7 @@ export class ChatWebSocketClient {
                         : undefined,
                     deltaLength: data.type === 'chunk' ? String(deltaText || '').length : undefined,
                     rawBytes: typeof event.data === 'string' ? event.data.length : undefined,
+                    listenerCount: this.listeners.size,
                     msSincePreviousStreamEvent: this.lastStreamEventAt > 0 ? Math.round(now - this.lastStreamEventAt) : null,
                 });
                 this.lastStreamEventAt = now;
@@ -458,7 +473,19 @@ export class ChatWebSocketClient {
 
     public subscribe(listener: (event: ChatEvent) => void) {
         this.listeners.add(listener);
-        return () => this.listeners.delete(listener);
+        chatStreamDebug('ws-subscribe', {
+            listenerCount: this.listeners.size,
+            authenticated: this.authenticated,
+            readyState: this.socket?.readyState ?? null,
+        });
+        return () => {
+            this.listeners.delete(listener);
+            chatStreamDebug('ws-unsubscribe', {
+                listenerCount: this.listeners.size,
+                authenticated: this.authenticated,
+                readyState: this.socket?.readyState ?? null,
+            });
+        };
     }
 
     public trackSession(sessionId: string) {

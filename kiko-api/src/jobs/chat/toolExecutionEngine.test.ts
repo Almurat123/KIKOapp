@@ -40,6 +40,8 @@ test('tool execution engine executes chat context read tools through the built-i
     assert.equal(result.result?.context?.wallet?.address, '0xabc');
     assert.equal(result.result?.context?.chain?.connected?.chain_id, 8453);
     assert.equal(result.result?.context?.chain?.requested?.chain_id, 56);
+    assert.equal(result.continuation?.next_action, 'read_more_context');
+    assert.equal(result.continuation?.reusable_for_next_turn, true);
 });
 
 test('tool execution engine preserves copytrade confirmation payload without marking it failed', async () => {
@@ -79,6 +81,7 @@ test('tool execution engine preserves copytrade confirmation payload without mar
     assert.equal(result.result?.requires_confirmation, true);
     assert.equal(result.result?.confirmation_payload?.tool_name, 'create_copy_trade_config');
     assert.equal(result.result?.confirmation_payload?.args?.chain_id, 56);
+    assert.equal(result.continuation?.next_action, 'ask_user_confirmation');
 });
 
 test('tool execution engine repairs malformed copy-trade target_wallet from the latest literal user address before confirmation gating', async () => {
@@ -174,4 +177,5 @@ test('tool execution engine blocks copy-trade creation when latest user message 
     assert.equal(result.ok, false);
     assert.equal(result.reasonCode, 'AMBIGUOUS_COPY_TRADE_TARGET_WALLET');
     assert.deepEqual(result.result?.wallet_candidates, [firstWallet, secondWallet]);
+    assert.equal(result.continuation?.next_action, 'handle_tool_failure');
 });

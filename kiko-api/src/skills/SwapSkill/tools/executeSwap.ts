@@ -1,3 +1,26 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-19
+// Author: Renata
+// Reason: The legacy single-shot swap executor may still be invoked internally,
+//         so its success receipts must include the same tx URL fields as the
+//         primary prepare_swap_transaction path.
+// Goal: keep legacy swap receipts verifiable without re-enabling this tool as a
+//       preferred chat-facing path.
+// Owns: legacy execute_swap result shaping.
+// Does Not Own: chat tool exposure policy, aggregator execution, or wallet signing.
+// Design Language:
+// - execute_swap remains legacy/non-preferred
+// - if it returns a txHash, it must also return txUrl/explorerUrl
+// - do not fabricate explorer URLs when chain id is unknown
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-19
+// - Applied To: legacy swap receipt URL fields
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
 /**
  * Execute Swap Tool (Single Shot)
  * ONE tool call = ONE complete swap execution
@@ -12,6 +35,7 @@ import { LogCode } from '../../../config/logRegistry.js';
 import { fetchJson } from '../../../config/unifiedApiService.js';
 import { buildSignedHeaders } from '../../../utils/requestSigningClient.js';
 import { isTruncatedEvmAddressLike, repairTruncatedEvmAddressFromMessages } from '../../../services/addressRecovery.js';
+import { buildTransactionExplorerUrl } from '../../../utils/executionLinks.js';
 
 export const executeSwapTool: Tool = {
     definition: {
@@ -146,6 +170,7 @@ The result will be either:
 
             // Success!
             const txHash = result.data?.txHash;
+            const txUrl = buildTransactionExplorerUrl(args.chain_id, txHash);
             SwapStateManager.markCompleted(taskId, txHash);
 
             logger.info(LogCode.EXE_TX_BROADCAST, 'Swap execution completed', {
@@ -157,12 +182,20 @@ The result will be either:
             return {
                 success: true,
                 txHash,
+                txUrl,
+                explorerUrl: txUrl,
                 status: 'COMPLETED',
-                message: `✅ Swap completed successfully!\nTransaction: ${txHash}`,
-                data: result.data,
+                message: `✅ Swap completed successfully!\nTransaction: ${txHash}\nExplorer: ${txUrl || 'unavailable'}`,
+                data: {
+                    ...result.data,
+                    txUrl,
+                    explorerUrl: txUrl,
+                },
                 _final: true, // Tell AI to STOP iterating
                 __transaction_card: { // Trigger transaction card display
                     txHash,
+                    txUrl,
+                    explorerUrl: txUrl,
                     chainId: args.chain_id,
                     type: 'swap',
                     tokenIn: args.token_in,

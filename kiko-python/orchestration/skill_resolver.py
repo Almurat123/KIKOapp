@@ -1,8 +1,40 @@
 from __future__ import annotations
 
+# CONTEXT MEMORY
+# Updated: 2026-04-19
+# Author: Rowan
+# Reason: the Python orchestration layer now mirrors the model-led tool
+#         visibility rollout used by the Node chat path. This owner still
+#         resolves specialist skill prompts and legacy heuristics, but it must
+#         stop hiding registered tools on the default model-led path.
+# Goal: keep Python tool exposure aligned with the main model's own semantic
+#       choice while preserving the existing skill prompt selection logic.
+# Owns: Python skill selection, legacy heuristic pruning, and the model-led
+#       tool visibility override for orchestration.
+# Does Not Own: provider transport, tool execution, or side-effect permission.
+# Design Language:
+# - models see the whole registered tool catalog by default
+# - backend policy still blocks unsafe or unconfirmed side effects
+# - heuristics can guide prompts, but they must not hide tools in model-led mode
+# Document Provenance:
+# - Source: operator architecture review on 2026-04-19
+# - Kind: product instruction
+# - Retrieved: 2026-04-19
+# - Applied To: Python skill resolution and tool visibility override
+# - Verification: verified in code
+# See also:
+# - /Users/almurat/KiKo/system-journal/INDEX.md
+# - /Users/almurat/KiKo/system-journal/adr/2026-04-19-model-led-tool-orchestration.md
+# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-python-model-led-tool-visibility-alignment.md
+
 import json
 from pathlib import Path
 from typing import Any
+
+from .model_led_tool_orchestration import (
+    is_model_led_tool_orchestration_enabled,
+    resolve_model_led_tool_names,
+)
 
 
 def _repo_root() -> Path:
@@ -41,6 +73,7 @@ def resolve_skills(snapshot: dict[str, Any], trading_intent: dict[str, Any] | No
     runtime = snapshot.get("runtime") or {}
     context_blocks = (runtime.get("contextBlocks") or {}) if isinstance(runtime.get("contextBlocks"), dict) else {}
     prefetched = runtime.get("prefetchedToolResults") or {}
+    strategy_notes: list[str] = []
     selected: list[str] = []
 
     if trading_intent:
@@ -108,8 +141,19 @@ def resolve_skills(snapshot: dict[str, Any], trading_intent: dict[str, Any] | No
             if tool_name not in allowed_tools:
                 allowed_tools.append(tool_name)
 
+    model_led_enabled = is_model_led_tool_orchestration_enabled()
+    if model_led_enabled:
+        model_led_tool_names = resolve_model_led_tool_names(snapshot)
+        if model_led_tool_names:
+            allowed_tools = model_led_tool_names
+        strategy_notes.append(
+            "Model-led tool orchestration is enabled: all registered tools are visible to the main model, and backend policy still blocks unsafe or unconfirmed side effects.",
+        )
+
     return {
         "selectedSkills": deduped,
         "skillPrompts": prompts,
         "allowedTools": allowed_tools,
+        "allowAllTools": model_led_enabled,
+        "strategyNotes": strategy_notes,
     }

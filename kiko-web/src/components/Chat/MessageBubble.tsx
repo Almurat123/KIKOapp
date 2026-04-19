@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Check,
@@ -33,6 +33,7 @@ import { ChatAttachmentTray } from './ChatAttachmentTray';
 import { XPostCard } from './XPostCard';
 import { MarkdownCode } from './MarkdownCode';
 import { StructuredRenderBlock } from './StructuredRenderBlock';
+import { GeneratedImageMessage } from './GeneratedImageMessage';
 import {
   getSourceDomain,
   getFaviconUrl,
@@ -45,10 +46,8 @@ import { chatApi } from '../../services/api';
 import { calculateCost, formatCost } from '../../utils/llmPricing';
 import styles from './Chat.module.css';
 import type { Message } from '../../hooks/useConversations';
-import { chatStreamDebug } from '../../utils/chatStreamDebug';
-
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-18
 // Author: Rowan
 // Reason: runtime plan cards and assistant reasoning were previously rendered
 //         through the same surface, which caused live reasoning from NVIDIA
@@ -67,25 +66,40 @@ import { chatStreamDebug } from '../../utils/chatStreamDebug';
 //         collapse toggle as soon as content begins to appear. Runtime testing
 //         on 2026-04-17 showed the internal plan card itself was being mistaken
 //         for the assistant answer because hard-coded orchestration labels were
-//         rendered in the transcript before normal content.
-// Goal: keep runtime plan progress separate from assistant reasoning so the
-//       plan card remains an opt-in debug surface while the message bubble owns
-//       user-visible assistant text and live thinking content. Streamed chunks
-//       keep their original insertion timing and only receive a subtle opacity
-//       fade on arrival.
+//         rendered in the transcript before normal content. A follow-up rollback
+//         on 2026-04-18 confirmed the opacity-fade streaming path had replaced
+//         live Markdown/citation rendering with plain text span chunks, which
+//         broke streaming-time line breaks, lists, and code formatting.
+//         Generated-image replies now also render inside this owner, so bubble
+//         visibility rules must treat `generated-image` as first-class assistant
+//         content instead of hiding it behind text-only heuristics. Product
+//         direction later restored runtime plan cards to the normal transcript:
+//         the plan must stay visible when backend runtime state exists, but it
+//         still must not consume assistant reasoning or final-answer ownership.
+//         Runtime transcripts then showed internal warmup scaffolds such as
+//         "理解请求" and "生成回答" appearing next to normal answers, so this
+//         owner now keeps the old always-render card behavior but normalizes
+//         low-quality scaffold copy before it reaches PlanCard.
+// Goal: keep runtime plan progress separate from assistant reasoning while
+//       showing both in the normal transcript. The message bubble owns
+//       user-visible assistant text, generated-image replies, and live thinking
+//       content. Streaming answers must preserve the original Markdown and
+//       citation render path instead of swapping to plain-text chunk spans.
 // Owns: assistant message presentation, runtime-card placement, and reasoning
 //       visibility rules inside the chat transcript.
 // Does Not Own: broker event routing, plan generation, or model stream parsing.
 // Design Language:
-// - runtime plan cards are hidden from normal users unless an explicit debug flag enables them
-// - plan cards show execution structure, not assistant answers or raw model reasoning
+// - runtime plan cards show execution structure when runtime state exists
+// - plan cards are not assistant answers and must not absorb raw model reasoning
 // - reasoning content stays attached to the assistant message surface
 // - runtime cards must not suppress legitimate reasoning visibility
-// - streaming text should keep original chunk timing and only change presentation
-// - new streamed chunks may fade in, but runtime plan cards must not disable that surface
-// - render diagnostics should log segment counts/lengths, not raw text
+// - streaming text must preserve the same Markdown, citation, and newline semantics as the completed message
+// - do not split streaming assistant text into plain span segments that bypass Markdown rendering
 // - live reasoning should stay visible during streaming even when answer text has started
 // - internal orchestration labels such as "Understand the request" must not appear as normal chat replies
+// - generated-image replies count as visible assistant content even when text is empty
+// - runtime plans persist across refresh and must render whenever backend state exists
+// - internal or generic warmup copy must be normalized before it renders as product copy
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/test.txt
 // - Kind: runtime observation
@@ -117,16 +131,46 @@ import { chatStreamDebug } from '../../utils/chatStreamDebug';
 // - Retrieved: 2026-04-17
 // - Applied To: hiding `agentRuntime.plan` from normal transcript rendering unless debug is explicitly enabled
 // - Verification: verified in code and targeted build
+// - Source: git show 754ec8b6^:kiko-web/src/components/Chat/MessageBubble.tsx
+// - Kind: repo doc
+// - Retrieved: 2026-04-18
+// - Applied To: restoring the pre-fade streaming render path that kept CitationRenderer/ReactMarkdown active while streaming
+// - Verification: verified in code
+// - Source: operator report that streaming text was animating character-by-character and losing Markdown line breaks
+// - Kind: runtime observation
+// - Retrieved: 2026-04-18
+// - Applied To: removing the plain-text streaming fade path
+// - Verification: partially verified
+// - Source: operator request on 2026-04-18 to render generated-image replies inside chat
+// - Kind: product doc
+// - Retrieved: 2026-04-18
+// - Applied To: treating `generated-image` rows as visible assistant content in the bubble owner
+// - Verification: verified in code
+// - Source: operator requirement on 2026-04-18 to restore visible runtime plan cards in normal chat
+// - Kind: product doc
+// - Retrieved: 2026-04-18
+// - Applied To: removing the debug-only visibility gate from runtime plan cards
+// - Verification: verified in code
+// - Source: operator runtime transcript showing warmup plan labels rendered as
+//           answer-adjacent copy
+// - Kind: runtime observation
+// - Retrieved: 2026-04-18
+// - Applied To: normalizing internal/generic runtime plan scaffolds without hiding the card
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/runtime-plan-visibility.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
 // - /Users/almurat/KiKo/system-journal/owner-map/chat-runtime-planning.md
 // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-streaming-markdown-restore.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-runtime-plan-visibility-and-nvidia-reasoning-restore.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-plan-card-internal-scaffold-filter.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-runtime-plan-user-visible-hardcoding-fix.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-runtime-plan-card-reasoning-separation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-streaming-opacity-fade.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-stream-diagnostics.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 interface MessageBubbleProps {
@@ -144,93 +188,81 @@ interface MessageBubbleProps {
   onFeedback?: (messageId: string, feedback: 'like' | 'dislike' | null) => void;
 }
 
-type StreamingFadeSegment = {
-  id: number;
-  text: string;
-  isFresh: boolean;
-};
-
 type UserImageAttachment = {
   id: string;
   previewUrl: string;
   name: string;
 };
 
-const SHOW_AGENT_RUNTIME_PLAN_CARD =
-  String(import.meta.env.VITE_KIKO_SHOW_AGENT_RUNTIME_PLAN || '').toLowerCase() === 'true';
-
-function useStreamingFadeSegments(target: string, enabled: boolean): {
-  segments: StreamingFadeSegment[];
-  markSegmentVisible: (segmentId: number) => void;
-} {
-  const normalizedTarget = target || '';
-  const nextIdRef = useRef(1);
-  const previousTextRef = useRef(normalizedTarget);
-  const [segments, setSegments] = useState<StreamingFadeSegment[]>(
-    normalizedTarget ? [{ id: 0, text: normalizedTarget, isFresh: false }] : [],
-  );
-
-  useEffect(() => {
-    if (!enabled) {
-      previousTextRef.current = normalizedTarget;
-      setSegments(
-        normalizedTarget ? [{ id: 0, text: normalizedTarget, isFresh: false }] : [],
-      );
-      return;
+function normalizeRuntimePlanForDisplay(plan: any): any {
+  if (!plan || typeof plan !== 'object') return null;
+  const locale = String(plan.locale || '')
+    .toLowerCase()
+    .startsWith('zh')
+    ? 'zh'
+    : 'en';
+  const isZh = locale === 'zh';
+  const normalizeTitle = (value: any) => {
+    const text = String(value || '').trim();
+    if (
+      !text ||
+      text === '正在处理你的请求' ||
+      text === '处理请求' ||
+      text === 'Working on your request'
+    ) {
+      return isZh ? '任务进度' : 'Task progress';
     }
-
-    const previous = previousTextRef.current || '';
-
-    if (!normalizedTarget) {
-      previousTextRef.current = '';
-      setSegments([]);
-      return;
+    return text;
+  };
+  const normalizeSummary = (value: any) => {
+    const text = String(value || '').trim();
+    if (
+      text === '我会逐步查看信息并在拿到结果后继续。' ||
+      text === '我会先确认你现在想让我做什么，再继续给出结果。' ||
+      text === 'I will inspect the task step by step and continue as results come in.'
+    ) {
+      return '';
     }
-
-    if (!previous) {
-      previousTextRef.current = normalizedTarget;
-      setSegments([{ id: nextIdRef.current++, text: normalizedTarget, isFresh: true }]);
-      return;
+    return text;
+  };
+  const normalizeStepTitle = (step: any) => {
+    const id = String(step?.id || '');
+    const title = String(step?.title || '').trim();
+    if (id === 'step-understand' || title === '理解请求' || title === 'Understand the request') {
+      return isZh ? '分析请求' : 'Analyze request';
     }
-
-    if (!normalizedTarget.startsWith(previous)) {
-      previousTextRef.current = normalizedTarget;
-      setSegments([{ id: 0, text: normalizedTarget, isFresh: false }]);
-      return;
+    if (id === 'step-summary' || title === '生成回答' || title === 'Generate answer') {
+      return isZh ? '整理回答' : 'Draft response';
     }
-
-    const delta = normalizedTarget.slice(previous.length);
-    if (!delta) {
-      return;
+    return title;
+  };
+  const normalizeStepDescription = (step: any) => {
+    const id = String(step?.id || '');
+    const description = String(step?.description || '').trim();
+    if (
+      id === 'step-understand' &&
+      /先(快速)?(判断|明确)|Clarify|Quickly determine/i.test(description)
+    ) {
+      return '';
     }
-
-    previousTextRef.current = normalizedTarget;
-    setSegments((current) => {
-      const currentJoined = current.map((segment) => segment.text).join('');
-      const stableSegments = currentJoined === previous
-        ? current.map((segment) => segment.isFresh ? { ...segment, isFresh: false } : segment)
-        : [{ id: 0, text: previous, isFresh: false }];
-
-      return [
-        ...stableSegments,
-        {
-          id: nextIdRef.current++,
-          text: delta,
-          isFresh: true,
-        },
-      ];
-    });
-  }, [enabled, normalizedTarget]);
-
-  const markSegmentVisible = (segmentId: number) => {
-    setSegments((current) => current.map((segment) => (
-      segment.id === segmentId && segment.isFresh
-        ? { ...segment, isFresh: false }
-        : segment
-    )));
+    if (id === 'step-summary' && /给出回答|Answer once|Answer from/i.test(description)) {
+      return '';
+    }
+    return description;
   };
 
-  return { segments, markSegmentVisible };
+  return {
+    ...plan,
+    title: normalizeTitle(plan.title),
+    summary: normalizeSummary(plan.summary),
+    steps: Array.isArray(plan.steps)
+      ? plan.steps.map((step: any) => ({
+          ...step,
+          title: normalizeStepTitle(step),
+          description: normalizeStepDescription(step),
+        }))
+      : [],
+  };
 }
 
 // Define components outside of render to prevent re-creation on every render
@@ -362,22 +394,29 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
   onFeedback,
 }: MessageBubbleProps) => {
   const isUser = message.role === 'user';
-  const runtimePlan = !isUser && SHOW_AGENT_RUNTIME_PLAN_CARD
+  const rawRuntimePlan = !isUser
     ? message.data?.agentRuntime?.plan || (message.type === 'plan-card' ? message.data : null)
     : null;
+  const runtimePlan = normalizeRuntimePlanForDisplay(rawRuntimePlan);
   const hasRuntimeCard = !!runtimePlan;
-  const hasInlineCard = !!(message.type && message.type !== 'text' && message.type !== 'plan-card' && message.data);
+  const hasInlineCard = !!(
+    message.type &&
+    message.type !== 'text' &&
+    message.type !== 'plan-card' &&
+    message.data
+  );
   const [copied, setCopied] = useState(false);
   const [showCitations, setShowCitations] = useState(false);
   const [showReasoning, setShowReasoning] = useState(true); // 默认展开状态
   const [feedback, setFeedback] = useState<'like' | 'dislike' | null>(message.feedback || null); // Initial state from message if available
   const { resolvedTheme } = useThemeContext();
   const userAttachments: UserImageAttachment[] = Array.isArray(message.data?.attachments)
-    ? message.data.attachments.filter((attachment: any) =>
-      attachment &&
-      typeof attachment.previewUrl === 'string' &&
-      typeof attachment.name === 'string',
-    )
+    ? message.data.attachments.filter(
+        (attachment: any) =>
+          attachment &&
+          typeof attachment.previewUrl === 'string' &&
+          typeof attachment.name === 'string'
+      )
     : [];
 
   // elapsedTime variable removed as it is now handled by ThinkingTimer component
@@ -484,9 +523,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
           <div className={styles.inlineCard}>
             <div className={styles.animFluid}>
               <div className={styles.cardContent}>
-                <PolymarketEmbedCard
-                  marketSlug={message.data?.market_slug || message.data?.slug}
-                />
+                <PolymarketEmbedCard marketSlug={message.data?.market_slug || message.data?.slug} />
               </div>
             </div>
           </div>
@@ -524,68 +561,25 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
     : message.data?.renderContract
       ? [message.data.renderContract]
       : [];
+  const generatedImagePayload =
+    message.type === 'generated-image' ? message.data?.generatedImage : null;
+  const hasGeneratedImageContent = Boolean(
+    generatedImagePayload &&
+    ((Array.isArray(generatedImagePayload.images) && generatedImagePayload.images.length > 0) ||
+      String(generatedImagePayload.status || '').trim().length > 0 ||
+      String(generatedImagePayload.errorMessage || '').trim().length > 0)
+  );
   const hasStructuredRender = renderContracts.length > 0;
   const hasVisibleContent =
     (message.content && message.content.trim().length > 0) ||
     (message.reasoning_content && message.reasoning_content.trim().length > 0) ||
+    hasGeneratedImageContent ||
     hasStructuredRender ||
     hasInlineCard ||
     hasRuntimeCard;
-  const shouldUseLightweightStreamingRender =
-    !isUser &&
-    message.status === 'streaming' &&
-    !hasInlineCard &&
-    !hasStructuredRender;
-  const { segments: streamingContentSegments, markSegmentVisible: markContentSegmentVisible } = useStreamingFadeSegments(
-    message.content || '',
-    shouldUseLightweightStreamingRender && Boolean(message.content),
-  );
-  const { segments: streamingReasoningSegments, markSegmentVisible: markReasoningSegmentVisible } = useStreamingFadeSegments(
-    message.reasoning_content || '',
-    shouldUseLightweightStreamingRender && Boolean(message.reasoning_content),
-  );
   const renderedContent = hasStructuredRender
     ? stripMarkdownTableArtifacts(message.content || '')
-    : (message.content || '');
-  const renderStreamingSegments = (
-    segments: StreamingFadeSegment[],
-    onFadeComplete: (segmentId: number) => void,
-  ) => segments.map((segment) => (
-    <span
-      key={segment.id}
-      className={segment.isFresh ? styles.streamingChunkFade : styles.streamingChunk}
-      onAnimationEnd={segment.isFresh ? () => onFadeComplete(segment.id) : undefined}
-    >
-      {segment.text}
-    </span>
-  ));
-  useEffect(() => {
-    if (!shouldUseLightweightStreamingRender) return;
-    chatStreamDebug('bubble-stream-render', {
-      messageId: message.id,
-      status: message.status,
-      contentLength: (message.content || '').length,
-      reasoningLength: (message.reasoning_content || '').length,
-      contentSegmentCount: streamingContentSegments.length,
-      reasoningSegmentCount: streamingReasoningSegments.length,
-      freshContentSegments: streamingContentSegments.filter((segment) => segment.isFresh).length,
-      freshReasoningSegments: streamingReasoningSegments.filter((segment) => segment.isFresh).length,
-      hasRuntimeCard,
-      hasInlineCard,
-      hasStructuredRender,
-    });
-  }, [
-    shouldUseLightweightStreamingRender,
-    message.id,
-    message.status,
-    message.content,
-    message.reasoning_content,
-    streamingContentSegments,
-    streamingReasoningSegments,
-    hasRuntimeCard,
-    hasInlineCard,
-    hasStructuredRender,
-  ]);
+    : message.content || '';
 
   return (
     <div
@@ -678,16 +672,12 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                   (!message.content || message.content.trim().length === 0) &&
                   !hasInlineCard && (
                     <div className={styles.markdownContent}>
-                      {shouldUseLightweightStreamingRender ? (
-                        renderStreamingSegments(streamingReasoningSegments, markReasoningSegmentVisible)
-                      ) : (
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm, remarkBreaks]}
-                          components={MarkdownComponents}
-                        >
-                          {preprocessMarkdown(message.reasoning_content)}
-                        </ReactMarkdown>
-                      )}
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm, remarkBreaks]}
+                        components={MarkdownComponents}
+                      >
+                        {preprocessMarkdown(message.reasoning_content)}
+                      </ReactMarkdown>
                     </div>
                   )}
 
@@ -701,16 +691,12 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                       data-kiko-message-selection-target="true"
                     >
                       <div className={`${styles.reasoningText} ${styles.markdownContent}`}>
-                        {shouldUseLightweightStreamingRender ? (
-                          renderStreamingSegments(streamingReasoningSegments, markReasoningSegmentVisible)
-                        ) : (
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm, remarkBreaks]}
-                            components={MarkdownComponents}
-                          >
-                            {preprocessMarkdown(message.reasoning_content)}
-                          </ReactMarkdown>
-                        )}
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm, remarkBreaks]}
+                          components={MarkdownComponents}
+                        >
+                          {preprocessMarkdown(message.reasoning_content)}
+                        </ReactMarkdown>
                       </div>
                     </div>
                   )}
@@ -719,6 +705,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                     <StructuredRenderBlock contracts={renderContracts} />
                   </div>
                 )}
+                {generatedImagePayload && <GeneratedImageMessage payload={generatedImagePayload} />}
                 {renderedContent && (
                   <div
                     className={clsx(
@@ -728,15 +715,11 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                     )}
                     data-kiko-message-selection-target="true"
                   >
-                    {shouldUseLightweightStreamingRender ? (
-                      renderStreamingSegments(streamingContentSegments, markContentSegmentVisible)
-                    ) : (
-                      <CitationRenderer
-                        content={renderedContent}
-                        citations={message.citations || []}
-                        components={MarkdownComponents}
-                      />
-                    )}
+                    <CitationRenderer
+                      content={renderedContent}
+                      citations={message.citations || []}
+                      components={MarkdownComponents}
+                    />
                   </div>
                 )}
                 {/* Render card inline after content */}

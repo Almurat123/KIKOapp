@@ -6,7 +6,8 @@
 //         created multiple BSC rows. Database-level active uniqueness now also
 //         means concurrent create races must be converted into idempotent reads.
 //         The buy hot path now also uses a config index, so tool writes must
-//         invalidate that read model immediately.
+//         invalidate that read model immediately. Agent-mode receipts now also
+//         need target wallet explorer URLs next to copy-trade config ids.
 // Goal: make copy-trade config creation idempotent for active user+chain+target
 //       tuples, reject malformed wallet args before persistence, and keep the
 //       active-config index coherent after tool writes.
@@ -21,6 +22,7 @@
 // - database unique conflicts are safe races and must not increment tracked-wallet counts
 // - every create/existing-create outcome should emit wallet provenance audit evidence
 // - successful tool writes must invalidate the target-wallet config index
+// - configuration receipts should include a target wallet explorer URL when the target is a chain address
 // Document Provenance:
 // - Source: chat transcript + runtime logs + production database inspection for BSC copy-trade target wallets
 // - Kind: runtime observation
@@ -32,6 +34,11 @@
 // - Retrieved: 2026-04-14
 // - Applied To: config index invalidation after tool-side create
 // - Verification: verified in code design review
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-19
+// - Applied To: copy-trade config target wallet receipt links
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/copytrade-buy-hot-path-refactor-todo.md
@@ -41,6 +48,7 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-duplicate-config-hardening.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-wallet-deterministic-extraction.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-wallet-audit-provenance.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import { Tool } from '../../../tooling/registry.js';
 import prisma from '../../../db/prisma.js';
@@ -55,6 +63,7 @@ import {
 } from '../../../services/copyTradeAuthorization.js';
 import { safeRecordCopyTradeWalletAudit } from '../../../services/copyTradeWalletAuditService.js';
 import { invalidateActiveCopyTradeConfigIndex } from '../../../services/copytrade-v2/config/copyTradeConfigIndex.js';
+import { buildAddressExplorerUrl } from '../../../utils/executionLinks.js';
 
 export const CreateCopyTradeConfigTool: Tool = {
     definition: {
@@ -151,6 +160,7 @@ export const CreateCopyTradeConfigTool: Tool = {
                 id: existingConfig.id,
                 summary: `Copy trade already active for ${existingConfig.targetWallet} on chain ${existingConfig.chainId}.`,
                 targetWallet: existingConfig.targetWallet,
+                targetWalletUrl: buildAddressExplorerUrl(existingConfig.chainId, existingConfig.targetWallet),
                 chainId: existingConfig.chainId,
                 buyAmountUsd: existingConfig.buyAmountUsd,
                 maxEntryDeviationBps: resolveMaxEntryDeviationBps(existingConfig).maxEntryDeviationBps,
@@ -249,6 +259,7 @@ export const CreateCopyTradeConfigTool: Tool = {
                 id: racedConfig.id,
                 summary: `Copy trade already active for ${racedConfig.targetWallet} on chain ${racedConfig.chainId}.`,
                 targetWallet: racedConfig.targetWallet,
+                targetWalletUrl: buildAddressExplorerUrl(racedConfig.chainId, racedConfig.targetWallet),
                 chainId: racedConfig.chainId,
                 buyAmountUsd: racedConfig.buyAmountUsd,
                 maxEntryDeviationBps: resolveMaxEntryDeviationBps(racedConfig).maxEntryDeviationBps,
@@ -296,6 +307,7 @@ export const CreateCopyTradeConfigTool: Tool = {
             id: config.id,
             summary: `Copy trade created for ${normalizedTarget} with $${buyAmountUsd} per trade on chain ${chainId}.`,
             targetWallet: config.targetWallet,
+            targetWalletUrl: buildAddressExplorerUrl(config.chainId, config.targetWallet),
             chainId: config.chainId,
             buyAmountUsd: config.buyAmountUsd,
             maxEntryDeviationBps: resolveMaxEntryDeviationBps(config).maxEntryDeviationBps,
@@ -332,6 +344,7 @@ export const ListCopyTradeConfigsTool: Tool = {
             return user.configs.map(c => ({
                 id: c.id,
                 target: c.targetWallet,
+                target_url: buildAddressExplorerUrl(c.chainId, c.targetWallet),
                 buy_amount: `$${c.buyAmountUsd}`,
                 max_entry_deviation_bps: resolveMaxEntryDeviationBps(c).maxEntryDeviationBps,
                 status: c.status,
@@ -361,6 +374,8 @@ export const DeleteCopyTradeConfigTool: Tool = {
         return {
             summary: 'For security reasons, deleting copy-trade configs now requires user-signed action in the Trade page.',
             requires_user_signature: true,
+            targetWallet: args.target_wallet,
+            targetWalletUrl: buildAddressExplorerUrl(undefined, args.target_wallet),
             __client_action: {
                 type: 'open_trade_page_for_signed_copytrade',
                 data: {
@@ -396,6 +411,8 @@ export const PauseCopyTradeConfigTool: Tool = {
         return {
             summary: 'For security reasons, pause/resume now requires user-signed action in the Trade page.',
             requires_user_signature: true,
+            targetWallet: args.target_wallet,
+            targetWalletUrl: buildAddressExplorerUrl(undefined, args.target_wallet),
             __client_action: {
                 type: 'open_trade_page_for_signed_copytrade',
                 data: {

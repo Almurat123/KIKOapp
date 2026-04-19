@@ -1,30 +1,239 @@
-Farcaster inbound mention context: Current @almurat: @kikoapp what’s your model
-KIKO
-2026-04-16T18:02:08.822Z
-Working on your request
-I will inspect the task step by step and continue as results come in.
-
-Understand the request
-Completed
-
-Generate answer
-Completed
-The user is asking "what's your model" - they're asking about what AI model I am. This is a straightforward question about my identity/capabilities. Given the context: - The user is asking a general question about my model I don't need to use any tools for this - it's a direct question about my identity that I can answer based on my system context. I am KiKo, an assistant running on kikoapp.app. The directive says to keep it short, natural, conversational - like replying to a friend. Lead with the direct answer. I should mention I'm KiKo, an AI assistant for crypto and prediction markets. Actually, looking at the context, I am an AI assistant (likely based on a modern LLM) but the specific model architecture isn't specified in my system prompt. I should just identify myself as KiKo and explain what I do. Wait, I should check if there's any specific model info in my system prompt... The identity section says "You are KiKo, an assistant running on kikoapp.app". It doesn't specify GPT-4, Claude, etc. So I should just answer as KiKo. - Short, direct - Natural tone - No formal headings - Lead with the answer Something like: "I'm KiKo, an AI assistant built for crypto trading and prediction markets. That's concise and answers the question.
-I'm KiKo, an AI assistant built for crypto trading and prediction markets. I can help you swap tokens, check prices, analyze wallets, trade on Polymarket, and monitor on-chain activity.
-Farcaster inbound mention context: Parent @almurat: @kikoapp what’s your model Parent @kikoapp: I'm KiKo, an AI assistant built for crypto trading and prediction markets. I can help you swap tokens, check prices, analyze wallets, trade on Polymarket, and monitor on-chain activity. Current @almurat: Can u deploy a token name test ?
-KIKO
-2026-04-16T18:04:44.898Z
-Working on your request
-I will inspect the task step by step and continue as results come in.
-
-Understand the request
-Completed
-
-Generate answer
-Completed
-Analyzing the request: The user is asking "Can u deploy a token name test ?" Let me analyze this: 1. The user is asking if the assistant can deploy a token named "test" (or with the name "test") 2. This is a request about the assistant's capabilities - specifically asking if it can perform a token deployment action 3. This is not a request to actually execute a deployment (yet), but rather a question about capability/possibility 4. However, looking at the available domains and intents: The user is asking about deploying a token. This is not a standard intent in the list. The closest would be: - If asking about whether the assistant CAN do it: assistant_meta (meta question about capabilities) - If asking to actually deploy: This would be an execution request, but there's no "deploy" intent Given the phrasing "Can u deploy..." this is a capability question. It's asking if the assistant has the ability to deploy tokens. However, looking at the context: - Previous message was "@kikoapp what's your model" - Current message: "Can u deploy a token name test ?" This seems like a continuation of exploring capabilities. The user wants to know if the assistant can deploy a token. Since "deploy" is not in the intent list, and this is a question about what the assistant can do, this should be classified as: - domain: assistant_meta - intent: assistant_meta - task_mode: discover (for onboarding/capabilities questions) But wait, the user might be asking to actually deploy a token named "test". If that's the case, it's an execution request for something not supported. Given the strict enum constraints, and that "deploy" is not an intent, I should treat this as an assistant_meta question about capabilities, OR I need to set needs_clarification=true because the request is ambiguous or unsupported. Actually, looking carefully: "Can u deploy a token name test ?" could mean: Can you deploy a token with the name "test"? (capability question) Can you deploy a token? The name is "test". (execution request) Given the available intents don't include "deploy", and this is likely a capability exploration given the previous question was about the model, I should classify this as assistant_meta. But the user might actually want to execute a deployment. Since I cannot fulfill "deploy" intents (not in the enum), and assuming the user wants to execute something I can't do, I should either: - Classify as assistant_meta if it's about capabilities - Or set needs_clarification if it's an unsupported execution request Given the previous turn was asking about the model (assistant_meta), and this follows up with "Can u deploy...", it's most likely a capability question. However, if interpreted as a request to deploy, it's ambiguous because: - I don't know if the user wants to actually deploy or just asking if I can - The token name "test" is ambiguous - The chain is not specified But the instructions say: "If the request is ambiguous, set needs_clarification=true and provide a short clarification_question." Is this ambiguous? The user might be asking: - "Can you deploy a token?" (capability) - "Deploy a token named 'test'" (command) Given the "Can u" at the beginning, it's likely a question about capability. Let me check the entities: Actually, looking at the input, the system has extracted "CAN" as a token symbol, which is incorrect (it's "Can" from "Can you"), but I should respect the provided requested_token_symbols unless I have strong evidence otherwise. But "Can" is not relevant here. Actually, looking at the input JSON: "requested_token_symbols":["CAN"] - this is likely a false positive from "Can u". The user mentioned "test" as the token name. Given the constraints: - I must use the exact enums provided - There is no "deploy" intent - This appears to be a question about assistant capabilities (can you do X?) Therefore: domain: assistant_meta intent: assistant_meta task_mode: discover (for capabilities questions) needs_clarification: false (it's a clear question about capabilities, even if the answer is "no I can't deploy tokens") Wait, but if the user actually wants to deploy a token and I'm treating it as a meta question, I might miss the intent. But given the strict schema, I don't have a choice for "deploy" intent. Actually, looking at the instructions again: "Set domain=assistant_meta with intent=assistant_meta for Kiko intro/capabilities questions and for meta/debug questions about the assistant..." This is a capabilities question: "Can you deploy a token?" So: - task_mode: discover - needs_clarification: false - entities: empty (the "CAN" is a false positive, "test" is mentioned but not a real token) - locale: en But I should also consider if this is a request to actually perform the action. The "Can u" suggests capability check. If it were "Deploy a token named test", it would be an execution request for an unsupported action, which would require clarification. Given the phrasing "Can u deploy...", I'll treat it as a capabilities question. Entities: - token_symbols: [] (CAN is not a token here, test is not a symbol but a requested name) - token_addresses: [] - wallet_addresses: [] - market_identifiers: [] requested_chain: null requested_time_window: null evidence_requirements: [] requires_realtime: false requires_onchain_evidence: false execution_candidate: false (it's a question, not a request to execute) inherit_entities_from_context: false (this is about the assistant, not continuing a previous token/wallet subject) row_count: null locale: en confidence: 0.9 Actually, looking at the requested_token_symbols in the input: ["CAN"] - this is clearly a parsing error from "Can u", but as the normalizer, I should probably not propagate this error. The instructions don't explicitly say I must use the provided requested_token_symbols if they are wrong. "test" is not a standard token symbol, it's a placeholder name. So entities should be empty. Final check: - Is this ambiguous? The user could mean "Can you deploy a token [with the] name test?" or "Can you deploy a token? Name: test". But both are essentially asking about the capability to deploy a token named test. - Since I cannot deploy tokens, and this is a capability question, the clarification would be unnecessary - I should just answer that I cannot deploy tokens. So needs_clarification: false. JSON structure: { "domain": "assistant_meta", "intent": "assistant_meta", "task_mode": "discover", "output_mode": "narrative", "search_mode": "forbidden", "search_target": "none", "confidence": 0.9, "explanation": "User is asking about the assistant's capability to deploy a token named 'test'. This is a meta-question about what the assistant can do.", "entities": { "token_addresses": [], "token_symbols": [], "wallet_addresses": [], "market_identifiers": [] }, "requested_chain": null, "requested_time_window": null, "evidence_requirements": [], "requires_realtime": false, "requires_onchain_evidence": false, "execution_candidate": false, "inherit_entities_from_context": false, "row_count": null, "locale": "en", "needs_clarification": false, "clarification_question": null } Wait, I need to check if "test" could be interpreted as a token symbol. There's a TEST token on some chains, but given the context "name test", it's clearly referring to the name. Also, the requested_token_symbols already has ["CAN"] which I should ignore/clear. Actually, looking at the instructions: "Treat requested_address_classifications as higher-confidence evidence than raw 0x/base58 shape." - this implies I should respect provided entity extractions unless I have reason to override. But "CAN" from "Can u" is clearly an error. However, the system that extracted it might have done so for a reason? No, "Can" is not a token symbol in this context. I will set entities to empty arrays. One more check: Could this be a token analysis request for a token named "test"? No, "deploy" is the verb. Could it be a request to analyze the token "CAN"? No, "Can u" is "Can you". Final decision: assistant_meta domain/intent. This is a follow-up to the previous question about what model KiKo is. The user is asking if I can deploy a token named "test" (or deploy a test token). This is a token deployment request. Looking at my constraints: I should not execute recklessly I need to protect user assets I need to check if I have the capability to deploy tokens I need to be careful about creating actual tokens on-chain From the context, I don't see any specific skill or tool mentioned for token deployment. Also, deploying a token is a significant action that: Costs gas fees Creates a permanent contract on-chain Could be used for scams if not careful Requires specific parameters (symbol, decimals, supply, etc.) I should: Clarify what they mean (do they want me to actually deploy a token, or are they testing if I can?) Explain that I don't currently support token deployment directly Suggest alternatives (like using existing token launchpads) Wait, looking at the [LAUNCHPAD_CONTEXT] in the system instructions, there might be launchpad-related capabilities, but the user is asking me to deploy a token, not to help them find a launchpad. I should not claim to deploy a token unless I have a specific tool for it. From the available context, I don't see a token deployment tool. I should decline politely and explain what I can do instead. Response strategy: - Clarify that I can't deploy tokens directly - Explain what I can help with instead (swaps, analysis, etc.) - Keep it short and friendly
-I can't deploy tokens directly — I'm built for trading, swaps, and market analysis, not contract deployment.
-
-If you're looking to launch a token, you'd want to use a launchpad like Pump.fun, Uniswap V4 hooks, or a no-code deployer like OpenZeppelin's Contracts Wizard. I can help you analyze the token once it's live (price, liquidity, holder distribution) or swap it when there's a pool.
-
-What are you actually trying to build?
+[vite] connecting...
+client:827 [vite] connected.
+App.tsx:264 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+warnOnce @ react-router-dom.js?v=d69f7727:4446
+logDeprecation @ react-router-dom.js?v=d69f7727:4449
+logV6DeprecationWarnings @ react-router-dom.js?v=d69f7727:4452
+(anonymous) @ react-router-dom.js?v=d69f7727:5266
+react_stack_bottom_frame @ react-dom_client.js?v=d69f7727:30056
+runWithFiberInDEV @ react-dom_client.js?v=d69f7727:12486
+commitHookEffectListMount @ react-dom_client.js?v=d69f7727:20900
+commitHookPassiveMountEffects @ react-dom_client.js?v=d69f7727:20954
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22529
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22544
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22555
+flushPassiveEffects @ react-dom_client.js?v=d69f7727:24639
+(anonymous) @ react-dom_client.js?v=d69f7727:24265
+performWorkUntilDeadline @ chunk-5WMYJWXT.js?v=d69f7727:315
+<RouterProvider>
+exports.jsxDEV @ react_jsx-dev-runtime.js?v=d69f7727:269
+App @ App.tsx:264
+react_stack_bottom_frame @ react-dom_client.js?v=d69f7727:29998
+renderWithHooksAgain @ react-dom_client.js?v=d69f7727:17218
+renderWithHooks @ react-dom_client.js?v=d69f7727:17154
+updateFunctionComponent @ react-dom_client.js?v=d69f7727:18964
+beginWork @ react-dom_client.js?v=d69f7727:20014
+runWithFiberInDEV @ react-dom_client.js?v=d69f7727:12486
+performUnitOfWork @ react-dom_client.js?v=d69f7727:24050
+workLoopSync @ react-dom_client.js?v=d69f7727:23913
+renderRootSync @ react-dom_client.js?v=d69f7727:23897
+performWorkOnRoot @ react-dom_client.js?v=d69f7727:23255
+performWorkOnRootViaSchedulerTask @ react-dom_client.js?v=d69f7727:24994
+performWorkUntilDeadline @ chunk-5WMYJWXT.js?v=d69f7727:315
+<App>
+exports.jsxDEV @ react_jsx-dev-runtime.js?v=d69f7727:269
+(anonymous) @ main.tsx:123Understand this warning
+chunk-7KPT6QRL.js?v=d69f7727:1589 Detected injected providers: [{…}]
+chunk-7KPT6QRL.js?v=d69f7727:1710 Wallet did not respond to eth_accounts. Defaulting to prefetched accounts. O3: Must call 'eth_requestAccounts' before other methods
+    at x3 (chunk-USDKFPSW.js?v=d69f7727:16832:58)
+    at chunk-7KPT6QRL.js?v=d69f7727:1780:13
+chunk-7KPT6QRL.js?v=d69f7727:1707 eth_accounts for phantom: []
+chunk-7KPT6QRL.js?v=d69f7727:1707 eth_accounts for base_account: []
+logger.ts:66 [Onboarding] Running evaluation for user: did:privy:cmnr3xcgc00m00cjj4wmvm0tr
+chunk-WM6KIRJ4.js?v=d69f7727:29335 Failed to add embedded wallet connector: Wallet proxy not initialized
+chatWebSocket.ts:149 [ChatWS] Connecting to user WebSocket: ws://localhost:5173/api/chat/ws
+logger.ts:66 [Onboarding] Running evaluation for user: did:privy:cmnr3xcgc00m00cjj4wmvm0tr
+logger.ts:66 [Onboarding] Triggering Farcaster Modal (no fid found yet)
+chatWebSocket.ts:167 [ChatWS] Socket opened, sending auth
+chatWebSocket.ts:187 [ChatWS] Authenticated
+chunk-WM6KIRJ4.js?v=d69f7727:30508 Embedded1193Provider.request() called with args {method: 'eth_accounts'}
+chunk-7KPT6QRL.js?v=d69f7727:1707 eth_accounts for privy: ['0x043415956cB62705e02fbC8dCd4544cd2a002ca3']
+chunk-WM6KIRJ4.js?v=d69f7727:30508 Embedded1193Provider.request() called with args {method: 'wallet_switchEthereumChain', params: Array(1)}
+XContext.tsx:93  POST http://localhost:5173/api/users/x/sync 500 (Internal Server Error)
+(anonymous) @ XContext.tsx:93
+await in (anonymous)
+(anonymous) @ XContext.tsx:159
+react_stack_bottom_frame @ react-dom_client.js?v=d69f7727:30056
+runWithFiberInDEV @ react-dom_client.js?v=d69f7727:12486
+commitHookEffectListMount @ react-dom_client.js?v=d69f7727:20900
+commitHookPassiveMountEffects @ react-dom_client.js?v=d69f7727:20954
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22529
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22544
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22522
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22690
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=d69f7727:22499
+commitPassiveMountOnFiber @ react-dom_client.js?v=d69f7727:22555
+flushPassiveEffects @ react-dom_client.js?v=d69f7727:24639
+(anonymous) @ react-dom_client.js?v=d69f7727:24265
+performWorkUntilDeadline @ chunk-5WMYJWXT.js?v=d69f7727:315
+<XProvider>
+exports.jsxDEV @ react_jsx-dev-runtime.js?v=d69f7727:269
+(anonymous) @ main.tsx:119Understand this error
+logger.ts:66 [Onboarding] Manual dismissal of farcaster modal. Permanent: false
+logger.ts:66 [Onboarding] Running evaluation for user: did:privy:cmnr3xcgc00m00cjj4wmvm0tr
+logger.ts:66 [Onboarding] All steps complete.
+chatWebSocket.ts:245 [ChatWS] Disconnected (code: 1005, reason: )
+chatWebSocket.ts:149 [ChatWS] Connecting to user WebSocket: ws://localhost:5173/api/chat/ws
+chatWebSocket.ts:167 [ChatWS] Socket opened, sending auth
+chatWebSocket.ts:187 [ChatWS] Authenticated
+SuggestionEngine.tsx:221 [SuggestionEngine] Generated 0 suggestions
+logger.ts:78 [DEBUG] Subscribing to conversation cmo5a4f1h03sjj5et046ndecy
+logger.ts:78 [DEBUG] ⚠️ CONVERSATION CHANGED: {prevId: null, newId: 'cmo5a4f1h03sjj5et046ndecy'}
+logger.ts:78 [DEBUG] Resetting UI states (backend continues generating)...
+logger.ts:78 [DEBUG] Skipping auto-send - just switched conversation
+useConversations.ts:417 [useConversations] loadConversation response: {success: true, messageCount: 4, messages: Array(4)}
+chatWebSocket.ts:553 [ChatWS] Requesting sync for session cmo5a4f1h03sjj5et046ndecy from seq 0
+logger.ts:78 [DEBUG] Conversation switch complete. New ID: cmo5a4f1h03sjj5et046ndecy Marked 0 messages as processed
+chunk-JW4JQJWZ.js?v=d69f7727:729 THREE.WebGLRenderer: Context Lost.
+SuggestionEngine.tsx:221 [SuggestionEngine] Generated 0 suggestions
+logger.ts:78 [DEBUG] Stop requested {conversationId: 'cmo5a4f1h03sjj5et046ndecy', activeTaskId: null, activeTaskStatus: undefined, firstSendPending: false, isThinking: false, …}
+ChatInterface.tsx:670 [GeneratedImageTestFlow:insert] {targetConversationId: 'cmo5a4f1h03sjj5et046ndecy', assistantMessageId: 'local-generated-image-flow-1776575655941', provider: 'openai', imageUrl: '/news-covers/zora-canvas-1772115882998.png', simulateStaleDowngrade: false}
+GeneratedImageMessage.tsx:243 [GeneratedImageUI:render] {status: 'queued', imageCount: 0, isComplete: false, showLoadingFrame: true, showPreviewImage: false, …}
+GeneratedImageMessage.tsx:243 [GeneratedImageUI:render] {status: 'queued', imageCount: 0, isComplete: false, showLoadingFrame: true, showPreviewImage: false, …}
+GeneratedImageMessage.tsx:243 [GeneratedImageUI:render] {status: 'queued', imageCount: 0, isComplete: false, showLoadingFrame: true, showPreviewImage: false, …}
+ChatInterface.tsx:670 [GeneratedImageTestFlow:advance] {targetConversationId: 'cmo5a4f1h03sjj5et046ndecy', assistantMessageId: 'local-generated-image-flow-1776575655941', phase: 'generating', nextStatus: 'streaming', payload: {…}}
+GeneratedImageMessage.tsx:243 [GeneratedImageUI:render] {status: 'generating', imageCount: 0, isComplete: false, showLoadingFrame: true, showPreviewImage: false, …}
+ChatInterface.tsx:670 [GeneratedImageTestFlow:advance] {targetConversationId: 'cmo5a4f1h03sjj5et046ndecy', assistantMessageId: 'local-generated-image-flow-1776575655941', phase: 'preview', nextStatus: 'streaming', payload: {…}}
+GeneratedImageMessage.tsx:243 [GeneratedImageUI:render] {status: 'generating', imageCount: 1, isComplete: false, showLoadingFrame: true, showPreviewImage: true, …}
+GeneratedImageMessage.tsx:243 [GeneratedImageUI:image-load] {imageId: 'local-generated-image-flow-main', status: 'generating', src: '/news-covers/zora-canvas-1772115882998.png'}imageId: "local-generated-image-flow-main"src: "/news-covers/zora-canvas-1772115882998.png"status: "generating"[[Prototype]]: Object
+GeneratedImageMessage.tsx:243 [GeneratedImageUI:render] {status: 'generating', imageCount: 1, isComplete: false, showLoadingFrame: true, showPreviewImage: true, …}
+ChatInterface.tsx:670 [GeneratedImageTestFlow:advance] {targetConversationId: 'cmo5a4f1h03sjj5et046ndecy', assistantMessageId: 'local-generated-image-flow-1776575655941', phase: 'saving', nextStatus: 'streaming', payload: {…}}
+GeneratedImageMessage.tsx:243 [GeneratedImageUI:render] {status: 'saving', imageCount: 1, isComplete: false, showLoadingFrame: true, showPreviewImage: true, …}
+ChatInterface.tsx:670 [GeneratedImageTestFlow:advance] {targetConversationId: 'cmo5a4f1h03sjj5et046ndecy', assistantMessageId: 'local-generated-image-flow-1776575655941', phase: 'complete', nextStatus: 'complete', payload: {…}}
+GeneratedImageMessage.tsx:243 [GeneratedImageUI:render] {status: 'complete', imageCount: 1, isComplete: true, showLoadingFrame: false, showPreviewImage: false, …}
+GeneratedImageMessage.tsx:243 [GeneratedImageUI:render] {status: 'complete', imageCount: 1, isComplete: true, showLoadingFrame: false, showPreviewImage: false, …}

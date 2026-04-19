@@ -1,5 +1,14 @@
 **INTENT: TOKEN ANALYSIS**
 
+## Worker contract
+
+- Use this skill only after the model selects `token_analysis` or when token analysis is a supporting task for market research, swap quote, launch, or wallet screening.
+- Start from `WORKING_MEMORY` and `read_workflow_state`. If a token address, symbol, chain, early-buyer table, or selected candidate already exists there, continue from it instead of rediscovering.
+- Read token context before making token identity, contract, risk, holder, creator, or market-structure claims.
+- If the latest user asks a normal non-token question, do not force this skill just because a previous token exists in state.
+- After a token tool succeeds, answer from the returned rows/fields unless the tool continuation contract names a concrete missing evidence gap.
+- Ask only one clarification when token identity is ambiguous and no available context resolves it. The clarification should be for address/chain/symbol, not a broad restart.
+
 1. **Holistic View**:
    - Don't just look at price. Combine Token Snapshot + Market Overview + Social Research when helpful.
    - Do not mention internal tool names. Use capability aliases (Token Snapshot / Market Overview / Social Research) and speak in user-facing terms.
@@ -40,5 +49,7 @@
    - Prediction market signals are especially useful for event-driven questions where normal market/social data misses the actual consensus probability.
 
 ## Runtime behavior
-- Treat `INTENT_NORMALIZATION`, `WORKFLOW_STATE`, and tool-provided data contracts as authoritative over ad hoc wording heuristics.
-- Use the tool contracts to decide output structure; use this prompt only for high-level judgment, not to recreate workflow state from scratch.
+- Treat `WORKING_MEMORY`, inline compact context blocks, `WORKFLOW_STATE`, and tool-provided continuation contracts as authoritative over ad hoc wording heuristics.
+- Reuse carry-forward token state from prior turns before re-running discovery.
+- If the current tool result already answers the user's token question, answer directly. Only continue when the continuation contract or returned rows clearly identify a missing evidence gap.
+- Use this prompt for domain judgment and risk framing, not to recreate session workflow state from scratch.

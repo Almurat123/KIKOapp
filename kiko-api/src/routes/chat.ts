@@ -4,23 +4,35 @@
  */
 
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-19
 // Author: Rowan
 // Reason: chat message creation now also has to accept image uploads and keep
-//         sent image bubbles visible after refresh. This owner coordinates upload
-//         preparation, task binding, private message attachment persistence, and
-//         model eligibility checks at the request boundary. It now also captures
-//         the selected reasoning-effort hint so the downstream task snapshot can
-//         preserve GPT-family thinking strength across the worker and gateway chain.
-// Goal: preserve the existing task-based chat flow while allowing image inputs
-//       to be uploaded, validated, bound to one task, read by the worker, and
+//         sent image bubbles visible after refresh. Generated-image replies now
+//         share the same session/message/task surface, but they bypass the text
+//         worker so this route owner must expose a dedicated image-generation
+//         entrypoint while still coordinating upload preparation, task binding,
+//         private message attachment persistence, and model eligibility checks
+//         at the request boundary. It now also captures the selected
+//         reasoning-effort hint so the downstream task snapshot can preserve
+//         GPT-family thinking strength across the worker and gateway chain. A
+//         2026-04-19 runtime trace showed text turns emitted `message_start`
+//         both here and in ChatStreamBroker, so normal text start ownership was
+//         moved back to the worker/broker boundary.
+// Goal: preserve the existing chat session/task flow while allowing image
+//       inputs to be uploaded, validated, bound to one text task, and
 //       rehydrated into refreshed chat history without persisting image binaries
-//       or public image URLs in the database.
+//       or public image URLs in the database for ordinary chat images, while
+//       also allowing generated image replies to run through the same transcript
+//       with a dedicated direct-execution task path. Farcaster-generated image
+//       rows may carry an opt-in public URL because cast embeds require durable
+//       fetchable media URLs.
 // Owns: authenticated chat upload preparation endpoints, send-message request
-//       validation, usage/task gating, task-time image binding, and client-safe
-//       history attachment hydration plus the persisted model/reasoning hint.
-// Does Not Own: object storage internals, UI upload state, or provider-specific
-//               multimodal prompt assembly.
+//       validation, usage/task gating, task-time image binding, dedicated
+//       generated-image route validation, and client-safe history attachment
+//       hydration plus the persisted model/reasoning hint.
+// Does Not Own: object storage internals, UI upload state, provider-specific
+//               multimodal prompt assembly, or generated-image provider
+//               execution order.
 // Design Language:
 // - Chat images are private durable message assets after a successful send.
 // - Reject image turns for models that are not wired for image understanding.
@@ -28,9 +40,17 @@
 // - Finalize prepared uploads as soon as browser PUT completes, before send.
 // - Let the frontend discard prepared uploads that were selected but never sent.
 // - Keep image-bearing tasks non-claimable until upload binding has completed.
-// - Store private object references in ChatMessage.data, not signed/public URLs.
+// - Store private object references in ChatMessage.data, not signed/public URLs
+//   for ordinary chat images.
+// - Farcaster generated-image publication may persist a public URL attached to
+//   that generated-image record; this exception belongs to the storage/task
+//   owners, not this route owner.
 // - Hydrate signed preview URLs at response time and never expose R2 object keys.
 // - Preserve selected GPT reasoning effort in task context instead of inferring it later.
+// - Generated-image turns reuse the chat transcript but must not be normalized into text model ids.
+// - Generated-image route validation may create chat messages and tasks, but provider execution belongs to the generated-image task owner.
+// - Text chat routes should broadcast task status only; assistant `message_start`
+//   belongs to ChatStreamBroker so each assistant id starts once.
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
 // - Kind: repo doc
@@ -52,9 +72,27 @@
 // - Retrieved: 2026-04-16
 // - Applied To: private message attachment persistence and client-safe signed preview hydration
 // - Verification: verified in code
+// - Source: OpenAI Image generation guide and xAI Image / Streaming docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-18
+// - Applied To: dedicated generated-image chat route and provider capability boundary
+// - Verification: verified in docs
+// - Source: operator correction on 2026-04-19 for production-stable Farcaster image embeds
+// - Kind: product doc
+// - Retrieved: 2026-04-19
+// - Applied To: documenting the Farcaster-generated-image public URL exception
+// - Verification: verified in code
+// - Source: operator browser console and app.log trace cmo5a4f1h03sjj5et046ndecy
+// - Kind: runtime observation
+// - Retrieved: 2026-04-19
+// - Applied To: removing duplicate text-route message_start broadcast
+// - Verification: verified in runtime logs and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-stream-duplicate-and-tool-loop-diagnostics.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-local-image-composer-base.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
@@ -81,12 +119,14 @@ import {
     cleanupTaskChatImageUploads,
     discardPreparedChatImageUploads,
     finalizePreparedChatImageUploads,
+    hydrateGeneratedChatImageDataForClient,
     hydrateChatImageAttachmentsForClient,
     isChatImageUploadError,
     prepareChatImageUploads,
     supportsChatImageModel,
     type ChatImageUploadRequest,
 } from '../services/chatImageUploads.js';
+import { buildGeneratedImagePendingData, startGeneratedImageChatTask } from '../services/generatedImageChatTask.js';
 
 // Request body types
 interface CreateSessionBody {
@@ -129,6 +169,12 @@ interface SendMessageBody {
     context?: any;
 }
 
+interface GenerateImageBody {
+    prompt: string;
+    model?: string;
+    imageQuality?: string;
+}
+
 interface UpdateSessionBody {
     title?: string;
     model?: string;
@@ -146,6 +192,12 @@ function normalizeTaskModel(model?: string): string {
     return normalizeSupportedChatModel(model);
 }
 
+function isGeneratedImageModel(model?: string | null): boolean {
+    const normalized = String(model || '').trim().toLowerCase();
+    return normalized.startsWith('gpt-image-1.5')
+        || normalized.startsWith('grok-imagine-image');
+}
+
 async function discardPreparedUploadsSafely(
     fastify: FastifyInstance,
     userId: string | undefined,
@@ -160,8 +212,14 @@ async function discardPreparedUploadsSafely(
 }
 
 async function hydrateChatMessageForClient(message: any): Promise<any> {
-    if (!message?.data?.attachments) return message;
-    const hydratedData = await hydrateChatImageAttachmentsForClient(message.data);
+    if (!message?.data) return message;
+    let hydratedData = message.data;
+    if (hydratedData?.attachments) {
+        hydratedData = await hydrateChatImageAttachmentsForClient(hydratedData);
+    }
+    if (hydratedData?.generatedImage?.images) {
+        hydratedData = await hydrateGeneratedChatImageDataForClient(hydratedData);
+    }
     return {
         ...message,
         data: hydratedData,
@@ -796,7 +854,8 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     walletHydrationAttempted: shouldHydrateWalletSnapshot,
                 });
 
-                // Immediately notify frontend to show Thinking and create assistant placeholder
+                // Immediately notify frontend to show Thinking. ChatStreamBroker owns
+                // assistant message_start so the same assistant id is not started twice.
                 chatWS.broadcastToUser(userId, {
                     type: 'task_status',
                     sessionId,
@@ -809,14 +868,12 @@ export async function chatRoutes(fastify: FastifyInstance) {
                         taskType: 'text'
                     }
                 });
-                chatWS.broadcastToUser(userId, {
-                    type: 'message_start',
+                logger.info(LogCode.AI_API_CALL, 'Chat route: message_start deferred to broker', {
+                    userId,
                     sessionId,
-                    data: {
-                        messageId: assistantMessage.id,
-                        role: 'assistant',
-                        model: taskModel
-                    }
+                    taskId: task.id,
+                    assistantMessageId: assistantMessage.id,
+                    model: taskModel,
                 });
                 // Wake the worker immediately so we do not wait for next poll tick.
                 chatWorker.wake().catch((err: any) => {
@@ -884,6 +941,177 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 return reply.code(500).send(sanitizedErrorResponse(error, 'sendMessage'));
             }
         }
+    );
+
+    // Generate image inside chat session (creates user message + assistant image placeholder + direct task)
+    fastify.post<{ Params: { sessionId: string }; Body: GenerateImageBody }>(
+        '/sessions/:sessionId/generated-images',
+        { preHandler: requireAuth },
+        async (request: FastifyRequest<{ Params: { sessionId: string }; Body: GenerateImageBody }>, reply: FastifyReply) => {
+            let createdTaskId: string | null = null;
+            let createdAssistantMessageId: string | null = null;
+            try {
+                const userId = (request as any).user?.sub;
+                const { sessionId } = request.params;
+                const prompt = String(request.body?.prompt || '').trim();
+                const requestedModel = String(request.body?.model || '').trim().toLowerCase();
+                const imageQuality = String(request.body?.imageQuality || '').trim().toLowerCase() || undefined;
+
+                if (!prompt) {
+                    return reply.code(400).send({ error: 'Image prompt is required' });
+                }
+                if (!isGeneratedImageModel(requestedModel)) {
+                    return reply.code(400).send({ error: 'Unsupported image model' });
+                }
+
+                const session = await chatRepo.getSession(sessionId);
+                if (!session) {
+                    return reply.code(404).send({ error: 'Session not found' });
+                }
+                if (session.userId !== userId) {
+                    return reply.code(403).send({ error: 'Access denied' });
+                }
+
+                const userMessage = await chatRepo.createMessage(sessionId, 'user', prompt);
+
+                const userRecord = await prisma.user.findUnique({ where: { privyDid: userId } });
+                if (userRecord) {
+                    trackChatMessage(userRecord.privyDid);
+                }
+
+                const activeTask = await chatRepo.getSessionActiveTask(sessionId);
+                if (activeTask) {
+                    const assistantMessage = await chatRepo.createMessage(
+                        sessionId,
+                        'assistant',
+                        'Another image or chat task is already running in this session.',
+                        { status: 'complete' },
+                    );
+                    const [clientUserMessage, clientAssistantMessage] = await Promise.all([
+                        hydrateChatMessageForClient(userMessage),
+                        hydrateChatMessageForClient(assistantMessage),
+                    ]);
+                    return reply.send({
+                        success: true,
+                        userMessage: clientUserMessage,
+                        assistantMessage: clientAssistantMessage,
+                        task: {
+                            id: `generated-image-busy-${Date.now()}`,
+                            status: 'completed',
+                            sessionId,
+                            model: requestedModel,
+                            createdAt: new Date(),
+                        },
+                    });
+                }
+
+                const pendingGeneratedImage = buildGeneratedImagePendingData({
+                    requestedModel,
+                    quality: imageQuality,
+                    prompt,
+                });
+                const assistantMessage = await chatRepo.createMessage(sessionId, 'assistant', '', {
+                    type: 'generated-image',
+                    data: {
+                        generatedImage: pendingGeneratedImage,
+                    },
+                    status: 'streaming',
+                });
+                createdAssistantMessageId = assistantMessage.id;
+
+                const task = await chatRepo.createTask(
+                    sessionId,
+                    requestedModel,
+                    userMessage.id,
+                    assistantMessage.id,
+                    {
+                        userId,
+                        assistantMessageId: assistantMessage.id,
+                        sessionId,
+                        generatedImage: {
+                            requestedModel,
+                            quality: imageQuality || null,
+                            prompt,
+                        },
+                    },
+                    { status: 'pending' },
+                );
+                createdTaskId = task.id;
+
+                chatWS.broadcastToUser(userId, {
+                    type: 'task_status',
+                    sessionId,
+                    data: {
+                        taskId: task.id,
+                        messageId: assistantMessage.id,
+                        status: 'running',
+                        message: 'Generating image',
+                        taskType: 'image',
+                    },
+                });
+                chatWS.broadcastToUser(userId, {
+                    type: 'message_start',
+                    sessionId,
+                    data: {
+                        messageId: assistantMessage.id,
+                        role: 'assistant',
+                        model: requestedModel,
+                        messageType: 'generated-image',
+                        data: {
+                            generatedImage: pendingGeneratedImage,
+                        },
+                    },
+                });
+
+                const messages = await chatRepo.getSessionMessages(sessionId);
+                if (messages.length <= 2) {
+                    const title = prompt.slice(0, 50) + (prompt.length > 50 ? '...' : '');
+                    await chatRepo.updateSession(sessionId, { title });
+                }
+
+                const [clientUserMessage, clientAssistantMessage] = await Promise.all([
+                    hydrateChatMessageForClient(userMessage),
+                    hydrateChatMessageForClient(assistantMessage),
+                ]);
+
+                const payload = {
+                    success: true,
+                    userMessage: clientUserMessage,
+                    assistantMessage: clientAssistantMessage,
+                    task,
+                };
+
+                startGeneratedImageChatTask({
+                    taskId: task.id,
+                    userId,
+                    sessionId,
+                    assistantMessageId: assistantMessage.id,
+                    requestedModel,
+                    quality: imageQuality || null,
+                    prompt,
+                    source: 'web',
+                });
+
+                return reply.send(payload);
+            } catch (error: any) {
+                if (createdTaskId) {
+                    try {
+                        await chatRepo.updateTaskStatus(createdTaskId, 'cancelled');
+                    } catch (taskError) {
+                        fastify.log.warn({ err: taskError, taskId: createdTaskId }, 'Failed to cancel generated image task after route error');
+                    }
+                }
+                if (createdAssistantMessageId) {
+                    try {
+                        await chatRepo.updateMessage(createdAssistantMessageId, { status: 'error' });
+                    } catch (messageError) {
+                        fastify.log.warn({ err: messageError, messageId: createdAssistantMessageId }, 'Failed to mark generated image assistant errored after route error');
+                    }
+                }
+                fastify.log.error('Error generating image:', error);
+                return reply.code(500).send(sanitizedErrorResponse(error, 'generateImage'));
+            }
+        },
     );
 
     // Update message feedback

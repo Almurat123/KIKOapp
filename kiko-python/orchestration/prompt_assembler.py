@@ -1,7 +1,39 @@
 from __future__ import annotations
 
+# CONTEXT MEMORY
+# Updated: 2026-04-19
+# Author: Rowan
+# Reason: Python orchestration now needs to tell the model that the registered
+#         tool catalog is visible in model-led mode. The prompt owner still
+#         shapes user/context packaging, but it must no longer imply a hidden
+#         backend tool menu on the default model-led path.
+# Goal: keep Python prompt assembly aligned with the main model's own tool
+#       choice while preserving the existing user-context and history packing.
+# Owns: system prompt shape, user-context packing, history packing, and the
+#       model-led system prompt block for Python orchestration.
+# Does Not Own: tool execution, provider routing, or backend safety gates.
+# Design Language:
+# - the model may decide whether to answer directly or call a visible tool
+# - prompt assembly should surface rollout guidance, not provider internals
+# - history/context packing must stay deterministic and user-language aware
+# Document Provenance:
+# - Source: operator architecture review on 2026-04-19
+# - Kind: product instruction
+# - Retrieved: 2026-04-19
+# - Applied To: Python prompt assembly and model-led tool guidance
+# - Verification: verified in code
+# See also:
+# - /Users/almurat/KiKo/system-journal/INDEX.md
+# - /Users/almurat/KiKo/system-journal/adr/2026-04-19-model-led-tool-orchestration.md
+# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-python-model-led-tool-visibility-alignment.md
+
 import json
 from typing import Any
+
+from .model_led_tool_orchestration import (
+    build_model_led_tool_orchestration_block,
+    is_model_led_tool_orchestration_enabled,
+)
 
 
 SYSTEM_PROMPT = """
@@ -18,11 +50,22 @@ def _to_json_block(label: str, value: Any) -> str:
     return f"[{label}]\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
 
 
-def assemble_messages(snapshot: dict[str, Any], skill_prompts: list[str], provider_info: dict[str, Any]) -> list[dict[str, Any]]:
+def assemble_messages(
+    snapshot: dict[str, Any],
+    skill_prompts: list[str],
+    provider_info: dict[str, Any],
+    guidance: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     query = str(snapshot.get("lastUserMessage") or "")
     runtime = snapshot.get("runtime") or {}
     context_blocks = (runtime.get("contextBlocks") or {}) if isinstance(runtime.get("contextBlocks"), dict) else {}
     system_directives = runtime.get("systemDirectives") or []
+    guidance = guidance or {}
+    strategy_notes = [
+        str(note).strip()
+        for note in (guidance.get("strategyNotes") or [])
+        if str(note).strip()
+    ]
     user_context = {
         "walletAddress": runtime.get("walletAddress"),
         "userAddress": runtime.get("userAddress"),
@@ -64,6 +107,19 @@ def assemble_messages(snapshot: dict[str, Any], skill_prompts: list[str], provid
     history_summary = snapshot.get("compactedHistory")
     if history_summary:
         context_text = "\n\n".join([context_text, f"[HISTORY_SUMMARY]\n{history_summary}"])
+    if guidance.get("allowAllTools") or strategy_notes:
+        tool_guidance_lines: list[str] = ["[TOOL_CONTEXT]"]
+        if guidance.get("allowAllTools"):
+            tool_guidance_lines.append(
+                "- Registered tools are available for this turn unless backend policy blocks them.",
+            )
+            tool_guidance_lines.append(
+                "- Decide directly whether to answer or call tools, and use the minimum tool sequence that finishes the task.",
+            )
+        if strategy_notes:
+            tool_guidance_lines.append("- Strategy notes for this turn:")
+            tool_guidance_lines.extend(f"- {note}" for note in strategy_notes)
+        context_text = "\n\n".join([context_text, "\n".join(tool_guidance_lines)])
 
     user_content = "\n\n".join([
         _to_json_block("USER_SETTINGS", runtime.get("userSettings") or {}),
@@ -73,6 +129,8 @@ def assemble_messages(snapshot: dict[str, Any], skill_prompts: list[str], provid
     ])
 
     system = SYSTEM_PROMPT
+    if is_model_led_tool_orchestration_enabled():
+        system += "\n" + build_model_led_tool_orchestration_block()
     if provider_info.get("supportsNativeSearch"):
         system += "\n- For real-time requests, prefer retrieved evidence before concluding."
     if provider_info.get("provider") == "grok" and _needs_realtime_social_search(query):

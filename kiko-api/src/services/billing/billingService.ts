@@ -3,13 +3,16 @@ import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-18
 // Author: Rowan
 // Reason: DeepSeek was removed from the product model catalog. NVIDIA-hosted
 //         GLM/Kimi models are now free-model traffic with one optional shared
 //         cap, while GPT and Grok share one premium daily free quota. Billing
 //         classification must no longer expose Normal/Advanced or DeepSeek/Grok
-//         quota buckets.
+//         quota buckets. Official NVIDIA doc verification later removed the
+//         synthetic GLM Fast/Reasoning split, so historical `glm-5-reasoning`
+//         rows now need to normalize back to the one canonical GLM id instead
+//         of preserving duplicate billing keys forever.
 // Goal: keep quota/billing classification stable around the product policy:
 //       free models share one optional cap, premium models share one quota.
 // Owns: model-family pricing classification, quota lookup helpers, and token/cost aggregation helpers.
@@ -20,6 +23,7 @@ import { LogCode } from '../../config/logRegistry.js';
 // - GPT and Grok models belong to one shared premium quota bucket.
 // - Do not reintroduce separate Normal/Advanced free-count buckets.
 // - Reasoning-token handling must remain provider-aware.
+// - Historical removed model ids should normalize to the surviving canonical id.
 // Document Provenance:
 // - Source: operator quota-policy correction after DeepSeek removal
 // - Kind: product doc
@@ -31,6 +35,12 @@ import { LogCode } from '../../config/logRegistry.js';
 // - Retrieved: 2026-04-16
 // - Applied To: returning one env-driven shared limit for free-model traffic
 // - Verification: verified in code
+// - Source: NVIDIA NIM model page for z-ai/glm5
+// - Kind: official API doc
+// - Retrieved: 2026-04-18
+// - Applied To: collapsing removed GLM reasoning aliases into the canonical
+//   `glm-5` billing id
+// - Verification: verified in docs and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/chat-usage-quota-policy.md
@@ -51,6 +61,17 @@ export function getUtcDateString(date: Date = new Date()): string {
 export function normalizeModelForPricing(model: string): string {
     if (!model) return '';
     const lower = model.toLowerCase();
+    if (
+        lower === 'glm-5-reasoning'
+        || lower === 'glm5-reasoning'
+        || lower === 'z-ai/glm5-reasoning'
+        || lower === 'z-ai/glm-5-reasoning'
+        || lower === 'glm5'
+        || lower === 'z-ai/glm5'
+        || lower === 'z-ai/glm-5'
+    ) {
+        return 'glm-5';
+    }
     return lower;
 }
 

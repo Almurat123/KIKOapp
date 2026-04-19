@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # CONTEXT MEMORY
-# Updated: 2026-04-16
+# Updated: 2026-04-18
 # Author: Rowan
 # Reason: KiKo is removing the old DeepSeek gateway path and replacing it with
 #         NVIDIA-hosted Kimi and GLM models while keeping the existing internal
@@ -16,16 +16,25 @@ from __future__ import annotations
 #         welcome/meta turns were returning plain assistant text without any
 #         preserved reasoning trace, so the gateway now has to request
 #         preserved thinking explicitly for NVIDIA-hosted GLM aliases. Later
-#         product tuning also showed KiKo does not benefit from provider-default
-#         hot temperatures or always-on long reasoning for routine agent turns,
-#         so NVIDIA GLM/Kimi defaults now need a colder, lighter profile unless
-#         the caller explicitly chooses a reasoning alias. Kimi and Grok
+#         official NVIDIA doc verification showed the hosted GLM-5 page only
+#         documents thinking-mode support, not a Fast/Instant product mode, so
+#         the synthetic GLM Fast path has to be removed while older
+#         `glm-5-reasoning` aliases continue normalizing to the same canonical
+#         preserved-thinking request. Runtime failures also showed upstream
+#         stream read timeouts can collapse into raw `terminated` errors, so the
+#         gateway now has to classify timeout/transport failures into stable
+#         error codes instead of leaking provider transport strings downstream.
+#         Kimi and Grok
 #         social-agent image turns also need provider-specific handling:
 #         NVIDIA Kimi can receive OpenAI-style `image_url` content arrays
 #         directly, while xAI image turns must be routed through the Grok SDK
 #         adapter that converts those arrays to xAI image inputs. OpenAI chat
 #         completions now also needs an explicit `reasoning_effort` when KiKo
-#         passes GPT-5-family effort hints through the shared tool context.
+#         passes GPT-5-family effort hints through the shared tool context. A
+#         live GLM-5 regression showed no `reasoning_delta` reached Node because
+#         the raw HTTP gateway serialized SDK-only `extra_body` as a nested JSON
+#         field; NVIDIA expects those provider-specific options in the actual
+#         request body when KiKo is not using the OpenAI SDK.
 # Goal: normalize NVIDIA Kimi/GLM requests and reasoning deltas into the same
 #       gateway event protocol already consumed by KiKo's Node/Python runtimes.
 # Owns: provider-family resolution, provider request shaping, SSE normalization,
@@ -40,12 +49,15 @@ from __future__ import annotations
 # - GLM preserved thinking should be requested explicitly instead of relying on
 #   hosted-runtime defaults.
 # - Everyday agent defaults should prefer colder temperatures and lighter
-#   thinking than provider showcase examples.
+#   thinking than provider showcase examples where the docs define such modes.
 # - OpenAI reasoning effort must be forwarded from shared tool context instead
 #   of being guessed from the selected model string.
 # - Removed DeepSeek fallbacks must not silently remain the default provider path.
 # - Kimi image arrays may pass through NVIDIA chat/completions unchanged.
 # - xAI image turns must use the SDK gateway, not unverified direct chat-completions.
+# - Upstream timeout and transport failures must surface stable codes, not raw
+#   `terminated` strings.
+# - SDK-only `extra_body` wrappers must be flattened before direct HTTP calls.
 # Document Provenance:
 # - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
 # - Kind: official API doc
@@ -68,12 +80,12 @@ from __future__ import annotations
 # - Applied To: forwarding structured Kimi `image_url` message content through
 #   the NVIDIA chat/completions request body
 # - Verification: verified in docs and code
-# - Source: operator request to make GLM/Kimi faster and less exploratory for
-#   routine KiKo tasks
+# - Source: operator request to make Kimi faster and less exploratory for
+#   routine KiKo instant tasks
 # - Kind: product doc
 # - Retrieved: 2026-04-16
-# - Applied To: lowering NVIDIA GLM/Kimi default temperatures and disabling GLM
-#   thinking for the standard alias
+# - Applied To: lowering Kimi instant temperature while preserving GLM thinking
+#   for the canonical hosted GLM alias
 # - Verification: verified in code
 # - Source: xAI Image Understanding docs
 # - Kind: official API doc
@@ -81,14 +93,39 @@ from __future__ import annotations
 # - Applied To: forcing xAI image requests through the SDK gateway where image
 #   content is converted to xAI SDK inputs
 # - Verification: verified in docs and code
+# - Source: NVIDIA NIM model page for z-ai/glm5
+# - Kind: official API doc
+# - Retrieved: 2026-04-18
+# - Applied To: removing the synthetic GLM Fast alias and collapsing legacy GLM
+#   reasoning aliases into one preserved-thinking profile
+# - Verification: verified in docs and code
+# - Source: /Users/almurat/Downloads/logs.1776446315561.json
+# - Kind: runtime observation
+# - Retrieved: 2026-04-18
+# - Applied To: classifying upstream stream timeout failures so downstream users
+#   no longer see raw `terminated`
+# - Verification: verified in runtime and code
+# - Source: /Users/almurat/KiKo/test.txt
+# - Kind: runtime observation
+# - Retrieved: 2026-04-18
+# - Applied To: flattening NVIDIA `extra_body` SDK options into direct HTTP body
+#   fields so GLM/Kimi reasoning-mode controls can take effect
+# - Verification: verified in code and targeted tests
+# - Source: NVIDIA NIM reasoning model docs and moonshotai/kimi-k2.5 model page
+# - Kind: official API doc
+# - Retrieved: 2026-04-18
+# - Applied To: distinguishing SDK `extra_body` examples from raw HTTP body
+#   shaping for `chat_template_kwargs` and Kimi `thinking` controls
+# - Verification: verified in docs and targeted tests
 # See also:
 # - /Users/almurat/KiKo/system-journal/INDEX.md
 # - /Users/almurat/KiKo/system-journal/design-language/social-agent-multimodal-input.md
 # - /Users/almurat/KiKo/system-journal/owner-map/social-agent-multimodal-input.md
 # - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-kimi-grok-social-image-input.md
-# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-lite-defaults.md
 # - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
 # - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-glm-preserved-thinking-on-nvidia.md
+# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-glm-mode-alignment-and-stream-timeout-hardening.md
+# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-nvidia-extra-body-flattening.md
 # - /Users/almurat/KiKo/system-journal/conflicts.md
 
 import asyncio
@@ -124,8 +161,12 @@ def _normalized_model(model: str) -> str:
 OPENAI_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 NVIDIA_KIMI_REASONING_TEMPERATURE = 0.6
 NVIDIA_KIMI_INSTANT_TEMPERATURE = 0.4
-NVIDIA_GLM_REASONING_TEMPERATURE = 0.6
-NVIDIA_GLM_FAST_TEMPERATURE = 0.3
+NVIDIA_GLM_TEMPERATURE = 0.6
+STREAM_CONNECT_TIMEOUT_SEC = max(1.0, float(os.getenv("LLM_GATEWAY_STREAM_CONNECT_TIMEOUT_SEC", "8")))
+STREAM_READ_TIMEOUT_SEC = max(30.0, float(os.getenv("LLM_GATEWAY_STREAM_READ_TIMEOUT_SEC", "180")))
+STREAM_WRITE_TIMEOUT_SEC = max(5.0, float(os.getenv("LLM_GATEWAY_STREAM_WRITE_TIMEOUT_SEC", "20")))
+STREAM_POOL_TIMEOUT_SEC = max(1.0, float(os.getenv("LLM_GATEWAY_STREAM_POOL_TIMEOUT_SEC", "8")))
+STREAM_MAX_RETRIES = max(1, int(os.getenv("LLM_GATEWAY_STREAM_MAX_RETRIES", "3")))
 
 
 def _normalize_reasoning_effort(value: Any) -> str | None:
@@ -143,11 +184,6 @@ def _resolve_nvidia_request_profile(model: str) -> tuple[str, float | None, dict
         "chat_template_kwargs": {
             "enable_thinking": True,
             "clear_thinking": False,
-        }
-    }
-    glm_fast_thinking = {
-        "chat_template_kwargs": {
-            "enable_thinking": False,
         }
     }
 
@@ -175,13 +211,11 @@ def _resolve_nvidia_request_profile(model: str) -> tuple[str, float | None, dict
         "moonshotai/kimi-k2.5-fast",
         "moonshotai/kimi-k2.5-instant",
     }
-    glm_fast_aliases = {
+    glm_aliases = {
         "glm-5",
         "glm5",
         "z-ai/glm5",
         "z-ai/glm-5",
-    }
-    glm_reasoning_aliases = {
         "glm-5-reasoning",
         "glm5-reasoning",
         "z-ai/glm5-reasoning",
@@ -192,16 +226,36 @@ def _resolve_nvidia_request_profile(model: str) -> tuple[str, float | None, dict
         return "moonshotai/kimi-k2.5", NVIDIA_KIMI_REASONING_TEMPERATURE, None
     if normalized in kimi_instant_aliases:
         return "moonshotai/kimi-k2.5", NVIDIA_KIMI_INSTANT_TEMPERATURE, {"thinking": {"type": "disabled"}}
-    if normalized in glm_fast_aliases:
-        return "z-ai/glm5", NVIDIA_GLM_FAST_TEMPERATURE, glm_fast_thinking
-    if normalized in glm_reasoning_aliases:
-        return "z-ai/glm5", NVIDIA_GLM_REASONING_TEMPERATURE, glm_preserved_thinking
+    if normalized in glm_aliases:
+        return "z-ai/glm5", NVIDIA_GLM_TEMPERATURE, glm_preserved_thinking
     return model, None, None
 
 
 def _resolve_nvidia_model(model: str) -> tuple[str, dict[str, Any] | None]:
     resolved_model, _, extra_body = _resolve_nvidia_request_profile(model)
     return resolved_model, extra_body
+
+
+def _merge_extra_body_into_request_body(body: dict[str, Any], extra_body: dict[str, Any] | None) -> None:
+    if not extra_body:
+        return
+    body.update(extra_body)
+
+
+def _build_nvidia_request_body(req: GenerateRequest) -> dict[str, Any]:
+    resolved_model, resolved_temperature, extra_body = _resolve_nvidia_request_profile(req.model)
+    body: dict[str, Any] = {
+        "model": resolved_model,
+        "messages": [m.model_dump(exclude_none=True) for m in req.messages],
+        "stream": True,
+    }
+    if resolved_temperature is not None:
+        body["temperature"] = resolved_temperature
+    if req.tools:
+        body["tools"] = req.tools
+        body["tool_choice"] = "auto"
+    _merge_extra_body_into_request_body(body, extra_body)
+    return body
 
 
 def _coerce_text_content(value: Any) -> str:
@@ -216,7 +270,7 @@ def _coerce_text_content(value: Any) -> str:
         return "".join(parts)
     if isinstance(value, dict):
         part_type = str(value.get("type") or "").strip().lower()
-        if part_type in {"reasoning", "thinking"}:
+        if part_type in {"reasoning", "reasoning_content", "reasoning_text", "thinking"}:
             return ""
         for key in ("text", "content"):
             text = _coerce_text_content(value.get(key))
@@ -237,7 +291,7 @@ def _coerce_reasoning_content(value: Any, *, allow_plain_string: bool = False) -
         return "".join(parts)
     if isinstance(value, dict):
         part_type = str(value.get("type") or "").strip().lower()
-        if part_type in {"reasoning", "thinking"}:
+        if part_type in {"reasoning", "reasoning_content", "reasoning_text", "thinking"}:
             for key in ("text", "content", "reasoning_content", "reasoning", "reasoning_text", "thinking"):
                 text = _coerce_reasoning_content(value.get(key), allow_plain_string=True)
                 if text:
@@ -357,19 +411,7 @@ async def _stream_nvidia(req: GenerateRequest, provider: str):
         yield GatewayEvent(event_type="error", provider="nvidia", payload={"message": "NVIDIA_API_KEY missing"})
         return
 
-    resolved_model, resolved_temperature, extra_body = _resolve_nvidia_request_profile(req.model)
-    body: dict[str, Any] = {
-        "model": resolved_model,
-        "messages": [m.model_dump(exclude_none=True) for m in req.messages],
-        "stream": True,
-    }
-    if resolved_temperature is not None:
-        body["temperature"] = resolved_temperature
-    if req.tools:
-        body["tools"] = req.tools
-        body["tool_choice"] = "auto"
-    if extra_body:
-        body["extra_body"] = extra_body
+    body = _build_nvidia_request_body(req)
 
     async for ev in _stream_sse(
         provider=provider,
@@ -424,9 +466,9 @@ async def _stream_sse(provider: str, url: str, headers: dict[str, str], body: di
     provider_request_id = None
     last_finish_reason = None
 
-    timeout = httpx.Timeout(connect=8, read=70, write=15, pool=8)
+    timeout = _build_stream_timeout()
     async with httpx.AsyncClient(timeout=timeout) as client:
-        retries = 3
+        retries = STREAM_MAX_RETRIES
         backoff = 1
         for attempt in range(retries):
             try:
@@ -584,11 +626,52 @@ async def _stream_sse(provider: str, url: str, headers: dict[str, str], body: di
                     )
                     return
             except Exception as e:
-                if attempt == retries - 1:
-                    yield GatewayEvent(event_type="error", provider=provider, payload={"message": str(e)})
+                code, message, retriable = _classify_stream_exception(e)
+                if attempt == retries - 1 or not retriable:
+                    yield GatewayEvent(
+                        event_type="error",
+                        provider=provider,
+                        payload={
+                            "message": message,
+                            "code": code,
+                        },
+                    )
                     return
                 await asyncio.sleep(backoff)
                 backoff *= 2
+
+
+def _build_stream_timeout() -> httpx.Timeout:
+    return httpx.Timeout(
+        connect=STREAM_CONNECT_TIMEOUT_SEC,
+        read=STREAM_READ_TIMEOUT_SEC,
+        write=STREAM_WRITE_TIMEOUT_SEC,
+        pool=STREAM_POOL_TIMEOUT_SEC,
+    )
+
+
+def _classify_stream_exception(error: Exception) -> tuple[str | None, str, bool]:
+    message = str(error or "").strip()
+    lower = message.lower()
+    if (
+        isinstance(error, httpx.ReadTimeout)
+        or isinstance(error, httpx.TimeoutException)
+        or lower == "terminated"
+        or "readtimeout" in lower
+        or "timed out" in lower
+        or "timeout" in lower
+    ):
+        return "UPSTREAM_TIMEOUT", f"Upstream model stream timed out after {int(STREAM_READ_TIMEOUT_SEC)}s", True
+    if (
+        isinstance(error, httpx.TransportError)
+        or "socket" in lower
+        or "closed" in lower
+        or "connection reset" in lower
+        or "econnreset" in lower
+        or "network" in lower
+    ):
+        return "UPSTREAM_CONNECTION_INTERRUPTED", "Upstream model stream was interrupted", True
+    return None, message or error.__class__.__name__, False
 
 
 def is_suspicious_provider_request_id(value: Any, provider: str) -> bool:

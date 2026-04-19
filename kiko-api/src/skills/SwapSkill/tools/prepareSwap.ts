@@ -1,3 +1,25 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-19
+// Author: Renata
+// Reason: Agent-mode swap receipts must expose full transaction hashes and
+//         explorer URLs in tool results and summaries, not only short card text.
+// Goal: keep swap execution receipts user-verifiable while preserving existing
+//       quote, confirmation, card, and socket-recovery flows.
+// Owns: swap tool result shaping and chat transaction-card data for this tool.
+// Does Not Own: backend swap API execution, wallet signing, or frontend card rendering.
+// Design Language:
+// - never claim execution without a returned tx hash or explicit pending state
+// - include txHash and txUrl/explorerUrl whenever a swap is submitted or executed
+// - socket recovery must preserve the same receipt fields as the normal path
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-19
+// - Applied To: swap receipt URL fields and final summary text
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
 import { Tool, ToolContext } from '../../../tooling/registry.js';
 import { TradeContext, getTradeContext } from '../../../services/TradeContext.js';
 import { getTokenData } from '../../../services/UnifiedDataLayer.js';
@@ -8,6 +30,7 @@ import { isTruncatedEvmAddressLike, repairTruncatedEvmAddressFromMessages } from
 import { resolveDisplayedAmountOut } from '../../../services/swapCardAmount.js';
 import { validateSwapExecutionChain } from './chainExecutionGuard.js';
 import type { RecentToolTrace } from '../../../jobs/chat/contracts.js';
+import { buildTransactionExplorerUrl } from '../../../utils/executionLinks.js';
 // Note: swapAggregator import removed - using internal API call instead
 
 interface SwapArgs {
@@ -299,16 +322,19 @@ function resolveSocketRecoverySearchStartMs(params: {
 function buildSocketRecoveryResult(params: {
     currentData: Record<string, any>;
     recentSwap: SocketRecoveryTradeRecord;
-    args: Pick<SwapArgs, 'amount_in' | 'token_in' | 'token_out'>;
+    args: Pick<SwapArgs, 'amount_in' | 'token_in' | 'token_out'> & Partial<Pick<SwapArgs, 'chain_id'>>;
 }) {
     const recoveredStatus = String(params.recentSwap.status || '').toLowerCase() === 'success'
         ? 'success'
         : 'pending';
     const txHash = params.recentSwap.txHash || undefined;
+    const txUrl = buildTransactionExplorerUrl(params.args.chain_id, txHash);
     const completionData = {
         ...params.currentData,
         status: recoveredStatus,
         txHash,
+        txUrl,
+        explorerUrl: txUrl,
         amountOut: resolveDisplayedAmountOut({
             status: recoveredStatus,
             currentAmountOut: params.currentData.amountOut,
@@ -329,11 +355,15 @@ function buildSocketRecoveryResult(params: {
             success: true,
             mode: recoveredStatus === 'success' ? 'executed' : 'pending',
             txHash,
+            txUrl,
+            explorerUrl: txUrl,
             summary: recoveredStatus === 'success'
-                ? `✅ Swap executed successfully! ${params.args.amount_in} ${params.args.token_in} → ${params.args.token_out}. Transaction: ${txHash?.slice(0, 10)}...`
+                ? `✅ Swap executed successfully! ${params.args.amount_in} ${params.args.token_in} → ${params.args.token_out}. Transaction: ${txHash}. Explorer: ${txUrl || 'unavailable'}`
                 : `⏳ Swap submitted: ${params.args.amount_in} ${params.args.token_in} → ${params.args.token_out}. Waiting for confirmation on-chain.`,
             data: {
                 txHash,
+                txUrl,
+                explorerUrl: txUrl,
                 status: params.recentSwap.status,
                 tradeId: params.recentSwap.id
             },
@@ -915,6 +945,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
 
                     // ⚡ STEP 3: Update transaction message with final result
                     const backendStatus = String(result.data?.status || '').toUpperCase();
+                    const txUrl = buildTransactionExplorerUrl(args.chain_id, result.data?.txHash);
                     const finalStatus = !response.ok || !result.success
                         ? 'failed'
                         : backendStatus === 'PENDING'
@@ -925,6 +956,8 @@ When show-quote-before-swap is enabled (default), execution must follow:
                         ...messageData,
                         status: finalStatus,
                         txHash: result.data?.txHash,
+                        txUrl,
+                        explorerUrl: txUrl,
                         amountOut: resolveDisplayedAmountOut({
                             status: finalStatus,
                             currentAmountOut: messageData.amountOut,
@@ -937,7 +970,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
                         completedAt: Date.now(),
                         duration: messageData.startedAt ? Date.now() - messageData.startedAt : undefined,
                         message: finalStatus === 'success'
-                            ? `✅ Swap completed! Transaction: ${result.data?.txHash?.slice(0, 10)}...`
+                        ? `✅ Swap completed! Transaction: ${result.data?.txHash?.slice(0, 10)}...`
                             : finalStatus === 'pending'
                                 ? `⏳ Transaction submitted. Waiting for confirmation: ${result.data?.txHash?.slice(0, 10)}...`
                                 : `❌ Swap failed: ${result.error || 'Unknown error'}`,
@@ -995,9 +1028,15 @@ When show-quote-before-swap is enabled (default), execution must follow:
                             success: true,
                             mode: 'pending',
                             txHash: result.data?.txHash,
+                            txUrl,
+                            explorerUrl: txUrl,
                             messageId: transactionMessage.id,
-                            summary: `⏳ Swap submitted: ${args.amount_in} ${args.token_in} → ${args.token_out}. Waiting for confirmation on-chain.`,
-                            data: result.data,
+                            summary: `⏳ Swap submitted: ${args.amount_in} ${args.token_in} → ${args.token_out}. Transaction: ${result.data?.txHash}. Explorer: ${txUrl || 'unavailable'}`,
+                            data: {
+                                ...result.data,
+                                txUrl,
+                                explorerUrl: txUrl,
+                            },
                             _final: true
                         };
                     }
@@ -1007,9 +1046,15 @@ When show-quote-before-swap is enabled (default), execution must follow:
                         success: true,
                         mode: 'executed',
                         txHash: result.data?.txHash,
+                        txUrl,
+                        explorerUrl: txUrl,
                         messageId: transactionMessage.id,
-                        summary: `✅ Swap executed successfully! ${args.amount_in} ${args.token_in} → ${args.token_out}. Transaction: ${result.data?.txHash?.slice(0, 10)}...`,
-                        data: result.data,
+                        summary: `✅ Swap executed successfully! ${args.amount_in} ${args.token_in} → ${args.token_out}. Transaction: ${result.data?.txHash}. Explorer: ${txUrl || 'unavailable'}`,
+                        data: {
+                            ...result.data,
+                            txUrl,
+                            explorerUrl: txUrl,
+                        },
                         _final: true // Force AI to stop iterating
                     };
 
@@ -1128,7 +1173,8 @@ When show-quote-before-swap is enabled (default), execution must follow:
                                         args: {
                                             amount_in: args.amount_in,
                                             token_in: args.token_in,
-                                            token_out: args.token_out
+                                            token_out: args.token_out,
+                                            chain_id: args.chain_id
                                         }
                                     });
                                     const { completionData } = recoveryResult;

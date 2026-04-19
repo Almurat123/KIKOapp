@@ -13,6 +13,8 @@
         "search_polymarket",
         "get_polymarket_event",
         "get_new_markets",
+        "get_current_time",
+        "show_polymarket_card",
         "get_polymarket_quote",
         "prepare_polymarket_bet",
         "get_market_activity",

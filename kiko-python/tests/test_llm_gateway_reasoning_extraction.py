@@ -32,6 +32,20 @@ class ReasoningExtractionTests(unittest.TestCase):
 
         self.assertEqual(_extract_reasoning_delta(data, choice, delta), "Hidden reasoning.")
 
+    def test_typed_reasoning_content_part_name_is_preserved(self):
+        data = {}
+        choice = {
+            "delta": {
+                "content": [
+                    {"type": "reasoning_content", "text": "Hidden reasoning."},
+                    {"type": "text", "text": "Visible assistant text."},
+                ]
+            }
+        }
+        delta = choice["delta"]
+
+        self.assertEqual(_extract_reasoning_delta(data, choice, delta), "Hidden reasoning.")
+
 
 if __name__ == "__main__":
     unittest.main()

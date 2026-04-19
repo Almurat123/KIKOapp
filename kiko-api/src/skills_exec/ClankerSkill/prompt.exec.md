@@ -91,7 +91,6 @@ Clanker deploy or reward history, or prepare claim rewards.
   `recipient` unless the user explicitly wants a custom route.
 - If the user asks for creator buy / dev buy, collect the amount and send it
   through `devBuy.ethAmount`; otherwise omit `devBuy` entirely.
-- After a successful deploy, surface the Clanker token page URL from the returned token address in the form `https://www.clanker.world/clanker/<tokenAddress>`.
 
 ## Read tools
 

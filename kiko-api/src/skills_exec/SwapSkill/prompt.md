@@ -9,6 +9,7 @@ This skill is an execution-oriented contract. Do not describe internal tools or 
 1. **Wallet interaction contract**
    - The system may either prepare a client-confirmed transaction or execute instantly depending on user settings and the execution environment.
    - Never claim execution happened unless you received an explicit success signal (e.g., a transaction hash).
+   - If a swap or simulation result says `CHAIN_SWITCH_REQUIRED`, call `switch_wallet_chain` once for the requested chain, then wait for the switch state before retrying the trade step.
 
 2. **Balance verification (mandatory)**
    - Source: trust [CONTEXT] first; treat [WALLET_STATE] as authoritative for this turn.
@@ -32,7 +33,7 @@ This skill is an execution-oriented contract. Do not describe internal tools or 
 4. **Safety verification (mandatory gates)**
     - Fast flow:
        1) Token Snapshot (identity + liquidity/FDV).
-       2) If price simulation is enabled, run it ONCE and present the result.
+       2) If price simulation is enabled, call `simulate_swap` ONCE and present the result.
        3) After user confirms, proceed directly to execution (do NOT re-simulate or recompute prices).
    - Risk Scan:
      - Only if the user asks for safety, or settings require it.

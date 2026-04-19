@@ -1,12 +1,16 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-19
 // Author: Rowan
 // Reason: production chat debugging needs one Railway-visible summary log per
 //         AI reply so operators can inspect model routing, context reads, tool
-//         choices, and final status without reproducing the task locally.
+//         choices, and final status without reproducing the task locally. A
+//         2026-04-19 deploy-token loop showed failed mutation tools were logged
+//         only as `ok:false`, which was not enough to see why receipt handoff
+//         skipped and the model opened another generation round.
 // Goal: collect safe per-turn orchestration telemetry into one structured log
 //       line while avoiding raw prompts, assistant text, image URLs, full wallet
-//       addresses, and tool arguments.
+//       addresses, and tool arguments, while retaining failure reason, result
+//       keys, and receipt-field presence for tool debugging.
 // Owns: chat AI trace aggregation and Railway-visible summary metadata shaping.
 // Does Not Own: model routing, tool execution, prompt assembly, or user-facing output.
 // Design Language:
@@ -15,6 +19,7 @@
 // - context reads and business tools must be separated
 // - failures should emit the same trace shape with status=failed
 // - logging should be enabled by default and disabled only with CHAT_AI_TRACE_LOGS=false
+// - tool-result summaries may include errors and keys, but not full result payloads
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/adr/2026-04-17-chat-v2-rewrite-plan.md
 // - Kind: repo doc
@@ -26,10 +31,16 @@
 // - Retrieved: 2026-04-17
 // - Applied To: Railway-visible per-turn AI trace summary
 // - Verification: verified in code and targeted tests
+// - Source: operator browser console and app.log trace cmo5a4f1h03sjj5et046ndecy
+// - Kind: runtime observation
+// - Retrieved: 2026-04-19
+// - Applied To: adding failed tool reason/result-key visibility to trace summaries
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/adr/2026-04-17-chat-v2-rewrite-plan.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-ai-trace-logging.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-stream-duplicate-and-tool-loop-diagnostics.md
 // - /Users/almurat/KiKo/system-journal/owner-map/chat-runtime-planning.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
@@ -66,6 +77,9 @@ type ToolTrace = {
     reason_code?: string;
     confirmation_required?: boolean;
     cached?: boolean;
+    error?: string;
+    result_keys?: string[];
+    receipt_fields?: Record<string, boolean>;
 };
 
 type RequiredContextTrace = {
@@ -167,6 +181,18 @@ export class ChatAiTraceLogger {
     }
 
     recordToolResult(round: number, result: OrchestratorToolResult, options?: { cached?: boolean }) {
+        const resultRecord = result.result && typeof result.result === 'object' && !Array.isArray(result.result)
+            ? result.result as Record<string, any>
+            : null;
+        const resultData = resultRecord?.data && typeof resultRecord.data === 'object' && !Array.isArray(resultRecord.data)
+            ? resultRecord.data as Record<string, any>
+            : null;
+        const hasField = (keys: string[]) => keys.some((key) => {
+            const direct = resultRecord?.[key];
+            if (direct !== undefined && direct !== null && String(direct).trim()) return true;
+            const nested = resultData?.[key];
+            return nested !== undefined && nested !== null && String(nested).trim().length > 0;
+        });
         this.tools.push({
             round,
             tool: result.name,
@@ -176,6 +202,16 @@ export class ChatAiTraceLogger {
             reason_code: normalizeString(result.reasonCode || result.result?.reason_code || result.result?.reasonCode),
             confirmation_required: result.metadata?.confirmationRequired === true || result.result?.requires_confirmation === true || undefined,
             cached: options?.cached || undefined,
+            error: normalizeString(result.error || resultRecord?.error),
+            result_keys: resultRecord ? limitStrings(Object.keys(resultRecord), 24) : undefined,
+            receipt_fields: resultRecord ? {
+                txHash: hasField(['txHash', 'transactionHash', 'hash']),
+                explorerUrl: hasField(['explorerUrl', 'explorer_url', 'txUrl', 'tx_url']),
+                tokenAddress: hasField(['tokenAddress', 'token_address', 'address']),
+                tokenUrl: hasField(['tokenUrl', 'token_url']),
+                orderId: hasField(['order_id', 'orderId', 'id']),
+                configId: hasField(['configId', 'config_id', 'id']),
+            } : undefined,
         });
     }
 

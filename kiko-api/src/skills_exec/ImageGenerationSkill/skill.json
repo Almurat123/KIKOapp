@@ -1,0 +1,25 @@
+{
+    "id": "image_generation",
+    "name": "Image Generation",
+    "description": "Generate a new visual asset from chat intent inside the main transcript.",
+    "intents": [
+        "TRADING"
+    ],
+    "tools": [
+        "generate_image_from_intent"
+    ],
+    "examples": {
+        "en": [
+            "Make a cyberpunk product poster",
+            "Generate a cover image for this launch",
+            "Create an anime-style hero illustration",
+            "Design a square promo visual for this token"
+        ],
+        "zh": [
+            "帮我做一张赛博朋克产品海报",
+            "给这个发布做一个封面图",
+            "生成一张动漫风角色插画",
+            "做一张方形宣传图"
+        ]
+    }
+}

@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-19
 // Author: Linh Tran / Almurat
 // Reason: Farcaster mention automation now consumes normalized events from the
 //         webhook ingress when enabled, while webhook-enabled polling falls
@@ -13,6 +13,9 @@
 //         the follow-up does not mention the bot again. Webhook, polling, and
 //         recovery ingress must all share one self/bot-loop admission guard so a
 //         bot-authored reply cannot recursively trigger more public link replies.
+//         Generated-image social turns now return structured image embeds from
+//         the chat bridge, so the worker must dispatch both text and media to
+//         the Farcaster reply owner.
 // Goal: preserve deterministic Farcaster mention handling while keeping polling
 //       cheap, idempotent, and aligned with linked-user chat sessions, while
 //       handing real thread/media context to the model and preserving direct
@@ -39,6 +42,8 @@
 //   polling should fall back to Hub to avoid Neynar read spend.
 // - Hydrate current/parent cast context before model execution so image-bearing
 //   embeds remain visible to vision-capable providers.
+// - Publish generated-image task results as cast embeds when the chat bridge
+//   returns hydrated preview URLs.
 // - Accept no-mention follow-ups only when they are direct replies to a tracked
 //   bot-authored outbound cast; do not watch arbitrary root-thread comments.
 // - Reject self-authored and blocked-bot-authored inbound casts before event-log
@@ -88,6 +93,11 @@
 // - Retrieved: 2026-04-17
 // - Applied To: unified self/bot ingress guard and bind-link anti-spam cooldown
 // - Verification: verified in runtime logs, code, and targeted tests
+// - Source: operator requirement on 2026-04-19 for Farcaster generated-image replies
+// - Kind: product doc
+// - Retrieved: 2026-04-19
+// - Applied To: passing generated-image reply embeds through outbound mention replies
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
@@ -98,6 +108,7 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-farcaster-self-loop-bind-spam-guard.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-inbound-event-idempotence.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import prisma from '../../db/prisma.js';
 import cacheClient from '../../cache/cacheClient.js';
@@ -117,7 +128,7 @@ import {
 } from './farcasterConversationService.js';
 import {
   enqueueFarcasterAgentMessage,
-  waitForFarcasterTaskAssistantText,
+  waitForFarcasterTaskAssistantReply,
 } from './farcasterChatBridge.js';
 import { farcasterReplyService } from './farcasterReplyService.js';
 import { trimCastText } from './farcasterCastText.js';
@@ -766,9 +777,9 @@ export class FarcasterIngressWorker {
       rootCastHash: mention.rootCastHash || mention.castHash,
     });
 
-    const assistantText = queued.completedSynchronously
-      ? queued.assistantContent
-      : await waitForFarcasterTaskAssistantText({
+    const assistantReply = queued.completedSynchronously
+      ? { text: queued.assistantContent || '', embeds: [] as string[] }
+      : await waitForFarcasterTaskAssistantReply({
           taskId: queued.task?.id,
           assistantMessageId: queued.assistantMessage.id,
         });
@@ -779,7 +790,8 @@ export class FarcasterIngressWorker {
       conversationMappingId: mapping.id,
       parentHash: mention.castHash,
       parentAuthorFid: mention.authorFid,
-      text: trimCastText(assistantText),
+      text: trimCastText(assistantReply.text || 'I ran into an issue processing that request. Please try again.'),
+      embeds: assistantReply.embeds,
       idempotencyKey: `farcaster:reply:mention:${mention.castHash}`,
     });
   }

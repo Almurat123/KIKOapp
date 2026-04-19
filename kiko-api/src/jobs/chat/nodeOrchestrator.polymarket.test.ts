@@ -269,3 +269,222 @@ test('runNodeOrchestration blocks place_polymarket_order until token_id is verif
   assert.equal(recordedResults[0]?.metadata?.source, 'polymarket_token_guard');
   assert.deepEqual(pushedTexts, ['Need exact outcome token id before placing the order.']);
 });
+
+test('runNodeOrchestration emits execution receipt answer directly after side-effecting tool result', async () => {
+  const recordedResults: any[] = [];
+  const pushedTexts: string[] = [];
+  let content = '';
+  let generationCalls = 0;
+
+  const generationClient = {
+    async generate(params: any) {
+      if (String(params?.taskId || '').endsWith(':plan')) {
+        return {
+          text: '',
+          reasoning: '',
+          toolCalls: [],
+        };
+      }
+      generationCalls += 1;
+      return {
+        text: '',
+        reasoning: '',
+        toolCalls: [
+          {
+            id: 'call-swap',
+            name: 'prepare_swap_transaction',
+            arguments: {
+              token_in: 'ETH',
+              token_out: 'USDC',
+              amount_in: '0.01',
+              chain_id: 8453,
+              execute: true,
+            },
+          },
+        ],
+      };
+    },
+  };
+
+  const broker = {
+    beginRound() {},
+    async bootstrapRuntime() {},
+    async applyModelPlan() {},
+    hasVisibleArtifact() { return false; },
+    async markPlanPhase() {},
+    async ensurePlanStep() {},
+    async focusPlanStep() {},
+    async noteToolSelected() {},
+    async noteRuntimeUpdate() {},
+    async markPlanStepStarted() {},
+    async recordToolResult(result: any) { recordedResults.push(result); },
+    async markAnswerStarted() {},
+    async setRuntimeState() {},
+    async pushCommentary() {},
+    pushUsage() {},
+    pushCitation() {},
+    recordProviderNativeResult() {},
+    recordProviderNativeToolCall() {},
+    completeProviderNativeToolCall() {},
+    mergeAssistantData() {},
+    createContentCheckpoint() { return content.length; },
+    getContent() { return content; },
+    async pushText(text: string) {
+      pushedTexts.push(text);
+      content += text;
+    },
+    async pushReasoning() {},
+    async rewindContent() {},
+    getCitations() { return []; },
+    getProviderNativeResults() { return []; },
+  };
+
+  const toolExecutionEngine = {
+    async execute(call: any) {
+      return {
+        id: call.id,
+        name: call.name,
+        arguments: call.arguments,
+        ok: true,
+        result: {
+          txHash: '0xswap',
+          explorerUrl: 'https://basescan.org/tx/0xswap',
+        },
+        metadata: { source: 'test' },
+      };
+    },
+  };
+
+  await runNodeOrchestration({
+    snapshot: makeSnapshot('Swap 0.01 ETH to USDC', {
+      normalizedIntent: makeCanonicalIntent({
+        domain: 'swap',
+        intent: 'swap',
+        taskMode: 'execute',
+        locale: 'en',
+      } as any),
+    }),
+    generationClient: generationClient as any,
+    toolExecutionEngine: toolExecutionEngine as any,
+    broker: broker as any,
+    toolContext: {},
+  });
+
+  assert.equal(generationCalls, 1);
+  assert.equal(recordedResults.length, 1);
+  assert.deepEqual(pushedTexts, [
+    'Swap submitted.\nTransaction hash: 0xswap\nExplorer: https://basescan.org/tx/0xswap',
+  ]);
+});
+
+test('runNodeOrchestration emits failed deploy receipt directly after side-effecting tool failure', async () => {
+  const recordedResults: any[] = [];
+  const pushedTexts: string[] = [];
+  let content = '';
+  let generationCalls = 0;
+
+  const generationClient = {
+    async generate(params: any) {
+      if (String(params?.taskId || '').endsWith(':plan')) {
+        return {
+          text: '',
+          reasoning: '',
+          toolCalls: [],
+        };
+      }
+      generationCalls += 1;
+      return {
+        text: '',
+        reasoning: '',
+        toolCalls: [
+          {
+            id: 'call-deploy',
+            name: 'deploy_clanker_token',
+            arguments: {
+              name: 'LoopStop',
+              symbol: 'LSP',
+              confirmDeploy: true,
+            },
+          },
+        ],
+      };
+    },
+  };
+
+  const broker = {
+    beginRound() {},
+    async bootstrapRuntime() {},
+    async applyModelPlan() {},
+    hasVisibleArtifact() { return false; },
+    async markPlanPhase() {},
+    async ensurePlanStep() {},
+    async focusPlanStep() {},
+    async noteToolSelected() {},
+    async noteRuntimeUpdate() {},
+    async markPlanStepStarted() {},
+    async recordToolResult(result: any) { recordedResults.push(result); },
+    async markAnswerStarted() {},
+    async setRuntimeState() {},
+    async pushCommentary() {},
+    pushUsage() {},
+    pushCitation() {},
+    recordProviderNativeResult() {},
+    recordProviderNativeToolCall() {},
+    completeProviderNativeToolCall() {},
+    mergeAssistantData() {},
+    createContentCheckpoint() { return content.length; },
+    getContent() { return content; },
+    async pushText(text: string) {
+      pushedTexts.push(text);
+      content += text;
+    },
+    async pushReasoning() {},
+    async rewindContent() {},
+    getCitations() { return []; },
+    getProviderNativeResults() { return []; },
+  };
+
+  const toolExecutionEngine = {
+    async execute(call: any) {
+      return {
+        id: call.id,
+        name: call.name,
+        arguments: call.arguments,
+        ok: false,
+        error: 'wallet signature rejected',
+        reasonCode: 'USER_REJECTED',
+        result: {
+          tokenAddress: '0xabc',
+          tokenUrl: 'https://clanker.world/clanker/0xabc',
+        },
+        metadata: { source: 'test' },
+        continuation: {
+          next_action: 'handle_tool_failure',
+          can_answer_now: true,
+          reason: 'The tool did not complete successfully.',
+        },
+      };
+    },
+  };
+
+  await runNodeOrchestration({
+    snapshot: makeSnapshot('Deploy a token', {
+      normalizedIntent: makeCanonicalIntent({
+        domain: 'token',
+        intent: 'token_deploy',
+        taskMode: 'execute',
+        locale: 'en',
+      } as any),
+    }),
+    generationClient: generationClient as any,
+    toolExecutionEngine: toolExecutionEngine as any,
+    broker: broker as any,
+    toolContext: {},
+  });
+
+  assert.equal(generationCalls, 1);
+  assert.equal(recordedResults.length, 1);
+  assert.deepEqual(pushedTexts, [
+    'Clanker token deployment failed.\nError: wallet signature rejected\nReason code: USER_REJECTED\nToken address: 0xabc\nClanker page: https://clanker.world/clanker/0xabc',
+  ]);
+});

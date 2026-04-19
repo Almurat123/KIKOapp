@@ -5,12 +5,15 @@
  * Grok 4.1 Fast (USD): https://x.ai/api/
  */
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-18
 // Author: Almurat
 // Reason: chat message-bubble cost display must recognize the same real model
 //         ids as the selector and backend billing layer. The selector now uses
 //         Fast/Thinking labels instead of a synthetic Extra High tier, so the
-//         pricing helper must stay keyed to those actual ids.
+//         pricing helper must stay keyed to those actual ids. Official NVIDIA
+//         doc verification later removed the synthetic `glm-5-reasoning`
+//         product variant, so historical GLM alias strings now need to
+//         normalize back to the one canonical GLM pricing entry.
 // Goal: keep displayed per-message cost aligned with backend-billed model ids.
 // Owns: frontend-only cost lookup used in chat bubbles.
 // Does Not Own: quota enforcement, provider pricing policy, or backend billing.
@@ -18,12 +21,19 @@
 // - Price actual model ids, not synthetic effort labels.
 // - Free NVIDIA GLM/Kimi aliases remain zero until production pricing exists.
 // - GPT and Grok entries mirror backend billing ids exactly.
+// - Historical removed ids should normalize to the surviving pricing key.
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-model-thinking-label-correction.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-17
 // - Applied To: keeping chat-bubble cost display aligned with the selector's fast/thinking model ids
 // - Verification: inferred
+// - Source: NVIDIA NIM model page for z-ai/glm5
+// - Kind: official API doc
+// - Retrieved: 2026-04-18
+// - Applied To: collapsing removed GLM reasoning aliases into the canonical
+//   `glm-5` pricing key
+// - Verification: verified in docs and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-model-thinking-label-correction.md
@@ -39,7 +49,6 @@ const PRICING: Record<string, { input: number; output: number; currency: Currenc
     'grok-4-1-fast-non-reasoning': { input: 0.20, output: 0.50, currency: 'USD' },
     // NVIDIA trial-hosted models default to zero here until production pricing is pinned.
     'glm-5': { input: 0, output: 0, currency: 'USD' },
-    'glm-5-reasoning': { input: 0, output: 0, currency: 'USD' },
     'kimi-k2-5-reasoning': { input: 0, output: 0, currency: 'USD' },
     'kimi-k2-5-instant': { input: 0, output: 0, currency: 'USD' },
     // GPT (USD)
@@ -68,6 +77,22 @@ const LEGACY_TOOL_PRICE_PER_CALL = 0.005;
 const DEFAULT_GPT_PRICING = { input: 0.15, output: 0.60, currency: 'USD' as const };
 const DEFAULT_GROK_PRICING = { input: 0.20, output: 0.50, currency: 'USD' as const };
 
+function normalizePricingModelId(model?: string): string {
+    const normalized = String(model || '').trim().toLowerCase();
+    if (
+        normalized === 'glm-5-reasoning'
+        || normalized === 'glm5-reasoning'
+        || normalized === 'z-ai/glm5-reasoning'
+        || normalized === 'z-ai/glm-5-reasoning'
+        || normalized === 'glm5'
+        || normalized === 'z-ai/glm5'
+        || normalized === 'z-ai/glm-5'
+    ) {
+        return 'glm-5';
+    }
+    return normalized;
+}
+
 /**
  * Calculate the cost of an LLM request
  * @param model - The model identifier
@@ -84,13 +109,14 @@ export function calculateCost(
 ): { amount: number; currency: Currency } {
     if (!model) return { amount: 0, currency: 'USD' };
 
-    const isGrok = model.toLowerCase().includes('grok');
-    const pricing = PRICING[model] || (isGrok ? DEFAULT_GROK_PRICING : DEFAULT_GPT_PRICING);
+    const normalizedModel = normalizePricingModelId(model);
+    const isGrok = normalizedModel.includes('grok');
+    const pricing = PRICING[normalizedModel] || (isGrok ? DEFAULT_GROK_PRICING : DEFAULT_GPT_PRICING);
     const tokenCost = (promptTokens * pricing.input + completionTokens * pricing.output) / 1_000_000;
     let total = tokenCost;
 
     // Add tool invocation costs for Grok based on xAI official tool pricing.
-    if (model.toLowerCase().includes('grok')) {
+    if (normalizedModel.includes('grok')) {
         if (Array.isArray(toolCallsCountOrList)) {
             for (const toolCall of toolCallsCountOrList) {
                 let name = '';

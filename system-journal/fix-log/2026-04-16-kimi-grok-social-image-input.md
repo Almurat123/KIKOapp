@@ -54,9 +54,10 @@ post images even though their official docs support image understanding.
 - `npm test -- src/jobs/chat/nodePromptAssembler.test.ts` passed.
 - `PYTHONPATH=. python3 -m unittest tests.test_grok_message_content tests.test_llm_gateway_nvidia_model_resolution tests.test_llm_gateway_provider_request_id` passed.
 - `python3 -m py_compile grok/router.py llm_gateway/adapters/openai_like.py grok/message_content.py generation/schemas.py llm_gateway/schemas.py` passed.
-- `npx tsc --noEmit` failed outside this change on
-  `/Users/almurat/KiKo/kiko-api/src/jobs/chatWorker.ts:226` because
-  `buildFastDirectAssistantResponse` is unresolved.
+- Historical note: at the time, `npx tsc --noEmit` failed outside this change
+  on `/Users/almurat/KiKo/kiko-api/src/jobs/chatWorker.ts:226` because
+  `buildFastDirectAssistantResponse` was unresolved. That owner path was later
+  moved into `chatV2TurnRunner.ts` and then removed on 2026-04-18.
 
 ## See Also
 

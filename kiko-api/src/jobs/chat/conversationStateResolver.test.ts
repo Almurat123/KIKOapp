@@ -9,6 +9,7 @@ import {
     isConfirmationMessage,
     resolveTradeConfirmationState,
 } from './conversationStateResolver.js';
+import { computeConfirmationToken } from './executionGate.js';
 import type { CanonicalIntent } from './canonicalIntent.js';
 
 test('extractRequestedTokenAddressesFromHistory keeps prior contract context for short follow-up turns', () => {
@@ -316,6 +317,47 @@ test('resolveTradeConfirmationState extracts order confirmation from a prepared 
     assert.equal(state?.order?.actionClass, 'ORDER_MUTATION');
 });
 
+test('resolveTradeConfirmationState preserves swap quote metadata on confirmation state', () => {
+    const state = resolveTradeConfirmationState([
+        {
+            role: 'assistant',
+            id: 'a-quote',
+            message_index: 1,
+            data: {
+                toolTrace: {
+                    toolCalls: [
+                        {
+                            tool: 'simulate_swap',
+                            status: 'success',
+                            args: {
+                                token_in: 'BNB',
+                                token_out: '0x0bc61768132aa1484e2b09301284b7def78a4444',
+                                amount_in: '0.001',
+                                chain_id: 56,
+                            },
+                            result: {
+                                expected_out_human: '8779.58',
+                                price_impact: '0%',
+                                quoteExpiresAt: '2099-01-01T00:00:00.000Z',
+                            },
+                            finishedAt: '2026-04-18T00:00:00.000Z',
+                        },
+                    ],
+                },
+            },
+        },
+    ], 'confirm', {
+        domain: 'token',
+        intent: 'swap',
+        taskMode: 'confirm',
+    } as any);
+
+    assert.equal(state?.kind, 'swap_confirmation');
+    assert.equal(state?.quote?.tool_name, 'simulate_swap');
+    assert.equal(state?.quote?.expected_out, '8779.58');
+    assert.equal(state?.quote?.stale, false);
+});
+
 test('resolveTradeConfirmationState preserves token deploy mutation action class', () => {
     const state = resolveTradeConfirmationState([
         {
@@ -354,7 +396,64 @@ test('resolveTradeConfirmationState preserves token deploy mutation action class
 
     assert.equal(state?.kind, 'order_confirmation');
     assert.equal(state?.order?.toolName, 'deploy_clanker_token');
-    assert.equal(state?.order?.confirmationToken, 'deploy123');
+    assert.equal(
+        state?.order?.confirmationToken,
+        computeConfirmationToken('deploy_clanker_token', {
+            name: 'Demo Token',
+            symbol: 'DEMO',
+            confirmDeploy: true,
+        }),
+    );
+    assert.equal(state?.order?.actionClass, 'TOKEN_DEPLOY_MUTATION');
+});
+
+test('resolveTradeConfirmationState treats a Clanker dry run as reusable deploy confirmation state', () => {
+    const state = resolveTradeConfirmationState([
+        {
+            role: 'assistant',
+            id: 'a-clanker-dry-run',
+            message_index: 1,
+            data: {
+                toolTrace: {
+                    toolCalls: [
+                        {
+                            tool: 'deploy_clanker_token',
+                            status: 'success',
+                            args: {
+                                name: 'Kiko Receipt Test',
+                                symbol: 'KRT',
+                                description: 'Runtime receipt hook test token',
+                                confirmDeploy: false,
+                            },
+                            result: {
+                                success: true,
+                                dryRun: true,
+                                payload: {
+                                    name: 'Kiko Receipt Test',
+                                    symbol: 'KRT',
+                                    chainId: 8453,
+                                    description: 'Runtime receipt hook test token',
+                                    pool: {
+                                        type: 'standard',
+                                    },
+                                },
+                            },
+                        },
+                    ],
+                },
+            },
+        },
+    ], 'confirm', {
+        domain: 'token',
+        intent: 'clanker_deploy',
+        taskMode: 'confirm',
+    } as any);
+
+    assert.equal(state?.kind, 'order_confirmation');
+    assert.equal(state?.order?.toolName, 'deploy_clanker_token');
+    assert.equal(state?.order?.args?.name, 'Kiko Receipt Test');
+    assert.equal(state?.order?.args?.symbol, 'KRT');
+    assert.equal(state?.order?.args?.confirmDeploy, true);
     assert.equal(state?.order?.actionClass, 'TOKEN_DEPLOY_MUTATION');
 });
 

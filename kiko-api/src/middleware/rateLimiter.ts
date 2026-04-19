@@ -4,40 +4,41 @@
  */
 
 // CONTEXT MEMORY
-// Updated: 2026-04-14
-// Author: Almurat
-// Reason: copy-trade strategy pages were mixing bursty read hydration and
-//         user-initiated mutations in the same default limiter bucket. Once
-//         card-level `target-status` reads surged, delete requests for stale
-//         configs were blocked behind unrelated reads.
-// Goal: preserve broad abuse protection while keeping copy-trade reads and
-//       copy-trade mutations independently available under burst load.
+// Updated: 2026-04-18
+// Author: Rowan
+// Reason: token browse reads were still being charged against the trading bucket,
+//         which let a normal token-page navigation inherit protection limits
+//         meant for swap and mutation traffic.
+// Goal: keep database-backed token reads in a read-burst bucket while preserving
+//       the tighter trading bucket for real swap and mutation paths.
 // Owns: request throttling categories, bypass rules, and fail-open behavior for
 //       limiter backend faults.
-// Does Not Own: endpoint-level authorization, webhook validation, or OAuth token exchange.
+// Does Not Own: endpoint-level authorization, request shaping, or downstream token cache policy.
 // Design Language:
+// - Database-backed browse reads must not share the trading bucket with swaps.
+// - Keep the existing copy-trade read/write bucket split intact.
+// - Prefer separate buckets for read bursts vs mutation traffic.
 // - Keep global limits on by default.
-// - Explicitly exempt privileged bootstrap routes instead of relying on retries.
-// - Treat public crawler-facing card/share endpoints as static delivery surfaces,
-//   not interactive API traffic.
-// - Split copy-trade reads from copy-trade writes so list hydration cannot block deletes.
 // - Treat limiter backend faults as non-fatal to request handling.
+// - Forbidden local patch patterns: classifying every `/api/tokens/*` request as trading.
 // Document Provenance:
-// - Source: production log `logs.1776097448703.json`
-// - Kind: runtime observation
-// - Retrieved: 2026-04-14
-// - Applied To: dedicated copy-trade read/write limiter buckets after
-//   `/api/copy-trade/config/:id/target-status` bursts blocked
-//   `DELETE /api/copy-trade/config/:id`
-// - Verification: verified in runtime
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-strategy-list-read-write-decoupling.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-18
+// - Applied To: preserve the earlier copy-trade read/write bucket split while
+//   adjusting token read classification
+// - Verification: verified in code
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-token-read-limit-bucket-split.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-18
+// - Applied To: split GET `/api/tokens/*` into the read-burst limiter bucket
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
+// - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-strategy-list-read-write-decoupling.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-x-oauth1-helper-flow.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-x-auth-rate-limit-bypass.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-x-oauth-official-account-flow.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-x-share-public-rate-limit-bypass.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-token-read-limit-bucket-split.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
@@ -129,6 +130,9 @@ export async function rateLimiterMiddleware(
     } else if (url.startsWith('/api/copy-trade/')) {
         maxRequests = Math.max(MAX_REQUESTS_PER_WINDOW, 240);
         category = 'copytrade_write';
+    } else if (request.method === 'GET' && url.includes('/api/tokens/')) {
+        maxRequests = Math.max(MAX_REQUESTS_PER_WINDOW, 1200);
+        category = 'token_read_burst';
     } else if (url.includes('/api/swap/') || url.includes('/api/tokens/')) {
         maxRequests = 120; // Trading endpoints: 120/min
         category = 'trading';

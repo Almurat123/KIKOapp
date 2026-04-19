@@ -4,11 +4,19 @@ import { resolveCoreApiBase } from '../utils/coreApiBase';
 const API_BASE_URL = resolveCoreApiBase();
 const USAGE_SUMMARY_CACHE_TTL_MS = 30_000;
 
-interface UsageSummary {
+export interface UsageSummary {
   dateUtc: string;
   total: { used: number; limit: number | null };
   free: { used: number; limit: number | null };
   premium: { used: number; limit: number };
+  generatedImage?: {
+    modelFamily: string;
+    free: {
+      used: number;
+      limit: number;
+      remaining: number;
+    };
+  };
   models?: Array<{
     model: string;
     used: number;
@@ -118,10 +126,15 @@ export async function revokeBillingConsent() {
   return response.json() as Promise<{ success: boolean }>;
 }
 
-export async function getUsageSummary(authToken?: string | null) {
+export async function getUsageSummary(
+  authToken?: string | null,
+  options: { forceFresh?: boolean } = {},
+) {
   const token = authToken ?? await getAuthToken();
   const authKey = token || 'anonymous';
+  const forceFresh = options.forceFresh === true;
   if (
+    !forceFresh &&
     usageSummaryCache
     && usageSummaryCache.authKey === authKey
     && (Date.now() - usageSummaryCache.cachedAt) < USAGE_SUMMARY_CACHE_TTL_MS
@@ -129,13 +142,14 @@ export async function getUsageSummary(authToken?: string | null) {
     return usageSummaryCache.data;
   }
 
-  const inFlight = usageSummaryInFlight.get(authKey);
+  const inFlight = forceFresh ? null : usageSummaryInFlight.get(authKey);
   if (inFlight) return inFlight;
 
   const request = (async () => {
     const response = await authFetch('/api/billing/usage-summary', {}, token);
     if (!response.ok) {
       if (
+        !forceFresh &&
         usageSummaryCache
         && usageSummaryCache.authKey === authKey
         && (Date.now() - usageSummaryCache.cachedAt) < USAGE_SUMMARY_CACHE_TTL_MS
@@ -153,10 +167,14 @@ export async function getUsageSummary(authToken?: string | null) {
     return data;
   })();
 
-  usageSummaryInFlight.set(authKey, request);
+  if (!forceFresh) {
+    usageSummaryInFlight.set(authKey, request);
+  }
   try {
     return await request;
   } finally {
-    usageSummaryInFlight.delete(authKey);
+    if (!forceFresh) {
+      usageSummaryInFlight.delete(authKey);
+    }
   }
 }

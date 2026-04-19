@@ -135,6 +135,55 @@ test('buildControlPolicySnapshot promotes Clanker skill envelope to token deploy
     assert.ok(isTokenDeployMutationTool('deploy_clanker_token'));
 });
 
+test('model-led policy exposes all registered tools while read-only mutation guard remains active', () => {
+    const policy = buildControlPolicySnapshot({
+        snapshot: {
+            sessionId: 'session-1',
+            taskId: 'task-1',
+            model: 'gpt-5',
+            history: [],
+            lastUserMessage: 'Generate a product poster',
+            requestedTokenAddresses: [],
+            requestedTokenSymbols: [],
+            runtime: {},
+            toolDefinitions: [
+                { name: 'generate_image_from_intent', description: 'image tool', parameters: {} },
+                { name: 'get_wallet_info', description: 'wallet read', parameters: {} },
+                { name: 'prepare_swap_transaction', description: 'swap mutation', parameters: {} },
+            ],
+        } as any,
+        tradingIntent: null,
+        skillResolution: {
+            allowedTools: ['generate_image_from_intent'],
+            intentEnvelope: {
+                primary_intent: 'general_answer',
+                task_mode: 'discover',
+                search_mode: 'forbidden',
+                search_target: 'none',
+                domain: 'general',
+                execution_risk: 'read_only',
+                required_evidence: [],
+            },
+        } as any,
+    });
+
+    assert.equal(policy.actionClass, 'READ_ONLY');
+    assert.ok(policy.allowedTools.includes('generate_image_from_intent'));
+    assert.ok(policy.allowedTools.includes('get_wallet_info'));
+    assert.ok(policy.allowedTools.includes('prepare_swap_transaction'));
+
+    const result = checkToolAgainstPolicy({
+        call: {
+            id: 'swap-1',
+            name: 'prepare_swap_transaction',
+            arguments: { execute: true },
+        },
+        policy,
+        knownToolNames: new Set(['generate_image_from_intent', 'get_wallet_info', 'prepare_swap_transaction']),
+    });
+    assert.equal(result?.code, 'POLICY_UNAUTHORIZED_TOOL');
+});
+
 test('token deploy mutation policy blocks swap mutation tools', () => {
     const result = checkToolAgainstPolicy({
         call: {

@@ -359,7 +359,7 @@
   border-radius: 6px;
   color: #71717a;
   cursor: pointer;
-  transition: 
+  transition:
     opacity 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
     background 0.2s ease,
     transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -406,7 +406,7 @@
   opacity: 0;
   visibility: hidden;
   transform: translateY(4px);
-  transition: 
+  transition:
     opacity 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
     visibility 0.3s,
     transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -421,7 +421,7 @@
   opacity: 1;
   visibility: visible;
   transform: translateY(0);
-  transition: 
+  transition:
     opacity 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
     visibility 0s,
     transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -443,7 +443,7 @@
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  transition: 
+  transition:
     opacity 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
     background 0.2s ease,
     transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -1363,13 +1363,16 @@
   gap: 14px;
   padding: 0 10px;
   justify-content: flex-start;
+  width: 100%;
+  min-width: 0;
 }
 
 .modelSelectors {
   display: flex;
   align-items: center;
   gap: 12px;
-  flex-shrink: 0;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .uploadButton,
@@ -1483,7 +1486,7 @@
 }
 
 /* CONTEXT MEMORY
- * Updated: 2026-04-17
+ * Updated: 2026-04-18
  * Author: Rowan
  * Reason: The chat composer input row now uses a borderless inline model /
  *         reasoning selector pair instead of the old boxed model pill.
@@ -1497,9 +1500,14 @@
  * - inline input-row actions should feel borderless and low-chrome
  * - keep enough horizontal breathing room so selected pills do not hug the
  *   row edges
+ * - mobile action rows must stay on one line inside the input shell
  * - the add-image action stays neutral at rest and highlights only on hover
  * - icon buttons should stay transparent at rest and only pick up hover fill
  * - model family and reasoning strength stay separate controls
+ * - text and image model families stay separated inside the model menu
+ * - image model quality uses the same inline control footprint as reasoning
+ * - selector labels must truncate before fixed-size action buttons spill out
+ *   of the shell
  * - dropdowns may use soft depth but should avoid hard outlines
  * - do not reintroduce glass borders around routine input actions
  * Document Provenance:
@@ -1513,9 +1521,26 @@
  * - Retrieved: 2026-04-17
  * - Applied To: documenting the borderless input-row selector rewrite
  * - Verification: verified in code
+ * - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-image-model-selector-sections.md
+ * - Kind: repo doc
+ * - Retrieved: 2026-04-18
+ * - Applied To: styling Text/Image selector sections and shared quality control
+ * - Verification: verified in code
+ * - Source: MDN flex property reference
+ * - Kind: official API doc
+ * - Retrieved: 2026-04-18
+ * - Applied To: forcing selector flex items to opt out of min-content overflow
+ * - Verification: verified in code
+ * - Source: MDN text-overflow reference
+ * - Kind: official API doc
+ * - Retrieved: 2026-04-18
+ * - Applied To: truncating long selector labels so the mobile row can stay on one line
+ * - Verification: verified in code
  * See also:
  * - /Users/almurat/KiKo/system-journal/INDEX.md
  * - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-input-borderless-model-reasoning-selector.md
+ * - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-image-model-selector-sections.md
+ * - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-composer-mobile-containment.md
  * - /Users/almurat/KiKo/kiko-web/src/components/Chat/ChatModelSelector.tsx
  * - /Users/almurat/KiKo/kiko-web/src/components/Chat/ChatComposer.tsx
  * - /Users/almurat/KiKo/kiko-web/src/components/Chat/ChatInterface.tsx
@@ -1523,7 +1548,8 @@
 /* Model Selector */
 .modelSelector {
   position: relative;
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .modelButton {
@@ -1541,10 +1567,14 @@
   color: #6b7280;
   font-size: 15px;
   cursor: pointer;
-  transition: background-color 0.2s, color 0.2s;
+  transition:
+    background-color 0.2s,
+    color 0.2s;
   line-height: normal;
   position: relative;
   overflow: hidden;
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* Replicate Input Box Fresnel Edge Highlight */
@@ -1610,6 +1640,14 @@
   font-weight: 500;
   font-size: inherit;
   color: inherit;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelNameCompact {
+  display: none;
 }
 
 .modelOptionActive {
@@ -1653,6 +1691,29 @@
   width: max-content;
 }
 
+.modelDropdownSection {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 0;
+}
+
+.modelDropdownSection + .modelDropdownSection {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.modelDropdownSectionLabel {
+  padding: 4px 10px 3px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: #71717a;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
 @keyframes slideUp {
   from {
     opacity: 0;
@@ -1684,6 +1745,18 @@
 .modelOption:hover {
   background: rgba(255, 255, 255, 0.05);
   color: #f4f4f5;
+}
+
+.modelOptionDisabled,
+.modelOption:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.modelOptionDisabled:hover,
+.modelOption:disabled:hover {
+  background: transparent;
+  color: #a1a1aa;
 }
 
 .modelOptionActive {
@@ -1744,6 +1817,14 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
+.light .modelDropdownSection + .modelDropdownSection {
+  border-top-color: rgba(0, 0, 0, 0.08);
+}
+
+.light .modelDropdownSectionLabel {
+  color: #6b7280;
+}
+
 .light .modelOption {
   color: #374151;
 }
@@ -1751,6 +1832,18 @@
 .light .modelOption:hover {
   background: rgba(0, 0, 0, 0.05);
   color: #111827;
+}
+
+.light .modelOptionDisabled,
+.light .modelOption:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.light .modelOptionDisabled:hover,
+.light .modelOption:disabled:hover {
+  background: transparent;
+  color: #374151;
 }
 
 .light .modelOptionActive {
@@ -2414,67 +2507,6 @@
   position: relative;
   user-select: text;
   -webkit-user-select: text;
-}
-
-/* CONTEXT MEMORY
- * Updated: 2026-04-16
- * Author: Rowan
- * Reason: chat streaming should preserve backend chunk timing while visually
- *         fading each newly appended chunk into the transcript.
- * Goal: make live assistant output feel continuous without buffering,
- *       re-chunking, or reparsing markdown on every streaming tick.
- * Owns: visual treatment for newly appended streaming text segments.
- * Does Not Own: WebSocket delivery cadence, message persistence, or provider
- *               stream parsing.
- * Design Language:
- * - streaming chunks may fade in but must not delay insertion
- * - reduced-motion users should see immediate text
- * - runtime plan cards must not disable text chunk animation
- * Document Provenance:
- * - Source: /Users/almurat/KiKo/kiko-web/src/components/Chat/MessageBubble.tsx
- * - Kind: repo doc
- * - Retrieved: 2026-04-16
- * - Applied To: matching style hooks emitted by MessageBubble streaming segments
- * - Verification: verified in code and production build
- * See also:
- * - /Users/almurat/KiKo/system-journal/INDEX.md
- * - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-streaming-opacity-fade.md
- */
-.streamingChunk {
-  opacity: 1;
-  white-space: inherit;
-}
-
-.streamingChunkFade {
-  opacity: 0;
-  white-space: inherit;
-  filter: blur(3px);
-  transform: translateY(1px);
-  animation: streamingChunkOpacityFade 360ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  will-change: opacity, filter, transform;
-}
-
-@keyframes streamingChunkOpacityFade {
-  from {
-    opacity: 0;
-    filter: blur(3px);
-    transform: translateY(1px);
-  }
-  to {
-    opacity: 1;
-    filter: blur(0);
-    transform: translateY(0);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .streamingChunkFade {
-    opacity: 1;
-    filter: none;
-    transform: none;
-    animation: none;
-    will-change: auto;
-  }
 }
 
 .markdownContainer {
@@ -3857,6 +3889,83 @@
 
 /* --- Mobile Font Size Optimizations --- */
 @media screen and (max-width: 768px) {
+  .inputArea .inputWrapper,
+  .textareaContainer {
+    min-width: 0;
+  }
+
+  .textareaContainer {
+    padding: 10px 12px;
+    gap: 10px;
+  }
+
+  .inputActions {
+    flex-wrap: nowrap;
+    gap: 6px;
+    padding: 0;
+  }
+
+  .modelSelectors {
+    width: auto;
+    flex: 1 1 auto;
+    gap: 6px;
+  }
+
+  .modelSelector {
+    flex: 1 1 0;
+  }
+
+  .modelSelector:last-child {
+    flex: 0 0 82px;
+  }
+
+  .modelButton {
+    width: 100%;
+    justify-content: space-between;
+    padding: 0 8px;
+    height: 30px !important;
+    font-size: 13px;
+  }
+
+  .modelNameFull {
+    display: none;
+  }
+
+  .modelNameCompact {
+    display: inline;
+  }
+
+  .uploadButton,
+  .settingsButton {
+    width: 28px !important;
+    height: 28px !important;
+    min-width: 28px !important;
+    min-height: 28px !important;
+  }
+
+  .uploadButton svg,
+  .settingsButton svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .sendBtn {
+    margin-left: 0;
+    width: 30px !important;
+    height: 30px !important;
+    min-width: 30px !important;
+    min-height: 30px !important;
+  }
+
+  .sendBtn svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .modelDropdown {
+    max-width: min(calc(100vw - 32px), 320px);
+  }
+
   .markdownContent,
   .markdownContent p,
   .markdownContent li,
@@ -3889,5 +3998,334 @@
 
   .messageList {
     padding-top: 80px !important;
+  }
+}
+
+/* CONTEXT MEMORY
+ * Updated: 2026-04-19
+ * Author: Rowan
+ * Reason: generated-image rows now need a plain blur-to-clear reveal with a
+ *         soft fluid gradient wash in both themes, with light mode still
+ *         reading as a visible pastel flow instead of a near-white plate.
+ *         A centered model label is allowed, but percentage and stage text
+ *         are not. The loading icon and model label should breathe slowly so
+ *         the badge feels alive without turning into a busy animation stack.
+ *         Generated-image frames stay inline, and ready images open the shared
+ *         NativeLightbox viewer used by the social page and chat-uploaded
+ *         images.
+ * Goal: keep generated-image frames compact, theme-aware, and text-free while
+ *       blur carries the loading semantics and the viewer behavior stays
+ *       shared.
+ * Owns: generated-image frame sizing, blur reveal styling, theme-aware frame
+ *       surfaces, and shared lightbox affordances.
+ * Does Not Own: provider execution, websocket ordering, or message-state persistence.
+ * Design Language:
+ * - generated-image replies stay inside the transcript rather than floating separately
+ * - loading must be a plain blur reveal with one soft fluid gradient wash
+ * - progress may only influence blur strength and reveal timing
+ * - a centered loading icon may show the model name beneath it, but not a
+ *   percentage or backend stage
+ * - the loading icon and model name may breathe slowly with a soft loop
+ * - ready generated images may open the shared NativeLightbox viewer used by
+ *   chat-uploaded images and the social page
+ * - final image reveal should reuse the same frame without layout shift
+ * - light mode must still show a readable pastel pink/lavender/blue pairing
+ *   instead of collapsing to an almost-white wash
+ * - frame width must clamp by viewport instead of blindly following the full transcript column
+ * Document Provenance:
+ * - Source: operator request on 2026-04-18
+ * - Kind: product doc
+ * - Retrieved: 2026-04-18
+ * - Applied To: making the image-generation card render as blur-to-clear only
+ * - Verification: verified in code
+ * - Source: OpenAI Image generation guide (streaming)
+ * - Kind: official API doc
+ * - Retrieved: 2026-04-18
+ * - Applied To: preserving provider-aware progress semantics for OpenAI partial-image updates
+ * - Verification: verified in docs
+ * - Source: OpenAI `/v1/images/generations` OpenAPI spec
+ * - Kind: official API doc
+ * - Retrieved: 2026-04-18
+ * - Applied To: using partial-image milestones only as blur timing, not as visible chrome
+ * - Verification: verified in docs
+ * - Source: xAI Streaming guide
+ * - Kind: official API doc
+ * - Retrieved: 2026-04-18
+ * - Applied To: keeping Grok on a no-stream image reveal path
+ * - Verification: verified in docs
+ * See also:
+ * - /Users/almurat/KiKo/system-journal/INDEX.md
+ * - /Users/almurat/KiKo/system-journal/design-language/chat-image-viewing.md
+ * - /Users/almurat/KiKo/system-journal/design-language/generated-image-loading.md
+ * - /Users/almurat/KiKo/system-journal/design-language/generated-image-safety.md
+ * - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
+ * - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-local-ui-test-mode.md
+ */
+.generatedImageMessage {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: clamp(240px, 36vw, 420px);
+  max-width: 100%;
+  align-self: flex-start;
+}
+
+.generatedImageGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.generatedImageGridMulti {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.generatedImageFrame {
+  --generated-image-aspect: 1;
+  --generated-image-preview-blur: 18px;
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  aspect-ratio: var(--generated-image-aspect);
+  border-radius: 28px;
+  background: #0f1115;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
+  cursor: zoom-in;
+  touch-action: manipulation;
+}
+
+.generatedImageFrame:focus-visible {
+  outline: 2px solid rgba(96, 165, 250, 0.72);
+  outline-offset: 2px;
+}
+
+.generatedImageFrameLoading {
+  background: linear-gradient(135deg, #161321 0%, #0d1016 48%, #171325 100%);
+}
+
+.generatedImageFrameLoading::before,
+.generatedImageFrameLoading::after {
+  content: '';
+  position: absolute;
+  inset: -28%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.generatedImageFrameLoading::before {
+  background:
+    radial-gradient(circle at 20% 34%, rgba(255, 166, 210, 0.5) 0%, rgba(255, 166, 210, 0.24) 20%, transparent 50%),
+    radial-gradient(circle at 78% 28%, rgba(186, 175, 255, 0.44) 0%, rgba(186, 175, 255, 0.18) 18%, transparent 48%),
+    radial-gradient(circle at 48% 76%, rgba(120, 198, 255, 0.34) 0%, rgba(120, 198, 255, 0.12) 18%, transparent 50%),
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.16) 0%, transparent 58%);
+  filter: blur(62px) saturate(190%);
+  mix-blend-mode: screen;
+  opacity: 0.9;
+  animation: generatedImageFluidFlow 18s ease-in-out infinite;
+}
+
+.generatedImageFrameLoading::after {
+  opacity: 0;
+  animation: none;
+}
+
+.generatedImageLoadingBadge {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  pointer-events: none;
+  color: rgba(255, 255, 255, 0.95);
+  text-align: center;
+  user-select: none;
+}
+
+.generatedImageLoadingIcon {
+  width: 46px;
+  height: 46px;
+  color: rgba(255, 255, 255, 0.96);
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.16));
+  transform-origin: center;
+  animation: generatedImageLoadingIconBreath 4.8s ease-in-out infinite;
+}
+
+.generatedImageLoadingIcon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.generatedImageLoadingModel {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0;
+  color: rgba(255, 255, 255, 0.86);
+  text-shadow: 0 1px 10px rgba(255, 255, 255, 0.08);
+  transform-origin: center;
+  animation: generatedImageLoadingTextBreath 4.8s ease-in-out infinite;
+}
+
+.generatedImageAsset {
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition:
+    opacity 180ms ease,
+    filter 260ms ease;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.generatedImageAssetLoaded {
+  opacity: 1;
+}
+
+.generatedImageAssetPreviewing {
+  filter: blur(var(--generated-image-preview-blur, 18px));
+}
+
+.generatedImageError {
+  color: #a1a1aa;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.light .generatedImageFrame {
+  background: linear-gradient(135deg, #fcfdff 0%, #f7f1fb 48%, #eef4ff 100%);
+  border-color: rgba(99, 102, 241, 0.08);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+}
+
+.light .generatedImageFrameLoading {
+  background: linear-gradient(135deg, #fffefd 0%, #faf4ff 28%, #eef4ff 56%, #fff1f8 82%, #ffffff 100%);
+}
+
+.light .generatedImageFrameLoading::before {
+  background:
+    radial-gradient(circle at 18% 38%, rgba(255, 154, 205, 0.76) 0%, rgba(255, 154, 205, 0.42) 18%, transparent 50%),
+    radial-gradient(circle at 80% 28%, rgba(191, 176, 255, 0.64) 0%, rgba(191, 176, 255, 0.34) 18%, transparent 48%),
+    radial-gradient(circle at 34% 72%, rgba(171, 145, 255, 0.34) 0%, rgba(171, 145, 255, 0.16) 16%, transparent 44%),
+    radial-gradient(circle at 70% 76%, rgba(143, 210, 255, 0.52) 0%, rgba(143, 210, 255, 0.24) 18%, transparent 48%),
+    radial-gradient(circle at 50% 52%, rgba(255, 248, 253, 0.92) 0%, rgba(255, 248, 253, 0.48) 22%, transparent 62%);
+  filter: blur(46px) saturate(150%);
+  mix-blend-mode: normal;
+  opacity: 0.96;
+  animation: generatedImageFluidFlowLight 18s ease-in-out infinite;
+}
+
+.light .generatedImageFrameLoading::after {
+  opacity: 0;
+  animation: none;
+}
+
+.light .generatedImageError {
+  color: #6b7280;
+}
+
+@media (max-width: 768px) {
+  .generatedImageMessage {
+    width: min(100%, calc(100vw - 32px));
+  }
+
+  .generatedImageFrame {
+    border-radius: 24px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .generatedImageAsset {
+    transition: none;
+  }
+
+  .generatedImageFrameLoading::before,
+  .generatedImageFrameLoading::after {
+    animation: none;
+  }
+
+  .generatedImageLoadingIcon,
+  .generatedImageLoadingModel {
+    animation: none;
+  }
+}
+
+@keyframes generatedImageFluidFlow {
+  0% {
+    transform: translate3d(-3%, -2%, 0) scale(1.04);
+    opacity: 0.8;
+  }
+  50% {
+    transform: translate3d(2%, 1%, 0) scale(1.1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(-1%, 2%, 0) scale(1.06);
+    opacity: 0.84;
+  }
+}
+
+@keyframes generatedImageAmbientSweep {
+  0% {
+    transform: translate3d(-12%, 0, 0);
+  }
+  50% {
+    transform: translate3d(12%, 0, 0);
+  }
+  100% {
+    transform: translate3d(-12%, 0, 0);
+  }
+}
+
+@keyframes generatedImageFluidFlowLight {
+  0% {
+    transform: translate3d(-2%, -1%, 0) scale(1.03);
+    opacity: 0.42;
+  }
+  50% {
+    transform: translate3d(2%, 1.5%, 0) scale(1.08);
+    opacity: 0.56;
+  }
+  100% {
+    transform: translate3d(-1%, 2%, 0) scale(1.04);
+    opacity: 0.44;
+  }
+}
+
+@keyframes generatedImageLoadingIconBreath {
+  0% {
+    transform: scale(0.96);
+    opacity: 0.92;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.96);
+    opacity: 0.92;
+  }
+}
+
+@keyframes generatedImageLoadingTextBreath {
+  0% {
+    transform: scale(0.97);
+    opacity: 0.84;
+  }
+  50% {
+    transform: scale(1.03);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.97);
+    opacity: 0.84;
   }
 }

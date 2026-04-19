@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-19
 // Author: Linh Tran
 // Reason: Farcaster mention ingress now prefers the dedicated Neynar webhook
 //         route when enabled, while this module still owns webhook-disabled
@@ -7,7 +7,9 @@
 //         Reply publication now prefers Neynar signer publishing when
 //         configured, then falls back to Hub. Hub fallback also needs direct
 //         reply continuation under bot-authored parent casts so Farcaster users
-//         do not have to mention the bot on every follow-up turn.
+//         do not have to mention the bot on every follow-up turn. Generated
+//         image replies now need media embed URLs propagated through both the
+//         Neynar publish path and the Hub fallback.
 // Goal: keep mention retrieval, cast parsing, and reply publication
 //       centralized while preserving deterministic source selection,
 //       transient-error recovery, a webhook-first ingress split, and
@@ -32,6 +34,7 @@
 //   but keep parent-cast semantics explicit.
 // - Avoid leaking provider-specific payload shapes into the worker.
 // - Normalize cast image-bearing embeds before they leave this owner.
+// - Normalize outbound cast embed URLs before provider-specific publish calls.
 // Document Provenance:
 // - Source: Neynar webhook documentation and notifications API
 // - Kind: official API doc
@@ -75,6 +78,16 @@
 // - Applied To: request-level failover after repeated `Call cancelled` mention
 //   polls on the same replica
 // - Verification: verified in runtime
+// - Source: @farcaster/hub-nodejs dist typings
+// - Kind: local SDK source
+// - Retrieved: 2026-04-19
+// - Applied To: Hub fallback `CastAddBody.embeds` URL shape for generated-image replies
+// - Verification: verified in local SDK typings
+// - Source: operator requirement on 2026-04-19 for Farcaster generated-image replies
+// - Kind: product doc
+// - Retrieved: 2026-04-19
+// - Applied To: outbound cast reply embeds
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
@@ -84,6 +97,7 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-farcaster-direct-reply-continuation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-mention-hub-fallback.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-mention-hub-request-failover.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import {
   CastId,
@@ -149,6 +163,23 @@ let signerCache: NobleEd25519Signer | null = null;
 function clampPageSize(value: number): number {
   if (!Number.isFinite(value)) return 15;
   return Math.min(Math.max(Math.trunc(value), 1), MAX_PAGE_SIZE);
+}
+
+function normalizeCastEmbedUrls(value: unknown): string[] {
+  const rawUrls = Array.isArray(value) ? value : [];
+  const deduped = new Set<string>();
+  for (const raw of rawUrls) {
+    const url = String(raw || '').trim();
+    if (!url) continue;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') continue;
+      deduped.add(parsed.toString());
+    } catch {
+      continue;
+    }
+  }
+  return Array.from(deduped).slice(0, 2);
 }
 
 function normalizeHubEndpoint(raw: string): HubEndpoint {
@@ -589,12 +620,15 @@ export class FarcasterApiClient {
     parentHash: string;
     parentAuthorFid: number;
     idem: string;
+    embeds?: string[] | null;
   }): Promise<FarcasterSendResult> {
+    const embeds = normalizeCastEmbedUrls(params.embeds);
     const neynarReply = await publishNeynarCastReply({
       text: params.text,
       parentHash: params.parentHash,
       parentAuthorFid: params.parentAuthorFid,
       idem: params.idem,
+      embeds,
     });
     if (neynarReply) {
       logger.info(LogCode.SYS_INFO, '[Farcaster] cast reply published via Neynar', {
@@ -622,7 +656,7 @@ export class FarcasterApiClient {
           },
           parentUrl: undefined,
           mentionsPositions: [],
-          embeds: [],
+          embeds: embeds.map((url) => ({ url })),
           type: CastType.CAST,
         },
         {

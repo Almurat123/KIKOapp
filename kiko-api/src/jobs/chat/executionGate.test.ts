@@ -63,6 +63,64 @@ test('prepare_swap_transaction can use a prior prepare_swap_transaction success 
     assert.equal(result.allow, true);
 });
 
+test('prepare_swap_transaction rejects explicitly expired quote precheck evidence', () => {
+    const args = {
+        token_in: 'BNB',
+        token_out: '0x0bc61768132aa1484e2b09301284b7def78a4444',
+        amount_in: '0.001',
+        chain_id: 56,
+        execute: true,
+    };
+    const confirmationToken = computeConfirmationToken('prepare_swap_transaction', args, 'policy-1');
+
+    const result = checkMutationExecutionGate({
+        toolName: 'prepare_swap_transaction',
+        args,
+        policy: {
+            enforcementLevel: 'hard',
+            actionClass: 'TRADE_MUTATION',
+            policyDecisionId: 'policy-1',
+        } as any,
+        gate: {
+            phase: 'execute',
+            confirmationToken,
+        },
+        snapshot: {
+            sessionId: 'session-1',
+            taskId: 'task-1',
+            model: 'gpt-5.4',
+            history: [],
+            lastUserMessage: 'confirm',
+            requestedTokenAddresses: [],
+            requestedTokenSymbols: [],
+            runtime: {},
+            toolDefinitions: [],
+            recentToolTrace: {
+                messageId: 'assistant-1',
+                toolCalls: [
+                    {
+                        tool: 'simulate_swap',
+                        status: 'success',
+                        args: {
+                            token_in: 'BNB',
+                            token_out: '0x0bc61768132aa1484e2b09301284b7def78a4444',
+                            amount_in: '0.001',
+                            chain_id: 56,
+                        },
+                        result: {
+                            expected_out_human: '8779.58',
+                            quoteExpiresAt: '2000-01-01T00:00:00.000Z',
+                        },
+                    },
+                ],
+            },
+        } as any,
+    });
+
+    assert.equal(result.allow, false);
+    assert.equal(result.error?.code, 'PRECHECK_REQUIRED');
+});
+
 test('deploy_clanker_token dry run does not require execution confirmation', () => {
     const result = checkMutationExecutionGate({
         toolName: 'deploy_clanker_token',

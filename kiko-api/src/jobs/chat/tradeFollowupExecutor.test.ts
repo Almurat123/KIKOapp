@@ -89,7 +89,10 @@ test('swap confirmation accepts prepare_swap_transaction as the confirmation anc
     assert.equal(executed.length, 1);
     assert.equal(executed[0]?.name, 'prepare_swap_transaction');
     assert.equal(completed.length, 1);
-    assert.match(String(completed[0]?.content || ''), /Trade submitted/);
+    assert.equal(
+        String(completed[0]?.content || ''),
+        'Swap 已提交。\n交易哈希: 0xabc\n浏览器: 不可用',
+    );
 });
 
 test('swap confirmation still executes when the prior quote timestamp is old', async () => {
@@ -175,7 +178,10 @@ test('swap confirmation still executes when the prior quote timestamp is old', a
     assert.equal(executed.length, 1);
     assert.equal(executed[0]?.name, 'prepare_swap_transaction');
     assert.equal(result.toolResult?.ok, true);
-    assert.match(String(completed[0]?.content || ''), /Trade submitted/);
+    assert.equal(
+        String(completed[0]?.content || ''),
+        'Swap 已提交。\n交易哈希: 0xabc\n浏览器: 不可用',
+    );
 });
 
 test('non-confirm analysis turns do not execute from stale swap confirmation', async () => {
@@ -248,6 +254,62 @@ test('non-confirm analysis turns do not execute from stale swap confirmation', a
 
     assert.equal(result.handled, false);
     assert.equal(executed.length, 0);
+});
+
+test('confirm turn without pending confirmation falls back to the model path instead of a fixed precheck reply', async () => {
+    const completed: Array<{ content?: string }> = [];
+    const snapshot: any = {
+        sessionId: 'session-1',
+        taskId: 'task-1',
+        lastUserMessage: 'confirm',
+        normalizedIntent: {
+            intent: 'swap',
+            taskMode: 'confirm',
+        },
+        confirmationState: null,
+        recentToolTrace: {
+            messageId: 'assistant-1',
+            toolCalls: [
+                {
+                    tool: 'simulate_swap',
+                    status: 'failed',
+                    args: {
+                        token_in: 'BNB',
+                        token_out: 'USDC',
+                        amount_in: '0.01',
+                        chain_id: 56,
+                    },
+                    result: {
+                        error: 'quote expired',
+                    },
+                },
+            ],
+        },
+    };
+
+    const result = await executeDirectTradeFollowup({
+        snapshot,
+        task: {
+            sessionId: 'session-1',
+            assistantMessageId: 'assistant-1',
+            toolContext: {},
+        },
+        userId: 'user-1',
+        broker: {
+            complete: async (payload: { content?: string }) => {
+                completed.push(payload);
+            },
+            recordToolResult: async () => undefined,
+        } as any,
+        toolExecutionEngine: {
+            execute: async () => {
+                throw new Error('should not execute');
+            },
+        } as any,
+    });
+
+    assert.equal(result.handled, false);
+    assert.equal(completed.length, 0);
 });
 
 test('copy trade confirmation rebroadcasts strategy card in direct follow-up execution', async () => {

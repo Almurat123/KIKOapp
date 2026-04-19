@@ -1,3 +1,26 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-19
+// Author: Renata
+// Reason: Polymarket order mutation receipts need order ids and market URLs so
+//         Agent-mode replies make placed, closed, cancelled, and replaced orders
+//         auditable to the user.
+// Goal: keep order tools transactional and receipt-rich without weakening
+//       readiness checks or exact token-id validation.
+// Owns: direct Polymarket trading tool schemas and result shaping.
+// Does Not Own: credential derivation, CLOB order signing/posting, or market discovery.
+// Design Language:
+// - never place orders without exact token ids and readiness gates
+// - include order_id/replaced_order_id and market_url when returned or derivable
+// - if market_url is unavailable, say so rather than inventing a slug
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-19
+// - Applied To: Polymarket order mutation receipt fields
+// - Verification: verified in code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
 /**
  * Polymarket Direct Trading AI Tools
  * Tools for AI to help users place direct orders on Polymarket
@@ -11,6 +34,7 @@ import { buildPolymarketFundingPlan } from '../../../services/polymarketFundingP
 import { placeBuyOrder } from '../../../services/polymarketExecutor.js';
 import { getExecutablePrice } from '../../../services/polymarketDataService.js';
 import { computeConfirmationToken } from '../../../jobs/chat/executionGate.js';
+import { buildPolymarketMarketUrl } from '../../../utils/executionLinks.js';
 
 type PolymarketReadiness = Awaited<ReturnType<typeof checkTradingReadiness>>;
 
@@ -93,6 +117,51 @@ function buildPolymarketBlockedOrderResponse(params: {
 type ToolContextLike = {
     [key: string]: any;
 } | undefined;
+
+function pickPolymarketMarketSlug(args: Record<string, any>, context?: ToolContextLike): string | null {
+    const explicit = String(args.market_slug || '').trim();
+    if (explicit) return explicit;
+
+    const selection = context?.__snapshot?.polymarketSelection || null;
+    const tokenId = String(args.token_id || args.position_id || '').trim();
+    const question = String(args.question || '').trim().toLowerCase();
+
+    const prepared = selection?.preparedSelection;
+    if (prepared && (
+        (tokenId && [prepared.tokenId, prepared.resolvedTokenId].includes(tokenId))
+        || (question && String(prepared.question || '').trim().toLowerCase() === question)
+    )) {
+        return String(prepared.marketSlug || '').trim() || null;
+    }
+
+    const candidates = [
+        selection?.executionCandidate,
+        selection?.currentCandidate,
+        selection?.primaryCandidate,
+        ...(Array.isArray(selection?.candidates) ? selection.candidates : []),
+    ].filter(Boolean);
+
+    for (const candidate of candidates) {
+        const candidateQuestion = String(candidate?.question || '').trim().toLowerCase();
+        const tokenMatches = tokenId && Array.isArray(candidate?.outcomes)
+            && candidate.outcomes.some((outcome: any) => String(outcome?.tokenId || '').trim() === tokenId);
+        if (tokenMatches || (question && candidateQuestion === question)) {
+            const slug = String(candidate?.marketSlug || '').trim();
+            if (slug) return slug;
+        }
+    }
+
+    return null;
+}
+
+function buildPolymarketReceiptFields(args: Record<string, any>, context?: ToolContextLike) {
+    const marketSlug = pickPolymarketMarketSlug(args, context);
+    const marketUrl = String(args.market_url || '').trim() || buildPolymarketMarketUrl(marketSlug) || null;
+    return {
+        market_slug: marketSlug,
+        market_url: marketUrl,
+    };
+}
 
 /**
  * Check Polymarket Trading Readiness Tool
@@ -323,6 +392,14 @@ export const PlacePolymarketOrderTool: Tool = {
                 shares: {
                     type: 'number',
                     description: 'Number of shares to sell (required for SELL orders)'
+                },
+                market_slug: {
+                    type: 'string',
+                    description: 'Optional Polymarket market slug from the selected market. Include it when available so the receipt can show a clickable market URL.'
+                },
+                market_url: {
+                    type: 'string',
+                    description: 'Optional Polymarket market URL. If omitted, KiKo derives it from market_slug when available.'
                 }
             },
             required: ['token_id', 'question', 'outcome']
@@ -337,6 +414,8 @@ export const PlacePolymarketOrderTool: Tool = {
         outcome: string;
         position_id?: string;
         shares?: number;
+        market_slug?: string;
+        market_url?: string;
     }, context) => {
         const userId = context?.userId;
         if (!userId) {
@@ -344,6 +423,7 @@ export const PlacePolymarketOrderTool: Tool = {
         }
 
         const side = args.side || 'BUY';
+        const receipt = buildPolymarketReceiptFields(args, context);
 
         try {
             const readiness = await checkTradingReadiness(userId);
@@ -400,13 +480,18 @@ export const PlacePolymarketOrderTool: Tool = {
                     return {
                         success: true,
                         order_id: result.orderId,
+                        market_slug: result.marketSlug || receipt.market_slug,
+                        market_url: result.marketUrl || receipt.market_url,
                         shares: args.shares.toFixed(2),
-                        message: `✅ SELL order placed! Sold ${args.shares.toFixed(2)} shares of "${args.outcome}" at $${resolvedPrice.toFixed(3)}.`,
+                        message: `✅ SELL order placed! Sold ${args.shares.toFixed(2)} shares of "${args.outcome}" at $${resolvedPrice.toFixed(3)}. Order: ${result.orderId}. Market: ${result.marketUrl || receipt.market_url || 'unavailable'}.`,
                         details: {
                             market: args.question.slice(0, 60),
                             outcome: args.outcome,
                             price: resolvedPrice,
-                            shares: args.shares
+                            shares: args.shares,
+                            order_id: result.orderId,
+                            market_slug: result.marketSlug || receipt.market_slug,
+                            market_url: result.marketUrl || receipt.market_url,
                         }
                     };
                 } else {
@@ -475,23 +560,29 @@ export const PlacePolymarketOrderTool: Tool = {
                 amountUsd: args.amount_usd,
                 question: args.question,
                 outcome: args.outcome,
-                marketSlug: 'direct-trade',
+                marketSlug: receipt.market_slug || 'direct-trade',
                 conditionId: ''
             });
 
             if (result.success) {
                 const shares = (args.amount_usd / resolvedPrice).toFixed(2);
+                const marketUrl = result.marketUrl || receipt.market_url;
                 return {
                     success: true,
                     order_id: result.orderId,
+                    market_slug: result.marketSlug || receipt.market_slug,
+                    market_url: marketUrl,
                     amount: `$${args.amount_usd.toFixed(2)}`,
                     shares: shares,
-                    message: `✅ BUY order placed! Bought ${shares} shares of "${args.outcome}" at $${resolvedPrice.toFixed(3)} for $${args.amount_usd.toFixed(2)}.`,
+                    message: `✅ BUY order placed! Bought ${shares} shares of "${args.outcome}" at $${resolvedPrice.toFixed(3)} for $${args.amount_usd.toFixed(2)}. Order: ${result.orderId}. Market: ${marketUrl || 'unavailable'}.`,
                     details: {
                         market: args.question.slice(0, 60),
                         outcome: args.outcome,
                         price: resolvedPrice,
-                        amount: args.amount_usd
+                        amount: args.amount_usd,
+                        order_id: result.orderId,
+                        market_slug: result.marketSlug || receipt.market_slug,
+                        market_url: marketUrl,
                     }
                 };
             } else {
@@ -532,6 +623,14 @@ export const WithdrawPolymarketPositionTool: Tool = {
                 current_price: {
                     type: 'number',
                     description: 'Current market price (optional, for calculating exit value)'
+                },
+                market_slug: {
+                    type: 'string',
+                    description: 'Optional Polymarket market slug for the position being closed.'
+                },
+                market_url: {
+                    type: 'string',
+                    description: 'Optional Polymarket market URL for the position being closed.'
                 }
             },
             required: ['position_id']
@@ -540,6 +639,8 @@ export const WithdrawPolymarketPositionTool: Tool = {
     handler: async (args: {
         position_id: string;
         current_price?: number;
+        market_slug?: string;
+        market_url?: string;
     }, context) => {
         const userId = context?.userId;
         if (!userId) {
@@ -548,6 +649,7 @@ export const WithdrawPolymarketPositionTool: Tool = {
 
         try {
             const { closePosition } = await import('../../../services/polymarketExecutor.js');
+            const receipt = buildPolymarketReceiptFields(args, context);
 
             const result = await closePosition({
                 userId,
@@ -559,7 +661,9 @@ export const WithdrawPolymarketPositionTool: Tool = {
                 return {
                     success: true,
                     order_id: result.orderId,
-                    message: '✅ Position closed successfully! All shares have been sold.',
+                    market_slug: result.marketSlug || receipt.market_slug,
+                    market_url: result.marketUrl || receipt.market_url,
+                    message: `✅ Position close order placed. Order: ${result.orderId}. Market: ${result.marketUrl || receipt.market_url || 'unavailable'}.`,
                     position_id: args.position_id
                 };
             } else {
@@ -591,6 +695,14 @@ export const CancelPolymarketOrderTool: Tool = {
                 order_id: {
                     type: 'string',
                     description: 'Order ID to cancel'
+                },
+                market_slug: {
+                    type: 'string',
+                    description: 'Optional Polymarket market slug for the cancelled order.'
+                },
+                market_url: {
+                    type: 'string',
+                    description: 'Optional Polymarket market URL for the cancelled order.'
                 }
             },
             required: ['order_id']
@@ -598,6 +710,8 @@ export const CancelPolymarketOrderTool: Tool = {
     },
     handler: async (args: {
         order_id: string;
+        market_slug?: string;
+        market_url?: string;
     }, context) => {
         const userId = context?.userId;
         if (!userId) {
@@ -606,6 +720,7 @@ export const CancelPolymarketOrderTool: Tool = {
 
         try {
             const { cancelOrder } = await import('../../../services/polymarketExecutor.js');
+            const receipt = buildPolymarketReceiptFields(args, context);
 
             const result = await cancelOrder({
                 userId,
@@ -615,8 +730,10 @@ export const CancelPolymarketOrderTool: Tool = {
             if (result.success) {
                 return {
                     success: true,
-                    message: '✅ Order cancelled successfully!',
-                    order_id: args.order_id
+                    message: `✅ Order cancelled successfully. Order: ${args.order_id}. Market: ${receipt.market_url || 'unavailable'}.`,
+                    order_id: args.order_id,
+                    market_slug: receipt.market_slug,
+                    market_url: receipt.market_url,
                 };
             } else {
                 return {
@@ -676,6 +793,14 @@ export const ModifyPolymarketOrderTool: Tool = {
                     type: 'string',
                     enum: ['BUY', 'SELL'],
                     description: 'Optional side override. Usually omitted because the tool reuses the existing order side.'
+                },
+                market_slug: {
+                    type: 'string',
+                    description: 'Optional Polymarket market slug for the order being replaced.'
+                },
+                market_url: {
+                    type: 'string',
+                    description: 'Optional Polymarket market URL for the order being replaced.'
                 }
             },
             required: ['order_id', 'new_price']
@@ -690,6 +815,8 @@ export const ModifyPolymarketOrderTool: Tool = {
         question?: string;
         outcome?: string;
         side?: 'BUY' | 'SELL';
+        market_slug?: string;
+        market_url?: string;
     }, context) => {
         const userId = context?.userId;
         if (!userId) {
@@ -698,6 +825,7 @@ export const ModifyPolymarketOrderTool: Tool = {
 
         try {
             const { modifyOrder } = await import('../../../services/polymarketExecutor.js');
+            const receipt = buildPolymarketReceiptFields(args, context);
             const result = await modifyOrder({
                 userId,
                 orderId: args.order_id,
@@ -708,14 +836,18 @@ export const ModifyPolymarketOrderTool: Tool = {
                 question: args.question,
                 outcome: args.outcome,
                 side: args.side,
+                marketSlug: receipt.market_slug || undefined,
             });
 
             if (result.success) {
+                const marketUrl = result.marketUrl || receipt.market_url;
                 return {
                     success: true,
                     order_id: result.newOrderId,
                     replaced_order_id: args.order_id,
-                    message: `✅ Order replaced successfully at $${args.new_price.toFixed(3)}.`
+                    market_slug: result.marketSlug || receipt.market_slug,
+                    market_url: marketUrl,
+                    message: `✅ Order replaced successfully at $${args.new_price.toFixed(3)}. Old order: ${args.order_id}. New order: ${result.newOrderId}. Market: ${marketUrl || 'unavailable'}.`
                 };
             }
 
@@ -723,6 +855,8 @@ export const ModifyPolymarketOrderTool: Tool = {
                 success: false,
                 replaced_order_id: args.order_id,
                 cancelled_original: result.cancelledOriginal || false,
+                market_slug: result.marketSlug || receipt.market_slug,
+                market_url: result.marketUrl || receipt.market_url,
                 error: result.error || 'Failed to modify order'
             };
         } catch (error: any) {

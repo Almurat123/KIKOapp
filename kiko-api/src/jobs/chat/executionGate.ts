@@ -1,12 +1,15 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-18
 // Author: Renata
 // Reason: Clanker token deployment now has a dedicated mutation action class.
 //         The execution gate must distinguish harmless dry-runs from real
 //         `confirmDeploy=true` deploy attempts and require a confirmation token
-//         for the latter.
+//         for the latter. Chat worker-state refactor also made quote freshness
+//         explicit, so the gate must reject tool-marked or expiry-marked stale
+//         preflight quotes without treating old timestamps alone as stale.
 // Goal: keep all write actions centrally gated by deterministic confirmation
-//       tokens, including token deploys that are not swaps or orders.
+//       tokens, including token deploys that are not swaps or orders, and
+//       prevent execution from explicitly stale quote/preflight evidence.
 // Owns: mutation execution confirmation checks and confirmation payload shape.
 // Does Not Own: action-class routing, model prompting, or individual tool HTTP behavior.
 // Design Language:
@@ -14,11 +17,17 @@
 // - `deploy_clanker_token` becomes executable only when `confirmDeploy=true`
 // - real token deploy attempts require phase=execute and a matching confirmation token
 // - confirmation payload args bind exactly to the future execution args
+// - quote freshness must come from explicit expiry/stale fields, not from timestamp age alone
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-17
 // - Applied To: Clanker deploy confirmation gate
+// - Verification: verified in code and targeted tests
+// - Source: product-owner runtime review of KiKo quote/confirmation architecture
+// - Kind: product instruction / runtime observation
+// - Retrieved: 2026-04-18
+// - Applied To: explicit stale quote gating
 // - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
@@ -206,6 +215,7 @@ function hasTradePrecheckEvidence(
             const callTool = String(call.tool || '');
             if (!['simulate_swap', 'prepare_swap_transaction'].includes(callTool)) return false;
             if (!['success', 'cached'].includes(String(call.status || ''))) return false;
+            if (isExplicitlyStalePrecheck(call)) return false;
             const callIn = normalizeToken(call.args?.token_in);
             const callOut = normalizeToken(call.args?.token_out);
             const callChain = Number(call.args?.chain_id || 0) || null;
@@ -222,6 +232,7 @@ function hasTradePrecheckEvidence(
             const callTool = String(call.tool || '');
             if (!['get_cross_chain_quote', 'prepare_cross_chain_tx'].includes(callTool)) return false;
             if (!['success', 'cached'].includes(String(call.status || ''))) return false;
+            if (isExplicitlyStalePrecheck(call)) return false;
             const callFrom = normalizeToken(call.args?.fromToken);
             const callTo = normalizeToken(call.args?.toToken);
             const callAmount = normalizeToken(call.args?.fromAmount);
@@ -235,6 +246,23 @@ function hasTradePrecheckEvidence(
         });
     }
     return true;
+}
+
+function isExplicitlyStalePrecheck(call: any): boolean {
+    const result = call?.result && typeof call.result === 'object' ? call.result : {};
+    if (result.stale === true || result.expired === true || result.quote?.stale === true) return true;
+    const expiresAt = String(
+        result.expiresAt
+        || result.expires_at
+        || result.quoteExpiresAt
+        || result.validUntil
+        || result.quote?.expires_at
+        || result.quote?.expiresAt
+        || '',
+    ).trim();
+    if (!expiresAt) return false;
+    const expiresMs = Date.parse(expiresAt);
+    return Number.isFinite(expiresMs) && expiresMs <= Date.now();
 }
 
 function normalizeToken(value: any): string {

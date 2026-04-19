@@ -1,14 +1,20 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-14
+// Updated: 2026-04-18
 // Author: Rowan
 // Reason: copy-trade creation executes on a later confirmation turn where the
 //         latest user message is often just "confirm", so wallet provenance from
 //         the original request must be carried explicitly and the confirmed
 //         strategy card must still appear even if the generic broker-side effect
-//         path does not emit a live client action.
+//         path does not emit a live client action. Product correction on
+//         2026-04-18 removed backend-authored trade outcome summaries so this
+//         layer only emits tool-authored text and client actions. Execution
+//         receipt review on 2026-04-19 moved hash/order/token URL replies into
+//         the shared post-tool receipt formatter so confirmation follow-ups and
+//         normal tool rounds produce the same receipt answer.
 // Goal: execute confirmed copy-trade tools with the same wallet-binding audit
 //       evidence captured during preflight and preserve immediate in-chat card
-//       rendering for direct follow-up confirmations.
+//       rendering for direct follow-up confirmations, without inventing
+//       user-facing reply text in the worker.
 // Owns: direct follow-up execution for confirmed trade/order actions.
 // Does Not Own: extracting wallets, validating copy-trade config payloads, or
 //               writing wallet audit records.
@@ -18,6 +24,10 @@
 // - confirmation follow-up must not re-derive target wallets from "confirm"
 // - direct follow-up must rescue critical live cards when generic broker side
 //   effects lag or silently miss websocket emission
+// - direct follow-up may surface tool-authored summaries or raw tool errors, but must not synthesize trade outcome prose
+// - direct follow-up should execute from one deterministic plan object, not kind-specific branches spread across this file
+// - direct follow-up receipt text must come from the shared tool-result hook
+//   before falling back to legacy tool-authored summaries
 // Document Provenance:
 // - Source: production incident analysis of malformed BSC copy-trade target wallets
 // - Kind: runtime observation
@@ -30,17 +40,34 @@
 // - Applied To: confirming confirmed copy-trade execution without any emitted
 //   `show_strategy_card` / `client_action` trace in the live follow-up path
 // - Verification: partially verified
+// - Source: /Users/almurat/Downloads/logs.1776445174160.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-18
+// - Applied To: removing direct follow-up fixed summaries and precheck prose
+// - Verification: verified in runtime and then removed in code
+// - Source: product-owner runtime review of KiKo chat architecture
+// - Kind: product instruction / runtime observation
+// - Retrieved: 2026-04-18
+// - Applied To: central direct-followup execution plan object
+// - Verification: verified in code and targeted tests
+// - Source: operator correction in local runtime thread about receipt prompt token waste
+// - Kind: product instruction / runtime observation
+// - Retrieved: 2026-04-19
+// - Applied To: shared execution receipt formatter for confirmed follow-up tools
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-wallet-audit-provenance.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-direct-followup-card-rescue.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-hardcoded-reply-path-removal.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
 import * as chatRepo from '../../repositories/chatRepository.js';
 import { chatWS } from '../../services/chatWebSocket.js';
 import type { ChatContextSnapshot, OrchestratorToolResult } from './contracts.js';
 import { ChatStreamBroker } from './streamBroker.js';
 import type { ToolExecutionEngine } from './toolExecutionEngine.js';
-import { computeConfirmationToken } from './executionGate.js';
-import { resolveBinaryLocale } from './runtimeLocale.js';
+import { buildDirectFollowupExecutionPlan } from './workerStateBuilder.js';
+import { buildExecutionReceiptAnswer } from './executionReceiptAnswer.js';
 
 export async function executeDirectTradeFollowup(params: {
     snapshot: ChatContextSnapshot;
@@ -55,122 +82,25 @@ export async function executeDirectTradeFollowup(params: {
     }
 
     const confirmation = params.snapshot.confirmationState;
-    const invalidConfirmation = resolveInvalidTradeConfirmation(params.snapshot);
-    if (invalidConfirmation) {
-        await params.broker.complete({ content: invalidConfirmation.userMessage });
-        return {
-            handled: true,
-            toolResult: {
-                id: `direct:${invalidConfirmation.code.toLowerCase()}:${Date.now()}`,
-                name: invalidConfirmation.toolName,
-                arguments: invalidConfirmation.args,
-                ok: false,
-                error: invalidConfirmation.error,
-                reasonCode: invalidConfirmation.code,
-                result: {
-                    error: invalidConfirmation.error,
-                    reason_code: invalidConfirmation.code,
-                },
-                metadata: { source: 'direct_followup_guard' },
-            },
-        };
-    }
     if (!confirmation?.kind) return { handled: false };
+    const plan = buildDirectFollowupExecutionPlan({
+        snapshot: params.snapshot,
+        taskToolContext: params.task.toolContext || null,
+    });
+    if (!plan) return { handled: false };
 
-    if (confirmation.kind === 'swap_confirmation' && confirmation.swap) {
-        const swap = confirmation.swap;
-
-        const toolName = swap.isCrossChain ? 'prepare_cross_chain_tx' : 'prepare_swap_transaction';
-        const args = swap.isCrossChain
-            ? {
-                fromToken: swap.tokenIn,
-                toToken: swap.tokenOut,
-                fromAmount: swap.amountIn,
-                fromChain: swap.chainId,
-                toChain: swap.toChain,
-            }
-            : {
-                token_in: swap.tokenIn,
-                token_out: swap.tokenOut,
-                amount_in: swap.amountIn,
-                chain_id: swap.chainId,
-                slippage: params.task.toolContext?.toolConfig?.customSlippage
-                    ? Number(params.task.toolContext.toolConfig.customSlippage)
-                    : 1.0,
-                execute: true,
-            };
-        const result = await invokeTool({
-            toolName,
-            args,
-            task: params.task,
-            userId: params.userId,
-            broker: params.broker,
-            toolExecutionEngine: params.toolExecutionEngine,
-            snapshot: params.snapshot,
-            executionGate: {
-                phase: 'execute',
-                confirmationToken: computeConfirmationToken(
-                    toolName,
-                    args,
-                    params.snapshot.policySnapshot?.policyDecisionId,
-                ),
-            },
-        });
-        return { handled: true, toolResult: result };
-    }
-
-    if (confirmation.kind === 'copy_trade_confirmation' && confirmation.copyTrade) {
-        const copy = confirmation.copyTrade;
-        const args = {
-            target_wallet: copy.targetWallet,
-            buy_amount_usd: copy.buyAmountUsd,
-            ...(copy.chainId ? { chain_id: copy.chainId } : {}),
-            ...(typeof copy.mirrorSell === 'boolean' ? { mirror_sell: copy.mirrorSell } : {}),
-            ...(Number.isFinite(Number(copy.takeProfitPct)) ? { take_profit_pct: copy.takeProfitPct } : {}),
-            ...(Number.isFinite(Number(copy.stopLossPct)) ? { stop_loss_pct: copy.stopLossPct } : {}),
-        };
-        const result = await invokeTool({
-            toolName: 'create_copy_trade_config',
-            args,
-            task: params.task,
-            userId: params.userId,
-            broker: params.broker,
-            toolExecutionEngine: params.toolExecutionEngine,
-            snapshot: params.snapshot,
-            extraToolContext: copy.walletBinding
-                ? { __copyTradeWalletBindingAudit: copy.walletBinding }
-                : undefined,
-            executionGate: {
-                phase: 'execute',
-                confirmationToken: computeConfirmationToken(
-                    'create_copy_trade_config',
-                    args,
-                    params.snapshot.policySnapshot?.policyDecisionId,
-                ),
-            },
-        });
-        return { handled: true, toolResult: result };
-    }
-
-    if (confirmation.kind === 'order_confirmation' && confirmation.order) {
-        const order = confirmation.order;
-        const result = await invokeTool({
-            toolName: order.toolName,
-            args: order.args || {},
-            task: params.task,
-            userId: params.userId,
-            broker: params.broker,
-            toolExecutionEngine: params.toolExecutionEngine,
-            snapshot: params.snapshot,
-            executionGate: {
-                phase: 'execute',
-                confirmationToken: order.confirmationToken,
-            },
-        });
-        return { handled: true, toolResult: result };
-    }
-
-    return { handled: false };
+    const result = await invokeTool({
+        toolName: plan.tool_name,
+        args: plan.args,
+        task: params.task,
+        userId: params.userId,
+        broker: params.broker,
+        toolExecutionEngine: params.toolExecutionEngine,
+        snapshot: params.snapshot,
+        extraToolContext: plan.extra_tool_context,
+        executionGate: plan.execution_gate,
+    });
+    return { handled: true, toolResult: result };
 }
 
 async function invokeTool(params: {
@@ -214,36 +144,18 @@ async function invokeTool(params: {
     });
 
     const txMessageId = toolResult.result?.messageId;
+    const locale = params.snapshot.normalizedIntent?.locale === 'en' ? 'en' : 'zh';
     const finalText = txMessageId
         ? ''
-        : (toolResult.result?.summary
-            || (toolResult.ok
-                ? buildSuccessSummary(params.snapshot, params.toolName, params.args)
-                : buildFailureSummary(params.snapshot, toolResult.error)));
+        : buildExecutionReceiptAnswer(toolResult, locale)
+        || extractVisibleFollowupText(toolResult.result?.summary)
+        || extractVisibleFollowupText(toolResult.error);
     await params.broker.complete({ content: finalText });
     return toolResult;
 }
 
-function buildSuccessSummary(snapshot: ChatContextSnapshot, toolName: string, args: Record<string, any>): string {
-    const locale = detectLocale(snapshot);
-    if (toolName === 'create_copy_trade_config') {
-        return locale === 'zh' ? '已创建跟单配置。' : 'Copy-trade setup created.';
-    }
-    if (toolName === 'prepare_cross_chain_tx') {
-        return locale === 'zh'
-            ? `已提交跨链交易：${String(args.fromAmount || '')} ${String(args.fromToken || '')} -> ${String(args.toToken || '')}。`
-            : `Cross-chain trade submitted: ${String(args.fromAmount || '')} ${String(args.fromToken || '')} -> ${String(args.toToken || '')}.`;
-    }
-    return locale === 'zh'
-        ? `已提交交易：${String(args.amount_in || '')} ${String(args.token_in || '')} -> ${String(args.token_out || '')}。`
-        : `Trade submitted: ${String(args.amount_in || '')} ${String(args.token_in || '')} -> ${String(args.token_out || '')}.`;
-}
-
-function buildFailureSummary(snapshot: ChatContextSnapshot, message?: string): string {
-    const locale = detectLocale(snapshot);
-    return locale === 'zh'
-        ? `交易执行失败：${String(message || '未知错误')}`
-        : `Execution failed: ${String(message || 'unknown error')}`;
+function extractVisibleFollowupText(value: unknown): string {
+    return typeof value === 'string' ? value.trim() : '';
 }
 
 async function broadcastClientAction(params: {
@@ -313,58 +225,4 @@ async function broadcastClientAction(params: {
     } catch {
         // Best-effort compatibility broadcast.
     }
-}
-
-function resolveInvalidTradeConfirmation(snapshot: ChatContextSnapshot): {
-    code: string;
-    error: string;
-    userMessage: string;
-    toolName: string;
-    args: Record<string, any>;
-} | null {
-    const confirmation = snapshot.confirmationState;
-    if (confirmation?.kind) return null;
-    const taskMode = snapshot.normalizedIntent?.taskMode;
-    if (taskMode !== 'confirm' && taskMode !== 'execute') return null;
-
-    const toolCalls = snapshot.recentToolTrace?.toolCalls || [];
-    const recentTradeCall = [...toolCalls].reverse().find((entry) =>
-        ['simulate_swap', 'prepare_swap_transaction', 'get_cross_chain_quote', 'prepare_cross_chain_tx'].includes(String(entry.tool || ''))
-    );
-    if (!recentTradeCall) return null;
-
-    const status = String(recentTradeCall.status || '').toLowerCase();
-    const result = recentTradeCall.result && typeof recentTradeCall.result === 'object'
-        ? recentTradeCall.result
-        : {};
-    const args = (recentTradeCall.args && typeof recentTradeCall.args === 'object')
-        ? recentTradeCall.args
-        : {};
-    const toolName = String(recentTradeCall.tool || 'trade_followup_guard');
-    const explicitError = typeof result.error === 'string' ? result.error.trim() : '';
-
-    if (['success', 'cached'].includes(status)) {
-        return null;
-    }
-
-    const error = explicitError
-        || (status === 'aborted'
-            ? 'Previous trade preflight was aborted.'
-            : status === 'failed' || status === 'error'
-                ? 'Previous trade preflight failed.'
-                : 'No valid preflight quote is available for execution.');
-
-    return {
-        code: 'PRECHECK_REQUIRED',
-        error,
-        toolName,
-        args,
-        userMessage: detectLocale(snapshot) === 'zh'
-            ? `本次没有执行交易。之前的预检查未成功完成（${error}）。请先重新获取报价或预检查，然后再确认。`
-            : `Nothing was executed. The previous trade preflight did not complete successfully (${error}). Run a fresh quote or preflight first, then confirm again.`,
-    };
-}
-
-function detectLocale(snapshot: ChatContextSnapshot): 'en' | 'zh' {
-    return resolveBinaryLocale(String(snapshot.lastUserMessage || ''), snapshot.normalizedIntent?.locale);
 }

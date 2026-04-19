@@ -1,9 +1,12 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-19
 // Author: Renata
 // Reason: Clanker launches are real write actions. The previous policy only
 //         modeled swap and order mutations, so `deploy_clanker_token` could be
 //         exposed as a normal skill tool without a central mutation class.
+//         Product architecture review on 2026-04-19 moved tool visibility to
+//         the main model by default, so this layer now treats visibility and
+//         execution authorization as separate concerns.
 // Goal: classify confirmed token deployment as a hard-gated mutation while
 //       still allowing Clanker dry-run previews and read/history tools inside
 //       the Clanker skill.
@@ -16,17 +19,25 @@
 // - Clanker dry-runs may prepare payloads, but real deploy attempts belong to TOKEN_DEPLOY_MUTATION
 // - swap, order/copytrade, and token deploy mutation tools must not be mixed across classes
 // - provider-native search stays blocked for hard mutation turns
+// - tool visibility is not execution permission; mutation tools remain blocked
+//   in READ_ONLY even when model-led mode exposes the whole catalog
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-17
 // - Applied To: Clanker deploy mutation classification and allowlist
 // - Verification: verified in code and targeted tests
+// - Source: operator architecture review on 2026-04-19
+// - Kind: product instruction
+// - Retrieved: 2026-04-19
+// - Applied To: model-led all-tool visibility with unchanged mutation execution gates
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/clanker-token-deploy-skill.md
 // - /Users/almurat/KiKo/system-journal/owner-map/clanker-skill.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
+// - /Users/almurat/KiKo/system-journal/adr/2026-04-19-model-led-tool-orchestration.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import { randomUUID } from 'node:crypto';
 import { logger } from '../../utils/logger.js';
@@ -34,6 +45,7 @@ import { LogCode } from '../../config/logRegistry.js';
 import type { ChatContextSnapshot, OrchestratorToolCall } from './contracts.js';
 import type { SkillResolution } from './nodeSkillResolver.js';
 import type { TradingIntent } from './tradingIntentResolver.js';
+import { isModelLedToolOrchestrationEnabled, resolveModelLedToolNames } from './modelLedToolOrchestration.js';
 
 export type ActionClass = 'READ_ONLY' | 'TRADE_MUTATION' | 'ORDER_MUTATION' | 'TOKEN_DEPLOY_MUTATION';
 export type EnforcementLevel = 'hard' | 'soft';
@@ -122,7 +134,11 @@ export function buildControlPolicySnapshot(params: {
                 : actionClass === 'TOKEN_DEPLOY_MUTATION'
                     ? TOKEN_DEPLOY_MUTATION_TOOLS
                     : [];
-    const allowedSet = new Set(params.skillResolution.allowedTools || []);
+    const allowedSet = new Set(
+        isModelLedToolOrchestrationEnabled()
+            ? resolveModelLedToolNames(params.snapshot)
+            : params.skillResolution.allowedTools || [],
+    );
     for (const toolName of mutationToolAllowlist) {
         allowedSet.add(toolName);
     }

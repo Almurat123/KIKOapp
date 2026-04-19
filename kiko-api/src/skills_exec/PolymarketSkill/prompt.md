@@ -3,11 +3,15 @@
 ## Runtime contract
 
 Prefer the structured runtime blocks first:
-- `INTENT_NORMALIZATION` decides whether this is broad discovery, short-window discovery, or execution.
+- `WORKING_MEMORY` tells you what was already confirmed in earlier turns and should be reused.
 - `WORKFLOW_STATE` tells you whether there is already pending evidence or a pending confirmation.
 - If `polymarket_selection` is present in runtime state, treat it as the backend-owned selected market context. Reuse it instead of reconstructing market ids, slugs, or token ids from memory.
 - Reuse prior evidence when it is still relevant. If the current state is not yet executable, decide the smallest useful next tool step instead of defaulting to another clarification turn.
-- Treat runtime state as the primary workflow source. Use this prompt for domain constraints, not to recreate session state from wording alone.
+- Treat runtime state and tool continuation contracts as the primary workflow source. Use this prompt for domain constraints, not to recreate session state from wording alone.
+- Use this skill only after the model selects `polymarket` or when prediction-market odds are supporting evidence for a broader answer.
+- For short follow-ups like "this one", "yes", "go ahead", "down $1", or "change that", read workflow state first and continue the prepared market/order state instead of rediscovering.
+- Never fabricate token ids, market ids, slugs, or order ids. If runtime state and tool results do not contain the exact identifier, ask for the direct market/link or run the smallest exact-resolution tool.
+- Discovery completion means a market shortlist/odds answer. Execution completion means exact market + exact outcome token + quote/readiness + user confirmation/order result.
 
 **SHOW 5-MINUTE MARKETS, FLAG TRADABILITY**: The tool returns 5-minute markets found within the broader discovery horizon, but you must separate "answer candidates" from "watchlist-only" windows:
    - `primary_candidate` → The default direct answer for "next 5-minute market" style requests. Use this first.

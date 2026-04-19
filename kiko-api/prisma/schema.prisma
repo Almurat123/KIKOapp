@@ -54,6 +54,7 @@ model User {
   billingBlocks       BillingBlock[]
   billingConsents     BillingConsent[]
   billingUsage        BillingUsageLedger[]
+  generatedImageUsage GeneratedImageUsageLedger[]
   dailyBilling        DailyBilling[]
   copytradeOrdersV2   CopytradeOrder[]
   farcasterConversationMappings FarcasterConversationMapping[]
@@ -299,6 +300,33 @@ model BillingUsageLedger {
   @@index([userId, dateUtc])
   @@index([modelCategory])
   @@map("billing_usage_ledger")
+}
+
+model GeneratedImageUsageLedger {
+  id               String   @id @default(uuid())
+  requestId        String   @unique @map("request_id")
+  userId           String   @map("user_id")
+  provider         String
+  model            String
+  modelFamily      String   @map("model_family")
+  quality          String
+  status           String   @default("reserved")
+  imageCount       Int      @default(1) @map("image_count")
+  freeImageCount   Int      @default(0) @map("free_image_count")
+  billedImageCount Int      @default(0) @map("billed_image_count")
+  usdCost          Decimal  @default(0) @map("usd_cost") @db.Decimal
+  dateUtc          DateTime @map("date_utc") @db.Date
+  contextType      String   @map("context_type")
+  contextId        String   @map("context_id")
+  source           String?
+  failureReason    String?  @map("failure_reason")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at")
+  user             User     @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
+
+  @@index([userId, dateUtc])
+  @@index([modelFamily, status])
+  @@map("generated_image_usage_ledger")
 }
 
 model DailyBilling {

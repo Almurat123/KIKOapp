@@ -86,7 +86,7 @@ export const DeployClankerTokenTool: Tool = {
         parameters: {
             type: 'object',
             properties: {
-                name: { type: 'string', description: 'Token name.' },
+                name: { type: 'string', description: 'Human-readable token name to display on Clanker and in wallet metadata.' },
                 symbol: { type: 'string', description: 'Token symbol, usually 3-5 characters.' },
                 image: { type: 'string', description: 'Token image URL or IPFS URI.' },
                 description: { type: 'string', description: 'Creator-facing token description.' },
@@ -109,16 +109,21 @@ export const DeployClankerTokenTool: Tool = {
                 },
                 socialMediaUrls: {
                     type: 'array',
+                    description: 'Optional project social links to attach to the token metadata.',
                     items: {
                         type: 'object',
                         properties: {
-                            platform: { type: 'string' },
-                            url: { type: 'string' },
+                            platform: { type: 'string', description: 'Social platform name, such as x, farcaster, telegram, or website.' },
+                            url: { type: 'string', description: 'Full HTTPS URL for the project social/profile page.' },
                         },
                         required: ['platform', 'url'],
                     },
                 },
-                auditUrls: { type: 'array', items: { type: 'string' } },
+                auditUrls: {
+                    type: 'array',
+                    description: 'Optional external audit or security-review URLs to include in launch metadata.',
+                    items: { type: 'string', description: 'Full HTTPS URL for an audit or security review.' },
+                },
                 devBuy: {
                     type: 'object',
                     description: 'Optional creator buy / dev buy. Omit this object to skip buying tokens during deployment. ethAmount is the common path; poolKey, amountOutMin, and recipient are advanced overrides only when the user explicitly asks for them.',
@@ -143,6 +148,7 @@ export const DeployClankerTokenTool: Tool = {
                 },
                 pool: {
                     type: 'object',
+                    description: 'Optional launch pool configuration. Omit unless the user requests advanced pool settings.',
                     properties: {
                         type: { type: 'string', enum: ['standard', 'project'], description: 'Standard is the simple default launch pattern. Project is the advanced multi-range pattern.' },
                         pairedToken: { type: 'string', description: 'Pair asset for the pool. Leave blank to use the chain native wrapped asset address; or pass another token address if the user wants a different pair.' },
@@ -151,6 +157,7 @@ export const DeployClankerTokenTool: Tool = {
                 },
                 fees: {
                     type: 'object',
+                    description: 'Optional fee configuration. Omit to use the standard fixed 1% / 1% launch fees.',
                     properties: {
                         type: { type: 'string', enum: ['static', 'dynamic'], description: 'Static is the default fixed-fee mode. Dynamic should be used only when the user asks for a fee that changes with volatility.' },
                         clankerFee: { type: 'number', description: 'Fixed fee on the token side, in basis points. 100 = 1%.' },

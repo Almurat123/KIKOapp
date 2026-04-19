@@ -8,12 +8,14 @@ import {
     createBillingBlock,
     clearBillingBlock,
     revokeBillingConsent,
-    upsertBillingConsent
+    upsertBillingConsent,
+    getDailyGeneratedImageReservationSummary,
 } from '../repositories/billingRepository.js';
 import {
     getBillingCategory,
     getUtcDateString,
 } from '../services/billing/billingService.js';
+import { getGeneratedImageDailyFreeLimit } from '../services/generatedImageBilling.js';
 import { getUsageCountForModel, getUsageCounts } from '../services/usageCounter.js';
 import { getUserUsageQuota } from '../services/usageLimitsService.js';
 
@@ -133,11 +135,18 @@ export async function billingRoutes(fastify: FastifyInstance) {
             }
 
             const dateUtc = getUtcDateString();
-            const [counts, quota] = await Promise.all([
+            const imageFreeLimit = getGeneratedImageDailyFreeLimit('grok-imagine-image');
+            const [counts, quota, generatedImageSummary] = await Promise.all([
                 getUsageCounts({ userId, dateUtc }),
                 getUserUsageQuota({ userId }),
+                getDailyGeneratedImageReservationSummary({
+                    userId,
+                    dateUtc,
+                    modelFamily: 'grok-imagine-image',
+                }),
             ]);
             const freeLimit = quota.freeModelLimit > 0 ? quota.freeModelLimit : null;
+            const generatedImageFreeUsed = Math.min(generatedImageSummary.freeImageCount, imageFreeLimit);
             const models = await Promise.all(
                 Array.from(SUPPORTED_CHAT_MODELS).map(async (model) => {
                     const category = getBillingCategory(model);
@@ -165,6 +174,14 @@ export async function billingRoutes(fastify: FastifyInstance) {
                 total: { used: counts.total, limit: null },
                 free: { used: counts.free, limit: freeLimit },
                 premium: { used: counts.premium, limit: quota.premiumLimit },
+                generatedImage: {
+                    modelFamily: 'grok-imagine-image',
+                    free: {
+                        used: generatedImageFreeUsed,
+                        limit: imageFreeLimit,
+                        remaining: Math.max(imageFreeLimit - generatedImageFreeUsed, 0),
+                    },
+                },
                 models,
                 usesPremiumSharedLimit: true,
             });

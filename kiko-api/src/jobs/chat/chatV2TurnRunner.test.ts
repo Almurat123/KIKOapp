@@ -34,10 +34,11 @@ function makeSnapshot(message: string, overrides: Partial<ChatContextSnapshot> =
 function makeBroker() {
     const texts: string[] = [];
     const reasoning: string[] = [];
+    const runtimeActions: string[] = [];
     return {
-        async bootstrapRuntime() {},
+        async bootstrapRuntime() { runtimeActions.push('bootstrapRuntime'); },
         hasVisibleArtifact() { return false; },
-        async markPlanPhase() {},
+        async markPlanPhase() { runtimeActions.push('markPlanPhase'); },
         async ensurePlanStep() {},
         async focusPlanStep() {},
         async noteToolSelected() {},
@@ -55,7 +56,7 @@ function makeBroker() {
         getProviderNativeEvidence() { return []; },
         async pushText(text: string) { texts.push(text); },
         async pushReasoning(text: string) { reasoning.push(text); },
-        async applyModelPlan() {},
+        async applyModelPlan() { runtimeActions.push('applyModelPlan'); },
         async recordToolResult() {},
         async complete(overrides?: { content?: string }) {
             texts.length = 0;
@@ -64,6 +65,7 @@ function makeBroker() {
         getContent() { return texts.join(''); },
         getToolResults() { return []; },
         getReasoning() { return reasoning.join(''); },
+        getRuntimeActions() { return [...runtimeActions]; },
     };
 }
 
@@ -135,7 +137,7 @@ test('runChatV2Turn reuses a pre-normalized snapshot without issuing a normalize
     assert.equal(String(result.snapshot.conversationActionState?.pendingAction || 'none'), 'none');
 });
 
-test('runChatV2Turn defaults unnormalized turns to model-selected task menu instead of normalize call', async () => {
+test('runChatV2Turn defaults unnormalized turns to model-led tool orchestration instead of normalize call', async () => {
     const taskIds: string[] = [];
     const userContents: string[] = [];
     const generationClient = {
@@ -176,6 +178,98 @@ test('runChatV2Turn defaults unnormalized turns to model-selected task menu inst
     assert.equal(result.snapshot.normalizedIntent, null);
     assert.equal(result.snapshot.normalizationState?.bypassKind, 'model_selected_task_menu');
     assert.match(String(result.snapshot.normalizationState?.rawText || ''), /one_or_more/);
-    assert.ok(userContents.some((content) => /\[TASK_MENU\]/.test(content)));
+    assert.ok(userContents.every((content) => !/\[TASK_MENU\]/.test(content)));
+    assert.ok(userContents.some((content) => /\[CONTEXT_CATALOG\]/.test(content)));
+    assert.ok(userContents.some((content) => /\[TOOL_CONTEXT\]/.test(content)));
     assert.match(broker.getContent(), /CAKE quote/);
+});
+
+test('runChatV2Turn sends bare greetings through the main model instead of a direct intro macro', async () => {
+    const taskIds: string[] = [];
+    const generationClient = {
+        async generate(params: { taskId: string; messages?: Array<{ role: string; content: any }>; onTextDelta: (text: string) => Promise<void> }) {
+            taskIds.push(params.taskId);
+            await params.onTextDelta('你好，有什么我可以帮你分析的？');
+            return {
+                toolCalls: [],
+                text: '你好，有什么我可以帮你分析的？',
+                reasoning: '',
+                citations: [],
+            };
+        },
+    } as any;
+    const broker = makeBroker();
+
+    const result = await runChatV2Turn({
+        snapshot: makeSnapshot('你好'),
+        task: {
+            id: 'task-runner',
+            sessionId: 'session-runner',
+            assistantMessageId: 'assistant-runner',
+            model: 'gpt-5.4-mini',
+            toolContext: {},
+        },
+        userId: 'user-runner',
+        broker: broker as any,
+        generationClient,
+        toolExecutionEngine: {} as any,
+    });
+
+    assert.equal(taskIds.includes('task-runner:normalize'), false);
+    assert.ok(taskIds.includes('task-runner'));
+    assert.equal(result.terminal, false);
+    assert.equal(broker.getContent(), '你好，有什么我可以帮你分析的？');
+    assert.doesNotMatch(broker.getContent(), /我是 KiKo/);
+});
+
+test('runChatV2Turn model-led mode exposes tools and skips synthetic plan cards by default', async () => {
+    const toolNamesByRound: string[][] = [];
+    const userContents: string[] = [];
+    const generationClient = {
+        async generate(params: {
+            taskId: string;
+            messages?: Array<{ role: string; content: any }>;
+            tools?: Array<{ function?: { name?: string } }>;
+            onTextDelta: (text: string) => Promise<void>;
+        }) {
+            const userMessage = (params.messages || []).find((message) => message.role === 'user');
+            userContents.push(typeof userMessage?.content === 'string' ? userMessage.content : JSON.stringify(userMessage?.content || ''));
+            toolNamesByRound.push((params.tools || []).map((tool) => String(tool.function?.name || '')).filter(Boolean));
+            await params.onTextDelta('Image generation request is ready for the image tool.');
+            return {
+                toolCalls: [],
+                text: 'Image generation request is ready for the image tool.',
+                reasoning: '',
+                citations: [],
+            };
+        },
+    } as any;
+    const broker = makeBroker();
+
+    const result = await runChatV2Turn({
+        snapshot: makeSnapshot('Generate a screenshot of the instagram with a beautiful views', {
+            toolDefinitions: [
+                { name: 'generate_image_from_intent', description: 'Generate an image from user intent.', parameters: {} },
+                { name: 'prepare_swap_transaction', description: 'Prepare a swap transaction.', parameters: {} },
+            ] as any,
+        }),
+        task: {
+            id: 'task-runner',
+            sessionId: 'session-runner',
+            assistantMessageId: 'assistant-runner',
+            model: 'gpt-5.4-mini',
+            toolContext: {},
+        },
+        userId: 'user-runner',
+        broker: broker as any,
+        generationClient,
+        toolExecutionEngine: {} as any,
+    });
+
+    assert.equal(result.terminal, false);
+    assert.ok(toolNamesByRound.some((tools) => tools.includes('generate_image_from_intent')));
+    assert.ok(toolNamesByRound.some((tools) => tools.includes('prepare_swap_transaction')));
+    assert.ok(userContents.every((content) => !/\[TASK_MENU\]/.test(content)));
+    assert.ok(userContents.some((content) => /\[CONTEXT_CATALOG\]/.test(content)));
+    assert.deepEqual(broker.getRuntimeActions().filter((action) => action === 'bootstrapRuntime' || action === 'applyModelPlan'), []);
 });

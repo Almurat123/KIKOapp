@@ -114,7 +114,7 @@ export interface ChatMessage {
 export interface ChatTask {
     id: string;
     sessionId: string;
-    status: 'pending' | 'running' | 'completed' | 'failed' | 'stopped';
+    status: 'queued' | 'pending' | 'running' | 'completed' | 'failed' | 'stopped' | 'cancelled' | 'done';
     progress?: number;
     message?: string;
 }
@@ -949,13 +949,17 @@ export interface FeedItem {
 // Author: Rowan
 // Reason: the authenticated chat client now has to coordinate browser-side
 //         image uploads before the send-message call starts the backend task,
-//         including finalize/discard calls for prepared uploads.
+//         including finalize/discard calls for prepared uploads. Generated-image
+//         replies now also start from the same chat surface but hit a dedicated
+//         backend endpoint, so this owner must keep both text-send and
+//         image-generation mutations on one authenticated request path.
 // Goal: keep chat session/message mutations, image-upload preparation,
-//       server-side finalization, and prepared-upload cleanup under one
-//       authenticated client boundary so the UI does not duplicate bearer token
-//       and timeout handling.
+//       server-side finalization, generated-image task starts, and prepared-
+//       upload cleanup under one authenticated client boundary so the UI does
+//       not duplicate bearer token and timeout handling.
 // Owns: browser-facing chat HTTP request assembly, including image upload
-//       preparation/finalize/discard and send-message payload shaping.
+//       preparation/finalize/discard, text send payload shaping, and generated-
+//       image route calls.
 // Does Not Own: direct browser PUT uploads, local draft previews, or websocket
 //               chunk rendering.
 // Design Language:
@@ -969,9 +973,15 @@ export interface FeedItem {
 // - Retrieved: 2026-04-16
 // - Applied To: authenticated chat image upload preparation, finalize, and discard calls
 // - Verification: verified in code
+// - Source: operator request on 2026-04-18 to execute generated-image replies inside chat
+// - Kind: product doc
+// - Retrieved: 2026-04-18
+// - Applied To: dedicated authenticated generated-image route call in the chat API client
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 function resolveChatApiBase(): string {
     const explicit = getRuntimeConfigUrl('CHAT_API_URL') || getEnvUrl('VITE_CHAT_API_URL');
@@ -1186,6 +1196,40 @@ export const chatApi = {
             chatWSClient.requestSync(sessionId);
         }
         logger.debug('[chatApi] sendMessage response', {
+            sessionId,
+            model: requestedModel || null,
+            taskId: response?.task?.id,
+            assistantMessageId: response?.assistantMessage?.id,
+            streamReady,
+            durationMs: Math.round(performance.now() - startedAt),
+        });
+        return response;
+    },
+
+    async generateImage(
+        sessionId: string,
+        prompt: string,
+        options: { model: string; imageQuality?: string; signal?: AbortSignal },
+    ): Promise<{ success: boolean; userMessage: ChatMessage; assistantMessage: ChatMessage; task: ChatTask }> {
+        const { signal, ...payload } = options;
+        const startedAt = performance.now();
+        const requestedModel = String(payload?.model || '');
+        logger.debug('[chatApi] generateImage start', {
+            sessionId,
+            model: requestedModel || null,
+            promptLength: prompt.trim().length,
+        });
+        chatWSClient.trackSession(sessionId);
+        const streamReady = await ensureChatStreamReady();
+        const response = await chatFetch<{ success: boolean; userMessage: ChatMessage; assistantMessage: ChatMessage; task: ChatTask }>(`/api/chat/sessions/${sessionId}/generated-images`, {
+            method: 'POST',
+            signal,
+            body: JSON.stringify({ prompt, ...payload }),
+        });
+        if (response?.success) {
+            chatWSClient.requestSync(sessionId);
+        }
+        logger.debug('[chatApi] generateImage response', {
             sessionId,
             model: requestedModel || null,
             taskId: response?.task?.id,

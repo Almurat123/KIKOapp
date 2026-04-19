@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-19
 // Author: Linh Tran
 // Reason: Neynar now owns Farcaster mention/reply ingress, but all legacy
 //         public-read helpers must stay disabled so paid quota is not consumed
@@ -9,10 +9,11 @@
 //         OpenAPI wire keys internally; runtime diagnosis must therefore check
 //         signer approval before blaming request shape. Social-agent mention
 //         replies now also need cast embed images preserved as normalized media
-//         inputs for the chat runtime.
+//         inputs for the chat runtime. Generated-image replies now pass outbound
+//         URL embeds through Neynar signer publishing when available.
 // Goal: keep ingress reads centralized while preventing unrelated routes from
 //       touching Neynar at runtime, while also exposing normalized cast image
-//       context for Farcaster social-agent turns.
+//       context for Farcaster social-agent turns and cast-reply image embeds.
 // Owns: Neynar API key discovery, notifications fetch, cast lookup, normalized
 //       cast media extraction, optional cast publishing via signer UUID, and
 //       hard disable switches for legacy read helpers.
@@ -27,6 +28,7 @@
 //   wrapper owns converting them to OpenAPI wire keys.
 // - Normalize image-bearing embeds before they leave this owner so the chat
 //   runtime does not need to understand raw Neynar embed variants.
+// - Normalize outbound cast embed URLs before handing them to the Neynar SDK.
 // Document Provenance:
 // - Source: Neynar notifications API `fetchAllNotifications`
 // - Kind: official API doc
@@ -50,11 +52,22 @@
 // - Retrieved: 2026-04-16
 // - Applied To: preserving cast embed image URLs for social-agent model input
 // - Verification: verified in docs
+// - Source: NeynarAPIClient `publishCast` local SDK typing
+// - Kind: local SDK source
+// - Retrieved: 2026-04-19
+// - Applied To: using `embeds: [{ url }]` for generated-image cast replies
+// - Verification: verified in local SDK typings and targeted test
+// - Source: operator requirement on 2026-04-19 for Farcaster generated-image replies
+// - Kind: product doc
+// - Retrieved: 2026-04-19
+// - Applied To: passing generated-image media URLs through signer publication
+// - Verification: verified in targeted test
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-neynar-notifications-standdown.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-neynar-reply-publish-fallback.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 /**
  * Neynar Service
@@ -124,6 +137,23 @@ function isLikelyImageUrl(url: string): boolean {
     return /\.(png|jpe?g|gif|webp|avif)(\?|#|$)/i.test(url);
 }
 
+function normalizeCastEmbedUrls(value: unknown): string[] {
+    const rawUrls = Array.isArray(value) ? value : [];
+    const deduped = new Set<string>();
+    for (const raw of rawUrls) {
+        const url = String(raw || '').trim();
+        if (!url) continue;
+        try {
+            const parsed = new URL(url);
+            if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') continue;
+            deduped.add(parsed.toString());
+        } catch {
+            continue;
+        }
+    }
+    return Array.from(deduped).slice(0, 2);
+}
+
 function extractEmbedImages(embeds: unknown, sourceLabel: string): NonNullable<FarcasterCastContext['images']> {
     const results: NonNullable<FarcasterCastContext['images']> = [];
     const items = Array.isArray(embeds) ? embeds : [];
@@ -188,13 +218,16 @@ export function buildNeynarCastReplyParams(params: {
     parentHash: string;
     parentAuthorFid: number;
     idem?: string;
+    embeds?: string[] | null;
 }) {
+    const embeds = normalizeCastEmbedUrls(params.embeds);
     return {
         signerUuid: params.signerUuid,
         text: String(params.text || '').trim(),
         parent: params.parentHash,
         parentAuthorFid: Math.trunc(params.parentAuthorFid),
         idem: String(params.idem || '').trim() || undefined,
+        ...(embeds.length > 0 ? { embeds: embeds.map((url) => ({ url })) } : {}),
     };
 }
 
@@ -509,6 +542,7 @@ export async function publishNeynarCastReply(params: {
     parentHash: string;
     parentAuthorFid: number;
     idem?: string;
+    embeds?: string[] | null;
 }): Promise<FarcasterSendResult | null> {
     const client = getNeynarClient();
     const signerUuid = getNeynarSignerUuid();
@@ -524,6 +558,7 @@ export async function publishNeynarCastReply(params: {
             parentHash,
             parentAuthorFid: Math.trunc(params.parentAuthorFid),
             idem: String(params.idem || '').trim() || undefined,
+            embeds: params.embeds,
         }));
         const hash = normalizeNeynarCastHash(response.cast?.hash);
         if (!hash) {

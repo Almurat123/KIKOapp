@@ -1,5 +1,9 @@
 # 2026-04-16 Chat Direct Welcome Fast Path
 
+Historical only. Runtime behavior was first narrowed on 2026-04-17 and then
+fully removed on 2026-04-18 in
+`/Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-hardcoded-reply-path-removal.md`.
+
 ## What Changed
 
 - Added the missing worker-level direct response builder for deterministic

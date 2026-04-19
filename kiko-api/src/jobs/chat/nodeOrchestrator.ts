@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-19
 // Author: Rowan
 // Reason: Node orchestration now needs to persist reasoning content for
 //         NVIDIA-hosted GLM and Kimi reasoning models using the same internal
@@ -11,12 +11,28 @@
 //         normalization after the worker already classified them as deterministic
 //         bypasses. Chat v2 now also needs deterministic required-context
 //         enforcement so the model cannot skip wallet/workflow/skill context
-//         reads after the resolver declared them mandatory for the turn.
+//         reads after the resolver declared them mandatory for the turn. Product
+//         correction on 2026-04-18 removed backend clarification templates here
+//         so invalid normalization falls through to the main model instead of a
+//         worker-authored reply. Another product correction clarified that tool
+//         messages need a stable continuation contract so the model knows
+//         whether to answer, keep reading context, ask for confirmation, or call the next tool.
+//         Product now also requires a tool-owned terminal path so transcript-
+//         native generated-image execution can complete the reply without a
+//         synthetic text answer. Product architecture review on 2026-04-19
+//         moved tool choice to the main GPT path by default: this owner must
+//         stop creating fake plan-card work and pass the full registered tool
+//         catalog into provider generation. Execution-receipt review then moved
+//         hash/order/token URL replies out of prompt obligations and into a
+//         post-tool runtime hook. A 2026-04-19 deploy-token loop incident also
+//         showed this owner must log each local tool result and receipt-hook
+//         decision before any follow-up generation round starts.
 // Goal: keep the broker/runtime reasoning stream and stored assistant messages
 //       consistent across reasoning-capable providers without changing the
 //       downstream message schema, while avoiding unnecessary plan-model work
-//       for direct-answer turns and respecting worker-level non-chain
-//       normalization bypass decisions.
+//       for direct-answer turns, respecting worker-level non-chain
+//       normalization bypass decisions, and allowing tool-managed reply
+//       channels to terminate a turn cleanly.
 // Owns: orchestration-round execution, streamed reasoning emission, and
 //       assistant/tool message assembly for the Node chat path.
 // Does Not Own: provider request shaping, UI model labels, or billing buckets.
@@ -28,6 +44,14 @@
 // - worker-approved deterministic non-chain bypasses must not be re-normalized here
 // - required context is a runtime contract and may force another round before a final answer
 // - production debugging needs one safe Railway-visible trace summary per AI turn
+// - invalid or missing canonical intent must not trigger backend-authored clarification prose
+// - tool messages should carry continuation guidance instead of raw result blobs alone
+// - model-led tool mode means the main model owns semantic tool selection; this
+//   orchestrator still owns execution rounds, policy checks, and terminal handoff
+// - successful side-effecting tool receipts are deterministic runtime answers,
+//   not another model-generation round
+// - tool-result diagnostics must show ok/source/reason/result keys and receipt
+//   decision without logging raw prompt or assistant content
 // Document Provenance:
 // - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
 // - Kind: official API doc
@@ -54,19 +78,56 @@
 // - Retrieved: 2026-04-17
 // - Applied To: one-line per-turn orchestration trace summaries for Railway logs
 // - Verification: verified in code and targeted tests
+// - Source: /Users/almurat/Downloads/logs.1776445174160.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-18
+// - Applied To: removing backend clarification templates from orchestration fallback paths
+// - Verification: verified in runtime and then removed in code
+// - Source: product owner correction in local runtime thread about real
+//   multi-turn worker logic
+// - Kind: product instruction / runtime observation
+// - Retrieved: 2026-04-18
+// - Applied To: carrying continuation contracts through tool messages
+// - Verification: verified in code
+// - Source: operator requirement on 2026-04-18 for model-owned image generation inside main chat
+// - Kind: product doc
+// - Retrieved: 2026-04-18
+// - Applied To: tool-owned terminal orchestration path for generated-image replies
+// - Verification: verified in code
+// - Source: operator architecture review on 2026-04-19
+// - Kind: product instruction
+// - Retrieved: 2026-04-19
+// - Applied To: suppressing runtime scaffold cards and exposing all tools in model-led mode
+// - Verification: verified in code and targeted tests
+// - Source: operator correction in local runtime thread about receipt prompt token waste
+// - Kind: product instruction / runtime observation
+// - Retrieved: 2026-04-19
+// - Applied To: post-tool execution receipt answer hook
+// - Verification: verified in code and targeted tests
+// - Source: operator browser console and app.log trace cmo5a4f1h03sjj5et046ndecy
+// - Kind: runtime observation
+// - Retrieved: 2026-04-19
+// - Applied To: local tool-result and receipt-decision diagnostics
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-direct-answer-tool-pruning.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-non-chain-normalization-bypass.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-work-protocol-refactor.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-context-read-tools.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-ai-trace-logging.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-hardcoded-reply-path-removal.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-v2-model-owned-image-generation-tool.md
+// - /Users/almurat/KiKo/system-journal/adr/2026-04-19-model-led-tool-orchestration.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-stream-duplicate-and-tool-loop-diagnostics.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { containsPseudoToolCallOutput, stripPseudoToolCallOutput } from '../../services/ai/promptLeakSanitizer.js';
-import type { ChatContextContract, ChatContextSnapshot, ProviderNativeEvidenceSnapshot } from './contracts.js';
+import type { ChatContextContract, ChatContextSnapshot, OrchestratorToolResult, ProviderNativeEvidenceSnapshot } from './contracts.js';
 import { CONTEXT_READ_TOOL_BY_BLOCK } from './contextReadTools.js';
 import { buildProviderOptions, normalizeOpenAIReasoningEffort, resolveProviderInfo } from './providerPolicyBuilder.js';
 import { resolveNodeSkills } from './nodeSkillResolver.js';
@@ -91,10 +152,12 @@ import {
     isDeterministicNormalizationBypassState,
     normalizeCanonicalIntent,
 } from './canonicalIntentNormalizer.js';
-import { buildCanonicalIntentClarification, type CanonicalIntent } from './canonicalIntent.js';
+import type { CanonicalIntent } from './canonicalIntent.js';
 import { applyConversationActionState } from './conversationStateResolver.js';
 import { tryBuildFastLaneSwapIntent, tryRunFastSwapLane } from './swapFastLane.js';
 import { ChatAiTraceLogger } from './chatAiTraceLogger.js';
+import { isModelLedToolOrchestrationEnabled, resolveModelLedToolNames } from './modelLedToolOrchestration.js';
+import { buildExecutionReceiptDecision } from './executionReceiptAnswer.js';
 
 const CHAIN_EVIDENCE_TOOLS = new Set([
     'get_token_info',
@@ -102,6 +165,11 @@ const CHAIN_EVIDENCE_TOOLS = new Set([
     'get_early_buyers',
     'analyze_creator',
 ]);
+
+export type NodeOrchestrationResult = {
+    terminal: boolean;
+    terminalOwner?: 'external';
+};
 
 function supportsStoredReasoning(model: string): boolean {
     const normalized = String(model || '').trim().toLowerCase();
@@ -125,6 +193,49 @@ function supportsStoredReasoning(model: string): boolean {
         || normalized === 'moonshotai/kimi-k2-5-thinking';
 }
 
+function summarizeToolResultForLog(result: {
+    name?: string;
+    ok?: boolean;
+    error?: string;
+    reasonCode?: string;
+    metadata?: Record<string, any>;
+    result?: unknown;
+}) {
+    const resultRecord = result.result && typeof result.result === 'object' && !Array.isArray(result.result)
+        ? result.result as Record<string, any>
+        : null;
+    const resultData = resultRecord?.data && typeof resultRecord.data === 'object' && !Array.isArray(resultRecord.data)
+        ? resultRecord.data as Record<string, any>
+        : null;
+    const pick = (keys: string[]) => {
+        for (const key of keys) {
+            const direct = resultRecord?.[key];
+            if (direct !== undefined && direct !== null && String(direct).trim()) return true;
+            const nested = resultData?.[key];
+            if (nested !== undefined && nested !== null && String(nested).trim()) return true;
+        }
+        return false;
+    };
+    return {
+        tool: result.name || null,
+        ok: Boolean(result.ok),
+        source: result.metadata?.source || null,
+        reasonCode: result.reasonCode || resultRecord?.reason_code || resultRecord?.reasonCode || null,
+        confirmationRequired: result.metadata?.confirmationRequired === true || resultRecord?.requires_confirmation === true || undefined,
+        error: result.error || resultRecord?.error || null,
+        resultType: result.result === null ? 'null' : Array.isArray(result.result) ? 'array' : typeof result.result,
+        resultKeys: resultRecord ? Object.keys(resultRecord).slice(0, 32) : [],
+        receiptFieldPresence: {
+            txHash: pick(['txHash', 'transactionHash', 'hash']),
+            explorerUrl: pick(['explorerUrl', 'explorer_url', 'txUrl', 'tx_url']),
+            tokenAddress: pick(['tokenAddress', 'token_address', 'address']),
+            tokenUrl: pick(['tokenUrl', 'token_url']),
+            orderId: pick(['order_id', 'orderId', 'id']),
+            configId: pick(['configId', 'config_id', 'id']),
+        },
+    };
+}
+
 export async function runNodeOrchestration(params: {
     snapshot: ChatContextSnapshot;
     generationClient: PythonGenerationClient;
@@ -134,11 +245,14 @@ export async function runNodeOrchestration(params: {
     shouldCancel?: () => Promise<boolean>;
     onToolStatus?: (toolName: string) => Promise<void> | void;
     onProviderState?: (state: GenerationProviderState) => Promise<void> | void;
-}) {
+}): Promise<NodeOrchestrationResult> {
     const providerInfo = resolveProviderInfo(params.snapshot.model);
     const chatAiTrace = new ChatAiTraceLogger(params.snapshot, providerInfo.provider);
+    const modelLedTools = isModelLedToolOrchestrationEnabled();
     try {
-    await params.broker.bootstrapRuntime(buildWarmupPlan(params.snapshot.lastUserMessage));
+        if (!modelLedTools) {
+            await params.broker.bootstrapRuntime(buildWarmupPlan(params.snapshot.lastUserMessage));
+        }
     let normalizedSnapshot = tryBuildFastLaneSwapIntent(params.snapshot).snapshot;
     const preNormalizationTradingIntent = parseTradingIntent(
         normalizedSnapshot.lastUserMessage,
@@ -166,15 +280,6 @@ export async function runNodeOrchestration(params: {
     if (normalizedSnapshot.normalizedIntent && !normalizedSnapshot.conversationActionState) {
         normalizedSnapshot = applyConversationActionState(normalizedSnapshot);
     }
-    if (!normalizedSnapshot.normalizedIntent && !isDeterministicNormalizationBypassState(normalizedSnapshot.normalizationState)) {
-        await params.broker.pushText(buildCanonicalIntentClarification({
-            snapshot: normalizedSnapshot,
-            reasonCode: normalizedSnapshot.normalizationState?.reasonCode,
-        }));
-        chatAiTrace.markTerminal('canonical_intent_clarification');
-        chatAiTrace.emit();
-        return;
-    }
     if (
         normalizedSnapshot.normalizedIntent?.needsClarification
         && normalizedSnapshot.normalizedIntent.clarificationQuestion
@@ -182,7 +287,7 @@ export async function runNodeOrchestration(params: {
         await params.broker.pushText(normalizedSnapshot.normalizedIntent.clarificationQuestion);
         chatAiTrace.markTerminal('normalized_intent_clarification');
         chatAiTrace.emit();
-        return;
+        return { terminal: false };
     }
     const tradingIntent = normalizedSnapshot.normalizedIntent
         ? parseTradingIntent(
@@ -205,18 +310,20 @@ export async function runNodeOrchestration(params: {
     })) {
         chatAiTrace.markTerminal('fast_swap_lane');
         chatAiTrace.emit();
-        return;
+        return { terminal: false };
     }
     const skillResolution = resolveNodeSkills(normalizedSnapshot, tradingIntent, normalizedSnapshot.normalizedIntent);
     chatAiTrace.recordSkillResolution(skillResolution);
     const strictPolicy = params.snapshot.policySnapshot?.enforcementLevel === 'hard';
     params.snapshot = normalizedSnapshot;
-    const effectiveAllowedTools = strictPolicy && params.snapshot.policySnapshot
-        ? params.snapshot.policySnapshot.allowedTools
-        : skillResolution.allowedTools;
+    const effectiveAllowedTools = modelLedTools
+        ? resolveModelLedToolNames(params.snapshot)
+        : strictPolicy && params.snapshot.policySnapshot
+            ? params.snapshot.policySnapshot.allowedTools
+            : skillResolution.allowedTools;
     const planning = buildTaskPlanningContext(params.snapshot, skillResolution);
-    let plan = materializePlanCard(planning);
-    const shouldGenerateModelPlan = !(skillResolution.querySignals.welcome || skillResolution.querySignals.metaDebug);
+    let plan = modelLedTools ? null : materializePlanCard(planning);
+    const shouldGenerateModelPlan = !modelLedTools && !(skillResolution.querySignals.welcome || skillResolution.querySignals.metaDebug);
     if (shouldGenerateModelPlan) {
         void generateModelPlan({
             snapshot: params.snapshot,
@@ -243,6 +350,7 @@ export async function runNodeOrchestration(params: {
         ok: boolean;
         error?: string;
         metadata?: Record<string, any>;
+        continuation?: any;
     }>();
     let duplicateOnlyRounds = 0;
     const toolUsageCount = new Map<string, number>();
@@ -642,7 +750,7 @@ export async function runNodeOrchestration(params: {
                 contentLength: roundResult.text.length,
             });
             chatAiTrace.emit({ finalRound: round, finalReason: 'direct_model_answer' });
-            return;
+            return { terminal: false };
         }
 
         const normalizedToolCalls = roundResult.toolCalls.map((call) =>
@@ -750,7 +858,7 @@ export async function runNodeOrchestration(params: {
                         contentLength: roundResult.text.length,
                     });
                     chatAiTrace.emit({ finalRound: round, finalReason: 'provider_native_search_answer' });
-                    return;
+                    return { terminal: false };
                 }
                 messages.push({
                     role: 'system',
@@ -813,7 +921,7 @@ export async function runNodeOrchestration(params: {
                     contentLength: roundResult.text.length,
                 });
                 chatAiTrace.emit({ finalRound: round, finalReason: 'provider_managed_tool_answer' });
-                return;
+                return { terminal: false };
             }
 
             logger.error(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: provider-managed tool chain produced no stable final text', {
@@ -877,9 +985,17 @@ export async function runNodeOrchestration(params: {
                 messages.push({
                     role: 'tool',
                     tool_call_id: call.id,
-                    content: JSON.stringify({
+                    content: buildModelToolMessageContent({
+                        ok: false,
                         error: polymarketOrderGuard.error,
                         reasonCode: polymarketOrderGuard.reasonCode,
+                        continuation: {
+                            next_action: 'call_another_tool',
+                            can_answer_now: true,
+                            reason: 'Execution precheck is incomplete. Gather the required preparation tools before placing the order.',
+                            missing_evidence: polymarketOrderGuard.result?.required_tools || [],
+                            reusable_for_next_turn: true,
+                        },
                     }),
                 });
                 continue;
@@ -911,6 +1027,7 @@ export async function runNodeOrchestration(params: {
                             source: 'repeat_cache',
                             stop_reason: 'tool_budget_guard',
                         },
+                        continuation: cached.continuation,
                     }
                     : {
                         id: call.id,
@@ -930,6 +1047,12 @@ export async function runNodeOrchestration(params: {
                             toolBudget,
                         },
                         metadata: { source: 'tool_budget_guard' },
+                        continuation: {
+                            next_action: 'answer_now',
+                            can_answer_now: true,
+                            reason: buildToolBudgetMessage(call.name, planning.locale),
+                            reusable_for_next_turn: false,
+                        },
                     };
                 if (isReadOnlyTask) {
                     shouldForceAnswerAfterRound = true;
@@ -939,10 +1062,15 @@ export async function runNodeOrchestration(params: {
                 messages.push({
                     role: 'tool',
                     tool_call_id: call.id,
-                    content: JSON.stringify(
+                    content: buildModelToolMessageContent(
                         cached
-                            ? (budgetResult as any).result ?? null
-                            : { error: (budgetResult as any).error, reasonCode: 'TOOL_BUDGET_EXCEEDED' },
+                            ? budgetResult as any
+                            : {
+                                ok: false,
+                                error: (budgetResult as any).error,
+                                reasonCode: 'TOOL_BUDGET_EXCEEDED',
+                                continuation: (budgetResult as any).continuation,
+                            },
                     ),
                 });
                 continue;
@@ -961,7 +1089,7 @@ export async function runNodeOrchestration(params: {
                 );
             }
             await params.broker.markPlanStepStarted(call, plannedStep || undefined);
-            let result;
+            let result: OrchestratorToolResult;
             if (cached) {
                 logger.warn(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: duplicate tool call reused from cache', {
                     sessionId: params.snapshot.sessionId,
@@ -981,6 +1109,7 @@ export async function runNodeOrchestration(params: {
                         ...(cached.metadata || {}),
                         source: 'repeat_cache',
                     },
+                    continuation: cached.continuation,
                 };
             } else {
                 executedFreshTool = true;
@@ -995,14 +1124,44 @@ export async function runNodeOrchestration(params: {
                     result: result.result,
                     error: result.error,
                     metadata: result.metadata,
+                    continuation: result.continuation,
                 });
             }
             chatAiTrace.recordToolResult(round, result, { cached: Boolean(cached) });
             await params.broker.recordToolResult(result);
+            const receiptDecision = buildExecutionReceiptDecision(result, planning.locale);
+            logger.info(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: local tool execution result', {
+                sessionId: params.snapshot.sessionId,
+                taskId: params.snapshot.taskId,
+                round,
+                cached: Boolean(cached),
+                ...summarizeToolResultForLog(result),
+                receiptDecision: {
+                    reason: receiptDecision.reason,
+                    answerBuilt: Boolean(receiptDecision.answer),
+                    resultKeys: receiptDecision.resultKeys,
+                },
+            });
+            if (receiptDecision.answer) {
+                await params.broker.setRuntimeState?.(undefined);
+                await params.broker.markAnswerStarted(buildSummaryPlanStep(params.snapshot.lastUserMessage));
+                await params.broker.pushText(receiptDecision.answer);
+                chatAiTrace.emit({ finalRound: round, finalReason: 'tool_receipt_answer_hook' });
+                return { terminal: false };
+            }
+            if (result.continuation?.next_action === 'complete_with_side_effect') {
+                await params.broker.setRuntimeState?.(undefined);
+                chatAiTrace.markTerminal('tool_managed_side_effect_response');
+                chatAiTrace.emit({ finalRound: round, finalReason: 'tool_managed_side_effect_response' });
+                return {
+                    terminal: true,
+                    terminalOwner: 'external',
+                };
+            }
             messages.push({
                 role: 'tool',
                 tool_call_id: call.id,
-                content: JSON.stringify(result.ok ? (result.result ?? null) : { error: result.error || 'tool execution failed' }),
+                content: buildModelToolMessageContent(result),
             });
         }
         if (!executedFreshTool) {
@@ -1091,6 +1250,23 @@ function buildEvidenceOnlyAnswerInstruction(locale: 'en' | 'zh'): string {
         return '基于当前对话里已经拿到的工具结果、缓存结果和公开来源证据，直接给出最终回答。';
     }
     return 'Use the tool results, cached evidence, and public-source evidence already gathered in this conversation, then answer the user directly.';
+}
+
+function buildModelToolMessageContent(result: Record<string, any>): string {
+    return JSON.stringify(
+        result.ok
+            ? {
+                ok: true,
+                result: result.result ?? null,
+                continuation: result.continuation || null,
+            }
+            : {
+                ok: false,
+                error: result.error || 'tool execution failed',
+                reasonCode: result.reasonCode,
+                continuation: result.continuation || null,
+            },
+    );
 }
 
 function buildTruncationContinuationInstruction(locale: 'en' | 'zh'): string {

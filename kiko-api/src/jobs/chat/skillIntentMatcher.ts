@@ -1,15 +1,20 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-18
 // Author: Renata
 // Reason: Clanker token-launch queries were still being treated as generic
 //         trading traffic, which meant the dedicated launch prompt could be
 //         skipped even when the user explicitly asked for a Clanker deploy.
 //         Canonical normalization now also exposes `clanker_deploy`, so the
 //         matcher must route both raw and normalized deploy turns to the same
-//         Clanker skill.
+//         Clanker skill. Chat v2 now also needs a dedicated image-generation
+//         signal so the model only sees the internal image tool on real visual
+//         deliverable requests. The image signal must handle Chinese requests
+//         where style/use modifiers appear between the action and the asset
+//         noun, such as "做一张赛博朋克风的产品海报".
 // Goal: keep Clanker launch, history, and reward queries routed to the
 //       dedicated Clanker skill so the model sees the launch prompt before it
-//       attempts deployment.
+//       attempts deployment, and expose the generated-image skill only on real
+//       image-generation requests.
 // Owns: query-signal detection and skill scoring for chat skill selection.
 // Does Not Own: Clanker API payload normalization, tool execution, or provider routing.
 // Design Language:
@@ -18,6 +23,7 @@
 // - Skill routing should stay deterministic instead of depending on hidden prompt memory.
 // - `clanker_deploy` canonical intent must select the Clanker skill before generic token analysis.
 // - Plain capability questions such as "what can you do" should route to onboarding, not a generic market skill.
+// - Chinese visual-asset requests may include modifiers between the verb and noun; keep those routed to image generation.
 // Document Provenance:
 // - Source: Clanker Documentation, Deploy Token (v4.0.0)
 // - Kind: official API doc
@@ -34,6 +40,11 @@
 // - Retrieved: 2026-04-17
 // - Applied To: routing plain capability questions like "what can you do" to onboarding instead of a generic market skill
 // - Verification: verified in code and targeted tests
+// - Source: operator requirement on 2026-04-18 for model-owned image generation inside main chat
+// - Kind: product doc
+// - Retrieved: 2026-04-18
+// - Applied To: image-generation query signal and skill routing
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/clanker-token-deploy-skill.md
@@ -41,6 +52,7 @@
 // - /Users/almurat/KiKo/system-journal/adr/2026-04-15-clanker-token-deploy-skill.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-lean-chat-context-exposure.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-v2-model-owned-image-generation-tool.md
 import { skillRegistryExec } from '../../skills/registry.js';
 import type { Skill } from '../../skills/types.js';
 import type { ChatContextSnapshot } from './contracts.js';
@@ -52,6 +64,7 @@ export type SearchMode = 'forbidden' | 'fallback' | 'required';
 export type NormalizedIntent =
     | 'WELCOME'
     | 'META_DEBUG'
+    | 'IMAGE_GENERATION'
     | 'SWAP'
     | 'CROSS_CHAIN'
     | 'COPY_TRADE'
@@ -86,6 +99,7 @@ export interface QuerySignals {
     social: boolean;
     market: boolean;
     clankerDeploy: boolean;
+    imageGeneration: boolean;
     hasRequestedToken: boolean;
     socialChainEvidence: boolean;
 }
@@ -127,6 +141,7 @@ const SKILL_INTENT_MAP: Record<string, NormalizedIntent[]> = {
     token_alert: ['TOKEN_ALERTS'],
     market_macro: ['MARKET_MACRO'],
     clanker_deploy_token: ['CLANKER_DEPLOY'],
+    image_generation: ['IMAGE_GENERATION'],
 };
 
 const INTENT_SIGNAL_MAP: Record<NormalizedIntent, keyof QuerySignals> = {
@@ -144,9 +159,12 @@ const INTENT_SIGNAL_MAP: Record<NormalizedIntent, keyof QuerySignals> = {
     TOKEN_ALERTS: 'alerts',
     MARKET_MACRO: 'market',
     CLANKER_DEPLOY: 'clankerDeploy',
+    IMAGE_GENERATION: 'imageGeneration',
 };
 
 const CLANKER_DEPLOY_QUERY_RE = /\bclanker\b|\b(?:deploy|launch|create|mint)\s+(?:a\s+)?(?:token|coin|memecoin)\b|\btoken\s+(?:deploy|launch|launchpad)\b|部署代币|上线代币|创建代币|发币|发行代币/i;
+const IMAGE_GENERATION_QUERY_RE = /\b(?:generate|create|make|design|draw|render|illustrate)\b.{0,40}\b(?:image|poster|cover|illustration|thumbnail|banner|hero|visual|artwork|ad|creative|mockup|photo)\b|\b(?:image|poster|cover|illustration|thumbnail|banner|hero|visual|artwork|ad|creative|mockup|photo)\b.{0,40}\b(?:generate|create|make|design|draw|render)\b|(?:做|生成|画|设计)(?:一张|一个|个)?[^。！？\n]{0,40}(?:图|图片|海报|封面|插画|配图|宣传图|视觉稿)/i;
+const IMAGE_PROMPT_ADVICE_QUERY_RE = /\b(?:prompt|image prompt)\b.{0,24}\b(?:how|write|writing|improve|tutorial)\b|\b(?:提示词)\b.{0,24}(?:怎么写|教程|优化|写法)|告诉我怎么写(?:图片)?提示词/i;
 
 export function matchSkillsForQuery(params: {
     snapshot: ChatContextSnapshot;
@@ -344,6 +362,7 @@ export function detectQuerySignals(query: string, snapshot: ChatContextSnapshot,
         social: false,
         market: false,
         clankerDeploy,
+        imageGeneration: IMAGE_GENERATION_QUERY_RE.test(query) && !IMAGE_PROMPT_ADVICE_QUERY_RE.test(query),
         hasRequestedToken,
         socialChainEvidence: false,
     };
@@ -392,6 +411,7 @@ function deriveQuerySignalsFromCanonicalIntent(
         social: canonicalIntent.domain === 'x' || canonicalIntent.domain === 'farcaster' || canonicalIntent.intent === 'social_discovery',
         market: canonicalIntent.domain === 'market' || canonicalIntent.intent === 'market_macro',
         clankerDeploy: clankerDeploy || canonicalIntent.intent === 'clanker_deploy',
+        imageGeneration: false,
         hasRequestedToken,
         socialChainEvidence: requiredEvidence.has('native_search_results')
             && (

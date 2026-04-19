@@ -1,4 +1,4 @@
-ALTER TABLE "TokenLaunchBaseline"
+ALTER TABLE IF EXISTS "TokenLaunchBaseline"
 ADD COLUMN IF NOT EXISTS "baseline_block_number" BIGINT,
 ADD COLUMN IF NOT EXISTS "baseline_tx_hash" TEXT,
 ADD COLUMN IF NOT EXISTS "baseline_pool_address" TEXT,

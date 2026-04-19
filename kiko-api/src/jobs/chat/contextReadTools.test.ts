@@ -5,6 +5,9 @@ import {
     ReadExecutionPlanTool,
     ReadProviderNativeEvidenceTool,
     ReadSkillPromptsTool,
+    ReadSocialImagesTool,
+    ReadSocialThreadContextTool,
+    ReadTokenContextTool,
     ReadUserSettingsTool,
     ReadUserContextTool,
     ReadWalletStateTool,
@@ -30,6 +33,16 @@ function makeSnapshot(message: string, overrides: Partial<ChatContextSnapshot> =
         },
     } as ChatContextSnapshot;
 }
+
+test('context read tool descriptions encode use triggers for model tool selection', () => {
+    assert.match(ReadWorkflowStateTool.definition.description, /Use for multi-turn continuity/);
+    assert.match(ReadWorkflowStateTool.definition.description, /pending quotes\/orders/);
+    assert.match(ReadWalletStateTool.definition.description, /Use before claiming balances/);
+    assert.match(ReadTokenContextTool.definition.description, /Use before claiming token identity/);
+    assert.match(ReadSocialThreadContextTool.definition.description, /Use for X\/Farcaster thread-aware replies/);
+    assert.match(ReadSocialImagesTool.definition.description, /Use when uploaded\/inbound images affect the answer/);
+    assert.match(ReadSkillPromptsTool.definition.description, /after selecting a specialist task mode/);
+});
 
 test('read_user_context returns connected chain, requested chain, and address classifications', async () => {
     const snapshot = makeSnapshot('Buy CAKE on BNB chain', {
@@ -86,8 +99,8 @@ test('read_user_settings returns one normalized execution-preference contract', 
     const result = await ReadUserSettingsTool.handler({}, { __snapshot: snapshot });
     assert.equal(result.available, true);
     assert.equal(result.settings?.execution_mode, 'quote_before_swap');
-    assert.equal(result.settings?.execution_preferences?.quote_required_before_swap, true);
-    assert.equal(result.settings?.execution_preferences?.quick_swap_enabled, true);
+    assert.equal(result.settings?.hard_constraints?.quote_required_before_swap, true);
+    assert.equal(result.settings?.soft_preferences?.quick_swap_enabled, true);
     assert.equal(result.settings?.safety_checks?.mev_protection, true);
     assert.equal(result.settings?.safety_checks?.price_deviation_check, false);
     assert.equal(result.settings?.swap_defaults?.amount, '0.25');
@@ -177,6 +190,11 @@ test('read_workflow_state carries persisted polymarket selection', async () => {
 
     const result = await ReadWorkflowStateTool.handler({}, { __snapshot: snapshot });
     assert.equal(result.available, true);
+    assert.equal(result.workerState?.task_state?.scope, 'carry_forward_session');
+    assert.equal(result.workerState?.task_state?.scope_source, 'carry_forward_entities');
+    assert.equal(result.workerState?.mode_progress_state?.mode, 'polymarket');
+    assert.equal(result.workerState?.mode_progress_state?.internal_state, 'evidence_gathered');
+    assert.equal(result.workerState?.next_action_state?.kind, 'answer');
     assert.equal(result.timeContext?.startTime, '2026-04-03T11:48:00+08:00');
     assert.equal(result.timeContext?.endTime, '2026-04-03T11:48:59+08:00');
     assert.equal(result.polymarketSelection?.candidates?.[0]?.title, 'Bitcoin Up or Down - March 26, 1:55AM-2:00AM ET');

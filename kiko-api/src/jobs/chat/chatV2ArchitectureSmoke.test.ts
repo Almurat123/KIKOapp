@@ -1,17 +1,20 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-18
 // Author: Rowan
 // Reason: the chat v2 rewrite needs a small set of architecture smoke tests
 //         that prove the top-level routing contracts still hold across the
-//         main turn classes KiKo cares about.
+//         main turn classes KiKo cares about. Product correction on 2026-04-18
+//         removed the bare-greeting direct reply macro, so smoke coverage now
+//         proves that even simple greetings stay on the model path.
 // Goal: keep lean chat, specialist analysis, execution prompting, social-image
-//       input, and bare-greeting fast path behavior observable in one file.
+//       input, and greeting model-path behavior observable in one file.
 // Owns: high-signal smoke coverage for chat v2 prompt/routing boundaries.
 // Does Not Own: exhaustive tool execution, provider transport, or business-skill correctness.
 // Design Language:
 // - smoke tests should verify owner boundaries, not every downstream detail
 // - each top-level turn class should have one fast failing assertion set
 // - execution turns must prove user settings stay contract-based, not prose-based
+// - greetings must not rely on worker-authored direct reply helpers
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/adr/2026-04-17-chat-v2-rewrite-plan.md
 // - Kind: repo doc
@@ -23,10 +26,16 @@
 // - Retrieved: 2026-04-17
 // - Applied To: execution-turn contract assertion for read_user_settings
 // - Verification: verified in code and targeted tests
+// - Source: /Users/almurat/Downloads/logs.1776445174160.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-18
+// - Applied To: proving greetings no longer use the direct intro macro
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/adr/2026-04-17-chat-v2-rewrite-plan.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-user-settings-contract.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-hardcoded-reply-path-removal.md
 // - /Users/almurat/KiKo/system-journal/owner-map/chat-runtime-planning.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
@@ -36,7 +45,6 @@ import test from 'node:test';
 import type { ChatContextSnapshot } from './contracts.js';
 import { assembleGenerationMessages } from './nodePromptAssembler.js';
 import type { ProviderInfo } from './providerPolicyBuilder.js';
-import { buildFastDirectAssistantResponse } from './chatV2TurnRunner.js';
 
 function makeSnapshot(message: string, overrides: Partial<ChatContextSnapshot> = {}): ChatContextSnapshot {
     const { runtime: runtimeOverrides, ...restOverrides } = overrides;
@@ -75,24 +83,28 @@ function makeProviderInfo(provider: ProviderInfo['provider'], model = 'gpt-5.4-m
     };
 }
 
-test('chat v2 smoke: bare greeting stays on deterministic fast path', async () => {
-    const response = buildFastDirectAssistantResponse(
+test('chat v2 smoke: bare greeting stays lean and model-routed', () => {
+    const messages = assembleGenerationMessages(
+        makeSnapshot('你好'),
+        [],
+        makeProviderInfo('openai'),
         {
-            lastUserMessage: '你好',
-            normalizedIntent: {
-                requiresRealtime: false,
-                requiresOnchainEvidence: false,
-                executionCandidate: false,
+            intentEnvelope: {
+                primary_intent: 'general_answer',
+                task_mode: 'discover',
+                search_mode: 'forbidden',
+                search_target: 'none',
+                domain: 'general',
+                execution_risk: 'read_only',
+                required_evidence: [],
             },
         },
-        {
-            querySignals: {
-                welcome: true,
-            },
-        } as any,
     );
 
-    assert.match(String(response || ''), /我是 KiKo/);
+    const userMessage = messages.find((message) => message.role === 'user');
+    const content = String(userMessage?.content || '');
+    assert.match(content, /mode: lean/);
+    assert.doesNotMatch(content, /我是 KiKo/);
 });
 
 test('chat v2 smoke: plain question stays lean', () => {
@@ -179,7 +191,7 @@ test('chat v2 smoke: execution turn exposes read_user_settings contract without 
     const userContent = String(userMessage?.content || '');
 
     assert.match(userContent, /required_contexts: .*user_settings/);
-    assert.match(userContent, /user_settings: worker preferences: execution mode, swap defaults, safety flags; read via read_user_settings/);
+    assert.match(userContent, /user_settings: worker constraints and defaults: quote rules, swap defaults, safety flags; read via read_user_settings/);
     assert.doesNotMatch(String(systemMessage?.content || ''), /EXECUTION_MODE:/);
 });
 

@@ -1,6 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import clsx from 'clsx';
-import { CheckCircle2, ChevronDown, ChevronRight, Circle, LoaderCircle, XCircle } from 'lucide-react';
+import {
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Circle,
+  LoaderCircle,
+  XCircle,
+} from 'lucide-react';
 import planStyles from './PlanCard.module.css';
 
 type PlanStepStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
@@ -29,6 +36,7 @@ interface PlanStep {
 
 interface PlanCardData {
   planId?: string;
+  visibility?: 'internal' | 'visible';
   title?: string;
   summary?: string;
   locale?: string;
@@ -56,12 +64,16 @@ type DetailEntry = {
 };
 
 export const PlanCard: React.FC<PlanCardProps> = ({ plan, isStreaming = false, messageStatus }) => {
-  const resolvedPlan = useMemo(() => normalizePlanForMessageStatus(plan, messageStatus), [plan, messageStatus]);
+  const resolvedPlan = useMemo(
+    () => normalizePlanForMessageStatus(plan, messageStatus),
+    [plan, messageStatus]
+  );
   const uiText = resolvedPlan.uiText || plan.uiText || {};
   const steps = Array.isArray(resolvedPlan.steps) ? resolvedPlan.steps : [];
-  const visualStatus: PlanStepStatus = isStreaming && (resolvedPlan.status === 'pending' || resolvedPlan.status === 'in_progress')
-    ? 'in_progress'
-    : (resolvedPlan.status || 'pending');
+  const visualStatus: PlanStepStatus =
+    isStreaming && (resolvedPlan.status === 'pending' || resolvedPlan.status === 'in_progress')
+      ? 'in_progress'
+      : resolvedPlan.status || 'pending';
   const isActive = visualStatus === 'in_progress';
   const defaultOpen = useMemo(() => {
     const firstExpandable = steps.find((step) => (step.executions || []).length > 0);
@@ -74,7 +86,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ plan, isStreaming = false, m
       const allowedStepIds = new Set(
         steps
           .filter((step) => !!step.description || (step.executions || []).length > 0)
-          .map((step) => step.id),
+          .map((step) => step.id)
       );
       const filtered = current.filter((id) => allowedStepIds.has(id));
       if (filtered.length > 0) return filtered;
@@ -90,10 +102,18 @@ export const PlanCard: React.FC<PlanCardProps> = ({ plan, isStreaming = false, m
         <div className={planStyles.headerMain}>
           {uiText.eyebrow ? <div className={planStyles.eyebrow}>{uiText.eyebrow}</div> : null}
           {resolvedPlan.title ? <div className={planStyles.title}>{resolvedPlan.title}</div> : null}
-          {resolvedPlan.summary ? <div className={planStyles.summary}>{resolvedPlan.summary}</div> : null}
+          {resolvedPlan.summary ? (
+            <div className={planStyles.summary}>{resolvedPlan.summary}</div>
+          ) : null}
         </div>
         {labelForStatus(visualStatus, uiText.statusLabels) ? (
-          <div className={clsx(planStyles.statusPill, planStyles[`status_${visualStatus}`], isActive && planStyles.statusPillActive)}>
+          <div
+            className={clsx(
+              planStyles.statusPill,
+              planStyles[`status_${visualStatus}`],
+              isActive && planStyles.statusPillActive
+            )}
+          >
             {labelForStatus(visualStatus, uiText.statusLabels)}
           </div>
         ) : null}
@@ -101,15 +121,22 @@ export const PlanCard: React.FC<PlanCardProps> = ({ plan, isStreaming = false, m
 
       <div className={planStyles.timeline}>
         {steps.map((step, index) => {
-          const visualStepStatus: PlanStepStatus = isStreaming && step.status === 'pending' && resolvedPlan.currentStepId === step.id
-            ? 'in_progress'
-            : step.status;
+          const visualStepStatus: PlanStepStatus =
+            isStreaming && step.status === 'pending' && resolvedPlan.currentStepId === step.id
+              ? 'in_progress'
+              : step.status;
           const isExpanded = openStepIds.includes(step.id);
           const hasDetail = !!step.description || (step.executions || []).length > 0;
           return (
             <div key={step.id} className={planStyles.step}>
               <div className={planStyles.railColumn}>
-                <div className={clsx(planStyles.node, planStyles[`status_${visualStepStatus}`], visualStepStatus === 'in_progress' && planStyles.nodeActive)}>
+                <div
+                  className={clsx(
+                    planStyles.node,
+                    planStyles[`status_${visualStepStatus}`],
+                    visualStepStatus === 'in_progress' && planStyles.nodeActive
+                  )}
+                >
                   {iconForStatus(visualStepStatus)}
                 </div>
                 {index < steps.length - 1 ? <div className={planStyles.line} /> : null}
@@ -121,47 +148,72 @@ export const PlanCard: React.FC<PlanCardProps> = ({ plan, isStreaming = false, m
                   className={clsx(planStyles.stepHeader, !hasDetail && planStyles.stepHeaderStatic)}
                   onClick={() => {
                     if (!hasDetail) return;
-                    setOpenStepIds((current) => (
+                    setOpenStepIds((current) =>
                       current.includes(step.id)
                         ? current.filter((id) => id !== step.id)
                         : [...current, step.id]
-                    ));
+                    );
                   }}
                 >
                   <div className={planStyles.stepMain}>
-                    <div className={clsx(planStyles.stepTitle, planStyles[`stepTitle_${visualStepStatus}`])}>
+                    <div
+                      className={clsx(
+                        planStyles.stepTitle,
+                        planStyles[`stepTitle_${visualStepStatus}`]
+                      )}
+                    >
                       {step.title}
                     </div>
-                    {step.feedback ? <div className={planStyles.feedback}>{compactSentence(step.feedback)}</div> : null}
+                    {step.feedback ? (
+                      <div className={planStyles.feedback}>{compactSentence(step.feedback)}</div>
+                    ) : null}
                   </div>
                   {hasDetail ? (
-                    isExpanded ? <ChevronDown size={16} className={planStyles.chevron} /> : <ChevronRight size={16} className={planStyles.chevron} />
+                    isExpanded ? (
+                      <ChevronDown size={16} className={planStyles.chevron} />
+                    ) : (
+                      <ChevronRight size={16} className={planStyles.chevron} />
+                    )
                   ) : null}
                 </button>
 
                 {isExpanded ? (
                   <div className={planStyles.detailPanel}>
-                    {step.description ? <div className={planStyles.description}>{step.description}</div> : null}
+                    {step.description ? (
+                      <div className={planStyles.description}>{step.description}</div>
+                    ) : null}
 
                     {(step.executions || []).map((execution) => {
                       const entries = summarizeDetail(execution.detail);
                       return (
                         <div key={execution.id} className={planStyles.execution}>
                           <div className={planStyles.executionHeader}>
-                            <span className={clsx(planStyles.executionState, planStyles[`status_${execution.status}`])}>
+                            <span
+                              className={clsx(
+                                planStyles.executionState,
+                                planStyles[`status_${execution.status}`]
+                              )}
+                            >
                               {labelForStatus(execution.status, uiText.statusLabels)}
                             </span>
-                            <span className={planStyles.executionSummary}>{compactSentence(execution.summary)}</span>
+                            <span className={planStyles.executionSummary}>
+                              {compactSentence(execution.summary)}
+                            </span>
                           </div>
                           {execution.toolName ? (
                             <div className={planStyles.executionToolRow}>
-                              <span className={planStyles.executionToolPill}>{execution.toolName}</span>
+                              <span className={planStyles.executionToolPill}>
+                                {execution.toolName}
+                              </span>
                             </div>
                           ) : null}
                           {entries.length > 0 ? (
                             <div className={planStyles.detailList}>
                               {entries.map((entry) => (
-                                <div key={`${execution.id}:${entry.label}`} className={planStyles.detailRow}>
+                                <div
+                                  key={`${execution.id}:${entry.label}`}
+                                  className={planStyles.detailRow}
+                                >
                                   <span className={planStyles.detailLabel}>{entry.label}</span>
                                   <span className={planStyles.detailValue}>{entry.value}</span>
                                 </div>
@@ -191,22 +243,26 @@ function iconForStatus(status: PlanStepStatus) {
 
 function labelForStatus(
   status: PlanStepStatus,
-  customLabels?: Partial<Record<PlanStepStatus, string>>,
+  customLabels?: Partial<Record<PlanStepStatus, string>>
 ): string {
   return customLabels?.[status] || '';
 }
 
 function compactSentence(value: string): string {
-  return String(value || '').replace(/\s+/g, ' ').trim();
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function normalizePlanForMessageStatus(
   plan: PlanCardData,
-  messageStatus: string | undefined,
+  messageStatus: string | undefined
 ): PlanCardData {
   const resolved: PlanCardData = {
     ...plan,
-    steps: Array.isArray(plan.steps) ? plan.steps.map((step) => ({ ...step, executions: [...(step.executions || [])] })) : [],
+    steps: Array.isArray(plan.steps)
+      ? plan.steps.map((step) => ({ ...step, executions: [...(step.executions || [])] }))
+      : [],
   };
 
   const isTerminalError = messageStatus === 'error';
@@ -215,7 +271,10 @@ function normalizePlanForMessageStatus(
   if (isTerminalError && resolved.status !== 'failed') {
     resolved.status = 'failed';
     resolved.currentStepId = undefined;
-  } else if (isTerminalSuccess && (resolved.status === 'pending' || resolved.status === 'in_progress')) {
+  } else if (
+    isTerminalSuccess &&
+    (resolved.status === 'pending' || resolved.status === 'in_progress')
+  ) {
     resolved.status = 'completed';
     resolved.currentStepId = undefined;
   }
@@ -257,7 +316,7 @@ function summarizeDetail(detail: any): DetailEntry[] {
   push('Error', detail.error);
 
   if (detail.arguments && typeof detail.arguments === 'object') {
-      for (const [key, value] of collectPrimitiveEntries(detail.arguments, 4)) {
+    for (const [key, value] of collectPrimitiveEntries(detail.arguments, 4)) {
       push(`Arg · ${humanizeKey(key)}`, value);
     }
   }
@@ -279,7 +338,10 @@ function summarizeDetail(detail: any): DetailEntry[] {
   return entries.slice(0, 8);
 }
 
-function collectPrimitiveEntries(value: Record<string, any>, limit: number): Array<[string, unknown]> {
+function collectPrimitiveEntries(
+  value: Record<string, any>,
+  limit: number
+): Array<[string, unknown]> {
   const entries: Array<[string, unknown]> = [];
   for (const [key, item] of Object.entries(value || {})) {
     if (entries.length >= limit) break;

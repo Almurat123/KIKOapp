@@ -9,7 +9,7 @@ import icon from '../../assets/images/icon.png';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import { ThemeToggle } from '../ThemeToggle/ThemeToggle';
 import { getUserInfo } from '../../utils/privyUtils';
-import { getUsageSummary } from '../../services/billingApi';
+import { getUsageSummary, type UsageSummary } from '../../services/billingApi';
 import { agentAttrs } from '../../agent/attrs';
 import styles from './Sidebar.module.css';
 import type { Conversation } from '../../hooks/useConversations';
@@ -90,14 +90,6 @@ interface NavItem {
   subItems?: { id: string; label: string; path: string }[];
 }
 
-type UsageSummaryModelRow = {
-  model: string;
-  used: number;
-  limit: number | null;
-  category: 'free' | 'premium' | 'other';
-  limitSource: 'free_unlimited' | 'free_shared' | 'premium_shared' | 'none';
-};
-
 export const Sidebar: React.FC<SidebarProps> = ({
   isOpen,
   onClose,
@@ -122,17 +114,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [showAllConversations, setShowAllConversations] = useState(false);
-  const [usageSummary, setUsageSummary] = useState<{
-    dateUtc: string;
-    total: { used: number; limit: number | null };
-    free: { used: number; limit: number | null };
-    premium: { used: number; limit: number };
-    models?: UsageSummaryModelRow[];
-    usesPremiumSharedLimit: boolean;
-  } | null>(null);
+  const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null);
   const isSidebarVisible = isMobile ? isOpen : isDesktopOpen;
 
-  const fetchUsageSummary = React.useCallback(async () => {
+  const fetchUsageSummary = React.useCallback(async (forceFresh = false) => {
     if (!usageSummaryEnabled || !isSidebarVisible) {
       return;
     }
@@ -146,7 +131,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         setUsageSummary(null);
         return;
       }
-      const summary = await getUsageSummary(token);
+      const summary = await getUsageSummary(token, { forceFresh });
       setUsageSummary(summary);
     } catch {
       setUsageSummary(null);
@@ -163,7 +148,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       if (!usageSummaryEnabled || !isSidebarVisible) {
         return;
       }
-      fetchUsageSummary();
+      fetchUsageSummary(true);
     };
     window.addEventListener('kiko-usage-refresh', handler as EventListener);
     return () => window.removeEventListener('kiko-usage-refresh', handler as EventListener);
@@ -539,6 +524,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span className={styles.usageLabel}>Premium</span>
                 <span className={styles.usageValue}>
                   {usageSummary ? `${usageSummary.premium.used}/${usageSummary.premium.limit}` : '--'}
+                </span>
+              </div>
+              <div className={styles.usageRow}>
+                <span className={styles.usageLabel}>Image Free</span>
+                <span className={styles.usageValue}>
+                  {usageSummary?.generatedImage
+                    ? `${usageSummary.generatedImage.free.used}/${usageSummary.generatedImage.free.limit}`
+                    : '--'}
                 </span>
               </div>
             </div>
