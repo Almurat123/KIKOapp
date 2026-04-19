@@ -6,10 +6,10 @@
 //         prompt sent into generated-image execution. The product requirement
 //         is to let the main model decide when to generate, while still keeping
 //         prompt control, brand/safety defaults, and negative constraints out of
-//         free-form provider prompting. Generated images now also receive the
-//         product-required `AI-generated` provenance mark after provider generation, so
-//         this optimizer must avoid asking the provider to draw or suppress the
-//         final disclosure label itself.
+//         free-form provider prompting. A short-lived server watermark
+//         experiment was removed, but this optimizer should still avoid asking
+//         the provider to place logos, signatures, or watermarks inside the
+//         scene itself.
 // Goal: accept intent-level image-generation arguments, normalize them into one
 //       structured prompt spec, and compile a provider prompt plus a short
 //       user-safe summary without leaking provider-only controls into chat history.
@@ -21,8 +21,8 @@
 // - the chat model may propose structured image fields, but the server owns the final provider prompt
 // - prompt summaries are transcript-safe; full provider prompts stay inside execution owners
 // - image prompt control should be additive and deterministic, not a second hidden model call
-// - the required KiKo `AI-generated` disclosure label is applied after provider output;
-//   provider prompts should only block extra provider/artist marks inside the scene
+// - provider prompts should block extra provider/artist marks inside the scene
+//   without relying on a server watermark layer
 // - forbidden local patch pattern: letting provider-specific prompt strings leak directly into visible assistant history
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
@@ -35,10 +35,11 @@
 // - Retrieved: 2026-04-18
 // - Applied To: intent-level tool contract plus server-owned prompt compilation
 // - Verification: verified in code
-// - Source: operator requirement on 2026-04-19 for generated-image `AI-generated` watermark
+// - Source: operator correction on 2026-04-19 to remove generated-image
+//   watermarking while still avoiding provider-added marks inside the scene
 // - Kind: product doc
 // - Retrieved: 2026-04-19
-// - Applied To: preventing optimizer defaults from conflicting with server-side watermarking
+// - Applied To: keeping provider prompt defaults focused on in-scene marks only
 // - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md

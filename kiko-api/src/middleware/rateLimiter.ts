@@ -4,7 +4,7 @@
  */
 
 // CONTEXT MEMORY
-// Updated: 2026-04-18
+// Updated: 2026-04-19
 // Author: Rowan
 // Reason: token browse reads were still being charged against the trading bucket,
 //         which let a normal token-page navigation inherit protection limits

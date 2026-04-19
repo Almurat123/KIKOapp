@@ -1,0 +1,90 @@
+"use strict";
+/**
+ * Scrubber Utility
+ * Used to detect and mask sensitive information (Private Keys, API Keys, PII)
+ * before data leaves the server.
+ */
+var __assign = (this && this.__assign) || function () {
+    __assign = Object.assign || function(t) {
+        for (var s, i = 1, n = arguments.length; i < n; i++) {
+            s = arguments[i];
+            for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p))
+                t[p] = s[p];
+        }
+        return t;
+    };
+    return __assign.apply(this, arguments);
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.scrub = scrub;
+exports.scrubObject = scrubObject;
+var PATTERNS = {
+    // 64-character hex string (common for EVM private keys)
+    // We look for them in assignments or standalone blocks
+    EVM_PRIVATE_KEY: /\b(0x)?[a-fA-F0-9]{64}\b/g,
+    // Solana Private Key (Base58, usually 87-88 chars but can vary)
+    SOLANA_PRIVATE_KEY: /\b[1-9A-HJ-NP-Za-km-z]{87,88}\b/g,
+    // Generic API Keys
+    GENERIC_API_KEY: /\b(sk|privy|ak|pk)_(live|test)_[a-zA-Z0-9]{20,}\b/gi,
+    // Internal File Paths (Unix-style)
+    INTERNAL_PATH: /\/Users\/[a-zA-Z0-9_-]+\/[^\s]+/g,
+    // IPv4 Addresses (Internal/Public)
+    IPV4: /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g,
+};
+/**
+ * Scrub a string of sensitive information
+ */
+function scrub(text) {
+    if (!text || typeof text !== 'string')
+        return text;
+    var scrubbed = text;
+    // Mask EVM Private Keys
+    scrubbed = scrubbed.replace(PATTERNS.EVM_PRIVATE_KEY, function (match) {
+        return "".concat(match.substring(0, 4), "...[REDACTED_KEY]...").concat(match.substring(match.length - 4));
+    });
+    // Mask Solana Private Keys
+    scrubbed = scrubbed.replace(PATTERNS.SOLANA_PRIVATE_KEY, '[REDACTED_SOL_KEY]');
+    // Mask API Keys
+    scrubbed = scrubbed.replace(PATTERNS.GENERIC_API_KEY, '[REDACTED_API_KEY]');
+    // Mask Internal Paths (to prevent server-side path disclosure)
+    scrubbed = scrubbed.replace(PATTERNS.INTERNAL_PATH, '[REDACTED_PATH]');
+    return scrubbed;
+}
+/**
+ * Depth-first object scrubbing
+ */
+var MAX_DEPTH = 8;
+function scrubObject(obj, visited, depth) {
+    if (visited === void 0) { visited = new WeakSet(); }
+    if (depth === void 0) { depth = 0; }
+    if (!obj)
+        return obj;
+    if (depth > MAX_DEPTH)
+        return '[Max Depth Exceeded]';
+    if (typeof obj === 'string') {
+        return scrub(obj);
+    }
+    if (typeof obj === 'object') {
+        if (visited.has(obj))
+            return '[Circular]';
+        visited.add(obj);
+    }
+    if (Array.isArray(obj)) {
+        return obj.map(function (item) { return scrubObject(item, visited, depth + 1); });
+    }
+    if (typeof obj === 'object') {
+        // Handle Error objects specifically
+        if (obj instanceof Error) {
+            return __assign({ message: scrubObject(obj.message, visited, depth + 1), name: obj.name, stack: scrubObject(obj.stack, visited, depth + 1) }, scrubObject(__assign({}, obj), visited, depth + 1));
+        }
+        var result = {};
+        for (var _i = 0, _a = Object.entries(obj); _i < _a.length; _i++) {
+            var _b = _a[_i], key = _b[0], value = _b[1];
+            // Also scrub keys themselves if they look like secrets (metadata leak)
+            var scrubbedKey = scrub(key);
+            result[scrubbedKey] = scrubObject(value, visited, depth + 1);
+        }
+        return result;
+    }
+    return obj;
+}

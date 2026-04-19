@@ -1,6 +1,5 @@
 import pLimit from 'p-limit';
 import { randomUUID } from 'node:crypto';
-import sharp from 'sharp';
 import * as chatRepo from '../repositories/chatRepository.js';
 import { chatWS } from './chatWebSocket.js';
 import { acquireLock, releaseLock } from '../cache/cacheClient.js';
@@ -43,12 +42,13 @@ import { LogCode } from '../config/logRegistry.js';
 //         phases. Chat v2 now also needs a synchronous execution entry so an
 //         internal tool can reuse this owner inside the main chat turn and let
 //         the tool manage the reply without fabricating a text completion.
-//         Farcaster-bound generated-image replies now also need a durable
-//         visible provenance mark, so the final stored asset must receive the
-//         product-required `AI-generated` watermark before moderation, storage,
-//         and social publication reuse. Farcaster publication also requires a
-//         stable public image URL because casts embed URLs instead of uploaded
-//         binaries.
+//         Farcaster-bound generated-image replies also require a stable public
+//         image URL because casts embed URLs instead of uploaded binaries. A
+//         short-lived watermark experiment previously modified the final image
+//         pixels inside this owner, but product direction removed that
+//         requirement entirely. This owner now has to preserve provider output
+//         bytes through moderation and storage without post-generation
+//         watermark rewriting.
 // Goal: execute one generated-image chat task end to end while preserving the
 //       chat session/message/task model, strict image safety gates, billing
 //       reservation semantics, provider-specific capability metadata and
@@ -72,8 +72,8 @@ import { LogCode } from '../config/logRegistry.js';
 // - Grok image generation must not fabricate partial-progress stages that the
 //   provider does not emit
 // - forbidden local patch pattern: sending provider URLs directly to the client as durable chat history
-// - apply generated-image provenance marks in the server image owner, not by
-//   asking the provider to draw text
+// - moderation and storage should preserve provider output bytes; this owner
+//   must not rewrite final pixels with a server watermark
 // - publish a public generated-image copy only when the source surface requires
 //   durable URL embeds; ordinary web chat generated images stay private
 // Document Provenance:
@@ -108,15 +108,16 @@ import { LogCode } from '../config/logRegistry.js';
 // - Retrieved: 2026-04-18
 // - Applied To: awaitable generated-image execution for chat-v2 internal tools
 // - Verification: verified in code
-// - Source: operator requirement on 2026-04-19 for generated-image `AI-generated` watermark
-// - Kind: product doc
-// - Retrieved: 2026-04-19
-// - Applied To: server-side English watermarking before generated-image storage and Farcaster publication
-// - Verification: verified in code
 // - Source: operator correction on 2026-04-19 for production-stable Farcaster image embeds
 // - Kind: product doc
 // - Retrieved: 2026-04-19
 // - Applied To: requesting public generated-image storage copies for Farcaster sources
+// - Verification: verified in code
+// - Source: operator correction on 2026-04-19 to remove generated-image
+//   watermarking entirely
+// - Kind: product doc
+// - Retrieved: 2026-04-19
+// - Applied To: removing all server-side pixel watermark rewriting from this owner
 // - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
@@ -131,7 +132,6 @@ import { LogCode } from '../config/logRegistry.js';
 const GENERATED_IMAGE_MAX_CONCURRENCY = Math.max(1, Number(process.env.GENERATED_IMAGE_MAX_CONCURRENCY || '2') || 2);
 const GENERATED_IMAGE_USER_LOCK_TTL_SECONDS = Math.max(60, Number(process.env.GENERATED_IMAGE_USER_LOCK_TTL_SECONDS || '300') || 300);
 const OPENAI_PARTIAL_IMAGE_PROGRESS_STEPS = 2;
-const GENERATED_IMAGE_WATERMARK_TEXT = 'AI-generated';
 const generatedImageExecutionLimit = pLimit(GENERATED_IMAGE_MAX_CONCURRENCY);
 
 export type GeneratedImageMessageState = {
@@ -382,59 +382,6 @@ function buildEphemeralGeneratedImagePreview(params: {
     };
 }
 
-function escapeSvgText(value: string): string {
-    return String(value || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-}
-
-async function applyGeneratedImageWatermark(params: {
-    imageBuffer: Buffer;
-    contentType: string;
-}): Promise<{ imageBuffer: Buffer; contentType: string }> {
-    const source = sharp(params.imageBuffer, { limitInputPixels: false }).rotate();
-    const metadata = await source.metadata();
-    const width = Number(metadata.width || 0);
-    const height = Number(metadata.height || 0);
-    if (!width || !height) {
-        return {
-            imageBuffer: params.imageBuffer,
-            contentType: params.contentType,
-        };
-    }
-
-    const fontSize = Math.max(18, Math.min(48, Math.round(Math.min(width, height) * 0.04)));
-    const paddingX = Math.round(fontSize * 0.9);
-    const paddingY = Math.round(fontSize * 0.55);
-    const textWidthUnits = Math.max(4.25, GENERATED_IMAGE_WATERMARK_TEXT.length * 0.62 + 1.8);
-    const boxWidth = Math.min(
-        Math.max(Math.round(fontSize * textWidthUnits), Math.round(fontSize * 4.25)),
-        Math.max(Math.round(fontSize * 4.25), width - Math.max(18, Math.round(Math.min(width, height) * 0.028)) * 2),
-    );
-    const boxHeight = Math.round(fontSize * 1.85);
-    const margin = Math.max(18, Math.round(Math.min(width, height) * 0.028));
-    const x = Math.max(0, width - boxWidth - margin);
-    const y = Math.max(0, height - boxHeight - margin);
-    const radius = Math.round(boxHeight * 0.42);
-    const escapedText = escapeSvgText(GENERATED_IMAGE_WATERMARK_TEXT);
-    const overlay = Buffer.from(`
-<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
-  <rect x="${x}" y="${y}" width="${boxWidth}" height="${boxHeight}" rx="${radius}" fill="rgba(0,0,0,0.46)"/>
-  <text x="${x + paddingX}" y="${y + paddingY + fontSize * 0.74}" font-family="Arial, Helvetica, sans-serif" font-size="${fontSize}" font-weight="700" fill="rgba(255,255,255,0.92)">${escapedText}</text>
-</svg>`.trim());
-
-    const watermarked = await source
-        .composite([{ input: overlay, blend: 'over' }])
-        .png({ compressionLevel: 9 })
-        .toBuffer();
-    return {
-        imageBuffer: watermarked,
-        contentType: 'image/png',
-    };
-}
-
 async function runGeneratedImageChatTask(params: StartGeneratedImageChatTaskParams): Promise<ExecuteGeneratedImageChatTaskResult> {
     const initialState = buildGeneratedImagePendingData({
         requestedModel: params.requestedModel,
@@ -570,12 +517,7 @@ async function runGeneratedImageChatTask(params: StartGeneratedImageChatTaskPara
         });
         currentState = moderatingState;
 
-        const watermarkedResult = await applyGeneratedImageWatermark({
-            imageBuffer: providerResult.imageBuffer,
-            contentType: providerResult.contentType,
-        });
-
-        const moderationImageUrl = `data:${watermarkedResult.contentType};base64,${watermarkedResult.imageBuffer.toString('base64')}`;
+        const moderationImageUrl = `data:${providerResult.contentType};base64,${providerResult.imageBuffer.toString('base64')}`;
         await assertGeneratedImageOutputSafe({
             userId: params.userId,
             sessionId: params.sessionId,
@@ -609,8 +551,8 @@ async function runGeneratedImageChatTask(params: StartGeneratedImageChatTaskPara
                 images: [
                     buildEphemeralGeneratedImagePreview({
                         assistantMessageId: params.assistantMessageId,
-                        contentType: watermarkedResult.contentType,
-                        imageBuffer: watermarkedResult.imageBuffer,
+                        contentType: providerResult.contentType,
+                        imageBuffer: providerResult.imageBuffer,
                     }),
                 ],
             },
@@ -620,8 +562,8 @@ async function runGeneratedImageChatTask(params: StartGeneratedImageChatTaskPara
         const storedImage = await storeGeneratedChatImage({
             userId: params.userId,
             assistantMessageId: params.assistantMessageId,
-            buffer: watermarkedResult.imageBuffer,
-            contentType: watermarkedResult.contentType,
+            buffer: providerResult.imageBuffer,
+            contentType: providerResult.contentType,
             fileName: `${reservation.providerModel}.png`,
             publishPublic: String(params.source || '').trim().toLowerCase() === 'farcaster',
         });

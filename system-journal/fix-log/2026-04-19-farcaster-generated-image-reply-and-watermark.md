@@ -1,11 +1,11 @@
-# 2026-04-19 Farcaster Generated Image Reply And Watermark
+# 2026-04-19 Farcaster Generated Image Reply And Watermark Removal
 
 ## What Changed
 
-- Generated-image execution applies the required `AI-generated` provenance mark inside
-  the server image task owner before storing the final assistant image asset.
+- Generated-image execution no longer applies any server-side watermark to the
+  final image asset.
 - The image prompt optimizer no longer emits the plain `no watermark` default
-  that conflicts with the server-owned disclosure requirement. It only blocks
+  that conflicts with provider output. It only blocks
   extra provider/artist marks inside the generated scene.
 - Farcaster generated-image assistant rows are now converted into reply payloads
   containing:
@@ -75,19 +75,21 @@ publishing an expiring signed preview URL.
 - Verified in code that Farcaster-originated tool calls pass source
   `farcaster` into generated-image execution, which makes storage require a
   public generated-image URL.
+- Verified in code that generated-image execution now moderates, previews, and
+  stores `providerResult.imageBuffer` directly without watermark rewriting.
 - Verified in local SDK typings:
   - Neynar `publishCast` accepts `embeds?: Array<{ url: string }>`
   - Hub `CastAddBody.embeds` accepts `{ url }` entries
 
 ## Document Provenance
 
-- Source: operator requirement on 2026-04-19 for Farcaster generated-image
-  replies and `AI-generated` watermark
+- Source: operator correction on 2026-04-19 to remove generated-image
+  watermarking entirely
   - Kind: product doc
   - Retrieved: 2026-04-19
-  - Applied To: watermark requirement, outbound Farcaster image reply behavior,
-    and login/model boundary notes
-  - Verification: verified in code and targeted tests
+  - Applied To: deleting all server-side pixel watermark rewriting while
+    retaining Farcaster generated-image reply behavior
+  - Verification: verified in code
 - Source: operator correction on 2026-04-19 for production-stable Farcaster
   image embeds
   - Kind: product doc
