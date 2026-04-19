@@ -50,6 +50,7 @@ owner boundaries, and major fixes.
 - [Fix Log: 2026-04-19 Side-Effect Tool Failure Terminal Receipts](./fix-log/2026-04-19-side-effect-tool-failure-terminal-receipts.md)
 - [Fix Log: 2026-04-19 Model-Led Tool Orchestration Default Enable](./fix-log/2026-04-19-model-led-tool-orchestration-default-enable.md)
 - [Fix Log: 2026-04-19 Python Model-Led Tool Visibility Alignment](./fix-log/2026-04-19-python-model-led-tool-visibility-alignment.md)
+- [Fix Log: 2026-04-19 Python Orchestration Skill Root Resilience](./fix-log/2026-04-19-python-orchestration-skill-root-resilience.md)
 - [Fix Log: 2026-04-18 Chat Hardcoded Reply Path Removal](./fix-log/2026-04-18-chat-hardcoded-reply-path-removal.md)
 - [Fix Log: 2026-04-17 Chat V2 Worker Entry Boundary](./fix-log/2026-04-17-chat-v2-worker-entry-boundary.md)
 - [Fix Log: 2026-04-17 Chat Runtime Mode Switch](./fix-log/2026-04-17-chat-runtime-mode-switch.md)

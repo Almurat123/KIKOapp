@@ -5,15 +5,19 @@ import re
 from pathlib import Path
 from typing import Any
 
+from runtime_paths import resolve_kiko_api_src_root
+
 
 # CONTEXT MEMORY
-# Updated: 2026-04-17
+# Updated: 2026-04-19
 # Author: Rowan
 # Reason: chat_v2 prompt assembly needs the same explicit context-contract
 #         boundary as the Node side so the service can stay lean when a turn
-#         does not need session, wallet, or workflow state.
+#         does not need session, wallet, or workflow state, and it should use
+#         the same shared source-root resolver as the orchestration owner.
 # Goal: keep the Python chat_v2 prompt builder aligned with the shared v2
-#       contract instead of unpacking a generic context blob into the model.
+#       contract instead of unpacking a generic context blob into the model
+#       while keeping optional repo layouts non-fatal.
 # Owns: Python-side prompt modules and prompt-time context shaping.
 # Does Not Own: task routing, payment policy, or Node-side skill resolution.
 # Design Language:
@@ -24,6 +28,7 @@ from typing import Any
 # - prompt modules should stay composable and backward compatible
 # - user settings should be named as one normalized contract entry, not loose swap flags
 # - context catalog wording should name worker data contracts, not vague summaries
+# - shared source roots should be discovered from runtime layout, not hard-coded
 # Document Provenance:
 # - Source: /Users/almurat/KiKo/system-journal/adr/2026-04-17-chat-v2-rewrite-plan.md
 # - Kind: repo doc
@@ -40,6 +45,15 @@ from typing import Any
 # - Retrieved: 2026-04-17
 # - Applied To: Python-side catalog wording alignment for worker context contracts
 # - Verification: verified in code
+# - Source: /Users/almurat/Downloads/logs.1776576842894.json
+# - Kind: runtime observation
+# - Retrieved: 2026-04-19
+# - Applied To: resilient Python prompt-root discovery for orchestration and
+#               chat prompt loading
+# - Verification: verified in code and targeted tests
+# See also:
+# - /Users/almurat/KiKo/system-journal/INDEX.md
+# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-python-orchestration-skill-root-resilience.md
 
 
 CORE_EXECUTION_FALLBACK = """
@@ -113,12 +127,8 @@ CHAT_V2_CONTEXT_CATALOG = [
 ]
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
-def _kiko_api_skills_root() -> Path:
-    return _repo_root() / "kiko-api" / "src"
+def _kiko_api_src_root() -> Path:
+    return resolve_kiko_api_src_root()
 
 
 def _extract_ts_template(path: Path, const_name: str) -> str | None:
@@ -139,7 +149,7 @@ def _extract_ts_template(path: Path, const_name: str) -> str | None:
 
 class PromptModules:
     def __init__(self):
-        prompts_root = _repo_root() / "kiko-api" / "src" / "services" / "ai" / "prompts" / "v2"
+        prompts_root = _kiko_api_src_root() / "services" / "ai" / "prompts" / "v2"
         policies_root = prompts_root / "policies"
 
         self.core_execution = _extract_ts_template(prompts_root / "CORE.ts", "CORE_EXECUTION") or CORE_EXECUTION_FALLBACK
@@ -159,7 +169,7 @@ class SkillPromptRegistry:
         self.clean_skills = self._load_skills("skills_clean")
 
     def _load_skills(self, subdir: str) -> list[dict[str, Any]]:
-        root = _kiko_api_skills_root() / subdir
+        root = _kiko_api_src_root() / subdir
         out: list[dict[str, Any]] = []
         if not root.exists():
             return out

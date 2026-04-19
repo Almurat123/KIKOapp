@@ -4,11 +4,12 @@ from __future__ import annotations
 # Updated: 2026-04-19
 # Author: Rowan
 # Reason: the Python orchestration layer now mirrors the model-led tool
-#         visibility rollout used by the Node chat path. This owner still
-#         resolves specialist skill prompts and legacy heuristics, but it must
-#         stop hiding registered tools on the default model-led path.
+#         visibility rollout used by the Node chat path, but its skill loader
+#         also has to survive runtime layouts where `skills_exec` is absent
+#         instead of crashing the whole mount path.
 # Goal: keep Python tool exposure aligned with the main model's own semantic
-#       choice while preserving the existing skill prompt selection logic.
+#       choice while preserving the existing skill prompt selection logic and
+#       making optional skill catalogs non-fatal.
 # Owns: Python skill selection, legacy heuristic pruning, and the model-led
 #       tool visibility override for orchestration.
 # Does Not Own: provider transport, tool execution, or side-effect permission.
@@ -16,38 +17,50 @@ from __future__ import annotations
 # - models see the whole registered tool catalog by default
 # - backend policy still blocks unsafe or unconfirmed side effects
 # - heuristics can guide prompts, but they must not hide tools in model-led mode
+# - import-time loaders must never assume optional directories exist
 # Document Provenance:
 # - Source: operator architecture review on 2026-04-19
 # - Kind: product instruction
 # - Retrieved: 2026-04-19
 # - Applied To: Python skill resolution and tool visibility override
 # - Verification: verified in code
+# - Source: local runtime log /Users/almurat/Downloads/logs.1776576842894.json
+# - Kind: runtime observation
+# - Retrieved: 2026-04-19
+# - Applied To: making `skills_exec` absence non-fatal during orchestration startup
+# - Verification: verified in code and targeted tests
 # See also:
 # - /Users/almurat/KiKo/system-journal/INDEX.md
 # - /Users/almurat/KiKo/system-journal/adr/2026-04-19-model-led-tool-orchestration.md
 # - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-python-model-led-tool-visibility-alignment.md
+# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-python-orchestration-skill-root-resilience.md
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
+
+from runtime_paths import resolve_kiko_api_src_root
 
 from .model_led_tool_orchestration import (
     is_model_led_tool_orchestration_enabled,
     resolve_model_led_tool_names,
 )
 
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+logger = logging.getLogger(__name__)
 
 
 def _skills_root() -> Path:
-    return _repo_root() / "kiko-api" / "src" / "skills_exec"
+    return resolve_kiko_api_src_root() / "skills_exec"
 
 
-def _load_skills() -> list[dict[str, Any]]:
+def _load_skills(root: Path | None = None) -> list[dict[str, Any]]:
     skills: list[dict[str, Any]] = []
-    for skill_dir in _skills_root().iterdir():
+    root = root or _skills_root()
+    if not root.is_dir():
+        logger.warning("Skill registry directory missing at %s; continuing with an empty registry", root)
+        return skills
+    for skill_dir in root.iterdir():
         if not skill_dir.is_dir():
             continue
         skill_json = skill_dir / "skill.json"

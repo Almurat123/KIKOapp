@@ -1,5 +1,7 @@
 import unittest
+from pathlib import Path
 
+from orchestration import skill_resolver
 from orchestration.prompt_assembler import assemble_messages
 from orchestration.skill_resolver import resolve_skills
 
@@ -48,6 +50,11 @@ class ModelLedToolVisibilityTests(unittest.TestCase):
         self.assertIn("[MODEL_LED_TOOL_ORCHESTRATION]", messages[0]["content"])
         self.assertIn("[TOOL_CONTEXT]", messages[-1]["content"])
         self.assertIn("Model-led tool orchestration is enabled", messages[-1]["content"])
+
+    def test_skill_loader_skips_missing_directory_instead_of_raising(self):
+        missing_root = Path("/tmp/definitely-missing-kiko-skills-exec")
+
+        self.assertEqual(skill_resolver._load_skills(missing_root), [])
 
 
 if __name__ == "__main__":
