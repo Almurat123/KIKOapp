@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-18
+// Updated: 2026-04-19
 // Author: Rowan
 // Reason: chat text could arrive through WebSocket but still appear all at once
 //         if RootLayout buffered multiple chunks into one animation-frame flush.
@@ -16,7 +16,10 @@
 //         placeholder as `generated-image` mid-turn when the model switches the
 //         reply into the image tool path. A 2026-04-19 deploy-token loop showed
 //         duplicate backend starts can look like frontend subscription leaks, so
-//         this layer now logs duplicate starts by assistant id before mutating state.
+//         this layer now logs duplicate starts by assistant id before mutating
+//         state. Generated-image terminal payloads can also finish through
+//         `update_message_data` before generic task completion cleanup lands, so
+//         the active task record must retain the bound assistant message id.
 // Goal: make the frontend state boundary observable: incoming chunk count,
 //       pending buffer size, flush timing, and message length before/after merge,
 //       while applying content/reasoning chunks immediately once the target
@@ -36,6 +39,8 @@
 // - `message_start` must preserve backend-declared assistant message types and initial data
 // - duplicate `message_start` diagnostics must be keyed by session/message id,
 //   not by task id, because the route copy may lack task id while the broker copy has it
+// - active task state must keep the assistant message id when the backend
+//   provides it so later client-action terminal payloads can clear only the matching task
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/test.txt
 // - Kind: runtime observation
@@ -67,12 +72,19 @@
 // - Retrieved: 2026-04-19
 // - Applied To: duplicate message_start diagnostics and stream event correlation
 // - Verification: verified in code
+// - Source: operator screenshot and runtime report on 2026-04-19 showing a
+//   completed generated-image row while the task spinner stayed active
+// - Kind: runtime observation
+// - Retrieved: 2026-04-19
+// - Applied To: persisting active-task `messageId` context from websocket task events
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-stream-diagnostics.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-token-page-read-burst-isolation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-v2-model-owned-image-generation-tool.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-generated-image-client-preview-hydration.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-stream-duplicate-and-tool-loop-diagnostics.md
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
@@ -1051,6 +1063,7 @@ export const RootLayout: React.FC = () => {
                             activeTask: {
                                 ...(currentTask || {}),
                                 id: taskId || currentTask?.id || `task-${event.data.messageId || event.data.message_id || Date.now()}`,
+                                messageId: event.data.messageId || event.data.message_id || currentTask?.messageId,
                                 status: 'running',
                                 message: event.data.message,
                             }

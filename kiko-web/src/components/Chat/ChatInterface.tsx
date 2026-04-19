@@ -29,6 +29,12 @@ import { ChatMessageList } from './ChatMessageList';
 import { ChatComposer } from './ChatComposer';
 import { persistChatModelSelection, readStoredChatModelSelection } from './chatModelSelectionPersistence';
 import {
+  assistantMessageHasStreamingContent,
+  isEffectivelyStreamingAssistantMessage,
+  resolveGeneratedImageMessageStatus,
+  shouldClearActiveTaskForGeneratedImageUpdate,
+} from './generatedImageTaskState';
+import {
   ACTION_CARD_TYPE_MAP,
   COMMON_TOKENS,
   MODEL_OPTIONS,
@@ -139,6 +145,8 @@ const LazyChatStrategyRuntime = React.lazy(() =>
 //   can be reproduced in the same chat surface
 // - generated-image data updates must preserve the visible image message type
 //   even if hydration arrives before or after message_start
+// - generated-image terminal payloads must settle message status and active
+//   task cleanup even if `message_complete` or `task_status` arrive late
 // - forbidden local patch patterns: route-wrapper handoff logic that auto-submits through remount
 // Document Provenance:
 // - Source: Runtime observation of repeated loading and streaming UI churn after first send
@@ -227,6 +235,13 @@ const LazyChatStrategyRuntime = React.lazy(() =>
 // - Applied To: adding `/test-generated-image flow` with timed transcript
 //   state updates and console diagnostics
 // - Verification: verified in code
+// - Source: operator screenshot and runtime report on 2026-04-19 showing a
+//   generated-image card rendered while the composer kept loading
+// - Kind: runtime observation
+// - Retrieved: 2026-04-19
+// - Applied To: binding generated-image terminal `update_message_data` payloads
+//   to assistant message status repair and task cleanup
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
@@ -249,6 +264,7 @@ const LazyChatStrategyRuntime = React.lazy(() =>
 interface TaskState {
   id: string;
   status: string;
+  messageId?: string | null;
   [key: string]: unknown;
 }
 
@@ -742,16 +758,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
-  const hasStreamingAssistant = messages.some(
-    (m) => m.role === 'assistant' && (m.status as string) === 'streaming'
-  );
-  const hasStreamingAssistantContent = messages.some(
-    (m) =>
-      m.role === 'assistant' &&
-      (m.status as string) === 'streaming' &&
-      ((m.content || '').length > 0 || (m.reasoning_content || '').length > 0)
-  );
-  const activeTaskStatus = (currentConv?.activeTask?.status as string | undefined) || '';
+  const hasStreamingAssistant = messages.some((m) => isEffectivelyStreamingAssistantMessage(m));
+  const hasStreamingAssistantContent = messages.some((m) => assistantMessageHasStreamingContent(m));
+  const activeTask = currentConv?.activeTask || null;
+  const activeTaskStatus = (activeTask?.status as string | undefined) || '';
   const hasActiveTaskInProgress =
     activeTaskStatus === 'queued' ||
     activeTaskStatus === 'pending' ||
@@ -761,7 +771,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const isThinking =
     !isStreaming &&
     (hasActiveTaskInProgress || (hasStreamingAssistant && !hasStreamingAssistantContent));
-  const activeTaskId = currentConv?.activeTask?.id || null;
+  const activeTaskId = activeTask?.id || null;
+  const activeTaskRef = useRef<Conversation['activeTask'] | null>(activeTask);
+  useEffect(() => {
+    activeTaskRef.current = activeTask;
+  }, [activeTask]);
   const activeTaskIdRef = useRef<string | null>(activeTaskId);
   useEffect(() => {
     activeTaskIdRef.current = activeTaskId;
@@ -1454,13 +1468,36 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     actionData.renderContracts
                   ),
                 };
-                const updated = replaceMessageAtIndex(freshMessages, targetIdx, {
+                const nextType = shouldPromoteGeneratedImage
+                  ? 'generated-image'
+                  : freshMessages[targetIdx].type;
+                const nextStatus =
+                  resolveGeneratedImageMessageStatus({
+                    currentStatus: freshMessages[targetIdx].status,
+                    messageType: nextType,
+                    messageData: mergedData,
+                  }) ?? freshMessages[targetIdx].status;
+                const nextMessage: Message = {
                   ...freshMessages[targetIdx],
-                  type: shouldPromoteGeneratedImage ? 'generated-image' : freshMessages[targetIdx].type,
+                  type: nextType,
                   data: mergedData,
-                });
+                  status: nextStatus,
+                };
+                const updated = replaceMessageAtIndex(freshMessages, targetIdx, nextMessage);
                 messagesRef.current = updated;
-                updateConversation(conversationId, { messages: updated });
+                const shouldClearTask = shouldClearActiveTaskForGeneratedImageUpdate({
+                  activeTask: activeTaskRef.current,
+                  targetMessageId,
+                  messageType: nextMessage.type,
+                  messageData: nextMessage.data,
+                });
+                updateConversation(conversationId, {
+                  messages: updated,
+                  activeTask: shouldClearTask ? null : activeTaskRef.current,
+                });
+                if (shouldClearTask && onTaskUpdate) {
+                  onTaskUpdate(null);
+                }
               }
             }
           }
@@ -1784,7 +1821,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         logger.debug('Target conversation has streaming message, ensuring activeTask state');
         if (!currentConv?.activeTask) {
           updateConversation(newId, {
-            activeTask: { id: lastAssistantMsg!.id, status: 'streaming' as any },
+            activeTask: {
+              id: lastAssistantMsg!.id,
+              messageId: lastAssistantMsg!.id,
+              status: 'streaming' as any,
+            },
           });
         }
       } else if (newId && currentConv?.activeTask) {
@@ -1958,12 +1999,17 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     // Check if we have activeTask from props (loaded by App.tsx)
     if (propActiveTask) {
       const task = propActiveTask;
+      const taskMessageId = String(task.messageId || task['message_id'] || '').trim() || null;
 
       // If task is still running, ensure context matches
       if (task.status === 'queued' || task.status === 'pending' || task.status === 'running') {
         if (conversationId && !currentConv?.activeTask) {
           updateConversation(conversationId, {
-            activeTask: { id: task.id, status: task.status as any },
+            activeTask: {
+              id: task.id,
+              messageId: taskMessageId,
+              status: task.status as any,
+            },
           });
         }
       } else {
@@ -3277,12 +3323,19 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         messagesRef.current = nextMessages;
 
         const normalizedTaskStatus = String(task.status || '').toLowerCase();
+        const taskMessageId =
+          String(
+            (task as { messageId?: unknown; message_id?: unknown }).messageId ||
+              (task as { messageId?: unknown; message_id?: unknown }).message_id ||
+              assistantMessage.id ||
+              ''
+          ).trim() || null;
         updateConversation(currentConvId, {
           messages: nextMessages,
           activeTask:
             normalizedTaskStatus === 'done' || normalizedTaskStatus === 'completed'
               ? null
-              : { id: task.id, status: task.status as any },
+              : { id: task.id, messageId: taskMessageId, status: task.status as any },
         });
 
         // Update task state in parent component
@@ -3290,7 +3343,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           if (normalizedTaskStatus === 'done' || normalizedTaskStatus === 'completed') {
             onTaskUpdate(null);
           } else {
-            onTaskUpdate({ id: task.id, status: task.status as any });
+            onTaskUpdate({
+              id: task.id,
+              messageId: taskMessageId,
+              status: task.status as any,
+            });
           }
         }
         // WebSocket will handle the chunks and status updates
