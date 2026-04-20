@@ -5,6 +5,14 @@
 - Public generated-image proxy fetches under
   `/api/chat/generated-images/public/*` now bypass the global origin/app-key
   security gate for `GET` and `HEAD` requests.
+- The same public generated-image proxy fetches now bypass the global API rate
+  limiter before Redis/Postgres bucket accounting, because Farcaster web uses a
+  shared Cloudflare image-resize proxy (`wrpcd.net/cdn-cgi/image/...`) and origin
+  cache misses must not consume ordinary API request buckets.
+- The public generated-image proxy route now adds cross-origin-friendly image
+  headers (`Access-Control-Allow-Origin: *` and
+  `Cross-Origin-Resource-Policy: cross-origin`) while retaining inline image
+  content type and storage-layer object-key validation.
 - `originRestriction` now has a path-scoped public generated-image bypass, so
   the same rule is preserved if the middleware is reused outside the bootstrap
   hook.
@@ -28,6 +36,12 @@ two separate failures in the same Farcaster generated-image run:
    `assistantData` object. That overwrote `data.generatedImage.images` and
    changed the assistant message back to `streaming`, so the web session could
    show a running task without the image.
+3. A follow-up 2026-04-20 Farcaster web screenshot showed
+   `ERROR 9408: Could not fetch the image — the server returned HTTP error 403
+   Forbidden` for a `wrpcd.net/cdn-cgi/image/...` transformed URL. A direct curl
+   to the underlying API public image URL returned `429 Too Many Requests`
+   before the route served the object, proving the global `rateLimiter` still
+   sat in front of the public media path even after the origin/app-key bypass.
 
 ## Verification
 
@@ -41,8 +55,13 @@ two separate failures in the same Farcaster generated-image run:
 - Verified in code that the public route still loads objects through
   `loadPublicGeneratedChatImageObject()`, which enforces the generated-image
   public object-key prefix.
+- Verified by live curl on 2026-04-20 that
+  `api.kikoapp.app/api/chat/generated-images/public/...cmo6uezyl011b10oqrc346bwz.png`
+  could return `429 Too Many Requests` from the origin before deployment of the
+  limiter bypass.
 - `cd /Users/almurat/KiKo/kiko-api && npm exec tsc --noEmit --pretty false`
 - `cd /Users/almurat/KiKo/kiko-api && npm exec tsx --test src/middleware/originRestriction.test.ts`
+- `cd /Users/almurat/KiKo/kiko-api && npm exec tsx --test src/middleware/rateLimiter.test.ts`
 - `cd /Users/almurat/KiKo/kiko-api && node --test --test-force-exit --import tsx src/jobs/chat/streamBroker.test.ts`
 - `cd /Users/almurat/KiKo/kiko-api && npm exec tsx --test src/services/farcaster-agent/farcasterIngressWorker.test.ts`
 
@@ -60,6 +79,13 @@ two separate failures in the same Farcaster generated-image run:
   - Applied To: relying on storage-layer public object-key validation after
     bypassing origin/app-key checks for the public proxy route
   - Verification: verified in code
+- Source: operator Farcaster web screenshot and live Cloudflare resize URL
+  `wrpcd.net/cdn-cgi/image/f=auto,w=1200/...`
+  - Kind: runtime observation
+  - Retrieved: 2026-04-20
+  - Applied To: bypassing the API rate limiter for read-only public generated
+    image media fetches and adding cross-origin-friendly image response headers
+  - Verification: verified by live curl repro and code
 
 ## See Also
 

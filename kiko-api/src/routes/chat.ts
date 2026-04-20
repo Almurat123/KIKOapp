@@ -101,12 +101,20 @@
 // - Applied To: stale active-task suppression during session hydration and
 //   API-owned public generated-image proxy serving
 // - Verification: verified in code
+// - Source: operator Farcaster web screenshot and live Cloudflare resize URL
+//   error `ERROR 9408: Could not fetch the image` on 2026-04-20
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: serving public generated-image proxy responses with
+//   cross-origin-friendly image headers for web/CDN image transforms
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-generated-image-public-proxy-and-task-hydration.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-farcaster-public-image-origin-and-message-preservation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-stream-duplicate-and-tool-loop-diagnostics.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-local-image-composer-base.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
@@ -293,6 +301,8 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 const asset = await loadPublicGeneratedChatImageObject(objectKey);
                 reply
                     .header('Cache-Control', asset.cacheControl)
+                    .header('Access-Control-Allow-Origin', '*')
+                    .header('Cross-Origin-Resource-Policy', 'cross-origin')
                     .header('Content-Disposition', 'inline')
                     .type(asset.contentType);
                 return reply.send(asset.body);

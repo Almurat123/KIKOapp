@@ -4,23 +4,34 @@
  */
 
 // CONTEXT MEMORY
-// Updated: 2026-04-19
+// Updated: 2026-04-20
 // Author: Rowan
 // Reason: token browse reads were still being charged against the trading bucket,
 //         which let a normal token-page navigation inherit protection limits
-//         meant for swap and mutation traffic.
+//         meant for swap and mutation traffic. Farcaster web also fetches
+//         generated image embeds through `wrpcd.net/cdn-cgi/image/...`; a
+//         2026-04-20 production repro showed the direct public image URL still
+//         returning `429 Too Many Requests` before the public route could serve
+//         the image, which can surface as Farcaster web ERROR 9408 / 403 on
+//         origin cache misses.
 // Goal: keep database-backed token reads in a read-burst bucket while preserving
-//       the tighter trading bucket for real swap and mutation paths.
+//       the tighter trading bucket for real swap and mutation paths, and treat
+//       read-only public generated-image media as static-like fetches so social
+//       CDN proxies do not burn shared API limiter buckets.
 // Owns: request throttling categories, bypass rules, and fail-open behavior for
 //       limiter backend faults.
 // Does Not Own: endpoint-level authorization, request shaping, or downstream token cache policy.
 // Design Language:
 // - Database-backed browse reads must not share the trading bucket with swaps.
+// - Public generated-image proxy reads are static-like media fetches; they must
+//   stay path-scoped and read-only, then rely on storage-layer object-key
+//   validation instead of the API rate limiter.
 // - Keep the existing copy-trade read/write bucket split intact.
 // - Prefer separate buckets for read bursts vs mutation traffic.
 // - Keep global limits on by default.
 // - Treat limiter backend faults as non-fatal to request handling.
-// - Forbidden local patch patterns: classifying every `/api/tokens/*` request as trading.
+// - Forbidden local patch patterns: classifying every `/api/tokens/*` request as trading,
+//   or adding broad user-agent allowlists for social crawlers.
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-strategy-list-read-write-decoupling.md
 // - Kind: repo doc
@@ -33,17 +44,26 @@
 // - Retrieved: 2026-04-18
 // - Applied To: split GET `/api/tokens/*` into the read-burst limiter bucket
 // - Verification: verified in code
+// - Source: operator Farcaster web screenshot and live curl repro for
+//   `api.kikoapp.app/api/chat/generated-images/public/...cmo6uezyl011b10oqrc346bwz.png`
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: bypassing the global API limiter for read-only public
+//   generated-image media fetches before Farcaster web CDN cache misses hit origin
+// - Verification: verified in runtime repro and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/loading-resilience.md
 // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-strategy-list-read-write-decoupling.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-token-read-limit-bucket-split.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-farcaster-public-image-origin-and-message-preservation.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { redis } from '../cache/cacheClient.js';
 import prisma from '../db/prisma.js';
+import { isPublicGeneratedImageProxyRequest } from './originRestriction.js';
 
 const WINDOW_SIZE_IN_SECONDS = 60;
 const MAX_REQUESTS_PER_WINDOW = Math.max(
@@ -64,6 +84,10 @@ export async function rateLimiterMiddleware(
 
     // Always skip preflight from limiter bucket.
     if (request.method === 'OPTIONS') {
+        return;
+    }
+
+    if (isPublicGeneratedImageProxyRequest(request)) {
         return;
     }
 
