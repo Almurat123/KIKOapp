@@ -33,6 +33,9 @@ surface with external provenance.
   rotation motion, and theme hold/transition cadence.
 - Seeded the homepage aura with a per-load random phase offset so each fresh
   page load can enter the shared cycle on a different theme.
+- Tightened the seed rule so the next homepage load never reuses the last
+  entry theme and the first frame always lands inside the hold window instead
+  of the crossfade window.
 - Removed the web-only noise layer and light-theme alternate styling.
 - Added the same dark veil used in MakeDream's `MobileAIChatCanvas`.
 - Updated `WelcomeScreen` ownership notes so the homepage background placement
@@ -68,7 +71,7 @@ source instead of layering ad hoc CSS tweaks on top.
 - Source: user report that the homepage currently randomizes the initial aura theme per load
   - Kind: runtime observation
   - Retrieved: 2026-04-20
-  - Applied To: seeding the aura cycle with a random start offset instead of a fixed theme-zero entry
+  - Applied To: seeding the aura cycle with a non-repeating start theme and hold-window entry offset instead of a fixed theme-zero entry
   - Verification: verified in code
 
 ## See Also

@@ -29,20 +29,22 @@ interface AuraBlob {
 //         chat-screen dark veil directly into the web runtime. The homepage
 //         must also preserve the product behavior where each fresh page load
 //         can land on a different aura theme, so this owner now seeds the
-//         shared cycle with a per-load random phase offset instead of always
+//         shared cycle with a per-load theme seed that never repeats the last
+//         homepage entry and avoids the crossfade window, instead of always
 //         starting at theme index zero.
 // Goal: preserve pixel-faithful visual parity with MakeDream's AI chat aura on
 //       both desktop and mobile without reintroducing a GPU canvas scene or
 //       a second homepage-only background language.
 // Owns: homepage aura motion constants, theme interpolation cadence, reduced-
-//       motion static fallback, per-load theme seed, blob transform math, and
-//       the final dark veil that matches the MakeDream chat canvas.
+//       motion static fallback, non-repeating entry-theme seed, blob transform
+//       math, and the final dark veil that matches the MakeDream chat canvas.
 // Does Not Own: welcome copy, layout spacing, composer glass styling, or app-
 //       wide theme policy outside this background owner.
 // Design Language:
 // - homepage aura must inherit MakeDream's blob count, positions, and motion
 // - theme colors hold for most of a cycle and only crossfade in the terminal window
-// - each fresh page load may enter the shared cycle at a different random phase
+// - each fresh page load must enter on a visibly different theme than the last homepage entry
+// - entry phase should stay inside the hold window so the first frame is not a near-blend
 // - the rendered backdrop includes the same dark veil as the MakeDream chat screen
 // - forbidden local patch patterns: light-theme alternates, noise overlays, or blob-internal gradients that diverge from MakeDream
 // Document Provenance:
@@ -59,7 +61,7 @@ interface AuraBlob {
 // - Source: user report that the production homepage enters the aura cycle on a random theme per load
 // - Kind: runtime observation
 // - Retrieved: 2026-04-20
-// - Applied To: seeding the aura cycle with a randomized start offset
+// - Applied To: seeding the aura cycle with a non-repeating randomized start theme and hold-window offset
 // - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
@@ -89,8 +91,10 @@ const BLOBS: AuraBlob[] = [
 
 const CYCLE_DURATION = 30;
 const TRANSITION_DURATION = 6;
+const HOLD_DURATION = CYCLE_DURATION - TRANSITION_DURATION;
 const TOTAL_CYCLE = CYCLE_DURATION * THEMES.length;
 const BRAND_ACCENT = 'rgba(79, 69, 230, 0.12)';
+const LAST_THEME_STORAGE_KEY = 'kiko-home-aura-theme-index';
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -111,13 +115,45 @@ const lerpColor = (c1: string, c2: string, t: number) => {
   return `rgb(${Math.round(r1 + (r2 - r1) * t)}, ${Math.round(g1 + (g2 - g1) * t)}, ${Math.round(b1 + (b2 - b1) * t)})`;
 };
 
+const readLastThemeIndex = () => {
+  if (typeof window === 'undefined') return null;
+  const raw = window.sessionStorage.getItem(LAST_THEME_STORAGE_KEY);
+  if (!raw) return null;
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isNaN(parsed) || parsed < 0 || parsed >= THEMES.length) return null;
+  return parsed;
+};
+
+const pickEntryThemeIndex = () => {
+  const lastIndex = readLastThemeIndex();
+  if (THEMES.length <= 1) return 0;
+  if (lastIndex == null) {
+    return Math.floor(Math.random() * THEMES.length);
+  }
+
+  let nextIndex = lastIndex;
+  while (nextIndex === lastIndex) {
+    nextIndex = Math.floor(Math.random() * THEMES.length);
+  }
+  return nextIndex;
+};
+
 export const AuraBackground: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const topGlowRef = useRef<HTMLDivElement>(null);
   const highlightGlowRef = useRef<HTMLDivElement>(null);
   const blobRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [reducedMotion, setReducedMotion] = useState(false);
-  const [timeOffset] = useState(() => Math.random() * TOTAL_CYCLE);
+  const [entryThemeIndex] = useState(pickEntryThemeIndex);
+  const [timeOffset] = useState(() => {
+    const holdOffset = Math.random() * Math.max(HOLD_DURATION - 0.001, 0.001);
+    return entryThemeIndex * CYCLE_DURATION + holdOffset;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.sessionStorage.setItem(LAST_THEME_STORAGE_KEY, String(entryThemeIndex));
+  }, [entryThemeIndex]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -203,7 +239,7 @@ export const AuraBackground: React.FC = () => {
     return () => cancelAnimationFrame(frameId);
   }, [reducedMotion, timeOffset]);
 
-  const staticTheme = THEMES[Math.floor(timeOffset / CYCLE_DURATION) % THEMES.length];
+  const staticTheme = THEMES[entryThemeIndex];
 
   return (
     <div className={styles.auraContainer} ref={containerRef}>

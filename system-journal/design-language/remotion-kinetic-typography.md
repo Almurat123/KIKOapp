@@ -12,6 +12,12 @@ ChatGPT/OpenAI promo snippets than to noisy social template packs: clean
 kinetic subtitles, restrained transitions, and timing that follows the music
 instead of firing generic presets in isolation.
 
+This language should be paired with the editorial motion knowledge base:
+
+- [/Users/almurat/KiKo/.agent/skills/editorial-motion-language/SKILL.md](/Users/almurat/KiKo/.agent/skills/editorial-motion-language/SKILL.md)
+- [/Users/almurat/KiKo/kiko-web/src/remotion/presets/transitionPresets.ts](/Users/almurat/KiKo/kiko-web/src/remotion/presets/transitionPresets.ts)
+- [/Users/almurat/KiKo/kiko-web/src/remotion/presets/sceneHandoffPresets.ts](/Users/almurat/KiKo/kiko-web/src/remotion/presets/sceneHandoffPresets.ts)
+
 ## Rules
 
 - Build text animation as editorial timing, not as disconnected presets. Every
