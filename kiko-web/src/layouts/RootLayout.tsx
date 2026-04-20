@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-19
+// Updated: 2026-04-20
 // Author: Rowan
 // Reason: chat text could arrive through WebSocket but still appear all at once
 //         if RootLayout buffered multiple chunks into one animation-frame flush.
@@ -41,6 +41,9 @@
 //   not by task id, because the route copy may lack task id while the broker copy has it
 // - active task state must keep the assistant message id when the backend
 //   provides it so later client-action terminal payloads can clear only the matching task
+// - active task context matching must prefer the bound assistant message id,
+//   not only a mutable task id string, so generated-image terminal events can
+//   always clear the right loading state after hydration or reconnect
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/test.txt
 // - Kind: runtime observation
@@ -78,6 +81,13 @@
 // - Retrieved: 2026-04-19
 // - Applied To: persisting active-task `messageId` context from websocket task events
 // - Verification: verified in code
+// - Source: operator screenshots on 2026-04-20 showing a generated image row
+//   rendered in storage while the chat task still appeared running
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: binding RootLayout active-task cleanup to message context
+//   instead of relying only on task id string heuristics
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-stream-diagnostics.md
@@ -86,6 +96,7 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-v2-model-owned-image-generation-tool.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-generated-image-client-preview-hydration.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-stream-duplicate-and-tool-loop-diagnostics.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-generated-image-public-proxy-and-task-hydration.md
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { usePrivy } from '@privy-io/react-auth';
@@ -99,6 +110,7 @@ import { ToastContainer, useToast } from '../components/Toast';
 import { AgentRuntime } from '../agent/AgentRuntime';
 import { logger } from '../utils/logger';
 import { chatStreamDebug } from '../utils/chatStreamDebug';
+import { doesActiveTaskMatchMessage } from '../components/Chat/generatedImageTaskState';
 
 // Global Toast Component
 function GlobalToast() {
@@ -417,15 +429,16 @@ export const RootLayout: React.FC = () => {
                 });
                 rafScheduledByConversationRef.current.set(targetSessionId, rafId);
             };
-            const matchesTaskContext = (activeTaskIdRaw: unknown, messageIdRaw?: unknown, taskIdRaw?: unknown): boolean => {
-                const activeTaskId = String(activeTaskIdRaw || '');
+            const matchesTaskContext = (
+                activeTaskRaw: { id?: unknown; messageId?: unknown } | null | undefined,
+                messageIdRaw?: unknown,
+                taskIdRaw?: unknown,
+            ): boolean => {
+                const activeTaskId = String(activeTaskRaw?.id || '');
                 if (!activeTaskId) return false;
                 const taskId = String(taskIdRaw || '');
                 if (taskId && activeTaskId === taskId) return true;
-                const messageId = String(messageIdRaw || '');
-                if (!messageId) return false;
-                if (activeTaskId === `task-${messageId}`) return true;
-                return activeTaskId.includes(messageId);
+                return doesActiveTaskMatchMessage(activeTaskRaw, messageIdRaw);
             };
 
             // --- Message Start ---
@@ -496,7 +509,7 @@ export const RootLayout: React.FC = () => {
                         messages: [...targetConv.messages, newMsg],
                         activeTask: shouldKeepExistingTask
                             ? existingTask
-                            : { id: `task-${messageId}`, status: 'running' }
+                            : { id: `task-${messageId}`, messageId, status: 'running' }
                     });
                 } else if (targetConv) {
                     updateConversation(targetSessionId, {
@@ -586,7 +599,7 @@ export const RootLayout: React.FC = () => {
                 }
 
                 const localActiveTaskId = targetConvForChunk?.activeTask?.id;
-                const hasMatchingActiveTask = !!targetConvForChunk.activeTask && matchesTaskContext(localActiveTaskId, messageId);
+                const hasMatchingActiveTask = !!targetConvForChunk.activeTask && matchesTaskContext(targetConvForChunk.activeTask, messageId);
                 const hasKnownTargetMessage = targetConvForChunk.messages.some(m => m.id === messageId);
                 const targetMessageIndex = targetConvForChunk.messages.findIndex((m) => m.id === messageId);
                 const hasNewerUserMessageAfterTarget = targetMessageIndex >= 0 &&
@@ -679,7 +692,7 @@ export const RootLayout: React.FC = () => {
                     m => m.role === 'assistant' && (m.status as string) === 'streaming'
                 );
                 const hasPendingChunks = sessionPending.size > 0;
-                const shouldClearForTaskContext = !c?.activeTask || matchesTaskContext(c.activeTask.id, messageId, taskId);
+                const shouldClearForTaskContext = !c?.activeTask || matchesTaskContext(c.activeTask, messageId, taskId);
                 // Defer task clear if response is still visibly streaming.
                 // This prevents transient UI "end -> resume" flicker on out-of-order events.
                 if (c?.activeTask && shouldClearForTaskContext && !hasStreamingAssistant && !hasPendingChunks) {
@@ -728,7 +741,7 @@ export const RootLayout: React.FC = () => {
                     console.log('[RootLayout] Skipping duplicate complete with empty pending');
                     const c = conversationsRef.current.find(c => c.id === targetSessionId);
                     const shouldClearActiveTaskForCompletion = !!c?.activeTask &&
-                        matchesTaskContext(c.activeTask.id, completionId, completionTaskId);
+                        matchesTaskContext(c.activeTask, completionId, completionTaskId);
                     if (shouldClearActiveTaskForCompletion) {
                         clearActiveTask(targetSessionId, updateConversation, 'message_complete_dedup');
                     }
@@ -739,7 +752,7 @@ export const RootLayout: React.FC = () => {
                 const tConv = conversationsRef.current.find(c => c.id === targetSessionId);
                 if (tConv && sessionPending.size > 0) {
                     const shouldClearActiveTaskForCompletion = !tConv.activeTask ||
-                        matchesTaskContext(tConv.activeTask.id, completionId, completionTaskId);
+                        matchesTaskContext(tConv.activeTask, completionId, completionTaskId);
                     const updatedMessages = [...tConv.messages];
                     const msgMap = new Map(updatedMessages.map((m, i) => [m.id, i]));
 
@@ -806,7 +819,7 @@ export const RootLayout: React.FC = () => {
                         messageIds: tConv.messages.map(m => ({ id: m.id, type: m.type })),
                     });
                     const shouldClearActiveTaskForCompletion = !tConv.activeTask ||
-                        matchesTaskContext(tConv.activeTask.id, completionId, completionTaskId);
+                        matchesTaskContext(tConv.activeTask, completionId, completionTaskId);
 
                     const updatedMessages = tConv.messages.map(m =>
                         (m.id === completionId || (shouldClearActiveTaskForCompletion && m.role === 'assistant' && m.status === 'streaming'))
@@ -1009,7 +1022,7 @@ export const RootLayout: React.FC = () => {
                     const taskId = event.data.taskId || event.data.task_id;
                     const messageId = event.data.messageId || event.data.message_id;
                     const currentTask = targetConv.activeTask;
-                    const taskMatchesCurrent = !!currentTask && matchesTaskContext(currentTask.id, messageId, taskId);
+                    const taskMatchesCurrent = !!currentTask && matchesTaskContext(currentTask, messageId, taskId);
                     const hasStreamingAssistant = targetConv.messages.some(
                         (message) => message.role === 'assistant' && message.status === 'streaming'
                     );

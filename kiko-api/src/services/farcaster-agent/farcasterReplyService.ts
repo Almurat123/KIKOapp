@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-19
+// Updated: 2026-04-20
 // Author: Linh Tran / Almurat
 // Reason: Snapchain-based Farcaster mention replies still need the same
 //         delivery idempotency and retry accounting as other social surfaces,
@@ -20,6 +20,9 @@
 //   publish a second cast.
 // - Persist outbound embed URLs with the delivery attempt so media publication
 //   retries remain auditable and deterministic.
+// - Emit publish diagnostics with resolved embed shape so one production retry
+//   is enough to distinguish bridge-resolution failures from outbound API
+//   publication failures.
 // Document Provenance:
 // - Source: @farcaster/hub-nodejs README and dist typings
 // - Kind: local SDK source
@@ -38,11 +41,18 @@
 // - Retrieved: 2026-04-19
 // - Applied To: preserving and publishing generated-image cast embeds
 // - Verification: verified in targeted test
+// - Source: operator request on 2026-04-20 to instrument server-side
+//   generated-image publication before retesting
+// - Kind: product doc
+// - Retrieved: 2026-04-20
+// - Applied To: delivery-level publish diagnostics for outgoing embed shape
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-farcaster-self-loop-bind-spam-guard.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-farcaster-generated-image-publish-diagnostics.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import prisma from '../../db/prisma.js';
 import { logger } from '../../utils/logger.js';
@@ -67,6 +77,30 @@ function normalizeFarcasterCastEmbedUrls(value: unknown): string[] {
     }
   }
   return Array.from(deduped).slice(0, 2);
+}
+
+function summarizeEmbedUrl(url: string) {
+  const rawUrl = String(url || '').trim();
+  try {
+    const parsed = new URL(rawUrl);
+    const extensionMatch = parsed.pathname.match(/\.([a-z0-9]+)$/i);
+    const extension = extensionMatch ? extensionMatch[1].toLowerCase() : null;
+    return {
+      host: parsed.host || null,
+      path: parsed.pathname || null,
+      extension,
+      isApiGeneratedImageProxy: parsed.pathname.startsWith('/api/chat/generated-images/public/'),
+      looksLikeDirectImage: Boolean(extension && ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(extension)),
+    };
+  } catch {
+    return {
+      host: null,
+      path: rawUrl || null,
+      extension: null,
+      isApiGeneratedImageProxy: false,
+      looksLikeDirectImage: false,
+    };
+  }
 }
 
 async function createOrReuseDelivery(params: {
@@ -188,6 +222,15 @@ export class FarcasterReplyService {
     });
     if (alreadySent) return true;
 
+    logger.info(LogCode.SYS_INFO, '[Farcaster] preparing outbound reply publish', {
+      deliveryId: record.id,
+      idempotencyKey: params.idempotencyKey,
+      parentHash: params.parentHash,
+      farcasterFid: params.farcasterFid,
+      embedCount: embeds.length,
+      embedDiagnostics: embeds.map((url) => summarizeEmbedUrl(url)),
+    });
+
     try {
       const sent = await farcasterApiClient.publishCastReply({
         text: params.text,
@@ -210,10 +253,24 @@ export class FarcasterReplyService {
           incrementRoundTrip: true,
         }).catch(() => {});
       }
+      logger.info(LogCode.SYS_INFO, '[Farcaster] outbound reply publish complete', {
+        deliveryId: record.id,
+        idempotencyKey: params.idempotencyKey,
+        parentHash: params.parentHash,
+        farcasterFid: params.farcasterFid,
+        providerMessageId: sent.hash || null,
+        embedCount: embeds.length,
+        embedDiagnostics: embeds.map((url) => summarizeEmbedUrl(url)),
+      });
       return true;
     } catch (error) {
       logger.warn(LogCode.API_NOTIFY_FAILED, '[Farcaster] Failed to reply to mention', {
+        deliveryId: record.id,
+        idempotencyKey: params.idempotencyKey,
+        parentHash: params.parentHash,
         farcasterFid: params.farcasterFid,
+        embedCount: embeds.length,
+        embedDiagnostics: embeds.map((url) => summarizeEmbedUrl(url)),
         error: String((error as any)?.message || error || 'unknown_error'),
       });
       await markDeliveryFailed(record.id, error);

@@ -4,7 +4,7 @@
  */
 
 // CONTEXT MEMORY
-// Updated: 2026-04-19
+// Updated: 2026-04-20
 // Author: Rowan
 // Reason: chat message creation now also has to accept image uploads and keep
 //         sent image bubbles visible after refresh. Generated-image replies now
@@ -51,6 +51,10 @@
 //   can restore GPT-family strength instead of collapsing to the default.
 // - Generated-image turns reuse the chat transcript but must not be normalized into text model ids.
 // - Generated-image route validation may create chat messages and tasks, but provider execution belongs to the generated-image task owner.
+// - Session hydration must not revive a generated-image task whose assistant
+//   message already reached a terminal state in durable storage.
+// - Public generated-image embeds should be served through an API-owned public
+//   route instead of assuming an external CDN can map raw object keys.
 // - Text chat routes should broadcast task status only; assistant `message_start`
 //   belongs to ChatStreamBroker so each assistant id starts once.
 // Document Provenance:
@@ -89,11 +93,20 @@
 // - Retrieved: 2026-04-19
 // - Applied To: removing duplicate text-route message_start broadcast
 // - Verification: verified in runtime logs and code
+// - Source: operator screenshots on 2026-04-20 showing a completed generated
+//   image stuck behind a running front-end task and a Farcaster public image
+//   embed resolving to a broken `cdn.kikoapp.app` card
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: stale active-task suppression during session hydration and
+//   API-owned public generated-image proxy serving
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-generated-image-public-proxy-and-task-hydration.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-stream-duplicate-and-tool-loop-diagnostics.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-local-image-composer-base.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
@@ -125,6 +138,7 @@ import {
     hydrateGeneratedChatImageDataForClient,
     hydrateChatImageAttachmentsForClient,
     isChatImageUploadError,
+    loadPublicGeneratedChatImageObject,
     prepareChatImageUploads,
     supportsChatImageModel,
     type ChatImageUploadRequest,
@@ -235,7 +249,63 @@ async function hydrateChatMessagesForClient(messages: any[]): Promise<any[]> {
     return Promise.all(messages.map((message) => hydrateChatMessageForClient(message)));
 }
 
+function resolveGeneratedImageTerminalStatus(data: any): 'complete' | 'failed' | null {
+    const generatedImage = data?.generatedImage;
+    const status = String(generatedImage?.status || '').trim().toLowerCase();
+    if (status === 'complete') return 'complete';
+    if (status === 'failed') return 'failed';
+    return null;
+}
+
+function shouldSuppressActiveTaskForHydratedMessages(activeTask: any, rawMessages: any[]): boolean {
+    if (!activeTask || !Array.isArray(rawMessages) || rawMessages.length === 0) {
+        return false;
+    }
+
+    const assistantMessageId = String(activeTask.assistantMessageId || activeTask.assistant_message_id || '').trim();
+    if (!assistantMessageId) {
+        return false;
+    }
+
+    const assistantMessage = rawMessages.find((message) => String(message?.id || '').trim() === assistantMessageId);
+    if (!assistantMessage) {
+        return false;
+    }
+
+    const messageStatus = String(assistantMessage.status || '').trim().toLowerCase();
+    if (messageStatus === 'complete' || messageStatus === 'error') {
+        return true;
+    }
+
+    return resolveGeneratedImageTerminalStatus(assistantMessage.data) !== null;
+}
+
 export async function chatRoutes(fastify: FastifyInstance) {
+    fastify.get(
+        '/generated-images/public/*',
+        async (request: FastifyRequest, reply: FastifyReply) => {
+            try {
+                const wildcardPath = String((request.params as Record<string, unknown>)['*'] || '').trim();
+                const objectKey = wildcardPath
+                    .split('/')
+                    .map((segment) => decodeURIComponent(segment))
+                    .join('/');
+                const asset = await loadPublicGeneratedChatImageObject(objectKey);
+                reply
+                    .header('Cache-Control', asset.cacheControl)
+                    .header('Content-Disposition', 'inline')
+                    .type(asset.contentType);
+                return reply.send(asset.body);
+            } catch (error: any) {
+                if (isChatImageUploadError(error)) {
+                    return reply.code(error.statusCode || 404).send(error.message);
+                }
+                fastify.log.warn({ err: error }, 'Error serving public generated chat image');
+                return reply.code(404).send('Generated image not found.');
+            }
+        }
+    );
+
     // =============================================
     // Upload Endpoints
     // =============================================
@@ -430,12 +500,15 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     chatRepo.getSessionActiveTask(sessionId)
                 ]);
                 const messages = await hydrateChatMessagesForClient(rawMessages);
+                const clientActiveTask = shouldSuppressActiveTaskForHydratedMessages(activeTask, rawMessages)
+                    ? null
+                    : activeTask;
 
                 return reply.send({
                     success: true,
                     session,
                     messages,
-                    activeTask,
+                    activeTask: clientActiveTask,
                 });
             } catch (error: any) {
                 fastify.log.error('Error getting session:', error);

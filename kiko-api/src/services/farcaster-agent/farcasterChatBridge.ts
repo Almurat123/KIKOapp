@@ -33,6 +33,12 @@
 //   client-safe hydration; do not expect image turns to have assistant text.
 // - Farcaster generated-image embeds must prefer durable public media URLs and
 //   use signed preview URLs only for legacy rows that predate public copies.
+// - If a generated-image row has a persisted public object key, derive the
+//   outbound embed URL from that key so legacy stored URLs cannot downgrade the
+//   cast back into an OGP card.
+// - Publish-time diagnostics must describe resolved generated-image embed
+//   shapes so operators can distinguish bridge-resolution failures from
+//   outbound publish failures with a single production test.
 // - Farcaster public replies are international-facing; generated-image fallback
 //   text must stay English and must not reintroduce Chinese status copy.
 // Document Provenance:
@@ -68,14 +74,29 @@
 // - Applied To: English-only generated-image Farcaster fallback text and
 //   task-output image embed fallback before cast publication
 // - Verification: verified in runtime log and targeted tests
+// - Source: operator screenshot on 2026-04-20 showing the published Farcaster
+//   generated-image reply still rendering as a link card
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: overriding legacy stored public URLs with proxy-derived image
+//   URLs when a public object key exists
+// - Verification: verified in code and targeted test
+// - Source: operator request on 2026-04-20 to add production diagnostics before
+//   retesting Farcaster generated-image publication
+// - Kind: product doc
+// - Retrieved: 2026-04-20
+// - Applied To: structured bridge-level resolved-embed diagnostics
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-farcaster-generated-image-english-media-reply.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-farcaster-generated-image-publish-diagnostics.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import * as chatRepo from '../../repositories/chatRepository.js';
+import { LogCode } from '../../config/logRegistry.js';
 import { trackChatMessage } from '../userActivityService.js';
 import { evaluateUsageAccess, getUsageLimitMessage, isCurrentRequestFree } from '../usageAccess.js';
 import { recordUsage } from '../usageCounter.js';
@@ -84,8 +105,9 @@ import { chatWorker } from '../../jobs/chatWorker.js';
 import { normalizeSupportedChatModel } from '../../config/chatModels.js';
 import { buildFarcasterProfileUrl } from './farcasterIdentityService.js';
 import { env } from '../../config/env.js';
-import { hydrateGeneratedChatImageDataForClient } from '../chatImageUploads.js';
+import { hydrateGeneratedChatImageDataForClient, resolveGeneratedImagePublicUrl } from '../chatImageUploads.js';
 import type { SocialAgentInput } from '../socialAgentInput.js';
+import { logger } from '../../utils/logger.js';
 
 function normalizeTaskModel(model?: string): string {
   return normalizeSupportedChatModel(model);
@@ -120,6 +142,99 @@ function normalizeFarcasterReplyEmbedUrls(value: unknown): string[] {
     }
   }
   return Array.from(deduped).slice(0, 2);
+}
+
+function readGeneratedImageEmbedUrl(image: any): string | null {
+  return resolveGeneratedImagePublicUrl(image)
+    || String(image?.previewUrl || image?.url || '').trim()
+    || null;
+}
+
+function summarizeEmbedUrl(url: string | null) {
+  const rawUrl = String(url || '').trim();
+  if (!rawUrl) {
+    return {
+      urlPresent: false,
+      host: null,
+      path: null,
+      extension: null,
+      isApiGeneratedImageProxy: false,
+      looksLikeDirectImage: false,
+    };
+  }
+  try {
+    const parsed = new URL(rawUrl);
+    const path = parsed.pathname || '';
+    const extensionMatch = path.match(/\.([a-z0-9]+)$/i);
+    const extension = extensionMatch ? extensionMatch[1].toLowerCase() : null;
+    const looksLikeDirectImage = Boolean(extension && ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(extension));
+    return {
+      urlPresent: true,
+      host: parsed.host || null,
+      path,
+      extension,
+      isApiGeneratedImageProxy: path.startsWith('/api/chat/generated-images/public/'),
+      looksLikeDirectImage,
+    };
+  } catch {
+    return {
+      urlPresent: true,
+      host: null,
+      path: rawUrl,
+      extension: null,
+      isApiGeneratedImageProxy: false,
+      looksLikeDirectImage: false,
+    };
+  }
+}
+
+function summarizeGeneratedImageAttachments(images: any[]) {
+  return (Array.isArray(images) ? images : []).slice(0, 2).map((image: any) => {
+    const resolvedUrl = readGeneratedImageEmbedUrl(image);
+    return {
+      id: String(image?.id || image?.uploadId || '').trim() || null,
+      source: resolveGeneratedImagePublicUrl(image)
+        ? (String(image?.publicObjectKey || '').trim() ? 'public_object_key' : 'public_url')
+        : (String(image?.previewUrl || image?.url || '').trim() ? 'preview_or_raw_url' : 'missing'),
+      hasPublicObjectKey: Boolean(String(image?.publicObjectKey || '').trim()),
+      storedPublicUrlHost: (() => {
+        try {
+          const raw = String(image?.publicUrl || '').trim();
+          return raw ? new URL(raw).host : null;
+        } catch {
+          return null;
+        }
+      })(),
+      resolved: summarizeEmbedUrl(resolvedUrl),
+    };
+  });
+}
+
+function logResolvedAssistantReply(params: {
+  assistantMessageId: string;
+  taskId?: string | null;
+  taskStatus?: string | null;
+  assistantMessage: any;
+  reply: FarcasterAssistantReply;
+  source: 'message' | 'task_output_fallback' | 'timeout';
+  diagnosticImages?: any[] | null;
+}) {
+  const generatedImage = params.assistantMessage?.data?.generatedImage || null;
+  const messageType = String(params.assistantMessage?.type || '').trim().toLowerCase();
+  if (messageType !== 'generated-image' && !generatedImage && params.reply.embeds.length === 0) {
+    return;
+  }
+  logger.info(LogCode.SYS_INFO, '[Farcaster] resolved assistant reply for publication', {
+    assistantMessageId: params.assistantMessageId,
+    taskId: params.taskId || null,
+    taskStatus: params.taskStatus || null,
+    messageType: messageType || null,
+    source: params.source,
+    generatedImageStatus: String(generatedImage?.status || '').trim().toLowerCase() || null,
+    embedCount: params.reply.embeds.length,
+    embedDiagnostics: params.reply.embeds.map((url) => summarizeEmbedUrl(url)),
+    imageDiagnostics: summarizeGeneratedImageAttachments(params.diagnosticImages || generatedImage?.images || []),
+  });
 }
 
 function buildGeneratedImageFallbackText(generatedImage: any, content: string): string {
@@ -176,7 +291,7 @@ export async function buildFarcasterAssistantReplyFromGeneratedImageState(
   }
 
   const rawImages = Array.isArray(generatedImage?.images) ? generatedImage.images : [];
-  const rawEmbedUrls = normalizeFarcasterReplyEmbedUrls(rawImages.map((image: any) => image?.publicUrl || image?.previewUrl || image?.url));
+  const rawEmbedUrls = normalizeFarcasterReplyEmbedUrls(rawImages.map((image: any) => readGeneratedImageEmbedUrl(image)));
   let hydratedGeneratedImage = generatedImage;
   try {
     const hydratedData = await hydrateGeneratedChatImageDataForClient({ generatedImage });
@@ -188,7 +303,7 @@ export async function buildFarcasterAssistantReplyFromGeneratedImageState(
   const images = Array.isArray(hydratedGeneratedImage?.images) ? hydratedGeneratedImage.images : [];
   const embedUrls = normalizeFarcasterReplyEmbedUrls([
     ...rawEmbedUrls,
-    ...images.map((image: any) => image?.publicUrl || image?.previewUrl || image?.url),
+    ...images.map((image: any) => readGeneratedImageEmbedUrl(image)),
   ]);
   return {
     text: buildGeneratedImageFallbackText(hydratedGeneratedImage, String(content || '').trim()),
@@ -338,10 +453,18 @@ export async function waitForFarcasterTaskAssistantReply(params: {
   if (!params.taskId) {
     const assistantMessage = await chatRepo.getMessage(params.assistantMessageId);
     const reply = await buildFarcasterAssistantReplyFromMessage(assistantMessage);
-    return {
+    const resolvedReply = {
       text: reply.text || resolveFarcasterAssistantReplyText(assistantMessage),
       embeds: reply.embeds,
     };
+    logResolvedAssistantReply({
+      assistantMessageId: params.assistantMessageId,
+      assistantMessage,
+      reply: resolvedReply,
+      source: 'message',
+      diagnosticImages: assistantMessage?.data?.generatedImage?.images || [],
+    });
+    return resolvedReply;
   }
 
   const timeoutMs = Math.max(1_000, Number(params.timeoutMs || 90_000));
@@ -361,12 +484,24 @@ export async function waitForFarcasterTaskAssistantReply(params: {
           task?.toolContext?.generatedImage?.output,
           reply.text,
         );
-      return {
+      const resolvedReply = {
         text: outputReply.text || reply.text || resolveFarcasterAssistantReplyText(assistantMessage, {
           taskStatus: task?.status || null,
         }),
         embeds: outputReply.embeds.length > 0 ? outputReply.embeds : reply.embeds,
       };
+      logResolvedAssistantReply({
+        assistantMessageId: params.assistantMessageId,
+        taskId: params.taskId,
+        taskStatus: task?.status || null,
+        assistantMessage,
+        reply: resolvedReply,
+        source: outputReply.embeds.length > 0 && reply.embeds.length === 0 ? 'task_output_fallback' : 'message',
+        diagnosticImages: outputReply.embeds.length > 0 && reply.embeds.length === 0
+          ? task?.toolContext?.generatedImage?.output?.images || []
+          : assistantMessage?.data?.generatedImage?.images || [],
+      });
+      return resolvedReply;
     }
 
     await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -374,13 +509,23 @@ export async function waitForFarcasterTaskAssistantReply(params: {
 
   const assistantMessage = await chatRepo.getMessage(params.assistantMessageId);
   const reply = await buildFarcasterAssistantReplyFromMessage(assistantMessage);
-  return {
+  const resolvedReply = {
     text: reply.text || resolveFarcasterAssistantReplyText(assistantMessage, {
       taskStatus: 'running',
       timedOut: true,
     }),
     embeds: reply.embeds,
   };
+  logResolvedAssistantReply({
+    assistantMessageId: params.assistantMessageId,
+    taskId: params.taskId,
+    taskStatus: 'running',
+    assistantMessage,
+    reply: resolvedReply,
+    source: 'timeout',
+    diagnosticImages: assistantMessage?.data?.generatedImage?.images || [],
+  });
+  return resolvedReply;
 }
 
 export async function waitForFarcasterTaskAssistantText(params: {

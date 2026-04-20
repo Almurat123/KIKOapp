@@ -36,6 +36,8 @@ import { findChatModelOption, hydrateChatModelOption } from '../components/Chat/
 // - Forbidden local patch pattern: replacing live non-text assistant cards with stale plain-text DB rows.
 // - Forbidden local patch pattern: dropping image preview attachments during the send-time DB update race.
 // - Forbidden local patch pattern: replacing a generated-image assistant row with an empty text placeholder during hydration.
+// - Forbidden local patch pattern: letting a stale local generated-image
+//   placeholder overwrite a newer DB-backed terminal image payload.
 // - Forbidden local patch pattern: preserving a route-local conversation and
 //   active task after the backend has already returned a hard session-not-found.
 // - Forbidden local patch pattern: letting an older session hydration response
@@ -86,6 +88,14 @@ import { findChatModelOption, hydrateChatModelOption } from '../components/Chat/
 // - Applied To: preserving latest same-id assistant stream content across
 //   concurrent `loadConversation()` hydration responses
 // - Verification: verified in code
+// - Source: operator screenshots on 2026-04-20 showing a generated-image
+//   message still rendering a stale local placeholder after the backend had
+//   already stored the final image asset
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: preferring richer terminal generated-image payloads during
+//   message hydration instead of blindly spreading local state over DB state
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-copytrade-card-live-hydration.md
@@ -95,6 +105,7 @@ import { findChatModelOption, hydrateChatModelOption } from '../components/Chat/
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-orphan-session-loading-state.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-chat-stream-hydration-stale-overwrite.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-generated-image-public-proxy-and-task-hydration.md
 
 export interface Message {
   id: string;
@@ -209,6 +220,52 @@ function isRichAssistantMessageType(type: Message['type'] | undefined): boolean 
   return Boolean(type && type !== 'text');
 }
 
+function getGeneratedImageState(data: any): any | null {
+  const state = data?.generatedImage;
+  return state && typeof state === 'object' ? state : null;
+}
+
+function getGeneratedImageStateScore(state: any): number {
+  if (!state || typeof state !== 'object') return 0;
+  const status = String(state.status || '').trim().toLowerCase();
+  const imageCount = Array.isArray(state.images) ? state.images.length : 0;
+  if (status === 'complete' && imageCount > 0) return 4;
+  if (status === 'complete' || status === 'failed') return 3;
+  if (status === 'saving' || status === 'moderating') return 2;
+  if (status === 'generating' || status === 'queued') return 1;
+  return imageCount > 0 ? 1 : 0;
+}
+
+function mergeAssistantStructuredData(dbData: any, localData: any) {
+  const baseMerged = {
+    ...(dbData ?? {}),
+    ...(localData ?? {}),
+  };
+
+  const dbGeneratedImage = getGeneratedImageState(dbData);
+  const localGeneratedImage = getGeneratedImageState(localData);
+  if (!dbGeneratedImage || !localGeneratedImage) {
+    return baseMerged;
+  }
+
+  const dbScore = getGeneratedImageStateScore(dbGeneratedImage);
+  const localScore = getGeneratedImageStateScore(localGeneratedImage);
+  const preferDbGeneratedImage = dbScore >= localScore;
+
+  return {
+    ...baseMerged,
+    generatedImage: preferDbGeneratedImage
+      ? {
+          ...localGeneratedImage,
+          ...dbGeneratedImage,
+        }
+      : {
+          ...dbGeneratedImage,
+          ...localGeneratedImage,
+        },
+  };
+}
+
 function shouldPreferLongerLocalText(dbTextRaw: unknown, localTextRaw: unknown): boolean {
   const dbText = String(dbTextRaw || '');
   const localText = String(localTextRaw || '');
@@ -274,10 +331,7 @@ function mergeAssistantMessageFromLocal(dbMessage: any, localMessage: any) {
       ...baseMessage,
       type: localType,
       data: mergeAgentRuntimeData(
-        {
-          ...(baseMessage.data ?? {}),
-          ...(localMessage.data ?? {}),
-        },
+        mergeAssistantStructuredData(baseMessage.data, localMessage.data),
         localMessage.data,
       ),
     };

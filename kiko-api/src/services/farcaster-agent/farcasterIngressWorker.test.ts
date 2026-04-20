@@ -289,6 +289,36 @@ test('buildFarcasterAssistantReplyFromMessage prefers public embeds from generat
   assert.deepEqual(reply.embeds, ['https://cdn.example/public-generated.png']);
 });
 
+test('buildFarcasterAssistantReplyFromMessage rewrites legacy generated-image public URLs from public object keys', async () => {
+  const reply = await buildFarcasterAssistantReplyFromMessage({
+    content: '',
+    type: 'generated-image',
+    data: {
+      generatedImage: {
+        status: 'complete',
+        images: [
+          {
+            id: 'generated-legacy',
+            publicObjectKey: 'chat-uploads/generated-public/farcaster/did_privy_test/2026-04-20/message-123.png',
+            publicUrl: 'https://cdn.kikoapp.app/chat-uploads/generated-public/farcaster/did_privy_test/2026-04-20/message-123.png',
+            previewUrl: 'https://signed.example/generated.png',
+            name: 'generated.png',
+            type: 'image/png',
+            size: 123,
+            width: 1024,
+            height: 1024,
+          },
+        ],
+      },
+    },
+  });
+
+  assert.equal(reply.text, 'Generated.');
+  assert.deepEqual(reply.embeds, [
+    'https://api.kikoapp.app/api/chat/generated-images/public/chat-uploads/generated-public/farcaster/did_privy_test/2026-04-20/message-123.png',
+  ]);
+});
+
 test('buildFarcasterAssistantReplyFromGeneratedImageState uses task output fallback embeds', async () => {
   const reply = await buildFarcasterAssistantReplyFromGeneratedImageState({
     status: 'complete',

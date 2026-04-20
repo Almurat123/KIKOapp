@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-19
+// Updated: 2026-04-20
 // Author: Rowan
 // Reason: web chat now supports user-uploaded image turns and refreshed chat
 //         history must still render the image bubble. Generated-image replies
@@ -35,6 +35,11 @@
 // - Model and history reads should use short-lived signed GET URLs generated only when needed.
 // - Farcaster generated-image replies must use durable public URL embeds, not
 //   expiring signed preview URLs.
+// - Public generated-image URLs should default to an API-owned proxy route so
+//   social embeds do not depend on an external CDN path convention.
+// - When a generated-image attachment carries a public object key, derive the
+//   outbound public URL from that key at read time so legacy stored URLs do not
+//   keep publishing stale CDN/OGP links.
 // - Public generated-image copies are opt-in by task source; do not publish
 //   ordinary web chat images.
 // - Strip metadata and normalize image formats before model access.
@@ -71,12 +76,27 @@
 // - Retrieved: 2026-04-19
 // - Applied To: opt-in public generated-image URL publication for Farcaster cast embeds
 // - Verification: verified in code
+// - Source: operator runtime report on 2026-04-20 showing a Farcaster cast with
+//   `Generated.` text and a broken `cdn.kikoapp.app` image embed
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: defaulting Farcaster public generated-image URLs to an API-owned
+//   proxy route instead of a deployment-specific CDN path
+// - Verification: verified in code
+// - Source: operator correction on 2026-04-20 that the Farcaster card was still
+//   rendering as an OGP preview instead of a direct image
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: deriving public generated-image URLs from persisted public
+//   object keys so legacy stored URLs cannot keep forcing link-card rendering
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/social-agent-multimodal-input.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-generated-image-public-proxy-and-task-hydration.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-local-image-composer-base.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
@@ -107,7 +127,12 @@ const IMAGE_CACHE_CONTROL = process.env.CHAT_IMAGE_UPLOAD_CACHE_CONTROL || 'priv
 const CHAT_IMAGE_PREFIX = String(process.env.CHAT_IMAGE_UPLOAD_PREFIX || 'chat-uploads').replace(/^\/+|\/+$/g, '');
 const CHAT_GENERATED_IMAGE_PREFIX = String(process.env.CHAT_GENERATED_IMAGE_PREFIX || `${CHAT_IMAGE_PREFIX}/generated`).replace(/^\/+|\/+$/g, '');
 const CHAT_GENERATED_IMAGE_PUBLIC_PREFIX = String(process.env.CHAT_GENERATED_IMAGE_PUBLIC_PREFIX || `${CHAT_IMAGE_PREFIX}/generated-public`).replace(/^\/+|\/+$/g, '');
-const CHAT_GENERATED_IMAGE_PUBLIC_BASE_URL = String(process.env.CHAT_GENERATED_IMAGE_PUBLIC_BASE_URL || '').trim().replace(/\/+$/g, '');
+const CHAT_GENERATED_IMAGE_PUBLIC_URL_MODE = String(process.env.CHAT_GENERATED_IMAGE_PUBLIC_URL_MODE || 'proxy').trim().toLowerCase();
+const CHAT_GENERATED_IMAGE_PUBLIC_DIRECT_BASE_URL = String(process.env.CHAT_GENERATED_IMAGE_PUBLIC_BASE_URL || '').trim().replace(/\/+$/g, '');
+const CHAT_GENERATED_IMAGE_PUBLIC_PROXY_BASE_URL = String(
+    process.env.CHAT_GENERATED_IMAGE_PUBLIC_PROXY_BASE_URL
+    || 'https://api.kikoapp.app/api/chat/generated-images/public'
+).trim().replace(/\/+$/g, '');
 const GENERATED_IMAGE_PUBLIC_CACHE_CONTROL = process.env.CHAT_GENERATED_IMAGE_PUBLIC_CACHE_CONTROL || 'public, max-age=31536000, immutable';
 const MAX_IMAGE_PIXELS = CHAT_IMAGE_UPLOAD_MAX_DIMENSION * CHAT_IMAGE_UPLOAD_MAX_DIMENSION;
 
@@ -356,12 +381,30 @@ function buildGeneratedPublicObjectKey(userId: string, assistantMessageId: strin
 }
 
 function buildPublicObjectUrl(objectKey: string): string | null {
-    if (!CHAT_GENERATED_IMAGE_PUBLIC_BASE_URL) return null;
+    const baseUrl = CHAT_GENERATED_IMAGE_PUBLIC_URL_MODE === 'direct'
+        ? CHAT_GENERATED_IMAGE_PUBLIC_DIRECT_BASE_URL
+        : CHAT_GENERATED_IMAGE_PUBLIC_PROXY_BASE_URL;
+    if (!baseUrl) return null;
     const encodedPath = String(objectKey || '')
         .split('/')
         .map((segment) => encodeURIComponent(segment))
         .join('/');
-    return `${CHAT_GENERATED_IMAGE_PUBLIC_BASE_URL}/${encodedPath}`;
+    return `${baseUrl}/${encodedPath}`;
+}
+
+export function resolveGeneratedImagePublicUrl(attachment: any): string | null {
+    const publicObjectKey = String(attachment?.publicObjectKey || '').trim().replace(/^\/+/, '');
+    if (publicObjectKey && isPublicGeneratedImageObjectKey(publicObjectKey)) {
+        return buildPublicObjectUrl(publicObjectKey)
+            || String(attachment?.publicUrl || '').trim()
+            || null;
+    }
+    return String(attachment?.publicUrl || '').trim() || null;
+}
+
+export function isPublicGeneratedImageObjectKey(objectKey: string): boolean {
+    const normalizedKey = String(objectKey || '').trim().replace(/^\/+/, '');
+    return normalizedKey.startsWith(`${CHAT_GENERATED_IMAGE_PUBLIC_PREFIX}/`);
 }
 
 async function headObjectWithRetry(objectKey: string, attempts = 4): Promise<{ contentLength: number; contentType: string } | null> {
@@ -856,7 +899,7 @@ export async function hydrateChatImageAttachmentListForClient(attachments: any[]
             size: Number(attachment?.size || 0),
             width: attachment?.width ?? null,
             height: attachment?.height ?? null,
-            publicUrl: String(attachment?.publicUrl || '').trim() || null,
+            publicUrl: resolveGeneratedImagePublicUrl(attachment),
         };
 
         if (!objectKey) {
@@ -984,6 +1027,33 @@ export async function storeGeneratedChatImage(params: {
         objectBuffer: Buffer.from(params.buffer || []),
         preferredContentType: params.contentType || undefined,
     });
+}
+
+export async function loadPublicGeneratedChatImageObject(objectKey: string): Promise<{
+    body: Buffer;
+    contentType: string;
+    cacheControl: string;
+}> {
+    const normalizedKey = String(objectKey || '').trim().replace(/^\/+/, '');
+    if (!normalizedKey || !isPublicGeneratedImageObjectKey(normalizedKey)) {
+        throw new ChatImageUploadError('Generated image not found.', 404);
+    }
+
+    const head = await headObjectWithRetry(normalizedKey, 2);
+    if (!head) {
+        throw new ChatImageUploadError('Generated image not found.', 404);
+    }
+
+    const body = await getObjectBuffer(normalizedKey);
+    if (!body.length) {
+        throw new ChatImageUploadError('Generated image not found.', 404);
+    }
+
+    return {
+        body,
+        contentType: normalizeMimeType(head.contentType) || 'image/png',
+        cacheControl: GENERATED_IMAGE_PUBLIC_CACHE_CONTROL,
+    };
 }
 
 export async function cleanupTaskChatImageUploads(taskId: string, options: { deleteObjects?: boolean } = {}): Promise<void> {

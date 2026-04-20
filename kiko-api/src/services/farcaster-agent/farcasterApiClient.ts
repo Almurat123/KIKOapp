@@ -37,7 +37,9 @@
 // - Avoid leaking provider-specific payload shapes into the worker.
 // - Normalize cast image-bearing embeds before they leave this owner.
 // - Normalize outbound cast embed URLs before provider-specific publish calls.
-// - Log outbound embed count without logging media URLs.
+// - Log outbound embed diagnostics with host/path/extension so operators can
+//   distinguish direct-image embeds from link-card embeds without logging
+//   credential-bearing payloads.
 // Document Provenance:
 // - Source: Neynar webhook documentation and notifications API
 // - Kind: official API doc
@@ -96,6 +98,12 @@
 // - Retrieved: 2026-04-20
 // - Applied To: publish-time embed-count diagnostics for generated-image replies
 // - Verification: verified in code
+// - Source: operator request on 2026-04-20 to add server diagnostics before
+//   retesting Farcaster generated-image publication
+// - Kind: product doc
+// - Retrieved: 2026-04-20
+// - Applied To: API-client publish-path diagnostics for outgoing embed shape
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
@@ -107,6 +115,7 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-mention-hub-request-failover.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-farcaster-generated-image-english-media-reply.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-farcaster-generated-image-publish-diagnostics.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import {
   CastId,
@@ -189,6 +198,30 @@ function normalizeCastEmbedUrls(value: unknown): string[] {
     }
   }
   return Array.from(deduped).slice(0, 2);
+}
+
+function summarizeEmbedUrl(url: string) {
+  const rawUrl = String(url || '').trim();
+  try {
+    const parsed = new URL(rawUrl);
+    const extensionMatch = parsed.pathname.match(/\.([a-z0-9]+)$/i);
+    const extension = extensionMatch ? extensionMatch[1].toLowerCase() : null;
+    return {
+      host: parsed.host || null,
+      path: parsed.pathname || null,
+      extension,
+      isApiGeneratedImageProxy: parsed.pathname.startsWith('/api/chat/generated-images/public/'),
+      looksLikeDirectImage: Boolean(extension && ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(extension)),
+    };
+  } catch {
+    return {
+      host: null,
+      path: rawUrl || null,
+      extension: null,
+      isApiGeneratedImageProxy: false,
+      looksLikeDirectImage: false,
+    };
+  }
 }
 
 function normalizeHubEndpoint(raw: string): HubEndpoint {
@@ -632,6 +665,7 @@ export class FarcasterApiClient {
     embeds?: string[] | null;
   }): Promise<FarcasterSendResult> {
     const embeds = normalizeCastEmbedUrls(params.embeds);
+    const embedDiagnostics = embeds.map((url) => summarizeEmbedUrl(url));
     const neynarReply = await publishNeynarCastReply({
       text: params.text,
       parentHash: params.parentHash,
@@ -644,9 +678,19 @@ export class FarcasterApiClient {
         parentHash: params.parentHash,
         parentAuthorFid: params.parentAuthorFid,
         embedCount: embeds.length,
+        embedDiagnostics,
+        publishPath: 'neynar',
       });
       return neynarReply;
     }
+
+    logger.info(LogCode.SYS_INFO, '[Farcaster] cast reply falling back to Hub publish', {
+      parentHash: params.parentHash,
+      parentAuthorFid: params.parentAuthorFid,
+      embedCount: embeds.length,
+      embedDiagnostics,
+      publishPath: 'hub_fallback',
+    });
 
     return runHubRequestWithFailover('cast reply publish', async (client) => {
       const parentHash = asBytes(params.parentHash);
@@ -685,6 +729,15 @@ export class FarcasterApiClient {
       if (submitted.isErr()) {
         throw submitted.error;
       }
+
+      logger.info(LogCode.SYS_INFO, '[Farcaster] cast reply published via Hub fallback', {
+        parentHash: params.parentHash,
+        parentAuthorFid: params.parentAuthorFid,
+        embedCount: embeds.length,
+        embedDiagnostics,
+        publishPath: 'hub_fallback',
+        providerMessageId: asHexString(submitted.value.hash),
+      });
 
       return {
         hash: asHexString(submitted.value.hash),
