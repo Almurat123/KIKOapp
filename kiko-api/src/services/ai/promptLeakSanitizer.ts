@@ -1,3 +1,19 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-20
+// Status: mixed
+// Why: NVIDIA thinking traces started leaking backend strategy notes, required
+// context tool labels, and Clanker deploy checklists into visible
+// reasoning_content, which made the model look stuck in planner chatter.
+// Debug Goal: keep visible reasoning limited to user-meaningful analysis rather
+// than internal orchestration scripts or read_* tool narration.
+// Search Tags: reasoning strategy notes leak, required_context_tools visible, clanker checklist in reasoning
+// Invariants:
+// - visible reasoning must not expose internal tool names or backend checklist labels
+// - when all visible reasoning is stripped, fall back to a neutral placeholder
+// Failure Modes:
+// - new planner phrases leak because sanitizer only matches older tool chatter
+// - useful reasoning gets over-stripped and collapses to the fallback too often
+
 const INTERNAL_JSON_MARKERS = [
     'case_id',
     'required_context_usage',
@@ -41,10 +57,14 @@ const PSEUDO_TOOL_CALL_PATTERNS = [
 ];
 
 const REASONING_INTERNAL_PATTERNS = [
+    /strategy notes?/i,
+    /according to the strategy notes/i,
+    /according to the tool description/i,
     /task strategy/i,
     /task_strategy/i,
     /tool preferences/i,
     /tool policy/i,
+    /required_context_tools?/i,
     /current phase/i,
     /intent envelope/i,
     /provider-native/i,
@@ -54,6 +74,7 @@ const REASONING_INTERNAL_PATTERNS = [
     /let me call/i,
     /i should use/i,
     /i'?ll call/i,
+    /\bread_[a-z0-9_]+\b/i,
     /tool_calls?/i,
     /\btool_name\b/i,
     /<tool_calls?>/i,
@@ -72,6 +93,12 @@ const REASONING_INTERNAL_PATTERNS = [
     /search_farcaster/i,
     /get_trending_casts/i,
     /x_search/i,
+    /clanker skill prompt/i,
+    /hard-missing launch inputs/i,
+    /use defaults for optional fields/i,
+    /keep launches? in dry-?run mode/i,
+    /\bconfirmdeploy(?:=true)?\b/i,
+    /dry-?run preview/i,
     /farcaster/i,
     /polymarket/i,
     /<call_[^>]+>/i,

@@ -301,6 +301,7 @@ const SYSTEM_PROMPT_BASE = [
   "Do not invent tool results or execution outcomes.",
   'If a tool is needed, emit a real tool call. Never print pseudo-tool JSON, tool call schemas, or {"tool": ...} / {"tool_calls": ...} blocks in assistant text.',
   'Never narrate planned tool usage in plain text. Do not write sentences like "I will search", "I will use external_web_search", or "Calling get_token_info". Either emit a real structured tool call, or answer normally with no tool mention.',
+  "Never restate backend strategy notes, required_context_tools labels, read_* context tool names, or internal dry-run / confirmDeploy checklists in assistant text or reasoning. Use those instructions only to choose the next action.",
   "If you are uncertain whether a tool is needed, decide first. Once you decide to use one, emit the tool call immediately instead of describing the plan.",
   "Do not say you found, confirmed, verified, or retrieved anything unless a real tool or search result already produced that evidence in this turn or the supplied evidence context.",
   "Final answers must stay grounded in the actual tool/source fields you have. If a tool did not return a field, metric, column, or fact, do not invent it to make the answer look complete.",
@@ -1183,6 +1184,9 @@ function buildToolGuidanceBlock(guidance?: {
   }
   if (requiredContextTools.length > 0) {
     lines.push("[CONTEXT_READ_POLICY]");
+    lines.push(
+      "- internal_only: required_context_tools are backend labels for action selection. Use them to decide the next read, and do not quote them in assistant text or reasoning.",
+    );
     lines.push(`- required_context_tools: ${requiredContextTools.join(", ")}`);
     lines.push(
       "- rule: if a required context is still missing, call the corresponding read_* tool before finalizing.",
@@ -1195,6 +1199,9 @@ function buildToolGuidanceBlock(guidance?: {
     if (lines.length === 0) {
       lines.push("[TOOL_CONTEXT]");
     }
+    lines.push(
+      "- internal_only: strategy notes are backend policy hints. Follow them silently and do not restate them in assistant text or reasoning.",
+    );
     lines.push("- Strategy notes for this turn:");
     for (const note of guidance.strategyNotes) {
       const trimmed = String(note || "").trim();

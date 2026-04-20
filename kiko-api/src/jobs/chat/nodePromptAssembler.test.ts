@@ -1571,6 +1571,53 @@ test("assembleGenerationMessages replays stored reasoning_content back to NVIDIA
   );
 });
 
+test("assembleGenerationMessages marks strategy notes and required context labels as internal-only", () => {
+  const snapshot: ChatContextSnapshot = {
+    sessionId: "session-internal-only",
+    taskId: "task-internal-only",
+    model: "glm-5",
+    history: [],
+    lastUserMessage: "Deploy a Clanker token named TG with symbol TG",
+    runtime: {
+      contextBlocks: {},
+      userSettings: {},
+    },
+    requestedTokenAddresses: [],
+    requestedTokenSymbols: ["TG"],
+    toolDefinitions: [],
+  };
+
+  const providerInfo: ProviderInfo = {
+    provider: "nvidia",
+    model: snapshot.model,
+    supportsNativeSearch: false,
+    supportsPreviousResponse: false,
+  };
+
+  const messages = assembleGenerationMessages(snapshot, [], providerInfo, {
+    allowAllTools: true,
+    strategyNotes: [
+      "This is a Clanker launch or Clanker history request. Follow the Clanker launch safety template.",
+    ],
+    contextContract: {
+      mode: "execution",
+      requiredContexts: ["workflow_state", "skill_prompts", "user_context"],
+      optionalContexts: [],
+      reason: "mutation workflow",
+    },
+  });
+
+  const userMessage = messages.find((message) => message.role === "user");
+  const userContent = String(userMessage?.content || "");
+
+  assert.match(userContent, /internal_only: strategy notes are backend policy hints/i);
+  assert.match(userContent, /internal_only: required_context_tools are backend labels/i);
+  assert.match(
+    userContent,
+    /required_context_tools: read_workflow_state, read_skill_prompts, read_user_context/,
+  );
+});
+
 test("assembleGenerationMessages strips stored reasoning_content for NVIDIA Kimi instant history", () => {
   const snapshot: ChatContextSnapshot = {
     sessionId: "session-3",

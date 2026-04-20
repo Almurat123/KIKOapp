@@ -21,12 +21,25 @@
 //         native generated-image execution can complete the reply without a
 //         synthetic text answer. Product architecture review on 2026-04-19
 //         moved tool choice to the main GPT path by default: this owner must
-//         stop creating fake plan-card work and pass the full registered tool
-//         catalog into provider generation. Execution-receipt review then moved
+//         stop creating fake plan-card work after model-selected task routing.
+//         Live NVIDIA evals on 2026-04-20 then showed that passing the full
+//         registered tool catalog into provider generation after task
+//         selection caused long planning loops, so tool visibility now returns
+//         to resolver-matched skill packages plus explicit context reads.
+//         Execution-receipt review then moved
 //         hash/order/token URL replies out of prompt obligations and into a
 //         post-tool runtime hook. A 2026-04-19 deploy-token loop incident also
 //         showed this owner must log each local tool result and receipt-hook
-//         decision before any follow-up generation round starts.
+//         decision before any follow-up generation round starts. A later
+//         NVIDIA/GLM runtime trace showed execution turns could still expose
+//         the entire tool catalog before any required context was read, which
+//         made heavy thinking models spend tens of seconds planning against 70+
+//         tools, answer prematurely, then get forced into extra rounds when
+//         required-context enforcement rejected that answer after the fact.
+//         Product correction on 2026-04-20 then moved fixed execution flows to
+//         backend-prefetched required context reads so execution turns start
+//         with the needed runtime state already loaded instead of burning a
+//         first model round deciding which `read_*` tools to call.
 // Goal: keep the broker/runtime reasoning stream and stored assistant messages
 //       consistent across reasoning-capable providers without changing the
 //       downstream message schema, while avoiding unnecessary plan-model work
@@ -46,12 +59,17 @@
 // - production debugging needs one safe Railway-visible trace summary per AI turn
 // - invalid or missing canonical intent must not trigger backend-authored clarification prose
 // - tool messages should carry continuation guidance instead of raw result blobs alone
-// - model-led tool mode means the main model owns semantic tool selection; this
-//   orchestrator still owns execution rounds, policy checks, and terminal handoff
+// - model-selected task mode means the main model owns semantic task choice;
+//   this orchestrator still owns execution rounds, scoped tool exposure,
+//   policy checks, and terminal handoff
 // - successful side-effecting tool receipts are deterministic runtime answers,
 //   not another model-generation round
 // - tool-result diagnostics must show ok/source/reason/result keys and receipt
 //   decision without logging raw prompt or assistant content
+// - required-context enforcement should narrow the visible tool menu before a
+//   generation round starts, not only after a premature final answer arrives
+// - fixed execution flows may prefetch required read-only context before the
+//   first generation round so the model starts from loaded worker state
 // Document Provenance:
 // - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
 // - Kind: official API doc
@@ -97,8 +115,13 @@
 // - Source: operator architecture review on 2026-04-19
 // - Kind: product instruction
 // - Retrieved: 2026-04-19
-// - Applied To: suppressing runtime scaffold cards and exposing all tools in model-led mode
-// - Verification: verified in code and targeted tests
+// - Applied To: suppressing runtime scaffold cards after model-selected task routing
+// - Verification: verified in code and later narrowed for tool visibility
+// - Source: local live NVIDIA evals plus product-owner correction on 2026-04-20
+// - Kind: runtime observation / product instruction
+// - Retrieved: 2026-04-20
+// - Applied To: keeping tool visibility scoped to the resolver package instead of the full registry
+// - Verification: verified in runtime and targeted tests
 // - Source: operator correction in local runtime thread about receipt prompt token waste
 // - Kind: product instruction / runtime observation
 // - Retrieved: 2026-04-19
@@ -109,6 +132,17 @@
 // - Retrieved: 2026-04-19
 // - Applied To: local tool-result and receipt-decision diagnostics
 // - Verification: verified in code
+// - Source: /Users/almurat/Downloads/logs.1776695132347.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: front-loading required-context tool gating for slow NVIDIA
+//   execution turns that were looping after premature answers
+// - Verification: verified in runtime trace and applied in code
+// - Source: local live execution evals plus product-owner correction on 2026-04-20
+// - Kind: runtime observation / product instruction
+// - Retrieved: 2026-04-20
+// - Applied To: backend-prefetching required context for fixed execution flows
+// - Verification: verified in runtime and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
@@ -156,7 +190,7 @@ import type { CanonicalIntent } from './canonicalIntent.js';
 import { applyConversationActionState } from './conversationStateResolver.js';
 import { tryBuildFastLaneSwapIntent, tryRunFastSwapLane } from './swapFastLane.js';
 import { ChatAiTraceLogger } from './chatAiTraceLogger.js';
-import { isModelLedToolOrchestrationEnabled, resolveModelLedToolNames } from './modelLedToolOrchestration.js';
+import { isModelLedToolOrchestrationEnabled } from './modelLedToolOrchestration.js';
 import { buildExecutionReceiptDecision } from './executionReceiptAnswer.js';
 
 const CHAIN_EVIDENCE_TOOLS = new Set([
@@ -316,11 +350,9 @@ export async function runNodeOrchestration(params: {
     chatAiTrace.recordSkillResolution(skillResolution);
     const strictPolicy = params.snapshot.policySnapshot?.enforcementLevel === 'hard';
     params.snapshot = normalizedSnapshot;
-    const effectiveAllowedTools = modelLedTools
-        ? resolveModelLedToolNames(params.snapshot)
-        : strictPolicy && params.snapshot.policySnapshot
-            ? params.snapshot.policySnapshot.allowedTools
-            : skillResolution.allowedTools;
+    const effectiveAllowedTools = strictPolicy && params.snapshot.policySnapshot
+        ? params.snapshot.policySnapshot.allowedTools
+        : skillResolution.allowedTools;
     const planning = buildTaskPlanningContext(params.snapshot, skillResolution);
     let plan = modelLedTools ? null : materializePlanCard(planning);
     const shouldGenerateModelPlan = !modelLedTools && !(skillResolution.querySignals.welcome || skillResolution.querySignals.metaDebug);
@@ -366,6 +398,7 @@ export async function runNodeOrchestration(params: {
     let visibleFinalAnswerText = '';
     let requiredContextEnforcementCount = 0;
     const isReadOnlyTask = (params.snapshot.policySnapshot?.actionClass || 'READ_ONLY') === 'READ_ONLY';
+    const prefetchedRequiredContextTools = new Set<string>();
 
     updateChatContextRuntime(params.toolContext, {
         executionPlan: plan,
@@ -427,6 +460,68 @@ export async function runNodeOrchestration(params: {
             params.broker.pushCitation(citation);
         }
     };
+
+    const prefetchRequiredContextForFixedFlow = async () => {
+        const missingRequiredContextTools = resolveMissingRequiredContextTools(
+            skillResolution.contextContract,
+            toolUsageCount,
+            knownToolNames,
+        );
+        if (
+            !shouldBackendPrefetchRequiredContextReads(skillResolution.contextContract)
+            || missingRequiredContextTools.length === 0
+        ) {
+            return;
+        }
+        await params.broker.markPlanPhase(
+            planning.locale === 'zh'
+                ? '正在预读本轮固定流程所需上下文'
+                : 'Preloading the required context for this execution flow',
+        );
+        logger.info(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: prefetching required context before first generation round', {
+            sessionId: params.snapshot.sessionId,
+            taskId: params.snapshot.taskId,
+            tools: missingRequiredContextTools,
+            contextMode: skillResolution.contextContract?.mode || null,
+        });
+        for (const toolName of missingRequiredContextTools) {
+            if (params.shouldCancel && await params.shouldCancel()) {
+                throw new Error('Task cancelled');
+            }
+            const call = {
+                id: `prefetch-${toolName}`,
+                name: toolName,
+                arguments: {},
+            };
+            toolUsageCount.set(toolName, (toolUsageCount.get(toolName) || 0) + 1);
+            await params.onToolStatus?.(toolName);
+            const result = await params.toolExecutionEngine.execute(call, params.toolContext);
+            if (!result.ok && result.reasonCode && ['POLICY_UNAUTHORIZED_TOOL', 'POLICY_CONTROL_PLANE_VIOLATION'].includes(result.reasonCode)) {
+                throw createOrchestrationError(result.reasonCode, result.error || 'Tool blocked by policy');
+            }
+            executedToolResults.set(buildToolCallKey(toolName, {}), {
+                name: toolName,
+                arguments: {},
+                ok: result.ok,
+                result: result.result,
+                error: result.error,
+                metadata: result.metadata,
+                continuation: result.continuation,
+            });
+            if (result.ok) {
+                prefetchedRequiredContextTools.add(toolName);
+            }
+            chatAiTrace.recordToolResult(0, result);
+            await params.broker.recordToolResult(result);
+            messages.push({
+                role: 'tool',
+                tool_call_id: call.id,
+                content: buildModelToolMessageContent(result),
+            });
+        }
+    };
+
+    await prefetchRequiredContextForFixedFlow();
 
     for (let round = 1; round <= 8; round += 1) {
         const effectivePhase = forceAnswerFromEvidence ? 'local_analysis' : currentPhase;
@@ -491,14 +586,28 @@ export async function runNodeOrchestration(params: {
             providerInfo.provider,
             effectivePhase,
         );
+        const missingRequiredContextTools = resolveMissingRequiredContextTools(
+            skillResolution.contextContract,
+            toolUsageCount,
+            knownToolNames,
+        );
+        const mustReadRequiredContextFirst =
+            !forceAnswerFromEvidence
+            && shouldEnforceRequiredContextReads(skillResolution.contextContract)
+            && missingRequiredContextTools.length > 0;
+        const roundAllowedTools = mustReadRequiredContextFirst
+            ? missingRequiredContextTools
+            : phaseAllowedTools.filter((toolName) => !prefetchedRequiredContextTools.has(toolName));
         const phaseAllowAllTools = strictPolicy
             ? false
-            : resolvePhaseAllowAllTools(skillResolution, providerInfo.provider, effectivePhase, skillResolution.allowAllTools);
+            : mustReadRequiredContextFirst
+                ? false
+                : resolvePhaseAllowAllTools(skillResolution, providerInfo.provider, effectivePhase, skillResolution.allowAllTools);
         const roundTools = forceAnswerFromEvidence
             ? []
             : buildGenerationTools(
                 params.snapshot.toolDefinitions,
-                phaseAllowedTools,
+                roundAllowedTools,
                 skillResolution.blockedTools,
                 skillResolution.preferredTools,
                 phaseAllowAllTools,
@@ -509,7 +618,7 @@ export async function runNodeOrchestration(params: {
             round,
             phase: effectivePhase,
             toolCount: roundTools.length,
-            allowedTools: phaseAllowedTools,
+            allowedTools: roundAllowedTools,
             forcedFinalAnswer: forceAnswerFromEvidence,
         });
         const roundProviderOptions = forceAnswerFromEvidence
@@ -533,6 +642,9 @@ export async function runNodeOrchestration(params: {
                     previousResponseId,
                 },
             );
+        if (!forceAnswerFromEvidence && mustReadRequiredContextFirst) {
+            (roundProviderOptions as any).buffer_visible_output = true;
+        }
         updateChatContextRuntime(params.toolContext, {
             executionPlan: plan,
             skillPrompts: skillResolution.skillPrompts,
@@ -1236,6 +1348,12 @@ function shouldEnforceRequiredContextReads(contextContract: ChatContextContract 
         'launchpad_context',
     ]);
     return (contract.requiredContexts || []).some((contextName) => highRiskContexts.has(contextName));
+}
+
+function shouldBackendPrefetchRequiredContextReads(contextContract: ChatContextContract | null | undefined): boolean {
+    const contract = contextContract || null;
+    if (!contract) return false;
+    return contract.mode === 'execution' && shouldEnforceRequiredContextReads(contract);
 }
 
 function buildRequiredContextReadInstruction(missingToolNames: string[], locale: 'en' | 'zh'): string {

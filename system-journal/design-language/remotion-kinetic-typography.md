@@ -259,6 +259,28 @@ Implementation notes:
 - Keep text measurement stable. Predefine max widths and responsive font caps so
   long words do not reflow unpredictably during animation.
 
+## Failure Memory: Inline Text Cropping
+
+One concrete regression already happened in `KikoTagPromoSequence`: a single-line
+handoff collapsed `"Let's try tag"` away while leaving `@kikoapp`, but the
+prefix container used plain `overflow: hidden`. That clipped the black text on
+the top and bottom during the transition.
+
+Hard rule:
+
+- when collapsing text horizontally, only crop horizontally
+- prefer `overflowX: hidden` and `overflowY: visible`
+- if the container still clips because of font metrics or blur, add vertical
+  padding and offset it back with negative margins
+- always inspect a mid-transition still for ascender/descender clipping before
+  approving the shot
+- if the original subtitle is one sentence, implement it as one inline sentence
+  with one baseline and one natural reading flow
+- do not split a single sentence into fake prefix/suffix blocks with a visible
+  reserved gap just to simplify animation code
+- the correct handoff is: prefix disappears, suffix follows into place on the
+  same line; not "prefix block fades while suffix block waits somewhere else"
+
 ## Default Motion Recipes
 
 - Clean reveal:

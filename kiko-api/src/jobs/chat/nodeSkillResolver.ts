@@ -16,9 +16,12 @@
 //         work. Product now also requires a generated-image specialist route so
 //         the main model can call an internal image tool only when the user is
 //         explicitly asking for a visual deliverable. Product architecture
-//         review on 2026-04-19 moved the target path to always-on model-led
-//         all-tool visibility, leaving this resolver as hints and context
-//         contracts rather than ordinary tool visibility gates. The image path
+//         review on 2026-04-19 briefly moved the target path to always-on
+//         model-led all-tool visibility, but live NVIDIA evals on 2026-04-20
+//         showed that exposing the full registry after task selection caused
+//         heavy planning loops and cross-domain tool drift. Resolver tool
+//         exposure now returns to matched skill packages plus explicit context
+//         reads after model-selected task choice. The image path
 //         now also needs a companion prompt-guidance skill so prompt-help-only
 //         turns stay in coaching mode while real image requests can load both
 //         prompt structure and execution guidance. OpenAI-aligned live eval
@@ -36,9 +39,9 @@
 // Does Not Own: provider request transport, websocket rendering, or message persistence.
 // Design Language:
 // - Direct onboarding/meta turns can stay lean in selected skill prompts while
-//   registered tool visibility remains model-led.
+//   tool exposure stays scoped to the current task package.
 // - Tool exposure should not fall back to local keyword gates for normal chat.
-// - In model-led mode, semantic tool choice belongs to the main model; this layer may advise but must not hide registered tools.
+// - Model-selected task choice belongs to the main model, but tool exposure must stay scoped to matched skill packages plus explicit context reads.
 // - Clanker launch flows should surface explicit dry-run and confirmation guidance before a real deploy.
 // - Clanker deploy intent envelopes are mutation workflows, even when the first tool call is a dry-run preview.
 // - Session tool history may inform follow-up analysis, but must not reopen tool access for direct meta turns.
@@ -107,8 +110,13 @@
 // - Source: operator architecture review on 2026-04-19
 // - Kind: product instruction
 // - Retrieved: 2026-04-19
-// - Applied To: always-on model-led all-tool visibility
-// - Verification: verified in code and targeted tests
+// - Applied To: temporary always-on model-led all-tool visibility
+// - Verification: verified in code and later narrowed after runtime regressions
+// - Source: local live NVIDIA evals plus product-owner correction on 2026-04-20
+// - Kind: runtime observation / product instruction
+// - Retrieved: 2026-04-20
+// - Applied To: restoring intent-package tool exposure after model-selected task routing
+// - Verification: verified in runtime and targeted tests
 // - Source: OpenAI GPT-image-1.5 Prompting Guide
 // - Kind: official API doc
 // - Retrieved: 2026-04-19
@@ -161,7 +169,6 @@ import { resolveCanonicalChainRef } from './chainIntent.js';
 import type { ChatContextBlockName, ChatContextContract, ChatContextSnapshot } from './contracts.js';
 import { CONTEXT_READ_TOOL_BY_BLOCK } from './contextReadTools.js';
 import type { CanonicalIntent } from './canonicalIntent.js';
-import { isModelLedToolOrchestrationEnabled, resolveModelLedToolNames } from './modelLedToolOrchestration.js';
 import {
     detectQuerySignals,
     matchSkillsForQuery,
@@ -297,7 +304,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         strategyNotes.push('Do not volunteer Midjourney, Stable Diffusion, or other non-OpenAI prompt variants unless the user explicitly asks for another model.');
     }
     if (querySignals.clankerDeploy) {
-        strategyNotes.push('This is a Clanker launch or Clanker history request. Use the Clanker skill prompt, ask only for hard missing launch requirements, use defaults for optional fields, keep launches in dry-run mode first, and only set confirmDeploy=true after the user confirms the exact launch details.');
+        strategyNotes.push('This is a Clanker launch or Clanker history request. Follow the Clanker launch safety template: collect only hard-missing launch inputs, keep optional defaults implicit, prepare a dry-run preview first, and wait for explicit user confirmation before any real deploy. Do not restate this internal checklist to the user.');
     }
     const requestedChain = resolveCanonicalChainRef({
         canonicalIntent: normalizedIntent,
@@ -683,11 +690,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         preferredTools,
     });
 
-    if (isModelLedToolOrchestrationEnabled()) {
-        allowedTools = resolveModelLedToolNames(snapshot);
-        allowAllTools = true;
-        strategyNotes.push('Model-led tool orchestration is enabled: all registered tools are visible to the main model, and backend control policy still blocks unsafe or unconfirmed side effects.');
-    } else if (!isLeanDirectAnswerTurn) {
+    if (!isLeanDirectAnswerTurn) {
         strategyNotes.push('Chat v2 exposes only matched business tools plus explicit context-read tools. Read the required context first instead of assuming the full registry is available.');
     }
 

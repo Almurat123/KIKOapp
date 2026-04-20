@@ -177,7 +177,7 @@ test('routes capabilities questions to welcome skill without search', () => {
         normalizedIntent: canonicalIntent,
     }), null, canonicalIntent);
     assert.deepEqual(resolution.selectedSkills, ['welcome_onboarding']);
-    assert.equal(resolution.allowAllTools, true);
+    assert.equal(resolution.allowAllTools, false);
     assert.equal(resolution.searchMode, 'forbidden');
 });
 
@@ -189,23 +189,25 @@ test('routes image-generation requests to the generated-image skill and tool', (
     assert.ok(resolution.strategyNotes.some((note) => note.includes('image-generation request')));
 });
 
-test('model-led tool mode exposes the full registered tool catalog without keyword gating', () => {
-    const snapshot = makeSnapshot('Generate a screenshot of the instagram with a beautiful views');
+test('model-selected image turns expose only the matched image tool package', () => {
+    const snapshot = makeSnapshot('帮我做一张赛博朋克风的产品海报');
     const resolution = resolveNodeSkills(snapshot, null);
-    const allToolNames = Array.from(new Set(toolRegistry.getAllDefinitions().map((item) => item.name)));
 
-    assert.equal(resolution.allowAllTools, true);
+    assert.equal(resolution.allowAllTools, false);
+    assert.ok(resolution.selectedSkills.includes('image_generation'));
     assert.ok(resolution.allowedTools.includes('generate_image_from_intent'));
-    assert.ok(resolution.allowedTools.includes('prepare_swap_transaction'));
-    assert.ok(allToolNames.every((toolName) => resolution.allowedTools.includes(toolName)));
-    assert.ok(resolution.strategyNotes.some((note) => note.includes('Model-led tool orchestration is enabled')));
+    assert.ok(resolution.allowedTools.includes('read_skill_prompts'));
+    assert.ok(!resolution.allowedTools.includes('prepare_swap_transaction'));
+    assert.ok(!resolution.allowedTools.includes('place_polymarket_order'));
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('matched business tools plus explicit context-read tools')));
 });
 
 test('does not select the image-generation skill for prompt-writing advice', () => {
     const resolution = resolveNodeSkills(makeSnapshot('告诉我怎么写一个图片提示词'), null);
-    assert.equal(resolution.allowAllTools, true);
+    assert.equal(resolution.allowAllTools, false);
     assert.ok(resolution.selectedSkills.includes('image_prompting'));
     assert.ok(!resolution.selectedSkills.includes('image_generation'));
+    assert.ok(!resolution.allowedTools.includes('prepare_swap_transaction'));
 });
 
 test('routes malformed Kiko capability questions to welcome skill even without canonical intent', () => {
@@ -237,7 +239,7 @@ test('routes assistant meta debugging turns to meta_debug without pulling stale 
     assert.ok(!resolution.selectedSkills.includes('token_analysis'));
     assert.equal(resolution.intentEnvelope.primary_intent, 'meta_debug');
     assert.equal(resolution.intentEnvelope.domain, 'assistant_meta');
-    assert.equal(resolution.allowAllTools, true);
+    assert.equal(resolution.allowAllTools, false);
     assert.ok(resolution.allowedTools.includes('read_workflow_state'));
     assert.ok(resolution.allowedTools.includes('read_user_context'));
     assert.ok(resolution.strategyNotes.some((note) => note.includes('assistant or system behavior itself')));
@@ -253,7 +255,8 @@ test('routes wallet pnl queries to wallet skill and keeps pnl tools', () => {
     }), null, canonicalIntent);
     assert.equal(resolution.selectedSkills[0], 'wallet_portfolio');
     assert.ok(resolution.allowedTools.includes('analyze_wallet_pnl_batch'));
-    assert.equal(resolution.allowAllTools, true);
+    assert.equal(resolution.allowAllTools, false);
+    assert.ok(!resolution.allowedTools.includes('deploy_clanker_token'));
 });
 
 test('explicit X search keeps native search required while preserving local token skill', () => {
@@ -351,7 +354,7 @@ test('Grok web-first discovery intents execute the declared web search target be
     assert.equal(providerOptions.tool_policy?.native_tools.preferred_required_tool, 'web_search');
 });
 
-test('X trending queries keep X-first intent while exposing model-led tools', () => {
+test('X trending queries keep X-first intent while exposing only social-analysis tools', () => {
     const canonicalIntent = makeCanonicalIntent({
         domain: 'x',
         intent: 'social_discovery',
@@ -368,12 +371,13 @@ test('X trending queries keep X-first intent while exposing model-led tools', ()
     assert.equal(resolution.toolPhasePolicy.nextPhaseAfterNativeSearch, 'local_analysis');
     assert.ok(resolution.intentEnvelope.required_evidence.includes('connected_chain_evidence'));
     assert.ok(resolution.strategyNotes.some((note) => note.includes('X/Twitter')));
-    assert.equal(resolution.allowAllTools, true);
+    assert.equal(resolution.allowAllTools, false);
     assert.ok(resolution.allowedTools.includes('read_workflow_state'));
     assert.ok(resolution.allowedTools.includes('read_user_context'));
+    assert.ok(!resolution.allowedTools.includes('deploy_clanker_token'));
 });
 
-test('DeepSeek X trending queries stay out of native-search-only while exposing model-led tools', () => {
+test('DeepSeek X trending queries stay out of native-search-only while exposing only social-analysis tools', () => {
     const canonicalIntent = makeCanonicalIntent({
         domain: 'x',
         intent: 'social_discovery',
@@ -388,11 +392,12 @@ test('DeepSeek X trending queries stay out of native-search-only while exposing 
     }), null, canonicalIntent);
     assert.equal(resolution.intentEnvelope.domain, 'x');
     assert.equal(resolution.toolPhasePolicy.initialPhase, 'local_analysis');
-    assert.equal(resolution.allowAllTools, true);
+    assert.equal(resolution.allowAllTools, false);
     assert.ok(resolution.allowedTools.includes('read_workflow_state'));
     assert.ok(resolution.allowedTools.includes('read_user_context'));
     assert.ok(resolution.searchMode === 'required');
     assert.ok(resolution.strategyNotes.some((note) => note.includes('native X search')));
+    assert.ok(!resolution.allowedTools.includes('deploy_clanker_token'));
 });
 
 test('Grok prefers local trending-token evidence even when canonical intent over-specifies social search', () => {
@@ -414,7 +419,7 @@ test('Grok prefers local trending-token evidence even when canonical intent over
     assert.equal(resolution.intentEnvelope.search_mode, 'forbidden');
     assert.equal(resolution.intentEnvelope.search_target, 'none');
     assert.ok(resolution.allowedTools.includes('get_trending_tokens'));
-    assert.equal(resolution.allowAllTools, true);
+    assert.equal(resolution.allowAllTools, false);
 
     const providerOptions = buildProviderOptions(
         snapshot,
@@ -490,7 +495,7 @@ test('generic X queries still require search plus chain-side follow-up', () => {
     }), null, canonicalIntent);
 
     assert.equal(resolution.searchMode, 'required');
-    assert.equal(resolution.allowAllTools, true);
+    assert.equal(resolution.allowAllTools, false);
     assert.ok(resolution.preferredTools.includes('get_wallet_info'));
     assert.ok(resolution.allowedTools.includes('read_workflow_state'));
     assert.ok(resolution.allowedTools.includes('read_user_context'));
@@ -689,7 +694,7 @@ test('swap intents prefer wallet info and preflight before prepare swap executio
             note.includes('fixed business template') && note.includes('one quote or one execution path')
         )
     );
-    assert.equal(resolution.allowAllTools, true);
+    assert.equal(resolution.allowAllTools, false);
 });
 
 test('official source lookup handles split Chinese intent words and English synonyms', () => {
@@ -792,7 +797,7 @@ test('Grok social discovery on Farcaster uses native search only and blocks loca
 
     assert.equal(resolution.intentEnvelope.domain, 'farcaster');
     assert.equal(resolution.toolPhasePolicy.initialPhase, 'native_search_only');
-    assert.equal(resolution.allowAllTools, true);
+    assert.equal(resolution.allowAllTools, false);
     assert.ok(resolution.strategyNotes.some((note) => note.includes('does not expose local Farcaster cache/search tools')));
 
     const nativeOptions = buildProviderOptions(
@@ -921,7 +926,7 @@ test('resolver carries forward session-used tools into orchestration context', (
     assert.ok(resolution.strategyNotes.some((note) => note.includes('Recent tool evidence is available from this session')));
 });
 
-test('plain capability questions route to onboarding while keeping model-led tool visibility', () => {
+test('plain capability questions route to onboarding without exposing unrelated tools', () => {
     const snapshot = makeSnapshot('What can you do?', {
         toolDefinitions: [
             {
@@ -939,15 +944,15 @@ test('plain capability questions route to onboarding while keeping model-led too
 
     const resolution = resolveNodeSkills(snapshot, null);
     assert.deepEqual(resolution.selectedSkills, ['welcome_onboarding']);
-    assert.equal(resolution.allowAllTools, true);
-    assert.deepEqual(resolution.allowedTools, ['get_token_info', 'external_web_search']);
+    assert.equal(resolution.allowAllTools, false);
+    assert.deepEqual(resolution.allowedTools, []);
 });
 
 test('generic direct answers do not fall back to a market skill', () => {
     const resolution = resolveNodeSkills(makeSnapshot('Explain quantum entanglement.'), null);
     assert.deepEqual(resolution.selectedSkills, []);
-    assert.equal(resolution.allowAllTools, true);
-    assert.ok(resolution.allowedTools.includes('generate_image_from_intent'));
+    assert.equal(resolution.allowAllTools, false);
+    assert.deepEqual(resolution.allowedTools, []);
     assert.equal(resolution.intentEnvelope.primary_intent, 'model_selected_task_menu');
     assert.equal(resolution.contextContract.mode, 'lean');
     assert.deepEqual(resolution.contextContract.requiredContexts, []);

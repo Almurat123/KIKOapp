@@ -4,9 +4,13 @@
 // Reason: Clanker launches are real write actions. The previous policy only
 //         modeled swap and order mutations, so `deploy_clanker_token` could be
 //         exposed as a normal skill tool without a central mutation class.
-//         Product architecture review on 2026-04-19 moved tool visibility to
-//         the main model by default, so this layer now treats visibility and
-//         execution authorization as separate concerns.
+//         Product architecture review on 2026-04-19 temporarily moved tool
+//         visibility to the main model by default, but runtime regressions on
+//         2026-04-20 showed hard-policy allowlists must stay aligned with the
+//         resolver-scoped tool package rather than the full registry.
+//         This layer therefore treats semantic task choice and execution
+//         authorization as separate concerns while preserving resolver-scoped
+//         tool visibility inside the policy snapshot.
 // Goal: classify confirmed token deployment as a hard-gated mutation while
 //       still allowing Clanker dry-run previews and read/history tools inside
 //       the Clanker skill.
@@ -20,7 +24,7 @@
 // - swap, order/copytrade, and token deploy mutation tools must not be mixed across classes
 // - provider-native search stays blocked for hard mutation turns
 // - tool visibility is not execution permission; mutation tools remain blocked
-//   in READ_ONLY even when model-led mode exposes the whole catalog
+//   in READ_ONLY even when the control policy allowlist includes them
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
 // - Kind: repo doc
@@ -30,8 +34,13 @@
 // - Source: operator architecture review on 2026-04-19
 // - Kind: product instruction
 // - Retrieved: 2026-04-19
-// - Applied To: model-led all-tool visibility with unchanged mutation execution gates
-// - Verification: verified in code and targeted tests
+// - Applied To: separating semantic task choice from mutation execution gates
+// - Verification: verified in code and later narrowed for tool allowlists
+// - Source: local live execution evals plus product-owner correction on 2026-04-21
+// - Kind: runtime observation / product instruction
+// - Retrieved: 2026-04-21
+// - Applied To: keeping hard-policy allowedTools scoped to resolver packages instead of the full registry
+// - Verification: verified in runtime and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/clanker-token-deploy-skill.md
@@ -45,8 +54,6 @@ import { LogCode } from '../../config/logRegistry.js';
 import type { ChatContextSnapshot, OrchestratorToolCall } from './contracts.js';
 import type { SkillResolution } from './nodeSkillResolver.js';
 import type { TradingIntent } from './tradingIntentResolver.js';
-import { isModelLedToolOrchestrationEnabled, resolveModelLedToolNames } from './modelLedToolOrchestration.js';
-
 export type ActionClass = 'READ_ONLY' | 'TRADE_MUTATION' | 'ORDER_MUTATION' | 'TOKEN_DEPLOY_MUTATION';
 export type EnforcementLevel = 'hard' | 'soft';
 
@@ -134,11 +141,7 @@ export function buildControlPolicySnapshot(params: {
                 : actionClass === 'TOKEN_DEPLOY_MUTATION'
                     ? TOKEN_DEPLOY_MUTATION_TOOLS
                     : [];
-    const allowedSet = new Set(
-        isModelLedToolOrchestrationEnabled()
-            ? resolveModelLedToolNames(params.snapshot)
-            : params.skillResolution.allowedTools || [],
-    );
+    const allowedSet = new Set(params.skillResolution.allowedTools || []);
     for (const toolName of mutationToolAllowlist) {
         allowedSet.add(toolName);
     }

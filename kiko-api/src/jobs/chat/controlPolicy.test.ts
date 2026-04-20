@@ -135,7 +135,7 @@ test('buildControlPolicySnapshot promotes Clanker skill envelope to token deploy
     assert.ok(isTokenDeployMutationTool('deploy_clanker_token'));
 });
 
-test('model-led policy exposes all registered tools while read-only mutation guard remains active', () => {
+test('policy allowlist stays scoped to resolver tools while read-only mutation guard remains active', () => {
     const policy = buildControlPolicySnapshot({
         snapshot: {
             sessionId: 'session-1',
@@ -168,9 +168,7 @@ test('model-led policy exposes all registered tools while read-only mutation gua
     });
 
     assert.equal(policy.actionClass, 'READ_ONLY');
-    assert.ok(policy.allowedTools.includes('generate_image_from_intent'));
-    assert.ok(policy.allowedTools.includes('get_wallet_info'));
-    assert.ok(policy.allowedTools.includes('prepare_swap_transaction'));
+    assert.deepEqual(policy.allowedTools, ['generate_image_from_intent']);
 
     const result = checkToolAgainstPolicy({
         call: {

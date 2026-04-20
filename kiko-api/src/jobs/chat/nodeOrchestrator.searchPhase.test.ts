@@ -149,6 +149,109 @@ test('buildGenerationTools no longer hides non-execution tools in execution phas
     assert.deepEqual(names.sort(), ['get_token_info', 'place_polymarket_order', 'prepare_swap_transaction']);
 });
 
+test('execution turns expose only missing required read tools before wider local analysis tools', async () => {
+    const snapshot = makeSnapshot('Deploy a Clanker token named TG with symbol TG', {
+        model: 'glm-5',
+        normalizedIntent: {
+            domain: 'token',
+            intent: 'clanker_deploy',
+            taskMode: 'execute',
+            outputMode: 'execution_ready',
+            searchMode: 'forbidden',
+            searchTarget: 'none',
+            confidence: 0.95,
+            explanation: 'test deploy intent',
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: ['TG'],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+            requestedChain: null,
+            timeContext: null,
+            evidenceRequirements: [],
+            requiresRealtime: false,
+            requiresOnchainEvidence: false,
+            executionCandidate: true,
+            rowCount: null,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            source: 'llm',
+        },
+    });
+    const broker = makeBroker();
+    const seenRounds: Array<{ tools: string[]; bufferVisibleOutput: boolean }> = [];
+    let generationRound = 0;
+
+    const generationClient = {
+        async generate(params: any) {
+            if (String(params?.taskId || '').endsWith(':plan')) {
+                return { text: '', reasoning: '', toolCalls: [] };
+            }
+            generationRound += 1;
+            const roundTools = (params.tools || []).map((item: any) => item.function?.name).filter(Boolean);
+            seenRounds.push({
+                tools: roundTools,
+                bufferVisibleOutput: Boolean(params.providerOptions?.buffer_visible_output),
+            });
+            return {
+                text: 'Ready to prepare the launch after reading the required context.',
+                reasoning: '',
+                toolCalls: [],
+            };
+        },
+    };
+
+    await runNodeOrchestration({
+        snapshot,
+        generationClient: generationClient as any,
+        toolExecutionEngine: {
+            async execute(call: any) {
+                return {
+                    id: call.id,
+                    name: call.name,
+                    arguments: call.arguments || {},
+                    ok: true,
+                    result: { available: true },
+                    metadata: { source: 'tool_runtime' },
+                };
+            },
+        } as any,
+        broker: broker as any,
+        toolContext: {},
+    });
+
+    assert.equal(generationRound, 1);
+    assert.equal(seenRounds[0]!.bufferVisibleOutput, false);
+    assert.ok(seenRounds[0]!.tools.includes('deploy_clanker_token'));
+    assert.ok(seenRounds[0]!.tools.includes('get_clanker_tokens_by_admin'));
+    assert.ok(!seenRounds[0]!.tools.includes('read_execution_plan'));
+    assert.ok(!seenRounds[0]!.tools.includes('read_launchpad_context'));
+    assert.ok(!seenRounds[0]!.tools.includes('read_skill_prompts'));
+    assert.ok(!seenRounds[0]!.tools.includes('read_token_context'));
+    assert.ok(!seenRounds[0]!.tools.includes('read_user_context'));
+    assert.ok(!seenRounds[0]!.tools.includes('read_user_settings'));
+    assert.ok(!seenRounds[0]!.tools.includes('read_wallet_state'));
+    assert.ok(!seenRounds[0]!.tools.includes('read_workflow_state'));
+    assert.ok(!seenRounds[0]!.tools.includes('prepare_swap_transaction'));
+    assert.ok(!seenRounds[0]!.tools.includes('generate_image_from_intent'));
+    assert.deepEqual(
+        broker.recordedToolResults.map((item: any) => item.name),
+        [
+            'read_workflow_state',
+            'read_skill_prompts',
+            'read_execution_plan',
+            'read_user_context',
+            'read_user_settings',
+            'read_wallet_state',
+            'read_token_context',
+            'read_launchpad_context',
+        ],
+    );
+    assert.equal(broker.getContent(), 'Ready to prepare the launch after reading the required context.');
+});
+
 test('Grok social queries keep native search phase free of local tools, then hand off to local analysis', async () => {
     const snapshot = makeSnapshot('Search X for BTC sentiment, then analyze holders', {
         requestedTokenSymbols: ['BTC'],
@@ -512,7 +615,21 @@ test('duplicate-only read-only rounds force a no-tool final answer from cached e
                 tools: (params.tools || []).map((item: any) => item.function?.name).filter(Boolean),
                 enableSearch: Boolean(params.providerOptions?.enable_search),
             });
-            if (generationRound <= 2) {
+            if (generationRound === 1) {
+                return {
+                    text: '',
+                    reasoning: '',
+                    toolCalls: (params.tools || [])
+                        .map((item: any) => item.function?.name)
+                        .filter((name: string | undefined) => typeof name === 'string' && name.startsWith('read_'))
+                        .map((name: string, index: number) => ({
+                            id: `read-${index + 1}`,
+                            name,
+                            arguments: {},
+                        })),
+                };
+            }
+            if (generationRound <= 3) {
                 return {
                     text: '',
                     reasoning: '',
@@ -540,6 +657,13 @@ test('duplicate-only read-only rounds force a no-tool final answer from cached e
         generationClient: generationClient as any,
         toolExecutionEngine: {
             async execute(call: any) {
+                if (String(call.name || '').startsWith('read_')) {
+                    return {
+                        ok: true,
+                        result: { available: true },
+                        metadata: { source: 'tool_runtime' },
+                    };
+                }
                 executeCalls += 1;
                 assert.equal(call.name, 'get_trending_tokens');
                 return {
@@ -554,12 +678,15 @@ test('duplicate-only read-only rounds force a no-tool final answer from cached e
     });
 
     assert.equal(executeCalls, 1);
-    assert.equal(generationRound, 3);
+    assert.equal(generationRound, 4);
     assert.equal(seenRounds[0]?.enableSearch, false);
-    assert.ok((seenRounds[0]?.tools || []).includes('get_trending_tokens'));
     assert.ok((seenRounds[0]?.tools || []).includes('read_workflow_state'));
-    assert.equal(seenRounds[2]?.enableSearch, false);
-    assert.deepEqual(seenRounds[2]?.tools || [], []);
+    assert.ok((seenRounds[0]?.tools || []).includes('read_user_context'));
+    assert.ok((seenRounds[0]?.tools || []).includes('read_token_context'));
+    assert.ok(!(seenRounds[0]?.tools || []).includes('get_trending_tokens'));
+    assert.ok((seenRounds[1]?.tools || []).includes('get_trending_tokens'));
+    assert.equal(seenRounds[3]?.enableSearch, false);
+    assert.deepEqual(seenRounds[3]?.tools || [], []);
     assert.equal(broker.texts.join(''), 'The top cached trending token on BSC is VIRTUAL.');
 });
 

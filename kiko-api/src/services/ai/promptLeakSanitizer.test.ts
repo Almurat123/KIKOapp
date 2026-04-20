@@ -299,3 +299,17 @@ test('sanitizeReasoningForDisplay removes prose-style pseudo tool narration', ()
         'I need real search evidence first. Then I can summarize the verified result.',
     );
 });
+
+test('sanitizeReasoningForDisplay removes backend strategy-note checklist leakage', () => {
+    const raw = [
+        'According to the strategy notes, I should use the Clanker skill prompt.',
+        'I should read read_skill_prompts, read_user_context, and read_wallet_state first.',
+        'Keep launches in dry-run mode first and only set confirmDeploy=true after confirmation.',
+        'The user wants to deploy a token and I still need the missing launch facts.',
+    ].join('\n');
+
+    assert.equal(
+        sanitizeReasoningForDisplay(raw),
+        'The user wants to deploy a token and I still need the missing launch facts.',
+    );
+});
