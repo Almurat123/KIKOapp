@@ -26,18 +26,23 @@ interface AuraBlob {
 //         chat aura 1:1 instead of approximating it with a theme-aware web
 //         effect. This owner therefore ports the MakeDream blob geometry,
 //         theme-cycle timing, transition gating, highlight layers, and the
-//         chat-screen dark veil directly into the web runtime.
+//         chat-screen dark veil directly into the web runtime. The homepage
+//         must also preserve the product behavior where each fresh page load
+//         can land on a different aura theme, so this owner now seeds the
+//         shared cycle with a per-load random phase offset instead of always
+//         starting at theme index zero.
 // Goal: preserve pixel-faithful visual parity with MakeDream's AI chat aura on
 //       both desktop and mobile without reintroducing a GPU canvas scene or
 //       a second homepage-only background language.
 // Owns: homepage aura motion constants, theme interpolation cadence, reduced-
-//       motion static fallback, blob transform math, and the final dark veil
-//       that matches the MakeDream chat canvas.
+//       motion static fallback, per-load theme seed, blob transform math, and
+//       the final dark veil that matches the MakeDream chat canvas.
 // Does Not Own: welcome copy, layout spacing, composer glass styling, or app-
 //       wide theme policy outside this background owner.
 // Design Language:
 // - homepage aura must inherit MakeDream's blob count, positions, and motion
 // - theme colors hold for most of a cycle and only crossfade in the terminal window
+// - each fresh page load may enter the shared cycle at a different random phase
 // - the rendered backdrop includes the same dark veil as the MakeDream chat screen
 // - forbidden local patch patterns: light-theme alternates, noise overlays, or blob-internal gradients that diverge from MakeDream
 // Document Provenance:
@@ -50,6 +55,11 @@ interface AuraBlob {
 // - Kind: repo doc
 // - Retrieved: 2026-04-20
 // - Applied To: matching the extra `Color.black.opacity(0.2)` veil used above the aura
+// - Verification: verified in code
+// - Source: user report that the production homepage enters the aura cycle on a random theme per load
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: seeding the aura cycle with a randomized start offset
 // - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
@@ -77,9 +87,19 @@ const BLOBS: AuraBlob[] = [
   { x: 0.32, y: 0.44, w: 0.72, h: 0.72, speed: 0.24, amp: 0.08 }
 ];
 
+const CYCLE_DURATION = 30;
+const TRANSITION_DURATION = 6;
+const TOTAL_CYCLE = CYCLE_DURATION * THEMES.length;
 const BRAND_ACCENT = 'rgba(79, 69, 230, 0.12)';
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const hexToRgba = (hex: string, alpha: number) => {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
 
 const lerpColor = (c1: string, c2: string, t: number) => {
   const r1 = parseInt(c1.slice(1, 3), 16);
@@ -97,6 +117,7 @@ export const AuraBackground: React.FC = () => {
   const highlightGlowRef = useRef<HTMLDivElement>(null);
   const blobRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [reducedMotion, setReducedMotion] = useState(false);
+  const [timeOffset] = useState(() => Math.random() * TOTAL_CYCLE);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -117,12 +138,9 @@ export const AuraBackground: React.FC = () => {
 
     let frameId: number;
     const start = performance.now();
-    const cycleDuration = 30;
-    const transitionDuration = 6;
-    const totalCycle = cycleDuration * THEMES.length;
 
     const animate = () => {
-      const t = (performance.now() - start) / 1000;
+      const t = (performance.now() - start) / 1000 + timeOffset;
       if (!containerRef.current || !topGlowRef.current || !highlightGlowRef.current) {
         frameId = requestAnimationFrame(animate);
         return;
@@ -130,11 +148,15 @@ export const AuraBackground: React.FC = () => {
 
       const w = containerRef.current.clientWidth;
       const h = containerRef.current.clientHeight;
-      const progress = t % totalCycle;
-      const currentIndex = Math.floor(progress / cycleDuration);
+      const progress = t % TOTAL_CYCLE;
+      const currentIndex = Math.floor(progress / CYCLE_DURATION);
       const nextIndex = (currentIndex + 1) % THEMES.length;
-      const intraProgress = progress % cycleDuration;
-      const blend = clamp((intraProgress - (cycleDuration - transitionDuration)) / transitionDuration, 0, 1);
+      const intraProgress = progress % CYCLE_DURATION;
+      const blend = clamp(
+        (intraProgress - (CYCLE_DURATION - TRANSITION_DURATION)) / TRANSITION_DURATION,
+        0,
+        1
+      );
       const smoothBlend = 3 * blend * blend - 2 * blend * blend * blend;
 
       const currentTheme = THEMES[currentIndex];
@@ -179,7 +201,9 @@ export const AuraBackground: React.FC = () => {
 
     animate();
     return () => cancelAnimationFrame(frameId);
-  }, [reducedMotion]);
+  }, [reducedMotion, timeOffset]);
+
+  const staticTheme = THEMES[Math.floor(timeOffset / CYCLE_DURATION) % THEMES.length];
 
   return (
     <div className={styles.auraContainer} ref={containerRef}>
@@ -188,7 +212,7 @@ export const AuraBackground: React.FC = () => {
           <div
             className={styles.staticGlow}
             style={{
-              background: `radial-gradient(circle at top left, ${BRAND_ACCENT} 0px, rgba(0, 0, 0, 0) 85%)`,
+              background: `radial-gradient(circle at top left, ${hexToRgba(staticTheme.primary, 0.12)} 0px, rgba(0, 0, 0, 0) 85%)`,
             }}
           />
           <div className={styles.staticHighlight} />

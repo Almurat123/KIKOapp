@@ -58,6 +58,40 @@ Three source patterns are relevant:
 For this design language, prefer pattern 1 as the base, borrow pattern 2 for
 momentum, and keep pattern 3 as implementation vocabulary only.
 
+## What To Learn From The Current References
+
+These four references imply a tighter motion brief than "make some animated
+text":
+
+- Mister Horse text presets:
+  treat subtitle animation as a small set of reusable behaviors split across
+  `lines`, `words`, `characters`, and `duration effects`
+- Envato kinetic typography pack:
+  use bold, readable text motion with repeating rhythm, pulsing emphasis, and
+  warping/repeating accents only when the shot needs more energy
+- Envato glitch text pack:
+  glitch and chromatic aberration belong to short, high-tech accents, not to
+  the base style
+- Envato orb text intro:
+  the closest baseline for the user's taste; keep typography clean, transitions
+  smooth, and letter-by-letter movement subtle, with colorful abstract support
+  staying secondary to the text
+
+Operationally, this means:
+
+1. start from clean text reveal
+2. choose a unit: line / word / character
+3. choose whether the animation is:
+   - `transition in`
+   - `transition out`
+   - `effect over layer duration`
+4. add one emphasis behavior at most:
+   - scale hit
+   - tracking tighten
+   - repeated word pulse
+   - short decode/glitch accent
+5. only after that, decide whether the shot needs atmosphere support
+
 ## Visual Vocabulary
 
 Animated subtitles are the primary design surface. Background and UI treatment
@@ -82,6 +116,70 @@ universal rule:
 - occasional pink/lilac bloom in corners
 - soft-focus backdrop with no hard texture
 - white cards/icons floating above the atmosphere
+
+## Composition / Layout Rules
+
+The previous Remotion subtitle demos failed primarily on composition, not on
+animation. Future promo frames must obey layout before motion.
+
+- Geometry beats animation. Place the dominant visual anchor first, then place
+  subtitle groups in the remaining ownership zone. Do not animate first and
+  "find somewhere for the text" afterwards.
+- One frame, one hierarchy. Each shot needs:
+  1. one dominant object or cluster,
+  2. one subtitle group,
+  3. one secondary label layer at most.
+- Poster-first composition wins over screenshot replica. Treat each frame like
+  a designed poster, not like a full app screenshot plus extra text.
+- Keep controls and labels close to the content they modify or describe. Do not
+  let a subtitle sit far away from the visual idea it is naming.
+- Do not bisect the hero object with the title block. If the product object is
+  centered, place the text in a clean side or bottom zone with deliberate
+  margin, not half-overlapping the focal area.
+- Do not let the subtitle badge/pill collide with the subject's silhouette.
+  Small chrome must live in a quiet edge, not on top of the strongest shape.
+- Scale must be coordinated across layers. If the product object is small or
+  mid-scale, the title cannot jump to billboard scale and crush the frame.
+- Preserve breathing room on all four edges. Empty space should read as
+  intentional whitespace, not as leftover room after pushing assets around.
+- A product-promo frame should usually read in this order:
+  hero object -> title -> support line -> small cue label
+- If a frame cannot be explained as a clean left/right, top/bottom, or center +
+  caption composition, the layout is probably unresolved.
+
+Recommended layout audit before approving a frame:
+
+1. Identify the single dominant anchor.
+2. Mark the no-text zone around that anchor.
+3. Place the title outside that zone.
+4. Check whether the title and object feel proportionate.
+5. Remove any badge, subtitle, or support line that sits on top of the object
+   without clear compositional purpose.
+6. Only after that, tune motion and easing.
+
+## Asset Preparation Rules
+
+Promo video quality depends on asset quality. Do not treat screenshot slicing as
+real asset preparation.
+
+- Never use naive hard-cropped screenshot fragments as final promo assets.
+- If a shot needs a foreground object, choose one of these paths explicitly:
+  1. redraw the object cleanly,
+  2. extract it with a proper cutout workflow,
+  3. process it in the correct external tool before bringing it into Remotion.
+- "Crop a box and add a mask" is not considered correct cutout work unless the
+  user explicitly wants a rough placeholder.
+- If the source image is flattened and does not support clean extraction,
+  prefer redraw/rebuild over fake separation.
+- Do not use the same screenshot as both background atmosphere and foreground
+  source object when that creates ghosting, duplicate silhouettes, or obvious
+  fake layering.
+- Before animation, label each foreground element as one of:
+  - `redrawn asset`
+  - `proper cutout asset`
+  - `source screenshot kept intact`
+- If an element cannot be classified honestly into one of those buckets, the
+  asset is not ready for promo use.
 
 ## Subtitle / Title Taxonomy
 
@@ -161,12 +259,251 @@ Implementation notes:
   opacity 0->1, y 18->0, blur 8->0 over 10 to 16 frames
 - Word step-in:
   each word offset by 2 to 4 frames, shared easing, short hold
+- Character step-in:
+  each character offset by 1 to 2 frames, subtle only, avoid cartoonish bounce
+- Tracking tighten:
+  start slightly over-spaced, then settle to final tracking over 8 to 14 frames
+- Line swap:
+  outgoing line leaves on the same axis the incoming line uses to arrive
 - Decode accent:
   only on select emphasis words; use sparingly
 - Pill/card pop:
   scale 0.96->1 with opacity fade and tiny shadow rise
 - Carousel drift:
   slow x translation with selected item scaling up on the accent frame
+
+## Expanded Template Catalog
+
+This project needs many more templates than a few hero reveals. Future subtitle
+work should start from this catalog instead of improvising.
+
+### Hero Templates
+
+1. `hero-fade-rise`
+   - use: calm opener or main statement
+   - unit: line
+   - motion: opacity + y + blur
+   - timing: 10f to 16f in, 24f to 40f hold
+
+2. `hero-scale-settle`
+   - use: end lockup or brand phrase
+   - unit: line
+   - motion: 1.06 scale -> 1, blur 6 -> 0
+   - timing: 10f to 14f in, long hold
+
+3. `tracking-tighten`
+   - use: premium text opener
+   - unit: line
+   - motion: wide tracking -> final tracking, tiny y settle
+   - timing: 8f to 14f in
+
+4. `eyebrow-hero-support`
+   - use: final card or structured message
+   - unit: line stack
+   - motion: eyebrow first, hero second, support third
+   - timing: stagger 6f to 10f between layers
+
+### Two-Line Templates
+
+5. `line-lift`
+   - use: top explainer + large bottom message
+   - unit: line stack
+   - motion: smaller top line first, larger bottom line second
+
+6. `line-swap-vertical`
+   - use: replace one line with the next on beat
+   - unit: line
+   - motion: previous line exits upward or downward, new line enters on same axis
+
+7. `line-swap-horizontal`
+   - use: stronger editorial movement
+   - unit: line
+   - motion: previous line exits left/right, next line enters from opposite side
+
+8. `crossfade-line-replace`
+   - use: calmer scene-to-scene textual replacement
+   - unit: line
+   - motion: opacity handoff with minimal y offset
+
+### Word Templates
+
+9. `word-cascade-up`
+   - use: rhythmic statement without losing readability
+   - unit: word
+   - motion: each word y 28/40 -> 0, blur 8/10 -> 0
+
+10. `word-cascade-side`
+    - use: when vertical axis is busy
+    - unit: word
+    - motion: each word x 18/24 -> 0
+
+11. `pulse-word-hit`
+    - use: single emphasis word on accent frame
+    - unit: one word in a line
+    - motion: scale 1 -> 1.05/1.1 then settle
+
+12. `word-color-hand-off`
+    - use: move attention across a phrase
+    - unit: word
+    - motion: one word at a time shifts to accent color, others stay neutral
+
+13. `word-mask-pass`
+    - use: reveal one word group with a passing light or mask
+    - unit: word group
+    - motion: clipping mask or opacity wipe over 6f to 12f
+
+### Character Templates
+
+14. `character-rise`
+    - use: subtle refined opener
+    - unit: character
+    - motion: each character delayed by 1f to 2f, y 18/30 -> 0
+
+15. `cursor-type-in`
+    - use: typed or system-text semantics only
+    - unit: character
+    - motion: progressive reveal plus caret blink
+
+16. `decode-accent`
+    - use: one tech word or phrase
+    - unit: character
+    - motion: scrambled chars resolve into final text
+
+17. `tracking-decode-hybrid`
+    - use: short premium tech accents
+    - unit: character/line
+    - motion: slight decode on start, tracking settles after
+
+### Beat List Templates
+
+18. `beat-steps`
+    - use: Cue / Cut / Land type sequences
+    - unit: line
+    - motion: large single-word entries appear on consecutive beats
+
+19. `repeat-word-loop`
+    - use: machine-like or intense repeated rhythm
+    - unit: repeated word/phrase
+    - motion: duplicates offset in opacity/position
+
+20. `stacked-beat-list`
+    - use: 3 to 4 short lines building a list
+    - unit: line stack
+    - motion: each new line adds while previous lines dim slightly
+
+### Accent Templates
+
+21. `chromatic-flicker-accent`
+    - use: 2f to 4f impact only
+    - unit: line or single word
+    - motion: tiny RGB separation or flicker
+
+22. `flash-bridge-title`
+    - use: transition between text states
+    - unit: line
+    - motion: brief white/blue flash bridge
+
+23. `strobe-cut-type`
+    - use: short, aggressive cut point
+    - unit: line
+    - motion: 2 to 3 rapid title states with strong restraint
+
+24. `blur-snap-settle`
+    - use: energetic reveal without glitch
+    - unit: line
+    - motion: over-blurred entry, sharp settle
+
+## Timing Preset Catalog
+
+Use explicit timing presets so templates can be reused.
+
+- `calm`
+  - in: 12f to 18f
+  - hold: 28f to 48f
+  - out: 8f to 12f
+
+- `standard-promo`
+  - in: 8f to 14f
+  - hold: 20f to 36f
+  - out: 6f to 10f
+
+- `fast-beat`
+  - in: 4f to 8f
+  - hold: 12f to 20f
+  - out: 4f to 6f
+
+- `phrase-start`
+  - hero lands on a phrase start
+  - support enters 8f to 14f later
+  - cut after readable hold
+
+- `accent-hit`
+  - main text already visible
+  - emphasis event lasts 2f to 6f
+
+## Scene Context Template Catalog
+
+Subtitle templates are not enough. The same template behaves differently
+depending on scene context.
+
+1. `white-stage`
+   - use: judge motion language only
+   - risk: can hide composition problems if overused later
+
+2. `soft-gradient-stage`
+   - use: add atmosphere while keeping text primary
+   - risk: background becomes the subject
+
+3. `hero-object-caption`
+   - use: product poster frames with one dominant object
+   - rule: text must stay outside the object no-text zone
+
+4. `ui-screenshot-callout`
+   - use: product demonstrations and feature labeling
+   - rule: only with honest asset prep
+
+5. `scene-cut-world-change`
+   - use: next shot is a new visual world
+   - rule: subtitle fully exits before cut
+
+## Editorial Bundle Presets
+
+Start from these bundles instead of assembling everything from scratch.
+
+### Bundle: OpenAI-style clean opener
+
+- shot role: hero statement
+- template: `tracking-tighten` or `hero-fade-rise`
+- timing: `calm` or `phrase-start`
+- cut: `line-finish-then-cut`
+
+### Bundle: Feature explainer
+
+- shot role: feature callout
+- template: `hero-fade-rise`
+- timing: `standard-promo`
+- cut: `clean-hard-cut`
+
+### Bundle: Beat-driven list
+
+- shot role: beat list
+- template: `line-swap-vertical` or `beat-steps`
+- timing: `fast-beat`
+- cut: `accent-cut`
+
+### Bundle: Premium end card
+
+- shot role: end lockup
+- template: `eyebrow-hero-support`
+- timing: `calm`
+- cut: none or fade to end
+
+### Bundle: Tech accent
+
+- shot role: support statement or callout
+- template: clean base + `decode-accent`
+- timing: `standard-promo`
+- cut: `clean-hard-cut`
 
 ## Scene Cuts
 
@@ -194,6 +531,118 @@ Recommended cut checklist:
 4. Keep a viewport/minimap debug overlay while building camera-driven scenes so
    "camera move" can be proven, not guessed.
 
+## Transition Language
+
+Transitions need their own design language. "Make it smoother" is too vague.
+Choose who owns the transition first.
+
+### Transition Ownership Types
+
+1. `element-owned`
+   - the scene stays the same
+   - one subtitle or inserted object enters, settles, and exits
+   - use local scene logic rather than scene overlap
+
+2. `cut-owned`
+   - two scenes overlap
+   - the cut point itself is the event
+   - use short, deliberate overlap
+
+3. `overlay-owned`
+   - a flash, glow, or bridge layer sits over the cut
+   - the scenes underneath may still hard cut
+
+4. `internal-object`
+   - the transition should be driven by objects inside the scenes
+   - use custom progress instead of generic fade/slide
+
+### Transition Timing Rules
+
+- Most promo transitions should start in the `6f to 16f` range.
+- Only use `16f to 24f` when the transition is a major gesture.
+- Every inserted element needs:
+  1. entrance
+  2. settle
+  3. readable hold
+  4. exit or bridge
+- If there is no settle, the motion feels accidental.
+
+### Inserted Image Between Letters
+
+For probes like `KI [image] KO`, the default good pattern is:
+
+1. word appears as a whole
+2. letter groups separate
+3. image rotates in while scaling up
+4. image decelerates into a stable hold
+5. image either:
+   - retracts and letters close
+   - or scales up into the next scene
+
+Rules:
+
+- rotation should do most of its travel early
+- the last frames before hold should be a settle, not continued spinning
+- if the image becomes the next shot, treat that as a real scene transition
+
+### Expansion Bridge
+
+An inserted image can become a fullscreen transition bridge, but only if the
+shot structure supports it.
+
+Pattern:
+
+1. subtitle or word opens space
+2. image inserts
+3. image holds long enough to be read
+4. image scales up smoothly and quickly
+5. next scene takes over using the expanded image or a matched crop
+
+This is not just a subtitle animation. It is a mixed subtitle + scene
+transition.
+
+### One-Sided Transition Logic
+
+Editing software commonly treats transitions as centered on a cut, but also
+allows single-sided transitions when one side owns the motion. This maps well
+to promo-video work:
+
+- old scene can stay calm while new element arrives
+- inserted object can exit while the next shot is already stable
+- not every smooth handoff needs both scenes moving
+
+### Remotion Tools For Transition Work
+
+- `Series`:
+  scene sequencing without overlap
+- `TransitionSeries`:
+  scene overlap around a cut
+- `TransitionSeries.Overlay`:
+  bridge layer over a cut
+- `none()` + `useTransitionProgress()`:
+  custom object-driven handoff inside each scene
+- `slide()`:
+  useful when the new scene should literally push the old one
+
+Default recommendation:
+
+- use `Series` for most hard-cut promo scenes
+- use `TransitionSeries` only when overlap adds real clarity
+- use `none()` + `useTransitionProgress()` for premium custom handoffs
+- use overlay layers for flash/blur bridges instead of forcing every transition
+  into a scene slide
+
+## Transition Template Catalog
+
+Add these to the reusable system:
+
+1. `insert-rotate-settle-retract`
+2. `insert-rotate-settle-expand`
+3. `matched-scale-bridge`
+4. `flash-overlay-bridge`
+5. `none-progress-handoff`
+6. `slide-push`
+
 ## What To Avoid
 
 - constant glitch overlays
@@ -205,6 +654,17 @@ Recommended cut checklist:
 - weak cuts where the next frame is too close to the previous framing
 - carrying one subtitle visibly into the next background by accident
 - removing camera debug too early and mistaking object motion for camera motion
+- fake cutouts made from screenshot slices masquerading as clean foreground
+  assets
+- turning every subtitle into a glitch pack when the reference style is
+  primarily clean and modern
+- using heavy per-character chaos when the reference calls for subtle
+  letter-by-letter motion
+- treating a transition as a random effect rather than deciding who owns the
+  motion
+- inserted objects that enter and leave without any settle window
+- rotation that keeps spinning through the hold instead of easing into place
+- trying to use one generic slide/fade for every scene handoff
 
 ## Document Provenance
 
@@ -234,6 +694,28 @@ Recommended cut checklist:
   - Retrieved: 2026-04-20
   - Applied To: clean animated typography, abstract orb support, modern intro
     structure, smooth motion-blur reveal behavior
+  - Verification: verified on page
+
+- Source: https://www.remotion.dev/docs/transitions/transitionseries
+  - Kind: official documentation
+  - Retrieved: 2026-04-20
+  - Applied To: scene-overlap transition ownership, transition-first/last
+    entry/exit patterns, and overlay usage
+  - Verification: verified on page
+
+- Source: https://www.remotion.dev/docs/transitions/use-transition-progress
+  - Kind: official documentation
+  - Retrieved: 2026-04-20
+  - Applied To: custom internal-object transition handoff using entering/exiting
+    progress values
+  - Verification: verified on page
+
+- Source: https://helpx.adobe.com/premiere-pro/using/applying-removing-find-transitions.html
+  - Kind: official documentation
+  - Retrieved: 2026-04-20
+  - Applied To: centered vs single-sided transition thinking and the idea that
+    transitions need available media handles or explicit ownership on one or
+    both sides
   - Verification: verified on page
 
 - Source: /Users/almurat/Desktop/Catch/Hero-v1.webp
@@ -277,6 +759,41 @@ Recommended cut checklist:
   - Applied To: deterministic Remotion constraints, shot-first workflow, and
     frame-native timing discipline
   - Verification: verified in local skill doc
+
+- Source: /Users/almurat/MakeDream/_agent/skills/makedream-ui-spec/SKILL.md
+  - Kind: local skill doc
+  - Retrieved: 2026-04-20
+  - Applied To: geometry-first rule, whitespace ownership, and cluster sizing
+    discipline for promo-frame layout
+  - Verification: verified in local skill doc
+
+- Source: /Users/almurat/MakeDream/_agent/skills/makedream-ui-spec/references/layout_prompt_sources.md
+  - Kind: local reference doc
+  - Retrieved: 2026-04-20
+  - Applied To: screenshot contradiction rule, geometry-over-styling, and
+    dominant-task layout logic
+  - Verification: verified in local reference doc
+
+- Source: /Users/almurat/MakeDream/_agent/skills/makedream-ui-spec/references/ios26_adaptive_accessibility_rules.md
+  - Kind: local reference doc
+  - Retrieved: 2026-04-20
+  - Applied To: functional whitespace, rational grouping, and primary-task-first
+    layout hierarchy
+  - Verification: verified in local reference doc
+
+- Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-11-farcaster-miniapp-poster-redesign.md
+  - Kind: repo doc
+  - Retrieved: 2026-04-20
+  - Applied To: poster-first composition, one dominant anchor per image, and
+    sparse readable copy
+  - Verification: verified in repo doc
+
+- Source: user feedback in this thread
+  - Kind: runtime/design review
+  - Retrieved: 2026-04-20
+  - Applied To: explicit ban on naive screenshot hard-crop "cutouts" for promo
+    assets; require redraw, proper cutout, or correct external tool workflow
+  - Verification: confirmed by review of failed local cutout assets
 
 ## See Also
 

@@ -166,10 +166,10 @@ test('Farcaster generated-image routing prefers GPT Image 1 Mini for GPT chat se
   );
 });
 
-test('Farcaster generated-image routing keeps Grok image for non-OpenAI chat sessions', () => {
+test('Farcaster generated-image routing still defaults to GPT Image 1 Mini for non-OpenAI chat sessions', () => {
   assert.equal(
     __farcasterChatBridgeTest.resolveDefaultGeneratedImageModel('grok-4-1-fast-non-reasoning'),
-    'grok-imagine-image',
+    'gpt-image-1-mini',
   );
   assert.equal(
     __farcasterChatBridgeTest.shouldUseModelOwnedImageRewrite('grok-4-1-fast-non-reasoning'),
@@ -196,8 +196,8 @@ test('Farcaster generated-image routing honors a saved generated-image model and
       preferredGeneratedImageQuality: 'high',
     }),
     {
-      requestedModel: 'grok-imagine-image',
-      quality: 'normal',
+      requestedModel: 'gpt-image-1-mini',
+      quality: 'medium',
     },
   );
 });

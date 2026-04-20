@@ -20,6 +20,13 @@ test('public generated-image proxy fetches are path-scoped read-only bypasses', 
     );
     assert.equal(
         isPublicGeneratedImageProxyRequest({
+            method: 'GET',
+            url: '/api/chat/generated-images/public/hotlink-ok/chat-uploads/generated-public/farcaster/user/day/message.png',
+        } as any),
+        true,
+    );
+    assert.equal(
+        isPublicGeneratedImageProxyRequest({
             method: 'POST',
             url: '/api/chat/generated-images/public/chat-uploads/generated-public/farcaster/user/day/message.png',
         } as any),

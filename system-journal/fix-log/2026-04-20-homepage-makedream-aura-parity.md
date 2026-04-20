@@ -31,6 +31,8 @@ surface with external provenance.
   constants and timing model.
 - Matched the MakeDream blob count, positions, amplitudes, scale motion,
   rotation motion, and theme hold/transition cadence.
+- Seeded the homepage aura with a per-load random phase offset so each fresh
+  page load can enter the shared cycle on a different theme.
 - Removed the web-only noise layer and light-theme alternate styling.
 - Added the same dark veil used in MakeDream's `MobileAIChatCanvas`.
 - Updated `WelcomeScreen` ownership notes so the homepage background placement
@@ -62,6 +64,11 @@ source instead of layering ad hoc CSS tweaks on top.
   - Kind: repo doc
   - Retrieved: 2026-04-20
   - Applied To: preserving the same black overlay above the aura
+  - Verification: verified in code
+- Source: user report that the homepage currently randomizes the initial aura theme per load
+  - Kind: runtime observation
+  - Retrieved: 2026-04-20
+  - Applied To: seeding the aura cycle with a random start offset instead of a fixed theme-zero entry
   - Verification: verified in code
 
 ## See Also

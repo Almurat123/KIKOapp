@@ -56,13 +56,13 @@ test('generated image tool prefers GPT Image 1 Mini for OpenAI chat sessions', (
     );
 });
 
-test('generated image tool keeps Grok image when the current chat model is non-OpenAI', () => {
+test('generated image tool still defaults to GPT Image 1 Mini for non-OpenAI chat sessions', () => {
     assert.equal(
         __generateImageFromIntentTest.pickDefaultGeneratedImageModel('grok-4-1-fast-non-reasoning'),
-        'grok-imagine-image',
+        'gpt-image-1-mini',
     );
     assert.equal(
         __generateImageFromIntentTest.pickDefaultGeneratedImageModel('kimi-k2-5-instant'),
-        'grok-imagine-image',
+        'gpt-image-1-mini',
     );
 });

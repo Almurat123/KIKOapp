@@ -10,7 +10,6 @@ import {
     optimizeGeneratedImagePrompt,
     type GeneratedImageIntentInput,
 } from '../../../services/generatedImagePromptOptimizer.js';
-import { resolveProviderInfo } from '../../../jobs/chat/providerPolicyBuilder.js';
 import { resolveAvailableGeneratedImagePreference } from '../../../services/generatedImageBilling.js';
 
 // CONTEXT MEMORY
@@ -50,9 +49,9 @@ import { resolveAvailableGeneratedImagePreference } from '../../../services/gene
 // - structured image fields may recover missing user_intent before optimizer
 //   handoff, but this tool still must not invent new user-facing intent beyond
 //   the provided image fields
-// - Default image-model family may prefer the current chat-model family, but
-//   it must fall back to the first enabled image model instead of selecting a
-//   disabled provider
+// - Default image-model family should prefer GPT Image 1 Mini for all chats,
+//   but it must still fall back to the first enabled image model instead of
+//   selecting a disabled provider
 // Document Provenance:
 // - Source: operator requirement on 2026-04-18 for model-owned image generation inside main chat
 // - Kind: product doc
@@ -81,11 +80,12 @@ import { resolveAvailableGeneratedImagePreference } from '../../../services/gene
 // - Applied To: normalizing missing `user_intent` from structured image fields
 //   before optimizer handoff for NVIDIA/GLM image-tool turns
 // - Verification: verified in runtime log and targeted tests
-// - Source: operator request on 2026-04-20 for GPT-selected chats to keep the
-//   hidden prompt rewrite while preferring the matching image family when it is enabled
+// - Source: operator request on 2026-04-20 to make GPT Image 1 Mini the
+//   product-wide default generated-image model while still honoring explicit
+//   user image-model preferences
 // - Kind: product doc
 // - Retrieved: 2026-04-20
-// - Applied To: image-model family selection from the current chat model
+// - Applied To: image-model family default selection inside the image tool
 // - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
@@ -124,17 +124,13 @@ function resolveGeneratedImageSource(context?: Record<string, any>, snapshot?: a
     return 'chat-v2-tool';
 }
 
-function pickDefaultGeneratedImageModel(taskModel?: string | null): 'gpt-image-1-mini' | 'grok-imagine-image' {
-    const providerPreferredModel = resolveProviderInfo(String(taskModel || '')).provider === 'openai'
-        ? 'gpt-image-1-mini'
-        : 'grok-imagine-image';
+function pickDefaultGeneratedImageModel(_taskModel?: string | null): 'gpt-image-1-mini' | 'grok-imagine-image' {
     const resolved = resolveAvailableGeneratedImagePreference([
-        { model: providerPreferredModel },
         { model: 'gpt-image-1-mini' },
         { model: 'grok-imagine-image' },
         { model: 'gpt-image-1.5' },
     ]);
-    return (resolved.model || 'grok-imagine-image') as 'gpt-image-1-mini' | 'grok-imagine-image';
+    return (resolved.model || 'gpt-image-1-mini') as 'gpt-image-1-mini' | 'grok-imagine-image';
 }
 
 export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record<string, any>> = {

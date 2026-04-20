@@ -60,9 +60,10 @@
 // - If the saved Farcaster chat model is GPT/OpenAI, run one hidden rewrite
 //   step with that model before image execution; do not expose the rewritten
 //   prompt back to the user.
-// - Default generated-image provider may prefer the saved chat-model family,
-//   but it must fall back to the first enabled image model instead of
-//   surfacing a disabled provider.
+// - Default generated-image provider should prefer GPT Image 1 Mini for all
+//   Farcaster sessions unless the user explicitly saved another enabled image
+//   model, and it must still fall back to the first enabled image model
+//   instead of surfacing a disabled provider.
 // Document Provenance:
 // - Source: repo code review of X chat bridge
 // - Kind: repo doc
@@ -129,6 +130,12 @@
 // - Retrieved: 2026-04-20
 // - Applied To: model-selected hidden rewrite before Farcaster generated-image execution
 // - Verification: verified in code and targeted tests
+// - Source: operator request on 2026-04-20 to remove Grok as the automatic
+//   default generated-image family while keeping it available as an explicit choice
+// - Kind: product doc
+// - Retrieved: 2026-04-20
+// - Applied To: Farcaster generated-image default model selection and fallback order
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
@@ -185,8 +192,8 @@ const DEFAULT_FARCASTER_TIMEOUT_REPLY = 'I am still working on that. Please try 
 const DEFAULT_FARCASTER_GENERATED_IMAGE_READY_REPLY = 'Generated.';
 const DEFAULT_FARCASTER_GENERATED_IMAGE_PENDING_REPLY = 'Image generation is still running. Please try again in a moment.';
 const DEFAULT_FARCASTER_TASK_REPLY_TIMEOUT_MS = 180_000;
-const DEFAULT_FARCASTER_GENERATED_IMAGE_MODEL = 'grok-imagine-image';
-const DEFAULT_OPENAI_GENERATED_IMAGE_MODEL = 'gpt-image-1-mini';
+const DEFAULT_GENERATED_IMAGE_MODEL = 'gpt-image-1-mini';
+const FALLBACK_GENERATED_IMAGE_MODEL = 'grok-imagine-image';
 const farcasterImageIntentRewriteClient = new PythonGenerationClient();
 
 function normalizeFarcasterIntentText(value: unknown): string {
@@ -242,16 +249,13 @@ function buildFarcasterGeneratedImageIntent(params: {
   };
 }
 
-function resolveDefaultGeneratedImageModel(chatModel?: string | null): 'gpt-image-1-mini' | 'grok-imagine-image' {
-  const providerPreferredModel = resolveProviderInfo(normalizeTaskModel(String(chatModel || ''))).provider === 'openai'
-    ? DEFAULT_OPENAI_GENERATED_IMAGE_MODEL
-    : DEFAULT_FARCASTER_GENERATED_IMAGE_MODEL;
+function resolveDefaultGeneratedImageModel(_chatModel?: string | null): 'gpt-image-1-mini' | 'grok-imagine-image' {
   const resolved = resolveAvailableGeneratedImagePreference([
-    { model: providerPreferredModel },
-    { model: DEFAULT_FARCASTER_GENERATED_IMAGE_MODEL },
-    { model: DEFAULT_OPENAI_GENERATED_IMAGE_MODEL },
+    { model: DEFAULT_GENERATED_IMAGE_MODEL },
+    { model: FALLBACK_GENERATED_IMAGE_MODEL },
+    { model: 'gpt-image-1.5' },
   ]);
-  return (resolved.model || DEFAULT_FARCASTER_GENERATED_IMAGE_MODEL) as 'gpt-image-1-mini' | 'grok-imagine-image';
+  return (resolved.model || DEFAULT_GENERATED_IMAGE_MODEL) as 'gpt-image-1-mini' | 'grok-imagine-image';
 }
 
 function shouldUseModelOwnedImageRewrite(chatModel?: string | null): boolean {
@@ -266,17 +270,14 @@ function resolveRequestedGeneratedImagePreference(params: {
   requestedModel: GeneratedImageProviderModel | 'gpt-image-1-mini' | 'grok-imagine-image';
   quality: GeneratedImageQuality | null;
 } {
-  const preferredProviderDefault = resolveProviderInfo(normalizeTaskModel(String(params.chatModel || ''))).provider === 'openai'
-    ? DEFAULT_OPENAI_GENERATED_IMAGE_MODEL
-    : DEFAULT_FARCASTER_GENERATED_IMAGE_MODEL;
   const preferred = resolveAvailableGeneratedImagePreference([
     {
       model: params.preferredGeneratedImageModel,
       quality: params.preferredGeneratedImageQuality,
     },
-    { model: preferredProviderDefault },
-    { model: DEFAULT_FARCASTER_GENERATED_IMAGE_MODEL },
-    { model: DEFAULT_OPENAI_GENERATED_IMAGE_MODEL },
+    { model: DEFAULT_GENERATED_IMAGE_MODEL },
+    { model: FALLBACK_GENERATED_IMAGE_MODEL },
+    { model: 'gpt-image-1.5' },
   ]);
   if (preferred.model) {
     return {
