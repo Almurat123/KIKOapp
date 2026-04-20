@@ -12,30 +12,35 @@ import { logger } from '../../utils/logger';
 // CONTEXT MEMORY
 // Updated: 2026-04-20
 // Author: Almurat
-// Reason: Chat model family switching needs to remember the last control level
-//         per family, not just the current model snapshot, so returning to a
-//         family restores the same reasoning or quality choice instead of the
-//         family default.
-// Goal: preserve the exact model object the user chose plus the last control
-//       level used for each family across reloads and same-origin component
-//       sync.
-// Owns: localStorage serialization, hydration, and broadcast of the selected
-//       chat model snapshot plus per-family control memory.
-// Does Not Own: model catalog policy, remote user settings, or backend default
-//       chat model writes.
+// Reason: the welcome shell owns the persisted home/default model, while the
+//         active conversation route may mirror a different session model. The
+//         shared snapshot still needs to remember the last control level per
+//         family, but chat-route hydration must not overwrite the homepage
+//         default when those scopes diverge.
+// Goal: preserve the exact model object the user chose for the home/default
+//       surface plus the last control level used for each family across
+//       reloads and same-origin welcome-shell sync.
+// Owns: localStorage serialization, hydration, and broadcast of the
+//       home/default selected chat model snapshot plus per-family control
+//       memory.
+// Does Not Own: active conversation model hydration, model catalog policy,
+//       remote user settings, or backend default chat model writes.
 // Design Language:
 // - selection persistence should happen at the moment of user choice, not only
 //   in a later effect
+// - active conversation model changes must not rewrite the home/default
+//   snapshot
 // - stored snapshots must round-trip the active reasoning or quality control
 //   and remember the last control level for each family
-// - a single storage key should own both the current snapshot and the family
-//   control memory
+// - a single storage key should own both the home/default snapshot and the
+//   family control memory
 // - malformed storage must degrade to the canonical selectable model fallback
 // Document Provenance:
 // - Source: user bug report about reasoning strength resetting after refresh
 // - Kind: product instruction / runtime observation
 // - Retrieved: 2026-04-18
-// - Applied To: immediate local persistence and restore of selected chat model
+// - Applied To: immediate local persistence and restore of the home/default
+//   selected chat model
 // - Verification: inferred from code and targeted helper tests
 // - Source: user bug report about reasoning strength resetting after switching
 //   away from a family and back again
@@ -43,10 +48,18 @@ import { logger } from '../../utils/logger';
 // - Retrieved: 2026-04-20
 // - Applied To: storing the last control level per family in the same snapshot
 // - Verification: inferred from code
+// - Source: current bug report that chat-route model sync must not overwrite
+//   the homepage default model snapshot
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: keeping the persisted snapshot scoped to the welcome/home
+//   default model rather than the active conversation model
+// - Verification: inferred from code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-model-reasoning-selection-persistence.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-chat-model-family-control-memory.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-chat-home-default-and-session-model-separation.md
 // - /Users/almurat/KiKo/kiko-web/src/components/Chat/chatConstants.ts
 
 export const CHAT_SELECTED_MODEL_STORAGE_KEY = 'kiko-selected-model';

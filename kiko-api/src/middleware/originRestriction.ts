@@ -3,6 +3,38 @@
  * Validates request Origin/Referer headers to ensure requests come from allowed domains
  */
 
+// CONTEXT MEMORY
+// Updated: 2026-04-20
+// Author: Rowan
+// Reason: browser API calls need Origin/Referer enforcement, but public media
+//         proxy routes must remain fetchable by social crawlers that do not
+//         send first-party browser headers. A 2026-04-20 Farcaster trace showed
+//         `TwitterBot`, `probe-image-size`, and Node crawlers receiving 403
+//         from this middleware when fetching a generated-image `.png`, causing
+//         Farcaster to render an OGP/link card instead of the direct image.
+// Goal: keep browser/API CSRF-style origin enforcement intact while allowing
+//       explicitly public generated-image media routes to behave like public
+//       static assets.
+// Owns: request Origin/Referer validation and narrow public media exceptions.
+// Does Not Own: route-level auth, object-key validation, or generated-image
+//               storage prefix safety.
+// Design Language:
+// - public generated-image route bypass must stay path-scoped and read-only
+// - object-key allowlisting remains owned by chat image storage/route code
+// - do not relax origin enforcement for authenticated chat, wallet, or trade APIs
+// - forbidden local patch pattern: user-agent allowlists for social crawlers
+// Document Provenance:
+// - Source: /Users/almurat/Downloads/logs.1776665425918.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: bypassing origin checks only for public generated-image media
+//   proxy fetches that social crawlers request without Origin/Referer headers
+// - Verification: verified in runtime log and code
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-generated-image-public-proxy-and-task-hydration.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-farcaster-public-image-origin-and-message-preservation.md
+
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { AppError } from './errorHandler.js';
 
@@ -72,12 +104,24 @@ function isLoopbackAddress(ip: string | undefined): boolean {
     return normalized === '127.0.0.1' || normalized === '::1';
 }
 
+export function isPublicGeneratedImageProxyRequest(request: Pick<FastifyRequest, 'method' | 'url'>): boolean {
+    const method = String(request.method || '').trim().toUpperCase();
+    if (method !== 'GET' && method !== 'HEAD') {
+        return false;
+    }
+    return String(request.url || '').startsWith('/api/chat/generated-images/public/');
+}
+
 /**
  * Validate request origin
  * [Logic]: Checks Origin or Referer header against whitelist
  * [Risk]: Mobile apps may not send Origin header
  */
 export async function requireAllowedOrigin(request: FastifyRequest, _reply: FastifyReply) {
+    if (isPublicGeneratedImageProxyRequest(request)) {
+        return;
+    }
+
     // [Logic]: Skip origin check for server-to-server webhooks
     // [Risk]: Webhooks have their own signature verification (HMAC)
     const webhookPaths = ['/api/webhook/', '/webhook/'];

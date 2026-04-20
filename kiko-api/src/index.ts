@@ -4,7 +4,7 @@
  */
 
 // CONTEXT MEMORY
-// Updated: 2026-04-15
+// Updated: 2026-04-20
 // Author: Almurat
 // Reason: the server bootstrap now owns X OAuth preload and route registration
 //         so the bot can authorize once and serve credentials at runtime.
@@ -22,9 +22,14 @@
 //         opening general API security. Neynar webhook debugging also needed a
 //         pre-routing tap because route-local logs cannot explain 404/method
 //         mismatch cases.
+//         Farcaster generated-image publication now uses an API-owned public
+//         image proxy; social crawlers must be able to fetch that route without
+//         app keys or Origin/Referer headers, while the route itself still
+//         validates generated-image public object keys.
 // Goal: keep X auth routes mounted before startup, preload stored credentials,
 //       expose crawler-safe X share routes, bring Farcaster agent ingress after
-//       chat worker boot, and preserve existing worker boot order.
+//       chat worker boot, expose public generated-image media fetches, and
+//       preserve existing worker boot order.
 // Owns: top-level route wiring, public-route security bypasses, and startup sequencing for the API server.
 // Does Not Own: OAuth token exchange details, webhook parsing, or chat logic.
 // Design Language:
@@ -38,6 +43,9 @@
 //   to unrelated API paths.
 // - Emit a pre-routing request tap for `/api/webhook/neynar` so missing route
 //   hits and method/path mismatches are observable before Fastify routing.
+// - Public generated-image media routes bypass app-key/origin enforcement only
+//   at the bootstrap security gate; storage prefix validation stays in the chat
+//   image route owner.
 // Document Provenance:
 // - Source: @farcaster/hub-nodejs README, Neynar webhook docs, and public Hub
 //   runtime observation
@@ -58,6 +66,12 @@
 // - Applied To: adding a narrow `/api/auth/x/*` preflight/header fallback for
 //   operator bot OAuth repair
 // - Verification: partially verified
+// - Source: /Users/almurat/Downloads/logs.1776665425918.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: bypassing global app-key/origin checks for
+//   `/api/chat/generated-images/public/*` so Farcaster can fetch direct images
+// - Verification: verified in runtime log and code
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/owner-map/farcaster-neynar-webhook-ingress.md
@@ -69,6 +83,7 @@
 // - system-journal/fix-log/2026-04-15-farcaster-neynar-webhook-ingress.md
 // - system-journal/fix-log/2026-04-11-x-reply-share-pages.md
 // - system-journal/fix-log/2026-04-15-x-oauth-start-cors-repair.md
+// - system-journal/fix-log/2026-04-20-farcaster-public-image-origin-and-message-preservation.md
 // - system-journal/conflicts.md
 
 import 'dotenv/config';
@@ -338,7 +353,7 @@ fastify.addHook('onRequest', rateLimiter);
 
 // Register App Key validation for all API routes
 import { requireAppKey } from './middleware/apiKey.js';
-import { requireAllowedOrigin } from './middleware/originRestriction.js';
+import { isPublicGeneratedImageProxyRequest, requireAllowedOrigin } from './middleware/originRestriction.js';
 import { verifyRequestSignature } from './middleware/requestSigning.js';
 fastify.addHook('preHandler', async (request, reply) => {
     // Always allow browser CORS preflight to reach @fastify/cors handler.
@@ -365,6 +380,9 @@ fastify.addHook('preHandler', async (request, reply) => {
         '/api/images',
         '/internal/tools/'
     ];
+    if (isPublicGeneratedImageProxyRequest(request)) {
+        return;
+    }
     if (skipPaths.some(p => request.url === p || request.url.startsWith(p))) {
         return;
     }

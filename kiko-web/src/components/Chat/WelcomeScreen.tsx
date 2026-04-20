@@ -59,12 +59,13 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 //       only send eligibility as live chat, and while presenting the exact
 //       MakeDream-matched aura background without extra homepage-only overlays
 //       or model-policy chrome.
-// Owns: welcome-screen prompt collection, model selection persistence, local
+// Owns: welcome-screen prompt collection, home/default model selection persistence, local
 //       draft preview placement, borderless model/reasoning picker placement,
 //       local image-model quality selection, homepage aura-background
 //       placement, and the local settings-modal entry point for the welcome shell.
 // Does Not Own: full chat runtime boot, conversation creation, chat message
-//       rendering, homepage aura implementation details, or model catalog policy.
+//       rendering, active conversation model hydration, homepage aura
+//       implementation details, or model catalog policy.
 // Design Language:
 // - welcome-shell controls should stay lightweight and immediately interactive
 // - optional modal surfaces must load on demand
@@ -145,6 +146,7 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-input-borderless-model-reasoning-selector.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-model-reasoning-selection-persistence.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-chat-home-default-and-session-model-separation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-homepage-welcome-stardust-background-removal.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-local-image-composer-base.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-image-model-selector-sections.md

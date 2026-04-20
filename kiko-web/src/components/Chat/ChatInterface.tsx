@@ -24,11 +24,10 @@ import { useFarcasterContext } from '../../contexts/FarcasterContext';
 import { moderationService } from '../../services/moderation';
 import { logger } from '../../utils/logger';
 import { getStoredSlippageBps } from '@/config/slippageConfig';
-import { getUserSettings, saveUserSettings } from '../../services/userSettingsApi';
+import { getUserSettings } from '../../services/userSettingsApi';
 import { ChatMessageList } from './ChatMessageList';
 import { ChatComposer } from './ChatComposer';
 import {
-  persistChatModelSelection,
   readStoredChatModelSelection,
   readStoredChatModelSelectionState,
 } from './chatModelSelectionPersistence';
@@ -41,7 +40,6 @@ import {
 import {
   ACTION_CARD_TYPE_MAP,
   COMMON_TOKENS,
-  MODEL_OPTIONS,
   coerceSelectableChatModelOption,
   findChatModelOption,
   getDefaultChatModelOption,
@@ -83,16 +81,17 @@ const LazyChatStrategyRuntime = React.lazy(() =>
 //         the upload pipeline runs, and it now owns selection-time image upload
 //         plus upload-phase interaction locking before the backend task starts.
 //         The borderless model/reasoning picker chrome moved into ChatComposer
-//         and WelcomeScreen; this owner now only persists the selected model and
-//         coordinates the session bootstrap around it, including reasoning
-//         strength when the selected family exposes multiple effort levels.
-//         The selected model now writes to shared localStorage immediately on
-//         user choice so a fast refresh does not lose the reasoning state
-//         before the next effect flush. Remote settings sync now carries the
-//         paired reasoning level too, and the shared snapshot now also
-//         remembers the last control level per family so switching away and
-//         back restores the same reasoning or quality choice instead of the
-//         family default.
+//         and WelcomeScreen; this owner now coordinates the session bootstrap
+//         around the active model choice, including reasoning strength when
+//         the selected family exposes multiple effort levels.
+//         The welcome/home default still writes to shared localStorage
+//         immediately on user choice so a fast refresh does not lose the
+//         reasoning state before the next effect flush. The active
+//         conversation route may mirror a session model for sending, but it
+//         must not overwrite the welcome-shell default snapshot when the two
+//         diverge. The shared snapshot still remembers the last control level
+//         per family so switching away and back restores the same reasoning
+//         or quality choice instead of the family default.
 //         Generated-image selections can now persist locally in the same picker
 //         state, but must not overwrite the authenticated user's default chat
 //         model because the backend chat setting only owns text models.
@@ -113,12 +112,13 @@ const LazyChatStrategyRuntime = React.lazy(() =>
 //       the composer, turning drafts into backend-prepared upload ids before
 //       send, and routing generated-image prompts into the same transcript.
 // Owns: chat runtime bootstrapping, first-send/session behavior, local image
-//       draft lifecycle, selection-time image upload orchestration, persisted
-//       model/reasoning selection, local generated-image quality selection,
+//       draft lifecycle, selection-time image upload orchestration, active
+//       conversation model selection, local generated-image quality selection,
 //       text-vs-image send branching, and live assistant card attachment in the
 //       active conversation view.
-// Does Not Own: route-level shell experiments, external page wrappers, or the
-//       borderless picker chrome now owned by ChatComposer and WelcomeScreen.
+// Does Not Own: the welcome-shell default model snapshot, remote user-settings
+//       writes for chat-route model flips, route-level shell experiments, or
+//       the borderless picker chrome now owned by ChatComposer and WelcomeScreen.
 // Design Language:
 // - first-send flow should stay inside one chat owner
 // - the primary message list is part of the core chat surface, not a deferred
@@ -205,6 +205,13 @@ const LazyChatStrategyRuntime = React.lazy(() =>
 // - Retrieved: 2026-04-19
 // - Applied To: local-first restore and remote persistence of selected reasoning level
 // - Verification: verified in code
+// - Source: current bug report that the homepage model should not inherit the
+//   active conversation model after exiting chat
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: scoping model sync so the welcome/home snapshot is not
+//   overwritten by chat-route hydration
+// - Verification: inferred from code
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-billing-and-gating.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-18
@@ -263,6 +270,7 @@ const LazyChatStrategyRuntime = React.lazy(() =>
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-model-reasoning-selection-persistence.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-image-model-selector-sections.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-billing-and-gating.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-chat-home-default-and-session-model-separation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-local-ui-test-mode.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-generated-image-client-preview-hydration.md
 // - /Users/almurat/KiKo/kiko-web/src/components/Chat/chatModelSelectionPersistence.ts
@@ -889,26 +897,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   const [selectedModel, setSelectedModel] = useState(getInitialModel);
-  const setSelectedModelAndPersist = useCallback(
-    (nextModel: (typeof MODEL_OPTIONS)[number]) => {
-      persistChatModelSelection(nextModel);
-      setSelectedModel(nextModel);
-      if (!authenticated || !isTextChatModelOption(nextModel)) return;
-      void (async () => {
-        try {
-          const token = await getAccessToken();
-          if (!token) return;
-          await saveUserSettings(token, {
-            defaultChatModel: nextModel.id,
-            defaultChatReasoningLevel: nextModel.reasoningLevel,
-          });
-        } catch (error) {
-          logger.warn('Failed to persist default chat model:', error);
-        }
-      })();
-    },
-    [authenticated, getAccessToken]
-  );
 
   // Suggestions State (Managed by Hook)
   const {
@@ -1560,8 +1548,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     };
   }, [conversationId, flushPendingChunks, scheduleChunkFlush]);
 
-  // Sync with localStorage on mount and when it changes externally
+  const isHomeModelSyncActive = !(conversationId || (sidebar?.chatStarted ?? false));
+
+  // Sync with localStorage on mount and when the welcome shell changes the
+  // home/default model. Active conversations own their live model choice and
+  // must not feed back into the shared home snapshot.
   useEffect(() => {
+    if (!isHomeModelSyncActive) return;
+
     const syncModelFromStorage = () => {
       try {
         const found = readStoredChatModelSelectionState()?.selectedModel;
@@ -1618,7 +1612,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       window.removeEventListener('kiko-model-changed', handleModelChange as EventListener);
       window.removeEventListener('storage', syncModelFromStorage);
     };
-  }, []);
+  }, [isHomeModelSyncActive]);
 
   useEffect(() => {
     if (!ready || !authenticated) return;
@@ -1682,11 +1676,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       }
     };
   }, []);
-
-  // Save the selected model snapshot and its family control memory whenever it changes.
-  useEffect(() => {
-    persistChatModelSelection(selectedModel);
-  }, [selectedModel]);
 
   // Start from null so first mount on /chat/:id is treated as a switch and triggers loadConversation.
   const currentConversationIdRef = useRef<string | null>(null);
@@ -3720,7 +3709,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         onCompositionStart={handleCompositionStart}
         onCompositionEnd={handleCompositionEnd}
         onSelectModel={(model) => {
-          setSelectedModelAndPersist(model);
+          setSelectedModel(model);
           logger.debug('Model changed to:', model.id);
         }}
         onSelectImages={handleSelectImages}

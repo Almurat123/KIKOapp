@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-20
 // Author: Rowan
 // Reason: live chat output can appear non-streaming even when model generation
 //         is streaming if the broker emits only one visible chunk or if chunks
@@ -11,10 +11,20 @@
 //         A 2026-04-19 text deploy trace showed the route and broker both
 //         emitted `message_start`; this owner is now the single text-start
 //         broadcaster and guards against accidental repeated local starts.
+//         A 2026-04-20 Farcaster generated-image trace showed a tool-managed
+//         image task completed the assistant row with `generatedImage.images`,
+//         then this broker recorded the tool result using stale empty
+//         `assistantData`, overwriting the image payload and resetting the row
+//         to `streaming`. Broker runtime/tool trace persistence must now merge
+//         with the latest durable assistant data and preserve terminal
+//         side-effect state.
 // Goal: make broker-level content, reasoning, start, and complete emissions
-//       observable with per-message chunk counts and timing.
+//       observable with per-message chunk counts and timing while preserving
+//       assistant data written by side-effect owners such as generated-image
+//       execution across runtime-plan and tool-trace writes.
 // Owns: assistant message streaming state, chunk broadcasts, runtime cards,
-//       and final persistence for chat worker output.
+//       runtime-plan metadata, tool-result trace persistence, and final
+//       persistence for chat worker output.
 // Does Not Own: provider delta parsing, WebSocket client rendering, or frontend animation.
 // Design Language:
 // - each visible broker chunk should have a monotonic per-message index
@@ -22,6 +32,11 @@
 // - broker diagnostics must line up with ChatWS sequence diagnostics
 // - plan visibility hints must survive broker merges without controlling frontend rendering
 // - each broker instance may broadcast `message_start` at most once
+// - broker metadata persistence must merge with latest durable assistant data
+//   before writing, because side-effect tools may have already completed the
+//   same assistant row outside the broker
+// - forbidden local patch pattern: resetting a terminal generated-image row to
+//   `streaming` just to append runtime or toolTrace metadata
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/test.txt
 // - Kind: runtime observation
@@ -39,11 +54,19 @@
 // - Retrieved: 2026-04-19
 // - Applied To: single-owner message_start broadcasting and duplicate-start diagnostics
 // - Verification: verified in runtime logs and code
+// - Source: /Users/almurat/Downloads/logs.1776665425918.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: preserving generated-image message data/status when recording
+//   runtime-plan and `generate_image_from_intent` tool results after
+//   side-effect completion
+// - Verification: verified in runtime log and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-stream-diagnostics.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-plan-card-internal-scaffold-filter.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-stream-duplicate-and-tool-loop-diagnostics.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-farcaster-public-image-origin-and-message-preservation.md
 import { randomUUID } from "node:crypto";
 import * as chatRepo from "../../repositories/chatRepository.js";
 import { chatWS } from "../../services/chatWebSocket.js";
@@ -77,6 +100,17 @@ import {
   extractPolymarketSelectionState,
   mergePolymarketSelectionState,
 } from "./polymarketSelectionState.js";
+import {
+  resolveAssistantDataPersistStatus,
+  resolveToolTracePersistStatus,
+} from "./streamBrokerToolTraceState.js";
+
+function asPlainRecord(value: unknown): Record<string, any> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return value as Record<string, any>;
+}
 
 export class ChatStreamBroker {
   private content = "";
@@ -565,7 +599,16 @@ export class ChatStreamBroker {
         this.pushCitation(toolCitations);
       }
 
-      const existingTrace = this.assistantData.toolTrace || {};
+      const currentMessage = await chatRepo.getMessage(
+        this.params.assistantMessageId,
+      );
+      const durableAssistantData = asPlainRecord(currentMessage?.data);
+      const mergedAssistantData = {
+        ...durableAssistantData,
+        ...this.assistantData,
+      };
+
+      const existingTrace = mergedAssistantData.toolTrace || {};
       const existingCalls = Array.isArray(existingTrace.toolCalls)
         ? existingTrace.toolCalls
         : [];
@@ -607,10 +650,10 @@ export class ChatStreamBroker {
         ],
       };
       const data: Record<string, any> = {
-        ...this.assistantData,
+        ...mergedAssistantData,
         toolTrace,
         orchestrationToolResults: [
-          ...(this.assistantData.orchestrationToolResults || []),
+          ...(mergedAssistantData.orchestrationToolResults || []),
           result,
         ],
       };
@@ -621,7 +664,7 @@ export class ChatStreamBroker {
       const renderContract = extractRenderContract(normalizedResult);
       if (renderContract) {
         data.renderContracts = mergeRenderContracts(
-          this.assistantData.renderContracts || [],
+          mergedAssistantData.renderContracts || [],
           renderContract,
         );
         liveDataPatch.renderContracts = data.renderContracts;
@@ -633,7 +676,7 @@ export class ChatStreamBroker {
       );
       if (nextPolymarketSelection) {
         data.polymarketSelection = mergePolymarketSelectionState(
-          this.assistantData.polymarketSelection || null,
+          mergedAssistantData.polymarketSelection || null,
           nextPolymarketSelection,
         );
         liveDataPatch.polymarketSelection = data.polymarketSelection;
@@ -641,7 +684,11 @@ export class ChatStreamBroker {
       this.assistantData = data;
       await chatRepo.updateMessage(this.params.assistantMessageId, {
         data,
-        status: "streaming",
+        status: resolveToolTracePersistStatus({
+          currentStatus: currentMessage?.status,
+          nextData: data,
+          result,
+        }),
       });
       this.broadcastAssistantDataPatch(liveDataPatch);
       await this.persistToolSideEffects(result);
@@ -1212,16 +1259,28 @@ export class ChatStreamBroker {
   private async persistRuntimeState(
     status: "streaming" | "complete" | "error" = "streaming",
   ) {
-    this.assistantData = {
+    const nextAssistantData = {
       ...this.assistantData,
       agentRuntime: {
         plan: this.planCard,
         providerNativeEvidence: this.getProviderNativeEvidence(),
       },
     };
+    const currentMessage = await chatRepo.getMessage(
+      this.params.assistantMessageId,
+    );
+    const durableAssistantData = asPlainRecord(currentMessage?.data);
+    this.assistantData = {
+      ...durableAssistantData,
+      ...nextAssistantData,
+    };
     await chatRepo.updateMessage(this.params.assistantMessageId, {
       data: this.assistantData,
-      status,
+      status: resolveAssistantDataPersistStatus({
+        currentStatus: currentMessage?.status,
+        requestedStatus: status,
+        nextData: this.assistantData,
+      }),
     });
     this.broadcastAgentRuntime();
   }

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { OrchestratorToolResult, PlanStepExecution } from './contracts.js';
 import { mergeCollapsedExecutionDetail, mergeOrchestratorUsage, shouldCollapseRuntimeResult, terminalizeRemainingPlanStepsAfterFailure } from './streamBroker.js';
+import { resolveAssistantDataPersistStatus, resolveToolTracePersistStatus } from './streamBrokerToolTraceState.js';
 
 test('collapses repeat-cache tool results onto an existing execution', () => {
     const executions: PlanStepExecution[] = [
@@ -118,4 +119,65 @@ test('mergeOrchestratorUsage accumulates multi-round provider usage', () => {
         completion_tokens_details: { reasoning_tokens: 55 },
         cost_in_usd_ticks: 3500,
     });
+});
+
+test('tool trace persistence preserves completed generated-image message status', () => {
+    const nextStatus = resolveToolTracePersistStatus({
+        currentStatus: 'streaming',
+        nextData: {
+            generatedImage: {
+                status: 'complete',
+                images: [{ publicUrl: 'https://api.kikoapp.app/image.png' }],
+            },
+        },
+        result: {
+            name: 'generate_image_from_intent',
+            arguments: {},
+            ok: true,
+            result: { handled_response: true, response_channel: 'generated-image' },
+            continuation: { next_action: 'complete_with_side_effect' },
+        } as any,
+    });
+
+    assert.equal(nextStatus, 'complete');
+});
+
+test('runtime metadata persistence preserves completed generated-image message status', () => {
+    const nextStatus = resolveAssistantDataPersistStatus({
+        currentStatus: 'streaming',
+        requestedStatus: 'streaming',
+        nextData: {
+            generatedImage: {
+                status: 'complete',
+                images: [{ publicObjectKey: 'chat-uploads/generated-public/farcaster/user/day/message.png' }],
+            },
+            agentRuntime: {
+                plan: { status: 'completed' },
+            },
+        },
+    });
+
+    assert.equal(nextStatus, 'complete');
+});
+
+test('tool trace persistence preserves failed generated-image message status', () => {
+    const nextStatus = resolveToolTracePersistStatus({
+        currentStatus: 'streaming',
+        nextData: {
+            generatedImage: {
+                status: 'failed',
+                errorMessage: 'provider failed',
+            },
+        },
+        result: {
+            name: 'generate_image_from_intent',
+            arguments: {},
+            ok: false,
+            error: 'provider failed',
+            result: { handled_response: true, response_channel: 'generated-image' },
+            continuation: { next_action: 'complete_with_side_effect' },
+        } as any,
+    });
+
+    assert.equal(nextStatus, 'error');
 });
