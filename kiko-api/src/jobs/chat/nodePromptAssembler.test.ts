@@ -11,6 +11,7 @@ import type {
   ProviderNativeEvidenceSnapshot,
 } from "./contracts.js";
 import type { ProviderInfo } from "./providerPolicyBuilder.js";
+import { skillRegistryExec } from "../../skills/registry.js";
 
 function restoreEnv(name: string, previous: string | undefined): void {
   if (previous === undefined) {
@@ -1331,8 +1332,23 @@ test("assembleGenerationMessages uses compact execution mode guidance for swap e
   const userMessage = messages.find((message) => message.role === "user");
   assert.doesNotMatch(String(systemMessage?.content || ""), /EXECUTION_MODE:/);
   assert.match(
+    String(systemMessage?.content || ""),
+    /For specialist execution tasks, collapse into a fixed template: gather required context once, bind the missing slots once/,
+  );
+  assert.match(
     String(userMessage?.content || ""),
     /user_settings: worker constraints and defaults: quote rules, swap defaults, safety flags; read via read_user_settings/,
+  );
+});
+
+test("swap skill prompt exposes the fixed fast path template", () => {
+  const swapSkill = skillRegistryExec.getSkill("swap");
+
+  assert.ok(swapSkill?.prompt);
+  assert.match(String(swapSkill?.prompt || ""), /Fast path template:/);
+  assert.match(
+    String(swapSkill?.prompt || ""),
+    /Do not restart discovery, compare alternate routes, or re-run price lookups/,
   );
 });
 

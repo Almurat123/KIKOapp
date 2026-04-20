@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-19
+// Updated: 2026-04-20
 // Author: Rowan
 // Reason: Farcaster agent replies need a surface-specific system prompt so the
 //         model recognizes the conversation as a social-agent mode instead of a
@@ -45,7 +45,10 @@
 //         of the new image prompt coaching path later showed the main model
 //         could still answer directly without loading `read_skill_prompts`, so
 //         prompt assembly now needs a stronger system-level rule when matched
-//         specialist prompt playbooks exist.
+//         specialist prompt playbooks exist. Specialist business execution now
+//         also needs a fixed fast-path template so swap-like requests bind
+//         context once and keep moving instead of reopening discovery after
+//         every tool result.
 // Goal: keep generation messages explicit about surface mode, especially for
 //       Farcaster agent turns where short, direct replies are the default,
 //       replay stored reasoning only for provider/model paths that officially
@@ -87,6 +90,9 @@
 // - prompt memory blocks should reuse the same worker-state object returned by read_workflow_state
 // - model-owned task choice still needs a hard state machine: choose task,
 //   read required context, gather missing evidence, then answer/quote/confirm/execute
+// - specialist execution turns should collapse into a fixed template once the task mode is clear
+// - required context should be gathered once and then carried forward until a hard blocker appears
+// - prompt text must not encourage the model to restart discovery after every tool result
 // - context-trigger rules must describe when to read wallet/token/social/image/settings state,
 //   and must not imply that available context is automatically relevant
 // - answer quality is a worker contract: no plan narration, no invented tool fields,
@@ -220,6 +226,16 @@
 // - Retrieved: 2026-04-19
 // - Applied To: system-level read_skill_prompts rule for matched prompt playbooks
 // - Verification: verified in runtime and code
+// - Source: /Users/almurat/KiKo/system-journal/design-language/specialist-business-fast-path-template.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-20
+// - Applied To: fixed fast-path guidance for swap and other specialist execution turns
+// - Verification: verified in code and targeted tests
+// - Source: local runtime product-owner instruction about fixed fast-path templates for business logic
+// - Kind: product instruction / runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: template-first execution guidance for specialist business turns
+// - Verification: inferred from prompt design and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/runtime-plan-visibility.md
@@ -245,6 +261,8 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-reply-style-directive.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-agent-mode-prompt.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
+// - /Users/almurat/KiKo/system-journal/design-language/specialist-business-fast-path-template.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-specialist-business-fast-path-template.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import {
   CORE_UNIFIED,
@@ -319,6 +337,7 @@ const WORKER_STATE_MACHINE_PROMPT = [
   "[WORKER_STATE_MACHINE]",
   "- State order: understand_request -> select_task_modes -> read_required_context -> gather_missing_evidence -> synthesize_or_prepare_quote -> ask_confirmation_or_execute -> report_result.",
   "- Use WORKING_MEMORY.mode_progress_state to continue the current mode's internal step. TASK_MENU chooses modes; mode_progress_state shows the current progress inside the mode.",
+  "- Once a specialist business mode is selected, keep that fixed template active. Read the required context once, fill the missing slots once, and do not restart understand_request after every tool result unless a hard blocker appears.",
   "- For lean_chat: answer from the user question and ordinary conversation history. Do not read wallet/token/workflow context just because it exists.",
   "- For follow-up phrases such as 'this one', 'continue', 'yes', 'confirm', 'sell it', or 'what about them': treat WORKING_MEMORY as the starting state and read workflow_state before rediscovering.",
   "- For wallet_read: read user_context and wallet_state before claiming balances, holdings, PnL, connected wallet, or active chain.",

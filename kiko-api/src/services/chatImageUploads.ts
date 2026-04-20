@@ -90,6 +90,12 @@
 // - Applied To: deriving public generated-image URLs from persisted public
 //   object keys so legacy stored URLs cannot keep forcing link-card rendering
 // - Verification: verified in code
+// - Source: /Users/almurat/KiKo/test.txt
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: keeping Farcaster web compatible with its `wrpcd.net` image
+//   proxy cache by publishing versioned public generated-image URLs
+// - Verification: verified in runtime browser log and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/social-agent-multimodal-input.md
@@ -97,6 +103,7 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-generated-image-public-proxy-and-task-hydration.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-farcaster-public-image-origin-and-message-preservation.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-local-image-composer-base.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
@@ -380,6 +387,17 @@ function buildGeneratedPublicObjectKey(userId: string, assistantMessageId: strin
     return `${CHAT_GENERATED_IMAGE_PUBLIC_PREFIX}/farcaster/${safeUserPathSegment(userId)}/${dayStamp}/${sanitizedMessageId}.png`;
 }
 
+function buildPublicObjectUrlVersion(objectKey: string): string {
+    const lastSegment = String(objectKey || '')
+        .split('/')
+        .filter(Boolean)
+        .pop() || 'image';
+    return lastSegment
+        .replace(/\.[a-z0-9]+$/i, '')
+        .replace(/[^a-zA-Z0-9_-]+/g, '_')
+        .slice(0, 120) || 'image';
+}
+
 function buildPublicObjectUrl(objectKey: string): string | null {
     const baseUrl = CHAT_GENERATED_IMAGE_PUBLIC_URL_MODE === 'direct'
         ? CHAT_GENERATED_IMAGE_PUBLIC_DIRECT_BASE_URL
@@ -389,7 +407,8 @@ function buildPublicObjectUrl(objectKey: string): string | null {
         .split('/')
         .map((segment) => encodeURIComponent(segment))
         .join('/');
-    return `${baseUrl}/${encodedPath}`;
+    const version = buildPublicObjectUrlVersion(objectKey);
+    return `${baseUrl}/${encodedPath}?v=${encodeURIComponent(version)}`;
 }
 
 export function resolveGeneratedImagePublicUrl(attachment: any): string | null {

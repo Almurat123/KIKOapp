@@ -13,6 +13,10 @@
   headers (`Access-Control-Allow-Origin: *` and
   `Cross-Origin-Resource-Policy: cross-origin`) while retaining inline image
   content type and storage-layer object-key validation.
+- Public generated-image embed URLs derived from `publicObjectKey` now include a
+  stable `?v=<image-id>` query string. Farcaster web rewrites image embeds
+  through `wrpcd.net/cdn-cgi/image/...`; versioned URLs prevent retries from
+  reusing a previously cached failed transform for the same bare `.png` URL.
 - `originRestriction` now has a path-scoped public generated-image bypass, so
   the same rule is preserved if the middleware is reused outside the bootstrap
   hook.
@@ -42,6 +46,11 @@ two separate failures in the same Farcaster generated-image run:
    to the underlying API public image URL returned `429 Too Many Requests`
    before the route served the object, proving the global `rateLimiter` still
    sat in front of the public media path even after the origin/app-key bypass.
+4. The operator-provided `/Users/almurat/KiKo/test.txt` browser log confirmed
+   the web client runs under `client.farcaster.xyz` / `client.warpcast.com` and
+   allows `wrpcd.net` in its image/connect policy. That means the remaining
+   issue is cache-key stability for the direct image URL that Farcaster rewrites,
+   not converting the reply back into an OGP card.
 
 ## Verification
 
@@ -59,6 +68,8 @@ two separate failures in the same Farcaster generated-image run:
   `api.kikoapp.app/api/chat/generated-images/public/...cmo6uezyl011b10oqrc346bwz.png`
   could return `429 Too Many Requests` from the origin before deployment of the
   limiter bypass.
+- Verified in code that rewritten legacy generated-image URLs now publish the
+  API public proxy URL with a stable version query parameter.
 - `cd /Users/almurat/KiKo/kiko-api && npm exec tsc --noEmit --pretty false`
 - `cd /Users/almurat/KiKo/kiko-api && npm exec tsx --test src/middleware/originRestriction.test.ts`
 - `cd /Users/almurat/KiKo/kiko-api && npm exec tsx --test src/middleware/rateLimiter.test.ts`
@@ -86,6 +97,12 @@ two separate failures in the same Farcaster generated-image run:
   - Applied To: bypassing the API rate limiter for read-only public generated
     image media fetches and adding cross-origin-friendly image response headers
   - Verification: verified by live curl repro and code
+- Source: `/Users/almurat/KiKo/test.txt`
+  - Kind: runtime observation
+  - Retrieved: 2026-04-20
+  - Applied To: publishing versioned direct-image URLs that Farcaster web can
+    rewrite through its allowed `wrpcd.net` proxy without reusing a failed cache key
+  - Verification: verified in browser log and code
 
 ## See Also
 

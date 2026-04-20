@@ -684,6 +684,11 @@ test('swap intents prefer wallet info and preflight before prepare swap executio
             note.includes('preflight evidence first') || note.includes('Quote-before-swap mode is enabled')
         )
     );
+    assert.ok(
+        resolution.strategyNotes.some((note) =>
+            note.includes('fixed business template') && note.includes('one quote or one execution path')
+        )
+    );
     assert.equal(resolution.allowAllTools, true);
 });
 

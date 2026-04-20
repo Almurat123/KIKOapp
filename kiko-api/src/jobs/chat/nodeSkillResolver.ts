@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-19
+// Updated: 2026-04-20
 // Author: Renata
 // Reason: Clanker launch turns now need a first-class skill note so the model
 //         sees the deploy prompt, collects missing launch fields, and keeps
@@ -25,6 +25,9 @@
 //         then showed prompt-coaching turns could still skip `read_skill_prompts`,
 //         so the resolver now needs an explicit image-prompt strategy that
 //         forces the model to load the prompt playbook before replying.
+//         Business execution turns now also need a fixed fast-path template so
+//         swap-style requests bind wallet, chain, token, and amount once and
+//         keep moving instead of reopening discovery after every tool result.
 // Goal: keep skill resolution aligned with the actual user task so Clanker
 //       launch requests surface the deploy skill, while onboarding/meta turns
 //       still stay lean.
@@ -52,6 +55,9 @@
 // - Image prompt-coaching turns should explicitly read `read_skill_prompts` before answering so the OpenAI-aligned playbook actually reaches the model.
 // - OpenAI-first prompt coaching should not volunteer Midjourney/SD/other-model rewrites unless the user asked for them.
 // - Image prompt coaching is not a lean direct-answer turn; it must get a specialist context contract.
+// - Specialist execution turns should collapse into a fixed template once the task mode is clear.
+// - Required context should be gathered once and then carried forward until a hard blocker appears.
+// - Prompt text must not encourage the model to restart discovery after every tool result.
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/test.txt
 // - Kind: runtime observation
@@ -118,6 +124,16 @@
 // - Retrieved: 2026-04-19
 // - Applied To: requiring read_skill_prompts before image prompt coaching answers
 // - Verification: verified in runtime and code
+// - Source: /Users/almurat/KiKo/system-journal/design-language/specialist-business-fast-path-template.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-20
+// - Applied To: fixed fast-path guidance for swap and other specialist execution turns
+// - Verification: verified in code and targeted tests
+// - Source: local runtime product-owner instruction about fixed fast-path templates for business logic
+// - Kind: product instruction / runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: swap strategy notes and template-first execution guidance
+// - Verification: inferred from prompt design and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/image-prompt-guidance.md
@@ -134,6 +150,8 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-v2-model-owned-image-generation-tool.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-image-prompt-skill-provenance.md
 // - /Users/almurat/KiKo/system-journal/adr/2026-04-19-model-led-tool-orchestration.md
+// - /Users/almurat/KiKo/system-journal/design-language/specialist-business-fast-path-template.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-specialist-business-fast-path-template.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 import { LogCode } from '../../config/logRegistry.js';
@@ -422,15 +440,16 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         const userSettings = snapshot.runtime.userSettings || {};
         const fastSwapMode = userSettings.fastSwapMode === true;
         const quoteBeforeSwap = userSettings.showQuoteBeforeSwap !== false && !fastSwapMode;
+        strategyNotes.push('Treat natural-language swap turns as a fixed business template: resolve wallet, chain, token, and amount once, then move through one quote or one execution path without reopening discovery after each tool result unless a hard blocker appears.');
         pushPreferred(preferredTools, 'get_wallet_info');
         pushPreferred(preferredTools, 'prepare_swap_transaction');
         if (quoteBeforeSwap) {
             pushPreferred(preferredTools, 'simulate_swap');
-            strategyNotes.push('Quote-before-swap mode is enabled: resolve balance with get_wallet_info, run simulate_swap once for the first pair+amount, present the quote, then use prepare_swap_transaction only after explicit user confirmation.');
+            strategyNotes.push('Quote-before-swap mode is enabled: follow the fixed swap template, resolve balance with get_wallet_info once, run simulate_swap once for the first pair+amount, present the quote, then use prepare_swap_transaction only after explicit user confirmation.');
         } else if (fastSwapMode) {
-            strategyNotes.push('Fast swap mode is enabled: do not make simulate_swap a blocking prerequisite. Resolve wallet/balance context first, then move directly toward prepare_swap_transaction execution once token, chain, and amount are explicit and safe.');
+            strategyNotes.push('Fast swap mode is enabled: follow the fixed swap template, resolve wallet/balance context once, do not make simulate_swap a blocking prerequisite, and move directly toward prepare_swap_transaction execution once token, chain, and amount are explicit and safe.');
         } else {
-            strategyNotes.push('Direct execution mode is enabled: resolve wallet/balance context first, use preflight only when needed for ambiguity or safety, then move toward prepare_swap_transaction execution without stalling on quote presentation.');
+            strategyNotes.push('Direct execution mode is enabled: follow the fixed swap template, resolve wallet/balance context once, use preflight only when needed for ambiguity or safety, then move toward prepare_swap_transaction execution without stalling on quote presentation.');
         }
         strategyNotes.push('Do not use get_token_price as a prerequisite for selling or swapping a contract-address token. That tool is only for mainstream symbol price lookups.');
     }

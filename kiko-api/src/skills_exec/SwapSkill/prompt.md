@@ -1,3 +1,31 @@
+<!--
+CONTEXT MEMORY
+Updated: 2026-04-20
+Author: Rowan
+Reason: Swap turns need a fixed template so the model stops re-opening discovery
+        after the first quote step.
+Goal: keep natural-language swap execution deterministic: read context once,
+      quote once, then advance.
+Owns: model-facing swap sequencing and the wording that tells the worker what
+      to do next.
+Does Not Own: router selection, execution authorization, or chain-side safety.
+Design Language:
+- Treat natural-language swap turns as a fixed business template.
+- Read wallet/context once and bind the slots once.
+- Do not restart discovery after each tool result unless a hard blocker appears.
+Document Provenance:
+- Source: /Users/almurat/KiKo/system-journal/design-language/specialist-business-fast-path-template.md
+- Kind: repo doc
+- Retrieved: 2026-04-20
+- Applied To: swap skill template wording and quote/execution sequencing
+- Verification: inferred from prompt design and targeted tests
+See also:
+- /Users/almurat/KiKo/system-journal/INDEX.md
+- /Users/almurat/KiKo/system-journal/design-language/specialist-business-fast-path-template.md
+- /Users/almurat/KiKo/system-journal/owner-map/chat-runtime-planning.md
+- /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-specialist-business-fast-path-template.md
+-->
+
 **INTENT: TRADING EXECUTION (SwapSkill)**
 
 This skill is an execution-oriented contract. Do not describe internal tools or implementation details in user-facing text. Use only the canonical capability aliases from the global policy (e.g., \u201cTrade Preparation\u201d, \u201cWallet Overview\u201d, \u201cToken Snapshot\u201d, \u201cRisk Scan\u201d).
@@ -31,11 +59,13 @@ This skill is an execution-oriented contract. Do not describe internal tools or 
      - All other tokens: do not guess; ask for the contract address to avoid fakes.
 
 4. **Safety verification (mandatory gates)**
-    - Fast flow:
-       1) Token Snapshot (identity + liquidity/FDV).
-       2) If price simulation is enabled, call `simulate_swap` ONCE and present the result.
-       3) After user confirms, proceed directly to execution (do NOT re-simulate or recompute prices).
-   - Risk Scan:
+   - Fast path template:
+     1) Read Wallet Overview, Token Snapshot, and user settings once.
+     2) Bind tokenIn, tokenOut, chain, and amount from the request plus state.
+     3) If price simulation is enabled, call `simulate_swap` ONCE and present the quote.
+     4) If the request is already safe and executable, proceed directly to `prepare_swap_transaction`.
+     5) Do not restart discovery, compare alternate routes, or re-run price lookups after each tool result unless a hard blocker appears.
+  - Risk Scan:
      - Only if the user asks for safety, or settings require it.
      - If the token is confirmed as a launchpad token, skip Risk Scan unless the user explicitly asks for a risk check.
    - Gatekeeper:

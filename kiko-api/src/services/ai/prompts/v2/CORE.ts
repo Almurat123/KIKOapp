@@ -1,10 +1,48 @@
+// CONTEXT MEMORY
+// Updated: 2026-04-20
+// Author: Rowan
+// Reason: Specialist execution turns were still re-opening discovery after the
+//         first tool result, so the core worker protocol now has to say
+//         "fixed template" explicitly for business flows like swap.
+// Goal: keep specialist execution on one deterministic path: collect required
+//       context once, bind the slots once, and continue to quote or execute
+//       without re-planning after every tool result.
+// Owns: model-visible worker protocol wording and trading execution guidance
+//       injected into the core prompt.
+// Does Not Own: route selection, execution authorization, or tool policy.
+// Design Language:
+// - Specialist business execution should collapse into a fixed template once a
+//   specialist mode is selected.
+// - Required context should be gathered once, then carried forward until a
+//   hard blocker appears.
+// - Prompt text must not invite the model to restart discovery after every
+//   tool result.
+// Document Provenance:
+// - Source: /Users/almurat/KiKo/system-journal/design-language/specialist-business-fast-path-template.md
+// - Kind: repo doc
+// - Retrieved: 2026-04-20
+// - Applied To: worker protocol wording for specialist execution templates
+// - Verification: verified in code and targeted tests
+// - Source: local runtime product-owner instruction about fixed fast-path templates for business logic
+// - Kind: product instruction / runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: swap and other specialist execution task prompting
+// - Verification: inferred from prompt design and targeted tests
+// See also:
+// - /Users/almurat/KiKo/system-journal/INDEX.md
+// - /Users/almurat/KiKo/system-journal/design-language/specialist-business-fast-path-template.md
+// - /Users/almurat/KiKo/system-journal/owner-map/chat-runtime-planning.md
+// - /Users/almurat/KiKo/system-journal/adr/2026-04-19-model-led-tool-orchestration.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-specialist-business-fast-path-template.md
+
 const buildDefaultScenarioPlaybook = (): string => `
 Operating principles (default):
 1. Treat structured runtime state as authoritative. Do not reconstruct workflow state from raw wording when canonical intent, pending confirmation, render contracts, or recent evidence already provide it.
 2. Match tool breadth to task type: for execution or narrow factual lookups, stay minimal; for research, shortlist-building, tutorial gathering, or time-sensitive discovery, gather enough independent evidence to produce a usable result.
 3. Parallelize independent tool calls; sequence only when outputs are genuinely dependent.
 4. Prefer execution-preparation over repeated discovery when the user already selected a candidate.
-5. For wallet PNL, treat summary and analysis as separate tools: Zerion summary is for fast wallet-level overview; custom Dune analysis is a distinct workflow.
+5. For specialist execution tasks, collapse into a fixed template: gather required context once, bind the missing slots once, and keep moving toward the next deterministic step instead of reopening discovery after each tool result.
+6. For wallet PNL, treat summary and analysis as separate tools: Zerion summary is for fast wallet-level overview; custom Dune analysis is a distinct workflow.
 `.trim();
 
 const buildGrokScenarioPlaybook = (): string => `
@@ -104,7 +142,7 @@ ${buildDefaultScenarioPlaybook()}
 
 Trading execution rules:
 1. Once identified as a trading request, prioritize execution flow and avoid unrelated analysis.
-2. If parameters are complete, advance to the next execution step; if incomplete, ask key questions.
+2. Use the smallest fixed template that can finish the flow: read the required context once, resolve the amount/token/chain slots, request one quote or preflight, then advance. Do not restart discovery after each tool result unless a hard blocker appears.
 3. For phrases like "buy X USDC/USDT/DAI", interpret X as target output amount by default, not full input balance.
 4. If settings require a quote/simulation first, provide a concise but complete confirmation summary and wait for user confirmation.
 5. After user confirmation, continue execution immediately without repeating meaningless pre-steps.

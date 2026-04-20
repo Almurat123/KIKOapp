@@ -315,7 +315,7 @@ test('buildFarcasterAssistantReplyFromMessage rewrites legacy generated-image pu
 
   assert.equal(reply.text, 'Generated.');
   assert.deepEqual(reply.embeds, [
-    'https://api.kikoapp.app/api/chat/generated-images/public/chat-uploads/generated-public/farcaster/did_privy_test/2026-04-20/message-123.png',
+    'https://api.kikoapp.app/api/chat/generated-images/public/chat-uploads/generated-public/farcaster/did_privy_test/2026-04-20/message-123.png?v=message-123',
   ]);
 });
 
