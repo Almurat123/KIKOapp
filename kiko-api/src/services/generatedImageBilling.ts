@@ -36,6 +36,8 @@ import { getUtcDateString } from './billing/billingService.js';
 // - free-image allowance may be tuned from env, but the backend remains the only source of truth
 // - reservation ids must be bound to a server-owned context id
 // - unavailable image models fail closed even if the frontend exposes them
+// - image-model preference resolution must not surface disabled models to
+//   callers that need an executable default
 // - generated-image reservation replays must match the original server-owned context
 // - paid generated-image calls require active billing consent before provider execution
 // - forbidden local patch patterns: relying on localStorage or client-side counters for image freebies
@@ -172,6 +174,11 @@ type ReserveGeneratedImageUsageParams = {
     contextId: string;
 };
 
+type GeneratedImagePreferenceCandidate = {
+    model?: string | null;
+    quality?: string | null;
+};
+
 function normalizeImageCount(value?: number | null): number {
     const normalized = Math.floor(Number(value || 1));
     if (!Number.isFinite(normalized) || normalized <= 0) return 1;
@@ -191,9 +198,33 @@ export function normalizeGeneratedImagePreference(model?: string | null, quality
     quality: GeneratedImageQuality | null;
 } {
     const normalized = normalizeGeneratedImageRequest(String(model || ''), quality);
+    if (!normalized.enabled || !normalized.providerModel) {
+        return {
+            model: null,
+            quality: null,
+        };
+    }
     return {
         model: normalized.providerModel,
         quality: normalized.quality,
+    };
+}
+
+export function resolveAvailableGeneratedImagePreference(
+    candidates: GeneratedImagePreferenceCandidate[],
+): {
+    model: GeneratedImageProviderModel | null;
+    quality: GeneratedImageQuality | null;
+} {
+    for (const candidate of candidates) {
+        const resolved = normalizeGeneratedImagePreference(candidate?.model, candidate?.quality);
+        if (resolved.model) {
+            return resolved;
+        }
+    }
+    return {
+        model: null,
+        quality: null,
     };
 }
 

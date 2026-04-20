@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { env } from '../config/env.js';
-import { buildGeneratedImageBillingDecision } from './generatedImageBilling.js';
+import {
+    buildGeneratedImageBillingDecision,
+    normalizeGeneratedImagePreference,
+    resolveAvailableGeneratedImagePreference,
+} from './generatedImageBilling.js';
 
 test('GPT image stays disabled even though pricing is known', () => {
     const decision = buildGeneratedImageBillingDecision({
@@ -124,4 +128,35 @@ test('Grok pro remains disabled even though pricing is known', () => {
     assert.equal(decision.allowed, false);
     assert.equal(decision.reason, 'MODEL_DISABLED');
     assert.equal(decision.pricePerOutputImageUsd, 0.07);
+});
+
+test('generated image preference normalization rejects disabled models', () => {
+    assert.deepEqual(
+        normalizeGeneratedImagePreference('gpt-image-1.5', 'high'),
+        {
+            model: null,
+            quality: null,
+        },
+    );
+    assert.deepEqual(
+        normalizeGeneratedImagePreference('grok-imagine-image', 'normal'),
+        {
+            model: 'grok-imagine-image',
+            quality: 'normal',
+        },
+    );
+});
+
+test('available generated image preference falls through disabled candidates to the first enabled model', () => {
+    assert.deepEqual(
+        resolveAvailableGeneratedImagePreference([
+            { model: 'gpt-image-1.5', quality: 'high' },
+            { model: 'grok-imagine-image-pro', quality: 'pro' },
+            { model: 'grok-imagine-image', quality: 'normal' },
+        ]),
+        {
+            model: 'grok-imagine-image',
+            quality: 'normal',
+        },
+    );
 });

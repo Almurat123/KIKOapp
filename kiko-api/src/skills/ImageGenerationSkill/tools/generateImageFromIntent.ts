@@ -11,6 +11,7 @@ import {
     type GeneratedImageIntentInput,
 } from '../../../services/generatedImagePromptOptimizer.js';
 import { resolveProviderInfo } from '../../../jobs/chat/providerPolicyBuilder.js';
+import { resolveAvailableGeneratedImagePreference } from '../../../services/generatedImageBilling.js';
 
 // CONTEXT MEMORY
 // Updated: 2026-04-20
@@ -49,8 +50,9 @@ import { resolveProviderInfo } from '../../../jobs/chat/providerPolicyBuilder.js
 // - structured image fields may recover missing user_intent before optimizer
 //   handoff, but this tool still must not invent new user-facing intent beyond
 //   the provided image fields
-// - Default image-model family should follow the current chat-model family:
-//   GPT/OpenAI chat defaults to `gpt-image-1.5`, otherwise keep Grok image
+// - Default image-model family may prefer the current chat-model family, but
+//   it must fall back to the first enabled image model instead of selecting a
+//   disabled provider
 // Document Provenance:
 // - Source: operator requirement on 2026-04-18 for model-owned image generation inside main chat
 // - Kind: product doc
@@ -80,7 +82,7 @@ import { resolveProviderInfo } from '../../../jobs/chat/providerPolicyBuilder.js
 //   before optimizer handoff for NVIDIA/GLM image-tool turns
 // - Verification: verified in runtime log and targeted tests
 // - Source: operator request on 2026-04-20 for GPT-selected chats to keep the
-//   hidden prompt rewrite while defaulting image execution to the GPT image family
+//   hidden prompt rewrite while preferring the matching image family when it is enabled
 // - Kind: product doc
 // - Retrieved: 2026-04-20
 // - Applied To: image-model family selection from the current chat model
@@ -123,9 +125,15 @@ function resolveGeneratedImageSource(context?: Record<string, any>, snapshot?: a
 }
 
 function pickDefaultGeneratedImageModel(taskModel?: string | null): 'gpt-image-1.5' | 'grok-imagine-image' {
-    return resolveProviderInfo(String(taskModel || '')).provider === 'openai'
+    const providerPreferredModel = resolveProviderInfo(String(taskModel || '')).provider === 'openai'
         ? 'gpt-image-1.5'
         : 'grok-imagine-image';
+    const resolved = resolveAvailableGeneratedImagePreference([
+        { model: providerPreferredModel },
+        { model: 'grok-imagine-image' },
+        { model: 'gpt-image-1.5' },
+    ]);
+    return (resolved.model || 'grok-imagine-image') as 'gpt-image-1.5' | 'grok-imagine-image';
 }
 
 export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record<string, any>> = {

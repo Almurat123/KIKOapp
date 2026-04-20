@@ -60,8 +60,9 @@
 // - If the saved Farcaster chat model is GPT/OpenAI, run one hidden rewrite
 //   step with that model before image execution; do not expose the rewritten
 //   prompt back to the user.
-// - Default generated-image provider should follow the saved chat-model family:
-//   GPT/OpenAI chat defaults to `gpt-image-1.5`, otherwise keep Grok image.
+// - Default generated-image provider may prefer the saved chat-model family,
+//   but it must fall back to the first enabled image model instead of
+//   surfacing a disabled provider.
 // Document Provenance:
 // - Source: repo code review of X chat bridge
 // - Kind: repo doc
@@ -153,7 +154,7 @@ import { logger } from '../../utils/logger.js';
 import { chatWS } from '../chatWebSocket.js';
 import { buildGeneratedImagePendingData, startGeneratedImageChatTask } from '../generatedImageChatTask.js';
 import {
-  normalizeGeneratedImagePreference,
+  resolveAvailableGeneratedImagePreference,
   type GeneratedImageProviderModel,
   type GeneratedImageQuality,
 } from '../generatedImageBilling.js';
@@ -242,9 +243,15 @@ function buildFarcasterGeneratedImageIntent(params: {
 }
 
 function resolveDefaultGeneratedImageModel(chatModel?: string | null): 'gpt-image-1.5' | 'grok-imagine-image' {
-  return resolveProviderInfo(normalizeTaskModel(String(chatModel || ''))).provider === 'openai'
+  const providerPreferredModel = resolveProviderInfo(normalizeTaskModel(String(chatModel || ''))).provider === 'openai'
     ? DEFAULT_OPENAI_GENERATED_IMAGE_MODEL
     : DEFAULT_FARCASTER_GENERATED_IMAGE_MODEL;
+  const resolved = resolveAvailableGeneratedImagePreference([
+    { model: providerPreferredModel },
+    { model: DEFAULT_FARCASTER_GENERATED_IMAGE_MODEL },
+    { model: DEFAULT_OPENAI_GENERATED_IMAGE_MODEL },
+  ]);
+  return (resolved.model || DEFAULT_FARCASTER_GENERATED_IMAGE_MODEL) as 'gpt-image-1.5' | 'grok-imagine-image';
 }
 
 function shouldUseModelOwnedImageRewrite(chatModel?: string | null): boolean {
@@ -259,10 +266,18 @@ function resolveRequestedGeneratedImagePreference(params: {
   requestedModel: GeneratedImageProviderModel | 'gpt-image-1.5' | 'grok-imagine-image';
   quality: GeneratedImageQuality | null;
 } {
-  const preferred = normalizeGeneratedImagePreference(
-    params.preferredGeneratedImageModel,
-    params.preferredGeneratedImageQuality,
-  );
+  const preferredProviderDefault = resolveProviderInfo(normalizeTaskModel(String(params.chatModel || ''))).provider === 'openai'
+    ? DEFAULT_OPENAI_GENERATED_IMAGE_MODEL
+    : DEFAULT_FARCASTER_GENERATED_IMAGE_MODEL;
+  const preferred = resolveAvailableGeneratedImagePreference([
+    {
+      model: params.preferredGeneratedImageModel,
+      quality: params.preferredGeneratedImageQuality,
+    },
+    { model: preferredProviderDefault },
+    { model: DEFAULT_FARCASTER_GENERATED_IMAGE_MODEL },
+    { model: DEFAULT_OPENAI_GENERATED_IMAGE_MODEL },
+  ]);
   if (preferred.model) {
     return {
       requestedModel: preferred.model,

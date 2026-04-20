@@ -155,10 +155,10 @@ test('isLikelyFarcasterGeneratedImageRequest does not route visual Q&A as genera
   assert.equal(isLikelyFarcasterGeneratedImageRequest({ socialInput }), false);
 });
 
-test('Farcaster generated-image routing defaults to GPT image for GPT chat sessions', () => {
+test('Farcaster generated-image routing falls back to enabled Grok image for GPT chat sessions', () => {
   assert.equal(
     __farcasterChatBridgeTest.resolveDefaultGeneratedImageModel('gpt-5.4-mini-2026-03-17'),
-    'gpt-image-1.5',
+    'grok-imagine-image',
   );
   assert.equal(
     __farcasterChatBridgeTest.shouldUseModelOwnedImageRewrite('gpt-5.4-mini-2026-03-17'),
@@ -196,8 +196,8 @@ test('Farcaster generated-image routing honors a saved generated-image model and
       preferredGeneratedImageQuality: 'high',
     }),
     {
-      requestedModel: 'gpt-image-1.5',
-      quality: 'high',
+      requestedModel: 'grok-imagine-image',
+      quality: 'normal',
     },
   );
 });
