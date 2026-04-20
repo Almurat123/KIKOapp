@@ -96,6 +96,15 @@
 // - Applied To: keeping Farcaster web compatible with its `wrpcd.net` image
 //   proxy cache by publishing versioned public generated-image URLs
 // - Verification: verified in runtime browser log and code
+// - Source: operator runtime repro on 2026-04-20 showing Farcaster web still
+//   failing a versioned `wrpcd.net/cdn-cgi/image/...png?v=...` fetch while the
+//   underlying proxy route returned `image/jpeg`
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: aligning public generated-image object-key extensions with the
+//   real encoded MIME type and repairing legacy `.png` object keys whose bytes
+//   were stored as JPEG
+// - Verification: verified in runtime curl repro and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/social-agent-multimodal-input.md
@@ -144,6 +153,7 @@ const GENERATED_IMAGE_PUBLIC_CACHE_CONTROL = process.env.CHAT_GENERATED_IMAGE_PU
 const MAX_IMAGE_PIXELS = CHAT_IMAGE_UPLOAD_MAX_DIMENSION * CHAT_IMAGE_UPLOAD_MAX_DIMENSION;
 
 type SupportedImageFormat = 'jpeg' | 'png' | 'webp';
+type PublicImageExtension = 'png' | 'jpg' | 'webp';
 
 interface ChatImageUploadConfig {
     bucket: string;
@@ -267,6 +277,30 @@ function normalizeMimeType(input: string): string {
     return normalized;
 }
 
+export function inferPublicImageExtensionFromContentType(contentType: string): PublicImageExtension {
+    const normalized = normalizeMimeType(contentType);
+    if (normalized === 'image/jpeg') return 'jpg';
+    if (normalized === 'image/webp') return 'webp';
+    return 'png';
+}
+
+export function inferPublicImageContentTypeFromExtension(extension: string): string | null {
+    const normalized = String(extension || '').trim().toLowerCase();
+    if (normalized === 'jpg' || normalized === 'jpeg') return 'image/jpeg';
+    if (normalized === 'webp') return 'image/webp';
+    if (normalized === 'png') return 'image/png';
+    return null;
+}
+
+export function readObjectKeyImageExtension(objectKey: string): PublicImageExtension | null {
+    const match = String(objectKey || '').trim().match(/\.([a-z0-9]+)$/i);
+    const normalized = String(match?.[1] || '').trim().toLowerCase();
+    if (normalized === 'jpeg' || normalized === 'jpg') return 'jpg';
+    if (normalized === 'png') return 'png';
+    if (normalized === 'webp') return 'webp';
+    return null;
+}
+
 function normalizeOriginalFileName(input: string): string {
     const trimmed = String(input || '').trim();
     if (!trimmed) return 'image';
@@ -381,10 +415,11 @@ function buildGeneratedObjectKey(userId: string, assistantMessageId: string): st
     return `${CHAT_GENERATED_IMAGE_PREFIX}/${safeUserPathSegment(userId)}/${dayStamp}/${sanitizedMessageId}`;
 }
 
-function buildGeneratedPublicObjectKey(userId: string, assistantMessageId: string): string {
+function buildGeneratedPublicObjectKey(userId: string, assistantMessageId: string, contentType?: string | null): string {
     const dayStamp = new Date().toISOString().slice(0, 10);
     const sanitizedMessageId = String(assistantMessageId || randomUUID()).replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 120) || randomUUID();
-    return `${CHAT_GENERATED_IMAGE_PUBLIC_PREFIX}/farcaster/${safeUserPathSegment(userId)}/${dayStamp}/${sanitizedMessageId}.png`;
+    const extension = inferPublicImageExtensionFromContentType(String(contentType || ''));
+    return `${CHAT_GENERATED_IMAGE_PUBLIC_PREFIX}/farcaster/${safeUserPathSegment(userId)}/${dayStamp}/${sanitizedMessageId}.${extension}`;
 }
 
 function buildPublicObjectUrlVersion(objectKey: string): string {
@@ -470,6 +505,21 @@ async function putObjectBuffer(objectKey: string, body: Buffer, contentType: str
         ContentType: contentType,
         CacheControl: cacheControl,
     }));
+}
+
+export async function transcodeImageBufferForPublicDelivery(params: {
+    body: Buffer;
+    targetContentType: string;
+}): Promise<Buffer> {
+    const targetContentType = normalizeMimeType(params.targetContentType);
+    const pipeline = sharp(params.body, { limitInputPixels: MAX_IMAGE_PIXELS }).rotate();
+    if (targetContentType === 'image/jpeg') {
+        return pipeline.jpeg({ quality: 90, mozjpeg: true }).toBuffer();
+    }
+    if (targetContentType === 'image/webp') {
+        return pipeline.webp({ quality: 90 }).toBuffer();
+    }
+    return pipeline.png({ compressionLevel: 9 }).toBuffer();
 }
 
 async function deleteObjectQuietly(objectKey: string): Promise<void> {
@@ -1030,7 +1080,9 @@ export async function storeGeneratedChatImage(params: {
         throw new ChatImageUploadError('Generated image storage requires assistant message id.', 500);
     }
     const objectKey = buildGeneratedObjectKey(userId, assistantMessageId);
-    const publicObjectKey = params.publishPublic ? buildGeneratedPublicObjectKey(userId, assistantMessageId) : null;
+    const publicObjectKey = params.publishPublic
+        ? buildGeneratedPublicObjectKey(userId, assistantMessageId, params.contentType || null)
+        : null;
     const publicUrl = publicObjectKey ? buildPublicObjectUrl(publicObjectKey) : null;
     if (params.publishPublic && !publicUrl) {
         throw new ChatImageUploadError('Generated image public URL base is not configured for social publishing.', 503);
@@ -1068,12 +1120,42 @@ export async function loadPublicGeneratedChatImageObject(objectKey: string): Pro
         throw new ChatImageUploadError('Generated image not found.', 404);
     }
 
+    const storedContentType = normalizeMimeType(head.contentType) || 'image/png';
+    const objectKeyExtension = readObjectKeyImageExtension(normalizedKey);
+    const extensionContentType = inferPublicImageContentTypeFromExtension(objectKeyExtension || '');
+    if (extensionContentType && extensionContentType !== storedContentType) {
+        const transcodedBody = await transcodeImageBufferForPublicDelivery({
+            body,
+            targetContentType: extensionContentType,
+        });
+        logger.warn(LogCode.SYS_INFO, 'Chat public generated image repaired legacy extension/content-type mismatch', {
+            objectKey: normalizedKey,
+            storedContentType,
+            extensionContentType,
+            originalBytes: body.length,
+            transcodedBytes: transcodedBody.length,
+        });
+        return {
+            body: transcodedBody,
+            contentType: extensionContentType,
+            cacheControl: GENERATED_IMAGE_PUBLIC_CACHE_CONTROL,
+        };
+    }
+
     return {
         body,
-        contentType: normalizeMimeType(head.contentType) || 'image/png',
+        contentType: storedContentType,
         cacheControl: GENERATED_IMAGE_PUBLIC_CACHE_CONTROL,
     };
 }
+
+export const __chatImageUploadsTest = {
+    inferPublicImageExtensionFromContentType,
+    inferPublicImageContentTypeFromExtension,
+    readObjectKeyImageExtension,
+    buildGeneratedPublicObjectKey,
+    transcodeImageBufferForPublicDelivery,
+};
 
 export async function cleanupTaskChatImageUploads(taskId: string, options: { deleteObjects?: boolean } = {}): Promise<void> {
     const binding = await readTaskBinding(taskId);

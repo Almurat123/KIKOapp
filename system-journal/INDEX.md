@@ -40,6 +40,7 @@ owner boundaries, and major fixes.
 - [Fix Log: 2026-04-17 Chat V2 Context Contract Scaffold](./fix-log/2026-04-17-chat-v2-context-contract-scaffold.md)
 - [Fix Log: 2026-04-20 Farcaster Generated Image Preference Persistence](./fix-log/2026-04-20-farcaster-generated-image-preference-persistence.md)
 - [Fix Log: 2026-04-20 Generated Image Enabled Model Fallback](./fix-log/2026-04-20-generated-image-enabled-model-fallback.md)
+- [Fix Log: 2026-04-20 Farcaster Public Image Extension And Content-Type Alignment](./fix-log/2026-04-20-farcaster-public-image-extension-content-type-alignment.md)
 - [Fix Log: 2026-04-17 Chat V2 Context Read Tools](./fix-log/2026-04-17-chat-v2-context-read-tools.md)
 - [Fix Log: 2026-04-17 Chat V2 User Settings Contract](./fix-log/2026-04-17-chat-v2-user-settings-contract.md)
 - [Fix Log: 2026-04-17 Chat V2 Worker Context Contracts](./fix-log/2026-04-17-chat-v2-worker-context-contracts.md)

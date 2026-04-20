@@ -168,6 +168,32 @@ Implementation notes:
 - Carousel drift:
   slow x translation with selected item scaling up on the accent frame
 
+## Scene Cuts
+
+For promo-style videos that jump to a new background or a new visual world,
+default to scene ownership and cuts, not one fake continuous mega-world.
+
+- Prefer hard cuts over weak pseudo-continuous camera moves when the next shot
+  is already a new background language.
+- If a cut is supposed to feel intentional, the framing delta must be large
+  enough to read as a new shot. Tiny camera deltas make the cut feel accidental
+  and amateur.
+- Subtitle exits must finish before or at the cut point. Do not let the previous
+  subtitle linger visibly into a new world unless that overlap is a deliberate
+  design choice.
+- Each scene should own its own background, camera path, and subtitle anchors.
+  Continuity should come from timing and direction, not forced shared space.
+- Use matched cuts only when preserving momentum adds clarity. Keep the overlap
+  short and directional.
+
+Recommended cut checklist:
+
+1. Last readable subtitle finishes before the scene cut.
+2. New scene opens with a distinct framing change.
+3. Background language can change completely if the editorial beat changes.
+4. Keep a viewport/minimap debug overlay while building camera-driven scenes so
+   "camera move" can be proven, not guessed.
+
 ## What To Avoid
 
 - constant glitch overlays
@@ -176,6 +202,9 @@ Implementation notes:
 - giant gradient orbs that compete with the headline
 - overlong subtitles that require the viewer to read through a fast cut
 - fake complexity where a cleaner reveal would read better
+- weak cuts where the next frame is too close to the previous framing
+- carrying one subtitle visibly into the next background by accident
+- removing camera debug too early and mistaking object motion for camera motion
 
 ## Document Provenance
 
@@ -227,6 +256,20 @@ Implementation notes:
   - Applied To: current gradient-atmosphere and deterministic frame-driven
     implementation pattern
   - Verification: verified in code
+
+- Source: /Users/almurat/KiKo/kiko-web/src/remotion/CameraFollowSubtitleDemo.tsx
+  - Kind: repo code
+  - Retrieved: 2026-04-20
+  - Applied To: proving viewport motion with fixed landmarks and persistent
+    camera debug/minimap
+  - Verification: verified in code and rendered debug mp4
+
+- Source: /Users/almurat/KiKo/kiko-web/src/remotion/SceneCutCameraDemo.tsx
+  - Kind: repo code
+  - Retrieved: 2026-04-20
+  - Applied To: hard-cut vs matched-cut comparison, scene ownership, and cut
+    spacing lessons for new-background promo edits
+  - Verification: verified in code and rendered debug mp4s
 
 - Source: /Users/almurat/.codex/skills/remotion/SKILL.md
   - Kind: local skill doc

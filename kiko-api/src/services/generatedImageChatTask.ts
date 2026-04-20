@@ -6,6 +6,7 @@ import { acquireLock, releaseLock } from '../cache/cacheClient.js';
 import {
     buildChatImageMessageAttachments,
     hydrateGeneratedChatImageDataForClient,
+    inferPublicImageExtensionFromContentType,
     storeGeneratedChatImage,
     type ChatImageMessageAttachment,
 } from './chatImageUploads.js';
@@ -613,7 +614,7 @@ async function runGeneratedImageChatTask(params: StartGeneratedImageChatTaskPara
             assistantMessageId: params.assistantMessageId,
             buffer: providerResult.imageBuffer,
             contentType: providerResult.contentType,
-            fileName: `${reservation.providerModel}.png`,
+            fileName: `${reservation.providerModel}.${inferPublicImageExtensionFromContentType(providerResult.contentType)}`,
             publishPublic: String(params.source || '').trim().toLowerCase() === 'farcaster',
         });
 
