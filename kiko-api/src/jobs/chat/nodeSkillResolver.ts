@@ -172,6 +172,7 @@ import {
 import type { TradingIntent } from './tradingIntentResolver.js';
 
 export type IntentPrimaryIntent =
+    | 'model_selected_task_menu'
     | 'meta_debug'
     | 'search_discovery'
     | 'social_discovery'
@@ -242,6 +243,14 @@ const EXPLICIT_SEARCH_QUERY_RE = /\b(search|look\s*up|lookup|find on|search on|f
 const TOKEN_LEADERBOARD_QUERY_RE = /\b(trend|trending|hot token|hot coin|top token|top coin|pumping|top gainers|gainers|movers)\b/i;
 const DETAILED_ONBOARDING_QUERY_RE = /\b(new here|how do i start|how to start|how do i use|how to use|get(?:ting)? started|intro(?:duction)? to kiko|about kiko|what is kiko|what can\b.{0,24}\bkiko\b|what can kiko do|who are you)\b|怎么使用\s*kiko|如何使用\s*kiko|kiko\s*怎么用|kiko\s*如何用|介绍一下\s*kiko|kiko\s*是什么|kiko\s*能做什么|你能做什么|我是新手|新手怎么开始/i;
 const EXPLICIT_TRADE_ACTION_QUERY_RE = /\b(buy|sell|swap|bridge|trade)\b|买入|卖出|买\b|卖\b|换币|兑换|交换|跨链|交易/i;
+
+function isModelSelectedTaskMenuIntent(intent: IntentPrimaryIntent | null | undefined): boolean {
+    return intent === 'model_selected_task_menu';
+}
+
+function isLeanFallbackIntent(intent: IntentPrimaryIntent | null | undefined): boolean {
+    return intent === 'general_answer' || isModelSelectedTaskMenuIntent(intent);
+}
 
 export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: TradingIntent | null, canonicalIntent?: CanonicalIntent | null): SkillResolution {
     const isGrok = String(snapshot.model || '').toLowerCase().includes('grok');
@@ -733,6 +742,20 @@ function buildIntentEnvelope(params: {
     hasRequestedToken: boolean;
     selectedSkills: string[];
 }): IntentEnvelope {
+    // CONTEXT MEMORY
+    // Updated: 2026-04-20
+    // Status: verified
+    // Why: TASK_MENU routing makes the main model own task selection, so this
+    // function must stop fabricating a business intent for unresolved turns.
+    // Debug Goal: unresolved model-led turns keep backend safety/search gates
+    // without claiming `general_answer` as if the backend had classified them.
+    // Search Tags: model selected task menu unresolved intent envelope general_answer fallback
+    // Invariants:
+    // - Canonical intents and explicit mutation/search routes still map to concrete envelopes.
+    // - Catch-all fallback must stay neutral and preserve model-owned task choice.
+    // Failure Modes:
+    // - A generic fallback reappears and overrides model task selection.
+    // - Prompt/context layers silently coerce unresolved turns back to general_answer.
     const {
         snapshot,
         tradingIntent,
@@ -917,7 +940,7 @@ function buildIntentEnvelope(params: {
     }
 
     return {
-        primary_intent: 'general_answer',
+        primary_intent: 'model_selected_task_menu',
         task_mode: 'discover',
         search_mode: searchMode,
         search_target: 'none',
@@ -941,10 +964,10 @@ function buildContextContract(params: {
     const needsImagePromptPlaybook = querySignals.imagePrompting || querySignals.imageGeneration;
 
     const mode: ChatContextContract['mode'] = (() => {
-        if (intentEnvelope.primary_intent === 'general_answer' && !needsImagePromptPlaybook) return 'lean';
+        if (isLeanFallbackIntent(intentEnvelope.primary_intent) && !needsImagePromptPlaybook && !hasSocialInput) return 'lean';
         if (intentEnvelope.primary_intent === 'meta_debug') return 'debug';
         if (intentEnvelope.execution_risk === 'mutation') return 'execution';
-        if (intentEnvelope.domain === 'x' || intentEnvelope.domain === 'farcaster') return 'social';
+        if (intentEnvelope.domain === 'x' || intentEnvelope.domain === 'farcaster' || hasSocialInput) return 'social';
         return 'analysis';
     })();
 
@@ -1144,7 +1167,7 @@ function shouldPreferLocalTokenLeaderboard(snapshot: ChatContextSnapshot, intent
         return ['search_discovery', 'social_discovery', 'token_analysis'].includes(intentEnvelope.primary_intent);
     }
     if (intentEnvelope.domain !== 'general') return false;
-    return intentEnvelope.primary_intent === 'general_answer';
+    return isLeanFallbackIntent(intentEnvelope.primary_intent);
 }
 
 function ensurePrimarySkill(selected: string[], skillId: string) {

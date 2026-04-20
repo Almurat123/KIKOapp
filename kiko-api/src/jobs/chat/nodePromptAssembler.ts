@@ -667,6 +667,20 @@ function buildFallbackContextContract(
   snapshot: ChatContextSnapshot,
   intentEnvelope: IntentEnvelope | null,
 ): ChatContextContract {
+  // CONTEXT MEMORY
+  // Updated: 2026-04-20
+  // Status: verified
+  // Why: prompt fallback must preserve model-owned TASK_MENU selection instead
+  // of silently re-labeling unresolved turns as `general_answer`.
+  // Debug Goal: fallback prompt contracts stay lean for plain chat, but keep
+  // social/image turns out of lean mode when the model still needs context.
+  // Search Tags: prompt fallback context contract model selected task menu general_answer coercion
+  // Invariants:
+  // - Unresolved model-led turns can still be lean when there are no task signals.
+  // - Social input or image work must prevent lean fallback and preserve context access.
+  // Failure Modes:
+  // - Prompt fallback rewrites unresolved turns into general_answer.
+  // - Social/image turns lose context because fallback incorrectly chooses lean mode.
   const hasSocialInput = Boolean(snapshot.runtime?.socialInput);
   const hasSocialImages =
     Array.isArray(snapshot.runtime?.socialInput?.images) &&
@@ -694,7 +708,8 @@ function buildFallbackContextContract(
     String(snapshot.runtime?.pageContext || "").toLowerCase() ===
       "farcaster_agent",
   );
-  const primaryIntent = intentEnvelope?.primary_intent || "general_answer";
+  const primaryIntent =
+    intentEnvelope?.primary_intent || "model_selected_task_menu";
   const domain = intentEnvelope?.domain || "general";
   const executionRisk = intentEnvelope?.execution_risk || "read_only";
   const required = new Set<ChatContextBlockName>();
@@ -702,7 +717,8 @@ function buildFallbackContextContract(
 
   let mode: ChatContextContract["mode"] = "analysis";
   if (
-    primaryIntent === "general_answer" &&
+    (primaryIntent === "general_answer" ||
+      primaryIntent === "model_selected_task_menu") &&
     !hasTaskSignals &&
     !hasSocialInput
   ) {
@@ -925,7 +941,11 @@ function isLeanDirectAnswerTurn(guidance?: {
     );
   }
   const primaryIntent = guidance?.intentEnvelope?.primary_intent;
-  if (primaryIntent !== "general_answer" && primaryIntent !== "meta_debug") {
+  if (
+    primaryIntent !== "general_answer" &&
+    primaryIntent !== "model_selected_task_menu" &&
+    primaryIntent !== "meta_debug"
+  ) {
     return false;
   }
   return (guidance?.preferredTools || []).length === 0;

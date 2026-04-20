@@ -48,3 +48,21 @@ test('generated image source uses Farcaster from snapshot page context', () => {
 
     assert.equal(source, 'farcaster');
 });
+
+test('generated image tool defaults to GPT image when the current chat model is OpenAI', () => {
+    assert.equal(
+        __generateImageFromIntentTest.pickDefaultGeneratedImageModel('gpt-5.4-mini-2026-03-17'),
+        'gpt-image-1.5',
+    );
+});
+
+test('generated image tool keeps Grok image when the current chat model is non-OpenAI', () => {
+    assert.equal(
+        __generateImageFromIntentTest.pickDefaultGeneratedImageModel('grok-4-1-fast-non-reasoning'),
+        'grok-imagine-image',
+    );
+    assert.equal(
+        __generateImageFromIntentTest.pickDefaultGeneratedImageModel('kimi-k2-5-instant'),
+        'grok-imagine-image',
+    );
+});

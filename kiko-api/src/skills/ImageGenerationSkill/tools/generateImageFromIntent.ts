@@ -10,6 +10,7 @@ import {
     optimizeGeneratedImagePrompt,
     type GeneratedImageIntentInput,
 } from '../../../services/generatedImagePromptOptimizer.js';
+import { resolveProviderInfo } from '../../../jobs/chat/providerPolicyBuilder.js';
 
 // CONTEXT MEMORY
 // Updated: 2026-04-20
@@ -48,6 +49,8 @@ import {
 // - structured image fields may recover missing user_intent before optimizer
 //   handoff, but this tool still must not invent new user-facing intent beyond
 //   the provided image fields
+// - Default image-model family should follow the current chat-model family:
+//   GPT/OpenAI chat defaults to `gpt-image-1.5`, otherwise keep Grok image
 // Document Provenance:
 // - Source: operator requirement on 2026-04-18 for model-owned image generation inside main chat
 // - Kind: product doc
@@ -76,6 +79,12 @@ import {
 // - Applied To: normalizing missing `user_intent` from structured image fields
 //   before optimizer handoff for NVIDIA/GLM image-tool turns
 // - Verification: verified in runtime log and targeted tests
+// - Source: operator request on 2026-04-20 for GPT-selected chats to keep the
+//   hidden prompt rewrite while defaulting image execution to the GPT image family
+// - Kind: product doc
+// - Retrieved: 2026-04-20
+// - Applied To: image-model family selection from the current chat model
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/generated-image-safety.md
@@ -92,12 +101,14 @@ function resolveImageToolContext(context?: Record<string, any>) {
     const sessionId = String(context?.sessionId || snapshot?.sessionId || '').trim();
     const assistantMessageId = String(context?.assistantMessageId || snapshot?.assistantMessageId || '').trim();
     const userId = String(context?.userId || snapshot?.runtime?.userId || '').trim();
+    const taskModel = String(snapshot?.model || context?.model || '').trim();
     return {
         snapshot,
         taskId,
         sessionId,
         assistantMessageId,
         userId,
+        taskModel,
         source: resolveGeneratedImageSource(context, snapshot),
     };
 }
@@ -111,8 +122,10 @@ function resolveGeneratedImageSource(context?: Record<string, any>, snapshot?: a
     return 'chat-v2-tool';
 }
 
-function pickDefaultGeneratedImageModel(): 'grok-imagine-image' {
-    return 'grok-imagine-image';
+function pickDefaultGeneratedImageModel(taskModel?: string | null): 'gpt-image-1.5' | 'grok-imagine-image' {
+    return resolveProviderInfo(String(taskModel || '')).provider === 'openai'
+        ? 'gpt-image-1.5'
+        : 'grok-imagine-image';
 }
 
 export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record<string, any>> = {
@@ -192,10 +205,10 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
                 },
             },
             required: ['user_intent'],
-        },
+    },
     },
     handler: async (args, context) => {
-        const { taskId, sessionId, assistantMessageId, userId, source } = resolveImageToolContext(context);
+        const { taskId, sessionId, assistantMessageId, userId, taskModel, source } = resolveImageToolContext(context);
         if (!taskId || !sessionId || !assistantMessageId || !userId) {
             throw new Error('generate_image_from_intent requires task, session, assistant message, and user context.');
         }
@@ -210,7 +223,7 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
             };
         }
 
-        const requestedModel = pickDefaultGeneratedImageModel();
+        const requestedModel = pickDefaultGeneratedImageModel(taskModel);
         const pendingGeneratedImage = buildGeneratedImagePendingData({
             requestedModel,
             quality: null,
@@ -298,4 +311,5 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
 
 export const __generateImageFromIntentTest = {
     resolveGeneratedImageSource,
+    pickDefaultGeneratedImageModel,
 };

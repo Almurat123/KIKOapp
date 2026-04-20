@@ -12,6 +12,7 @@ import {
   getFarcasterInboundIgnoreReason,
 } from './farcasterIngressWorker.js';
 import {
+  __farcasterChatBridgeTest,
   buildFarcasterAssistantReplyFromGeneratedImageState,
   buildFarcasterAssistantReplyFromMessage,
   isLikelyFarcasterGeneratedImageRequest,
@@ -152,6 +153,36 @@ test('isLikelyFarcasterGeneratedImageRequest does not route visual Q&A as genera
   };
 
   assert.equal(isLikelyFarcasterGeneratedImageRequest({ socialInput }), false);
+});
+
+test('Farcaster generated-image routing defaults to GPT image for GPT chat sessions', () => {
+  assert.equal(
+    __farcasterChatBridgeTest.resolveDefaultGeneratedImageModel('gpt-5.4-mini-2026-03-17'),
+    'gpt-image-1.5',
+  );
+  assert.equal(
+    __farcasterChatBridgeTest.shouldUseModelOwnedImageRewrite('gpt-5.4-mini-2026-03-17'),
+    true,
+  );
+});
+
+test('Farcaster generated-image routing keeps Grok image for non-OpenAI chat sessions', () => {
+  assert.equal(
+    __farcasterChatBridgeTest.resolveDefaultGeneratedImageModel('grok-4-1-fast-non-reasoning'),
+    'grok-imagine-image',
+  );
+  assert.equal(
+    __farcasterChatBridgeTest.shouldUseModelOwnedImageRewrite('grok-4-1-fast-non-reasoning'),
+    false,
+  );
+});
+
+test('Farcaster hidden image rewrite helper extracts the first JSON object from model output', () => {
+  const text = '```json\n{\"user_intent\":\"make a poster\",\"style\":\"cinematic\"}\n```';
+  assert.equal(
+    __farcasterChatBridgeTest.extractFirstJsonObject(text),
+    '{"user_intent":"make a poster","style":"cinematic"}',
+  );
 });
 
 test('FarcasterIngressWorker drops self-authored webhook events before persistence', async () => {

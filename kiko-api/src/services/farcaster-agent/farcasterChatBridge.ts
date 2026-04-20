@@ -24,6 +24,10 @@
 //         requests could still be classified as `general_answer`, so explicit
 //         image-generation casts need a deterministic bridge into the generated
 //         image owner instead of relying on the text model to choose the tool.
+//         Product follow-up on 2026-04-20 still requires GPT-5-selected social
+//         sessions to get a hidden model-owned prompt rewrite before image
+//         execution, so the bridge now also runs a lightweight JSON rewrite
+//         step with the saved chat model when the preferred provider is OpenAI.
 // Goal: enqueue Farcaster-originated chat work with enough context for the
 //       existing agent runtime, billing gates, vision-capable providers, and
 //       social reply publication of generated-image assets.
@@ -53,6 +57,11 @@
 // - Explicit Farcaster image-generation requests should become generated-image
 //   tasks before text-model orchestration, or `general_answer` misclassification
 //   can publish a clarification instead of an image.
+// - If the saved Farcaster chat model is GPT/OpenAI, run one hidden rewrite
+//   step with that model before image execution; do not expose the rewritten
+//   prompt back to the user.
+// - Default generated-image provider should follow the saved chat-model family:
+//   GPT/OpenAI chat defaults to `gpt-image-1.5`, otherwise keep Grok image.
 // Document Provenance:
 // - Source: repo code review of X chat bridge
 // - Kind: repo doc
@@ -113,6 +122,12 @@
 //   image-bearing casts explicitly ask to generate, create, draw, render, or
 //   otherwise produce a visual
 // - Verification: verified in runtime log and targeted tests
+// - Source: operator request on 2026-04-20 for hidden GPT-5 prompt rewrite on
+//   social image-generation turns when the user selected GPT-5 as the main model
+// - Kind: product doc
+// - Retrieved: 2026-04-20
+// - Applied To: model-selected hidden rewrite before Farcaster generated-image execution
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
@@ -137,7 +152,14 @@ import type { SocialAgentInput } from '../socialAgentInput.js';
 import { logger } from '../../utils/logger.js';
 import { chatWS } from '../chatWebSocket.js';
 import { buildGeneratedImagePendingData, startGeneratedImageChatTask } from '../generatedImageChatTask.js';
-import { optimizeGeneratedImagePrompt } from '../generatedImagePromptOptimizer.js';
+import {
+  normalizeGeneratedImageIntentInput,
+  optimizeGeneratedImagePrompt,
+  type GeneratedImageIntentInput,
+} from '../generatedImagePromptOptimizer.js';
+import { resolveProviderInfo } from '../../jobs/chat/providerPolicyBuilder.js';
+import { PythonGenerationClient } from '../../jobs/chat/pythonGenerationClient.js';
+import type { GenerationMessage } from '../../jobs/chat/nodePromptAssembler.js';
 
 function normalizeTaskModel(model?: string): string {
   return normalizeSupportedChatModel(model);
@@ -158,6 +180,8 @@ const DEFAULT_FARCASTER_GENERATED_IMAGE_READY_REPLY = 'Generated.';
 const DEFAULT_FARCASTER_GENERATED_IMAGE_PENDING_REPLY = 'Image generation is still running. Please try again in a moment.';
 const DEFAULT_FARCASTER_TASK_REPLY_TIMEOUT_MS = 180_000;
 const DEFAULT_FARCASTER_GENERATED_IMAGE_MODEL = 'grok-imagine-image';
+const DEFAULT_OPENAI_GENERATED_IMAGE_MODEL = 'gpt-image-1.5';
+const farcasterImageIntentRewriteClient = new PythonGenerationClient();
 
 function normalizeFarcasterIntentText(value: unknown): string {
   return String(value || '')
@@ -210,6 +234,124 @@ function buildFarcasterGeneratedImageIntent(params: {
     safety_level: 'standard',
     constraints,
   };
+}
+
+function resolveDefaultGeneratedImageModel(chatModel?: string | null): 'gpt-image-1.5' | 'grok-imagine-image' {
+  return resolveProviderInfo(normalizeTaskModel(String(chatModel || ''))).provider === 'openai'
+    ? DEFAULT_OPENAI_GENERATED_IMAGE_MODEL
+    : DEFAULT_FARCASTER_GENERATED_IMAGE_MODEL;
+}
+
+function shouldUseModelOwnedImageRewrite(chatModel?: string | null): boolean {
+  return resolveProviderInfo(normalizeTaskModel(String(chatModel || ''))).provider === 'openai';
+}
+
+function buildFarcasterImageIntentRewriteMessages(params: {
+  text: string;
+  socialInput?: SocialAgentInput | null;
+}): GenerationMessage[] {
+  const normalizedText = normalizeFarcasterIntentText(params.socialInput?.currentText || params.text);
+  const images = Array.isArray(params.socialInput?.images) ? params.socialInput!.images : [];
+  const userContent: Array<Record<string, any>> = [
+    {
+      type: 'text',
+      text: [
+        'Rewrite this into hidden structured image-generation intent JSON.',
+        'Return one strict JSON object only. No markdown. No commentary.',
+        'Schema keys:',
+        '- user_intent (required string)',
+        '- subject, scene, composition, style, style_hint, lighting, camera, aspect_ratio (optional strings)',
+        '- constraints, negative_constraints (optional string arrays)',
+        '- safety_level ("standard" or "strict"), edit_or_generate ("generate")',
+        'Use attached images as visual context when they are relevant. Do not mention APIs, tools, or the assistant.',
+        `User request: ${normalizedText || params.text}`,
+      ].join('\n'),
+    },
+    ...images.map((image) => ({
+      type: 'image_url',
+      image_url: {
+        url: String(image?.url || '').trim(),
+      },
+    })).filter((item) => String(item.image_url?.url || '').trim().length > 0),
+  ];
+
+  return [
+    {
+      role: 'system',
+      content: 'You are a hidden image-intent rewrite step. Return exactly one JSON object and nothing else.',
+    },
+    {
+      role: 'user',
+      content: userContent,
+    },
+  ];
+}
+
+function extractFirstJsonObject(text: string): string | null {
+  const raw = String(text || '').trim();
+  if (!raw) return null;
+  const fencedMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fencedMatch ? fencedMatch[1].trim() : raw;
+  let depth = 0;
+  let start = -1;
+  for (let index = 0; index < candidate.length; index += 1) {
+    const char = candidate[index];
+    if (char === '{') {
+      if (depth === 0) start = index;
+      depth += 1;
+    } else if (char === '}') {
+      if (depth > 0) depth -= 1;
+      if (depth === 0 && start >= 0) {
+        return candidate.slice(start, index + 1);
+      }
+    }
+  }
+  return null;
+}
+
+async function rewriteFarcasterGeneratedImageIntentWithChatModel(params: {
+  chatModel?: string | null;
+  text: string;
+  socialInput?: SocialAgentInput | null;
+  taskKey: string;
+}): Promise<GeneratedImageIntentInput | null> {
+  const taskModel = normalizeTaskModel(String(params.chatModel || ''));
+  if (!shouldUseModelOwnedImageRewrite(taskModel)) {
+    return null;
+  }
+
+  let textOutput = '';
+  try {
+    const result = await farcasterImageIntentRewriteClient.generate({
+      sessionId: `farcaster-image-rewrite:${params.taskKey}`,
+      taskId: `${params.taskKey}:farcaster-image-rewrite`,
+      model: taskModel,
+      messages: buildFarcasterImageIntentRewriteMessages({
+        text: params.text,
+        socialInput: params.socialInput,
+      }),
+      tools: [],
+      onTextDelta: async (delta) => {
+        textOutput += delta;
+      },
+      onReasoningDelta: async () => {},
+      onUsage: () => {},
+      onCitation: () => {},
+    });
+    textOutput = `${textOutput}${String(result.text || '')}`;
+    const jsonText = extractFirstJsonObject(textOutput);
+    if (!jsonText) return null;
+    const parsed = JSON.parse(jsonText);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    return normalizeGeneratedImageIntentInput(parsed as GeneratedImageIntentInput);
+  } catch (error: any) {
+    logger.warn(LogCode.SYS_INFO, '[Farcaster] hidden image-intent rewrite failed; using deterministic optimizer fallback', {
+      taskKey: params.taskKey,
+      model: taskModel,
+      error: error?.message || String(error),
+    });
+    return null;
+  }
 }
 
 function normalizeFarcasterReplyEmbedUrls(value: unknown): string[] {
@@ -549,6 +691,7 @@ export async function enqueueFarcasterGeneratedImageMessage(params: {
   }
 
   const trimmedContent = params.content.trim();
+  const taskModel = normalizeTaskModel(session.model);
   const socialInput = params.socialInput || null;
   const userMessage = await chatRepo.createMessage(params.sessionId, 'user', trimmedContent, {
     data: socialInput ? {
@@ -576,12 +719,26 @@ export async function enqueueFarcasterGeneratedImageMessage(params: {
     };
   }
 
-  const generatedImageIntent = buildFarcasterGeneratedImageIntent({
+  const fallbackGeneratedImageIntent = buildFarcasterGeneratedImageIntent({
     text: trimmedContent,
     socialInput,
   });
+  const modelOwnedGeneratedImageIntent = await rewriteFarcasterGeneratedImageIntentWithChatModel({
+    chatModel: taskModel,
+    text: trimmedContent,
+    socialInput,
+    taskKey: params.sourceMessageId,
+  });
+  const generatedImageIntent = normalizeGeneratedImageIntentInput({
+    ...fallbackGeneratedImageIntent,
+    ...(modelOwnedGeneratedImageIntent || {}),
+    constraints: Array.from(new Set([
+      ...(fallbackGeneratedImageIntent.constraints || []),
+      ...((modelOwnedGeneratedImageIntent?.constraints || []).map((item) => String(item || '').trim()).filter(Boolean)),
+    ])),
+  });
   const optimized = optimizeGeneratedImagePrompt(generatedImageIntent);
-  const requestedModel = DEFAULT_FARCASTER_GENERATED_IMAGE_MODEL;
+  const requestedModel = resolveDefaultGeneratedImageModel(taskModel);
   const pendingGeneratedImage = buildGeneratedImagePendingData({
     requestedModel,
     quality: null,
@@ -626,6 +783,7 @@ export async function enqueueFarcasterGeneratedImageMessage(params: {
         optimizedPromptSummary: optimized.optimizedPromptSummary,
         prompt: optimized.providerPrompt,
         source: 'farcaster',
+        promptRewriteModel: shouldUseModelOwnedImageRewrite(taskModel) ? taskModel : null,
         promptOptimizer: {
           aspectRatio: optimized.spec.aspectRatio,
           subject: optimized.spec.subject,
@@ -647,6 +805,7 @@ export async function enqueueFarcasterGeneratedImageMessage(params: {
     assistantMessageId: assistantMessage.id,
     sourceMessageId: params.sourceMessageId,
     imageCount: Array.isArray(socialInput?.images) ? socialInput!.images.length : 0,
+    taskModel,
     requestedModel,
   });
 
@@ -786,3 +945,9 @@ export async function waitForFarcasterTaskAssistantText(params: {
   const reply = await waitForFarcasterTaskAssistantReply(params);
   return reply.text;
 }
+
+export const __farcasterChatBridgeTest = {
+  resolveDefaultGeneratedImageModel,
+  shouldUseModelOwnedImageRewrite,
+  extractFirstJsonObject,
+};

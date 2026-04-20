@@ -516,6 +516,61 @@ test("assembleGenerationMessages keeps general answers lean without business con
   assert.doesNotMatch(content, /get_wallet_info/);
 });
 
+test("assembleGenerationMessages keeps unresolved model-led turns lean without coercing general_answer", () => {
+  const snapshot: ChatContextSnapshot = {
+    sessionId: "session-unresolved",
+    taskId: "task-unresolved",
+    model: "gpt-5-mini",
+    history: [],
+    lastUserMessage: "Explain quantum entanglement.",
+    runtime: {
+      contextBlocks: {},
+      userSettings: {},
+      currentPage: "chat",
+      pageContext: "ordinary chat",
+    },
+    requestedTokenAddresses: [],
+    requestedTokenSymbols: [],
+    recentToolTrace: {
+      messageId: "assistant-unresolved",
+      toolCalls: [],
+    },
+    conversationActionState: {
+      pendingAction: "none",
+      canExecute: false,
+      needsClarification: false,
+      clarificationQuestion: null,
+    },
+    toolDefinitions: [],
+  };
+
+  const providerInfo: ProviderInfo = {
+    provider: "openai",
+    model: snapshot.model,
+    supportsNativeSearch: false,
+    supportsPreviousResponse: true,
+  };
+
+  const messages = assembleGenerationMessages(snapshot, [], providerInfo, {
+    intentEnvelope: {
+      primary_intent: "model_selected_task_menu",
+      task_mode: "discover",
+      search_mode: "forbidden",
+      search_target: "none",
+      domain: "general",
+      execution_risk: "read_only",
+      required_evidence: [],
+    },
+  });
+
+  const userMessage = messages.find((message) => message.role === "user");
+  const content = String(userMessage?.content || "");
+  assert.match(content, /\[CONTEXT_CONTRACT\]/);
+  assert.match(content, /mode: lean/);
+  assert.match(content, /source: fallback_prompt_contract/);
+  assert.match(content, /required_contexts: none/);
+});
+
 test("assembleGenerationMessages exposes execution context contract for swap turns", () => {
   const snapshot: ChatContextSnapshot = {
     sessionId: "session-exec",

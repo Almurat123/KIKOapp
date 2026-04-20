@@ -948,8 +948,31 @@ test('generic direct answers do not fall back to a market skill', () => {
     assert.deepEqual(resolution.selectedSkills, []);
     assert.equal(resolution.allowAllTools, true);
     assert.ok(resolution.allowedTools.includes('generate_image_from_intent'));
+    assert.equal(resolution.intentEnvelope.primary_intent, 'model_selected_task_menu');
     assert.equal(resolution.contextContract.mode, 'lean');
     assert.deepEqual(resolution.contextContract.requiredContexts, []);
+});
+
+test('model-led unresolved social turns keep social context instead of lean fallback', () => {
+    const resolution = resolveNodeSkills(makeSnapshot('What is happening in these images?', {
+        runtime: {
+            socialInput: {
+                text: 'Current @almurat cast',
+                images: [
+                    { url: 'https://example.com/1.png', sourceLabel: 'image 1' },
+                    { url: 'https://example.com/2.png', sourceLabel: 'image 2' },
+                ],
+            },
+            currentPage: 'farcaster',
+            pageContext: 'farcaster_agent',
+        },
+    }), null);
+
+    assert.equal(resolution.intentEnvelope.primary_intent, 'model_selected_task_menu');
+    assert.equal(resolution.contextContract.mode, 'social');
+    assert.ok(resolution.contextContract.requiredContexts.includes('workflow_state'));
+    assert.ok(resolution.contextContract.optionalContexts.includes('social_thread_context'));
+    assert.ok(resolution.contextContract.optionalContexts.includes('social_images'));
 });
 
 test('model-selected routing infers execution envelope from explicit raw swap text without canonical intent', () => {
