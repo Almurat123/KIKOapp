@@ -52,6 +52,8 @@ export interface UserSettings {
     // userRole removed
     defaultChatModel?: string;
     defaultChatReasoningLevel?: string;
+    defaultGeneratedImageModel?: string | null;
+    defaultGeneratedImageQuality?: string | null;
     defaultSwapAmount: number;
     defaultSwapUnit: string;
     checkTokenBeforeSwap: boolean;

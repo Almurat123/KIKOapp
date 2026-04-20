@@ -186,6 +186,17 @@ function normalizeQuality(value?: string | null): GeneratedImageQuality | null {
     return null;
 }
 
+export function normalizeGeneratedImagePreference(model?: string | null, quality?: string | null): {
+    model: GeneratedImageProviderModel | null;
+    quality: GeneratedImageQuality | null;
+} {
+    const normalized = normalizeGeneratedImageRequest(String(model || ''), quality);
+    return {
+        model: normalized.providerModel,
+        quality: normalized.quality,
+    };
+}
+
 function normalizeGeneratedImageRequest(model: string, quality?: string | null): NormalizedGeneratedImageRequest {
     const requestedModel = String(model || '').trim().toLowerCase();
     const normalizedQuality = normalizeQuality(quality);

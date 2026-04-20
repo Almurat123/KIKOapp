@@ -116,6 +116,8 @@ model UserSettings {
   userId                        String   @unique
   defaultChatModel              String   @default("kimi-k2-5-instant")
   defaultChatReasoningLevel     String   @default("fast")
+  defaultGeneratedImageModel    String?
+  defaultGeneratedImageQuality  String?
   defaultSwapAmount             Float    @default(100)
   defaultSwapUnit               String   @default("native")
   checkTokenBeforeSwap          Boolean  @default(true)

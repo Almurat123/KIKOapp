@@ -177,6 +177,31 @@ test('Farcaster generated-image routing keeps Grok image for non-OpenAI chat ses
   );
 });
 
+test('Farcaster generated-image routing honors a saved generated-image model and quality', () => {
+  assert.deepEqual(
+    __farcasterChatBridgeTest.resolveRequestedGeneratedImagePreference({
+      chatModel: 'gpt-5.4-mini-2026-03-17',
+      preferredGeneratedImageModel: 'grok-imagine-image',
+      preferredGeneratedImageQuality: 'normal',
+    }),
+    {
+      requestedModel: 'grok-imagine-image',
+      quality: 'normal',
+    },
+  );
+  assert.deepEqual(
+    __farcasterChatBridgeTest.resolveRequestedGeneratedImagePreference({
+      chatModel: 'kimi-k2-5-instant',
+      preferredGeneratedImageModel: 'gpt-image-1.5',
+      preferredGeneratedImageQuality: 'high',
+    }),
+    {
+      requestedModel: 'gpt-image-1.5',
+      quality: 'high',
+    },
+  );
+});
+
 test('Farcaster hidden image rewrite helper extracts the first JSON object from model output', () => {
   const text = '```json\n{\"user_intent\":\"make a poster\",\"style\":\"cinematic\"}\n```';
   assert.equal(

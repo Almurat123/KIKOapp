@@ -110,6 +110,8 @@ export async function getUserByFarcasterFid(farcasterFid: number) {
       settings: {
         select: {
           defaultChatModel: true,
+          defaultGeneratedImageModel: true,
+          defaultGeneratedImageQuality: true,
         },
       },
     },

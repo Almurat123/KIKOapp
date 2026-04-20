@@ -52,7 +52,9 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 //         the paired reasoning level too, and the shared snapshot now also
 //         remembers the last control level per family so switching away and
 //         back restores the same reasoning or quality choice instead of the
-//         family default.
+//         family default. Website image-model selection now also persists to a
+//         separate remote generated-image preference so Farcaster mentions can
+//         honor the user's chosen image model without overwriting text defaults.
 // Goal: preserve a responsive welcome shell that can collect the first prompt
 //       immediately while deferring optional settings UI until the user opens
 //       it, while sharing the same local image-preview affordance and image-
@@ -76,8 +78,9 @@ const LazyCustomAISettingsModal = React.lazy(() => import('./CustomAISettingsMod
 // - welcome shells should not ship a persistent particle/canvas backdrop
 // - picker buttons should read as inline text actions, not boxed pills
 // - model family and reasoning strength are separate controls but one persisted model id
-// - generated-image quality can be selected locally without changing the remote
-//   default chat model
+// - generated-image quality can be selected without changing the remote default
+//   chat model; persist image defaults through the separate generated-image
+//   settings fields instead
 // - disabled image variants must not survive local-storage restore as the
 //   active welcome selection
 // - homepage ambient layers must not recolor or dilute the MakeDream aura once mounted
@@ -271,21 +274,34 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
       skipInitialRemoteModelPersistRef.current = false;
       return;
     }
-    if (!isTextChatModelOption(selectedModel)) return;
     const persist = async () => {
       try {
         const token = await getAccessToken();
         if (!token) return;
+        if (isTextChatModelOption(selectedModel)) {
+          await saveUserSettings(token, {
+            defaultChatModel: selectedModel.id,
+            defaultChatReasoningLevel: selectedModel.reasoningLevel,
+          });
+          return;
+        }
         await saveUserSettings(token, {
-          defaultChatModel: selectedModel.id,
-          defaultChatReasoningLevel: selectedModel.reasoningLevel,
+          defaultGeneratedImageModel: selectedModel.id,
+          defaultGeneratedImageQuality: selectedModel.imageQuality || String(selectedModel.reasoningLevel || ''),
         });
       } catch (error) {
-        logger.warn('Failed to persist default chat model:', error);
+        logger.warn('Failed to persist default model preference:', error);
       }
     };
     void persist();
-  }, [authenticated, getAccessToken, selectedModel.id]);
+  }, [
+    authenticated,
+    getAccessToken,
+    selectedModel.id,
+    selectedModel.kind,
+    selectedModel.reasoningLevel,
+    selectedModel.imageQuality,
+  ]);
   // Smart Suggestions Hook
   const {
     suggestions: smartSuggestions,

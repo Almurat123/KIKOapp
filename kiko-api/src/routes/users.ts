@@ -4,7 +4,7 @@
  */
 
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-20
 // Author: Almurat
 // Reason: user identity sync now spans Privy, Farcaster, X, wallet flows, and
 //         persisted per-user model policy. X mention replies must follow the
@@ -12,10 +12,15 @@
 //         linkage now also has to come from verified Privy identity instead of
 //         accepting client-supplied FIDs. The persisted model policy now falls
 //         back to free Kimi 2.5 Instant/Fast when no explicit model is supplied.
+//         Farcaster image-generation requests now also need a separate saved
+//         generated-image preference so website image-model picks survive
+//         outside the local browser session.
 // Goal: preserve one stable owner for user-profile persistence, including the
 //       canonical in-app username field, verified social-account linkage state,
 //       the user's saved default chat model for cross-channel replies, and the
-//       saved default reasoning strength needed by split-effort model families.
+//       saved default reasoning strength needed by split-effort model families,
+//       plus the separate generated-image model and quality used for social
+//       image execution.
 // Owns: authenticated user settings routes, social identity sync endpoints, and
 //       persistence rules for the shared User row.
 // Does Not Own: Privy token verification, wallet custody, or X webhook ingress.
@@ -29,6 +34,8 @@
 //   from frontend request bodies.
 // - Persist the user's default reply model and reasoning strength in one
 //   backend setting row, not only in frontend localStorage.
+// - Persist generated-image defaults separately from `defaultChatModel`; image
+//   model selection must not overwrite the text-session default.
 // Document Provenance:
 // - Source: current repo model catalog + website/X model binding requirement
 // - Kind: repo doc
@@ -64,12 +71,15 @@ import {
     normalizeSupportedChatModel,
     normalizeSupportedChatReasoningLevel,
 } from '../config/chatModels.js';
+import { normalizeGeneratedImagePreference } from '../services/generatedImageBilling.js';
 
 // Types
 interface UserSettingsBody {
     // userRole removed 
     defaultChatModel?: string;
     defaultChatReasoningLevel?: string;
+    defaultGeneratedImageModel?: string | null;
+    defaultGeneratedImageQuality?: string | null;
     defaultSwapAmount?: number;
     defaultSwapUnit?: string;
     checkTokenBeforeSwap?: boolean;
@@ -188,6 +198,13 @@ export async function registerUserRoutes(app: FastifyInstance) {
                         : body.defaultChatModel !== undefined
                             ? inferSupportedChatReasoningLevel(body.defaultChatModel)
                             : undefined;
+                const nextDefaultGeneratedImagePreference =
+                    body.defaultGeneratedImageModel !== undefined || body.defaultGeneratedImageQuality !== undefined
+                        ? normalizeGeneratedImagePreference(
+                            body.defaultGeneratedImageModel,
+                            body.defaultGeneratedImageQuality,
+                        )
+                        : undefined;
                 const settings = await prisma.userSettings.upsert({
                     where: { userId: user.privyDid },
                     update: {
@@ -196,6 +213,12 @@ export async function registerUserRoutes(app: FastifyInstance) {
                             : {}),
                         ...(nextDefaultChatReasoningLevel !== undefined
                             ? { defaultChatReasoningLevel: nextDefaultChatReasoningLevel }
+                            : {}),
+                        ...(nextDefaultGeneratedImagePreference !== undefined
+                            ? {
+                                defaultGeneratedImageModel: nextDefaultGeneratedImagePreference.model,
+                                defaultGeneratedImageQuality: nextDefaultGeneratedImagePreference.quality,
+                            }
                             : {}),
                         // userRole removed
                         defaultSwapAmount: body.defaultSwapAmount,
@@ -219,6 +242,8 @@ export async function registerUserRoutes(app: FastifyInstance) {
                         defaultChatReasoningLevel:
                             nextDefaultChatReasoningLevel
                             || inferSupportedChatReasoningLevel(body.defaultChatModel),
+                        defaultGeneratedImageModel: nextDefaultGeneratedImagePreference?.model ?? null,
+                        defaultGeneratedImageQuality: nextDefaultGeneratedImagePreference?.quality ?? null,
                         // userRole removed
                         defaultSwapAmount: body.defaultSwapAmount || 100,
                         defaultSwapUnit: body.defaultSwapUnit || 'native',

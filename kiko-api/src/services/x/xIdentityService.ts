@@ -110,6 +110,8 @@ export async function getUserByXUserId(xUserId: string) {
       settings: {
         select: {
           defaultChatModel: true,
+          defaultGeneratedImageModel: true,
+          defaultGeneratedImageQuality: true,
         },
       },
     },

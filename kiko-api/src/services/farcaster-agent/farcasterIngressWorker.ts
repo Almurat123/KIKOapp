@@ -741,6 +741,8 @@ export class FarcasterIngressWorker {
     }
 
     const preferredModel = normalizeSupportedChatModel(user.settings?.defaultChatModel);
+    const preferredGeneratedImageModel = String(user.settings?.defaultGeneratedImageModel || '').trim() || null;
+    const preferredGeneratedImageQuality = String(user.settings?.defaultGeneratedImageQuality || '').trim() || null;
     const mapping = await findOrCreateFarcasterConversation({
       userId: user.privyDid,
       farcasterFid: mention.authorFid,
@@ -789,6 +791,8 @@ export class FarcasterIngressWorker {
           sessionId: mapping.chatSessionId,
           content: inboundPrompt.content,
           socialInput: inboundPrompt.socialInput,
+          preferredGeneratedImageModel,
+          preferredGeneratedImageQuality,
           farcasterFid: mention.authorFid,
           farcasterUsername: mention.authorUsername || user.farcasterUsername || null,
           sourceMessageId: mention.castHash,

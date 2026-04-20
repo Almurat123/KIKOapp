@@ -153,6 +153,11 @@ import { logger } from '../../utils/logger.js';
 import { chatWS } from '../chatWebSocket.js';
 import { buildGeneratedImagePendingData, startGeneratedImageChatTask } from '../generatedImageChatTask.js';
 import {
+  normalizeGeneratedImagePreference,
+  type GeneratedImageProviderModel,
+  type GeneratedImageQuality,
+} from '../generatedImageBilling.js';
+import {
   normalizeGeneratedImageIntentInput,
   optimizeGeneratedImagePrompt,
   type GeneratedImageIntentInput,
@@ -244,6 +249,30 @@ function resolveDefaultGeneratedImageModel(chatModel?: string | null): 'gpt-imag
 
 function shouldUseModelOwnedImageRewrite(chatModel?: string | null): boolean {
   return resolveProviderInfo(normalizeTaskModel(String(chatModel || ''))).provider === 'openai';
+}
+
+function resolveRequestedGeneratedImagePreference(params: {
+  chatModel?: string | null;
+  preferredGeneratedImageModel?: string | null;
+  preferredGeneratedImageQuality?: string | null;
+}): {
+  requestedModel: GeneratedImageProviderModel | 'gpt-image-1.5' | 'grok-imagine-image';
+  quality: GeneratedImageQuality | null;
+} {
+  const preferred = normalizeGeneratedImagePreference(
+    params.preferredGeneratedImageModel,
+    params.preferredGeneratedImageQuality,
+  );
+  if (preferred.model) {
+    return {
+      requestedModel: preferred.model,
+      quality: preferred.quality,
+    };
+  }
+  return {
+    requestedModel: resolveDefaultGeneratedImageModel(params.chatModel),
+    quality: null,
+  };
 }
 
 function buildFarcasterImageIntentRewriteMessages(params: {
@@ -677,6 +706,8 @@ export async function enqueueFarcasterGeneratedImageMessage(params: {
   sessionId: string;
   content: string;
   socialInput?: SocialAgentInput | null;
+  preferredGeneratedImageModel?: string | null;
+  preferredGeneratedImageQuality?: string | null;
   farcasterFid: number;
   farcasterUsername?: string | null;
   sourceMessageId: string;
@@ -738,10 +769,16 @@ export async function enqueueFarcasterGeneratedImageMessage(params: {
     ])),
   });
   const optimized = optimizeGeneratedImagePrompt(generatedImageIntent);
-  const requestedModel = resolveDefaultGeneratedImageModel(taskModel);
+  const generatedImagePreference = resolveRequestedGeneratedImagePreference({
+    chatModel: taskModel,
+    preferredGeneratedImageModel: params.preferredGeneratedImageModel,
+    preferredGeneratedImageQuality: params.preferredGeneratedImageQuality,
+  });
+  const requestedModel = generatedImagePreference.requestedModel;
+  const requestedQuality = generatedImagePreference.quality;
   const pendingGeneratedImage = buildGeneratedImagePendingData({
     requestedModel,
-    quality: null,
+    quality: requestedQuality,
     prompt: optimized.providerPrompt,
   });
 
@@ -778,7 +815,7 @@ export async function enqueueFarcasterGeneratedImageMessage(params: {
       socialInput: socialInput || undefined,
       generatedImage: {
         requestedModel,
-        quality: null,
+        quality: requestedQuality,
         userIntent: generatedImageIntent.user_intent,
         optimizedPromptSummary: optimized.optimizedPromptSummary,
         prompt: optimized.providerPrompt,
@@ -807,6 +844,7 @@ export async function enqueueFarcasterGeneratedImageMessage(params: {
     imageCount: Array.isArray(socialInput?.images) ? socialInput!.images.length : 0,
     taskModel,
     requestedModel,
+    requestedQuality,
   });
 
   chatWS.broadcastToUser(params.userId, {
@@ -840,7 +878,7 @@ export async function enqueueFarcasterGeneratedImageMessage(params: {
     sessionId: params.sessionId,
     assistantMessageId: assistantMessage.id,
     requestedModel,
-    quality: null,
+    quality: requestedQuality,
     prompt: optimized.providerPrompt,
     source: 'farcaster',
   });
@@ -948,6 +986,7 @@ export async function waitForFarcasterTaskAssistantText(params: {
 
 export const __farcasterChatBridgeTest = {
   resolveDefaultGeneratedImageModel,
+  resolveRequestedGeneratedImagePreference,
   shouldUseModelOwnedImageRewrite,
   extractFirstJsonObject,
 };

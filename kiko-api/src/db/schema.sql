@@ -319,6 +319,8 @@ CREATE TABLE IF NOT EXISTS "UserSettings" (
   "userRole" TEXT DEFAULT 'default',
   "defaultChatModel" TEXT DEFAULT 'kimi-k2-5-instant',
   "defaultChatReasoningLevel" TEXT NOT NULL DEFAULT 'fast',
+  "defaultGeneratedImageModel" TEXT,
+  "defaultGeneratedImageQuality" TEXT,
   "defaultSwapAmount" DOUBLE PRECISION DEFAULT 100,
   "defaultSwapUnit" TEXT DEFAULT 'native',
   "checkTokenBeforeSwap" BOOLEAN DEFAULT TRUE,
