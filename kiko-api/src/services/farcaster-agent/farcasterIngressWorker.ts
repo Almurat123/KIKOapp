@@ -44,6 +44,9 @@
 //   embeds remain visible to vision-capable providers.
 // - Publish generated-image task results as cast embeds when the chat bridge
 //   returns hydrated preview URLs.
+// - Route explicit Farcaster image-generation casts directly into generated-image
+//   execution before text-model intent classification can downgrade them to
+//   ordinary `general_answer` replies.
 // - Accept no-mention follow-ups only when they are direct replies to a tracked
 //   bot-authored outbound cast; do not watch arbitrary root-thread comments.
 // - Reject self-authored and blocked-bot-authored inbound casts before event-log
@@ -115,6 +118,7 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-inbound-event-idempotence.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-farcaster-generated-image-direct-routing.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import prisma from '../../db/prisma.js';
 import cacheClient from '../../cache/cacheClient.js';
@@ -134,6 +138,8 @@ import {
 } from './farcasterConversationService.js';
 import {
   enqueueFarcasterAgentMessage,
+  enqueueFarcasterGeneratedImageMessage,
+  isLikelyFarcasterGeneratedImageRequest,
   waitForFarcasterTaskAssistantReply,
 } from './farcasterChatBridge.js';
 import { farcasterReplyService } from './farcasterReplyService.js';
@@ -773,16 +779,31 @@ export class FarcasterIngressWorker {
 
     const inboundPrompt = await buildMentionPromptContent(mention);
 
-    const queued = await enqueueFarcasterAgentMessage({
-      userId: user.privyDid,
-      sessionId: mapping.chatSessionId,
-      content: inboundPrompt.content,
+    const shouldGenerateImage = isLikelyFarcasterGeneratedImageRequest({
+      text: mention.text,
       socialInput: inboundPrompt.socialInput,
-      farcasterFid: mention.authorFid,
-      farcasterUsername: mention.authorUsername || user.farcasterUsername || null,
-      sourceMessageId: mention.castHash,
-      rootCastHash: mention.rootCastHash || mention.castHash,
     });
+    const queued = shouldGenerateImage
+      ? await enqueueFarcasterGeneratedImageMessage({
+          userId: user.privyDid,
+          sessionId: mapping.chatSessionId,
+          content: inboundPrompt.content,
+          socialInput: inboundPrompt.socialInput,
+          farcasterFid: mention.authorFid,
+          farcasterUsername: mention.authorUsername || user.farcasterUsername || null,
+          sourceMessageId: mention.castHash,
+          rootCastHash: mention.rootCastHash || mention.castHash,
+        })
+      : await enqueueFarcasterAgentMessage({
+          userId: user.privyDid,
+          sessionId: mapping.chatSessionId,
+          content: inboundPrompt.content,
+          socialInput: inboundPrompt.socialInput,
+          farcasterFid: mention.authorFid,
+          farcasterUsername: mention.authorUsername || user.farcasterUsername || null,
+          sourceMessageId: mention.castHash,
+          rootCastHash: mention.rootCastHash || mention.castHash,
+        });
 
     const assistantReply = queued.completedSynchronously
       ? { text: queued.assistantContent || '', embeds: [] as string[] }

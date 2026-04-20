@@ -20,6 +20,10 @@
 //         trace showed NVIDIA/GLM tool-first turns could exceed the bridge's
 //         original 90-second wait window, causing Farcaster to publish the
 //         generic pending reply before the first tool round completed.
+//         Production traces on 2026-04-20 then showed image-bearing Farcaster
+//         requests could still be classified as `general_answer`, so explicit
+//         image-generation casts need a deterministic bridge into the generated
+//         image owner instead of relying on the text model to choose the tool.
 // Goal: enqueue Farcaster-originated chat work with enough context for the
 //       existing agent runtime, billing gates, vision-capable providers, and
 //       social reply publication of generated-image assets.
@@ -46,6 +50,9 @@
 //   text must stay English and must not reintroduce Chinese status copy.
 // - social-bridge wait windows must be long enough for slow tool-first model
 //   rounds, or publication will race ahead of the real assistant result
+// - Explicit Farcaster image-generation requests should become generated-image
+//   tasks before text-model orchestration, or `general_answer` misclassification
+//   can publish a clarification instead of an image.
 // Document Provenance:
 // - Source: repo code review of X chat bridge
 // - Kind: repo doc
@@ -98,6 +105,14 @@
 // - Applied To: extending Farcaster assistant-reply wait timeout so slow
 //   NVIDIA/GLM tool rounds do not publish premature pending text
 // - Verification: verified in runtime log and code
+// - Source: /Users/almurat/Downloads/logs.1776673868939.json and
+//   /Users/almurat/Downloads/logs.1776673786346.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: deterministic Farcaster generated-image task routing when
+//   image-bearing casts explicitly ask to generate, create, draw, render, or
+//   otherwise produce a visual
+// - Verification: verified in runtime log and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
@@ -120,6 +135,9 @@ import { env } from '../../config/env.js';
 import { hydrateGeneratedChatImageDataForClient, resolveGeneratedImagePublicUrl } from '../chatImageUploads.js';
 import type { SocialAgentInput } from '../socialAgentInput.js';
 import { logger } from '../../utils/logger.js';
+import { chatWS } from '../chatWebSocket.js';
+import { buildGeneratedImagePendingData, startGeneratedImageChatTask } from '../generatedImageChatTask.js';
+import { optimizeGeneratedImagePrompt } from '../generatedImagePromptOptimizer.js';
 
 function normalizeTaskModel(model?: string): string {
   return normalizeSupportedChatModel(model);
@@ -139,6 +157,60 @@ const DEFAULT_FARCASTER_TIMEOUT_REPLY = 'I am still working on that. Please try 
 const DEFAULT_FARCASTER_GENERATED_IMAGE_READY_REPLY = 'Generated.';
 const DEFAULT_FARCASTER_GENERATED_IMAGE_PENDING_REPLY = 'Image generation is still running. Please try again in a moment.';
 const DEFAULT_FARCASTER_TASK_REPLY_TIMEOUT_MS = 180_000;
+const DEFAULT_FARCASTER_GENERATED_IMAGE_MODEL = 'grok-imagine-image';
+
+function normalizeFarcasterIntentText(value: unknown): string {
+  return String(value || '')
+    .replace(/@\w[\w.-]*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function hasGeneratedImageAction(text: string): boolean {
+  return /\b(generate|create|make|draw|render|design|produce|imagine|remix|stylize|compose|turn|convert)\b/i.test(text)
+    || /(生成|出图|画|绘制|设计|做一?张|做个|改成|变成|转换|重绘|参考|融合|合成|修图|p图)/i.test(text);
+}
+
+function hasGeneratedImageObject(text: string): boolean {
+  return /\b(image|picture|photo|poster|illustration|visual|art|avatar|pfp|logo|cover|wallpaper|model|render)\b/i.test(text)
+    || /(图片|图像|照片|配图|海报|插画|视觉|头像|壁纸|模型|封面)/i.test(text);
+}
+
+function isPromptAdviceQuestion(text: string): boolean {
+  return /\b(how to|how do i|what prompt|explain|why)\b/i.test(text)
+    || /(怎么|如何|为什么|提示词|教程|解释)/i.test(text);
+}
+
+export function isLikelyFarcasterGeneratedImageRequest(params: {
+  text?: string | null;
+  socialInput?: SocialAgentInput | null;
+}): boolean {
+  const text = normalizeFarcasterIntentText(params.text || params.socialInput?.currentText || '');
+  if (!text || isPromptAdviceQuestion(text)) return false;
+
+  const imageCount = Array.isArray(params.socialInput?.images) ? params.socialInput!.images.length : 0;
+  const hasAction = hasGeneratedImageAction(text);
+  const hasObject = hasGeneratedImageObject(text);
+  if (imageCount > 0) return hasAction || (hasObject && /(参考|based on|from these|with these|用这|这两张|这个图)/i.test(text));
+  return hasAction && hasObject;
+}
+
+function buildFarcasterGeneratedImageIntent(params: {
+  text: string;
+  socialInput?: SocialAgentInput | null;
+}) {
+  const currentText = normalizeFarcasterIntentText(params.socialInput?.currentText || params.text);
+  const imageCount = Array.isArray(params.socialInput?.images) ? params.socialInput!.images.length : 0;
+  const constraints = imageCount > 0
+    ? [`the Farcaster cast included ${imageCount} attached image${imageCount === 1 ? '' : 's'} as visual context`]
+    : [];
+  return {
+    user_intent: currentText,
+    edit_or_generate: 'generate' as const,
+    safety_level: 'standard',
+    constraints,
+  };
+}
 
 function normalizeFarcasterReplyEmbedUrls(value: unknown): string[] {
   const rawUrls = Array.isArray(value) ? value : [];
@@ -448,6 +520,171 @@ export async function enqueueFarcasterAgentMessage(params: {
   }
 
   chatWorker.wake().catch(() => {});
+
+  return {
+    userMessage,
+    assistantMessage,
+    task,
+    completedSynchronously: false,
+    assistantContent: null,
+  };
+}
+
+export async function enqueueFarcasterGeneratedImageMessage(params: {
+  userId: string;
+  sessionId: string;
+  content: string;
+  socialInput?: SocialAgentInput | null;
+  farcasterFid: number;
+  farcasterUsername?: string | null;
+  sourceMessageId: string;
+  rootCastHash?: string | null;
+}) {
+  const session = await chatRepo.getSession(params.sessionId);
+  if (!session) {
+    throw new Error(`Chat session ${params.sessionId} not found`);
+  }
+  if (session.userId !== params.userId) {
+    throw new Error(`Chat session ${params.sessionId} does not belong to user ${params.userId}`);
+  }
+
+  const trimmedContent = params.content.trim();
+  const socialInput = params.socialInput || null;
+  const userMessage = await chatRepo.createMessage(params.sessionId, 'user', trimmedContent, {
+    data: socialInput ? {
+      source: 'social_agent',
+      platform: socialInput.platform,
+      socialInput,
+    } : undefined,
+  });
+  trackChatMessage(params.userId);
+
+  const activeTask = await chatRepo.getSessionActiveTask(params.sessionId);
+  if (activeTask) {
+    const assistantMessage = await chatRepo.createMessage(
+      params.sessionId,
+      'assistant',
+      'Another image or chat task is already running in this session.',
+      { status: 'complete' },
+    );
+    return {
+      userMessage,
+      assistantMessage,
+      task: null,
+      completedSynchronously: true,
+      assistantContent: assistantMessage.content,
+    };
+  }
+
+  const generatedImageIntent = buildFarcasterGeneratedImageIntent({
+    text: trimmedContent,
+    socialInput,
+  });
+  const optimized = optimizeGeneratedImagePrompt(generatedImageIntent);
+  const requestedModel = DEFAULT_FARCASTER_GENERATED_IMAGE_MODEL;
+  const pendingGeneratedImage = buildGeneratedImagePendingData({
+    requestedModel,
+    quality: null,
+    prompt: optimized.providerPrompt,
+  });
+
+  const assistantMessage = await chatRepo.createMessage(params.sessionId, 'assistant', '', {
+    type: 'generated-image',
+    data: {
+      generatedImage: pendingGeneratedImage,
+    },
+    status: 'streaming',
+  });
+
+  const task = await chatRepo.createTask(
+    params.sessionId,
+    requestedModel,
+    userMessage.id,
+    assistantMessage.id,
+    {
+      userId: params.userId,
+      assistantMessageId: assistantMessage.id,
+      sessionId: params.sessionId,
+      currentPage: 'farcaster',
+      pageContext: 'farcaster_agent',
+      farcaster: {
+        fid: params.farcasterFid,
+        username: params.farcasterUsername || null,
+        profileUrl: buildFarcasterProfileUrl(params.farcasterUsername),
+        kikoHandle: env.farcasterAgent.botUsername || 'kikoapp',
+        followsKiko: null,
+      },
+      farcasterAgent: {
+        sourceMessageId: params.sourceMessageId,
+        rootCastHash: params.rootCastHash || null,
+      },
+      socialInput: socialInput || undefined,
+      generatedImage: {
+        requestedModel,
+        quality: null,
+        userIntent: generatedImageIntent.user_intent,
+        optimizedPromptSummary: optimized.optimizedPromptSummary,
+        prompt: optimized.providerPrompt,
+        source: 'farcaster',
+        promptOptimizer: {
+          aspectRatio: optimized.spec.aspectRatio,
+          subject: optimized.spec.subject,
+          scene: optimized.spec.scene,
+          composition: optimized.spec.composition,
+          style: optimized.spec.style,
+          lighting: optimized.spec.lighting,
+          camera: optimized.spec.camera,
+          safetyLevel: optimized.spec.safetyLevel,
+        },
+      },
+    },
+    { status: 'pending' },
+  );
+
+  logger.info(LogCode.SYS_INFO, '[Farcaster] routed mention directly to generated-image task', {
+    taskId: task.id,
+    sessionId: params.sessionId,
+    assistantMessageId: assistantMessage.id,
+    sourceMessageId: params.sourceMessageId,
+    imageCount: Array.isArray(socialInput?.images) ? socialInput!.images.length : 0,
+    requestedModel,
+  });
+
+  chatWS.broadcastToUser(params.userId, {
+    type: 'task_status',
+    sessionId: params.sessionId,
+    data: {
+      taskId: task.id,
+      messageId: assistantMessage.id,
+      status: 'running',
+      message: 'Generating image',
+      taskType: 'image',
+    },
+  });
+  chatWS.broadcastToUser(params.userId, {
+    type: 'message_start',
+    sessionId: params.sessionId,
+    data: {
+      messageId: assistantMessage.id,
+      role: 'assistant',
+      model: requestedModel,
+      messageType: 'generated-image',
+      data: {
+        generatedImage: pendingGeneratedImage,
+      },
+    },
+  });
+
+  startGeneratedImageChatTask({
+    taskId: task.id,
+    userId: params.userId,
+    sessionId: params.sessionId,
+    assistantMessageId: assistantMessage.id,
+    requestedModel,
+    quality: null,
+    prompt: optimized.providerPrompt,
+    source: 'farcaster',
+  });
 
   return {
     userMessage,
