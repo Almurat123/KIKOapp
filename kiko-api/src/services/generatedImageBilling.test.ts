@@ -42,6 +42,40 @@ test('GPT image high quality keeps the documented future price while disabled', 
     assert.equal(decision.usdCost, 0);
 });
 
+test('GPT Image 1 Mini is enabled and billed with the documented medium price', () => {
+    const decision = buildGeneratedImageBillingDecision({
+        dateUtc: '2026-04-20',
+        model: 'gpt-image-1-mini',
+        quality: 'medium',
+        imageCount: 1,
+        freeOutputImagesUsed: 0,
+        hasBillingConsent: true,
+    });
+
+    assert.equal(decision.allowed, true);
+    assert.equal(decision.providerModel, 'gpt-image-1-mini');
+    assert.equal(decision.freeOutputImageLimit, 0);
+    assert.equal(decision.billedImageCount, 1);
+    assert.equal(decision.pricePerOutputImageUsd, 0.011);
+    assert.equal(decision.usdCost, 0.011);
+});
+
+test('GPT Image 1 Mini requires billing consent because it has no free allowance', () => {
+    const decision = buildGeneratedImageBillingDecision({
+        dateUtc: '2026-04-20',
+        model: 'gpt-image-1-mini',
+        quality: 'high',
+        imageCount: 1,
+        freeOutputImagesUsed: 0,
+        hasBillingConsent: false,
+    });
+
+    assert.equal(decision.allowed, false);
+    assert.equal(decision.reason, 'BILLING_CONSENT_REQUIRED');
+    assert.equal(decision.pricePerOutputImageUsd, 0.036);
+    assert.equal(decision.usdCost, 0.036);
+});
+
 test('Grok normal grants free output images while quota remains', () => {
     const decision = buildGeneratedImageBillingDecision({
         dateUtc: '2026-04-18',
@@ -139,6 +173,13 @@ test('generated image preference normalization rejects disabled models', () => {
         },
     );
     assert.deepEqual(
+        normalizeGeneratedImagePreference('gpt-image-1-mini', 'high'),
+        {
+            model: 'gpt-image-1-mini',
+            quality: 'high',
+        },
+    );
+    assert.deepEqual(
         normalizeGeneratedImagePreference('grok-imagine-image', 'normal'),
         {
             model: 'grok-imagine-image',
@@ -151,12 +192,13 @@ test('available generated image preference falls through disabled candidates to 
     assert.deepEqual(
         resolveAvailableGeneratedImagePreference([
             { model: 'gpt-image-1.5', quality: 'high' },
+            { model: 'gpt-image-1-mini', quality: 'high' },
             { model: 'grok-imagine-image-pro', quality: 'pro' },
             { model: 'grok-imagine-image', quality: 'normal' },
         ]),
         {
-            model: 'grok-imagine-image',
-            quality: 'normal',
+            model: 'gpt-image-1-mini',
+            quality: 'high',
         },
     );
 });

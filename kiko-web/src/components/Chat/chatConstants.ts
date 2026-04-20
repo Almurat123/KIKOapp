@@ -131,6 +131,7 @@ export type ChatModelFamilyId =
   | 'gpt-5.4-mini'
   | 'grok-4-1-fast'
   | 'gpt-image-1.5'
+  | 'gpt-image-1-mini'
   | 'grok-imagine-image';
 
 export interface ChatModelOption {
@@ -173,6 +174,12 @@ const GPT_54_MINI_REASONING_OPTIONS: ChatModelFamilyControlOption[] = [
 ];
 
 const GPT_IMAGE_15_QUALITY_OPTIONS: ChatModelFamilyControlOption[] = [
+  { id: 'low', label: 'Low', imageQuality: 'low' },
+  { id: 'medium', label: 'Medium', imageQuality: 'medium' },
+  { id: 'high', label: 'High', imageQuality: 'high' },
+];
+
+const GPT_IMAGE_1_MINI_QUALITY_OPTIONS: ChatModelFamilyControlOption[] = [
   { id: 'low', label: 'Low', imageQuality: 'low' },
   { id: 'medium', label: 'Medium', imageQuality: 'medium' },
   { id: 'high', label: 'High', imageQuality: 'high' },
@@ -286,6 +293,36 @@ export const MODEL_OPTIONS: ChatModelOption[] = [
     disabledReason: IMAGE_UNAVAILABLE_REASON,
   },
   {
+    id: 'gpt-image-1-mini',
+    name: 'GPT Image 1 Mini',
+    mode: 'image',
+    kind: 'image',
+    familyId: 'gpt-image-1-mini',
+    reasoningLevel: 'low',
+    reasoningLabel: 'Low',
+    imageQuality: 'low',
+  },
+  {
+    id: 'gpt-image-1-mini',
+    name: 'GPT Image 1 Mini',
+    mode: 'image',
+    kind: 'image',
+    familyId: 'gpt-image-1-mini',
+    reasoningLevel: 'medium',
+    reasoningLabel: 'Medium',
+    imageQuality: 'medium',
+  },
+  {
+    id: 'gpt-image-1-mini',
+    name: 'GPT Image 1 Mini',
+    mode: 'image',
+    kind: 'image',
+    familyId: 'gpt-image-1-mini',
+    reasoningLevel: 'high',
+    reasoningLabel: 'High',
+    imageQuality: 'high',
+  },
+  {
     id: 'grok-imagine-image',
     name: 'Grok Imagine',
     mode: 'image',
@@ -328,6 +365,7 @@ const MODEL_FAMILY_ORDER: ChatModelFamilyId[] = [
   'gpt-5.4-mini',
   'grok-4-1-fast',
   'gpt-image-1.5',
+  'gpt-image-1-mini',
   'grok-imagine-image',
 ];
 
@@ -337,6 +375,7 @@ const FAMILY_REASONING_OPTIONS: Record<ChatModelFamilyId, ChatModelFamilyControl
   'gpt-5.4-mini': GPT_54_MINI_REASONING_OPTIONS,
   'grok-4-1-fast': BINARY_REASONING_OPTIONS,
   'gpt-image-1.5': GPT_IMAGE_15_QUALITY_OPTIONS,
+  'gpt-image-1-mini': GPT_IMAGE_1_MINI_QUALITY_OPTIONS,
   'grok-imagine-image': GROK_IMAGE_QUALITY_OPTIONS,
 };
 
@@ -346,6 +385,7 @@ const FAMILY_CONTROL_KIND: Record<ChatModelFamilyId, ChatModelControlKind> = {
   'gpt-5.4-mini': 'reasoning',
   'grok-4-1-fast': 'reasoning',
   'gpt-image-1.5': 'quality',
+  'gpt-image-1-mini': 'quality',
   'grok-imagine-image': 'quality',
 };
 
@@ -358,6 +398,7 @@ function normalizeModelFamilyId(modelId?: string | null): ChatModelFamilyId | un
   if (existing) return existing;
   if (normalized.startsWith('grok-imagine-image-pro')) return 'grok-imagine-image';
   if (normalized.startsWith('grok-imagine-image')) return 'grok-imagine-image';
+  if (normalized.startsWith('gpt-image-1-mini')) return 'gpt-image-1-mini';
   if (normalized.startsWith('gpt-image-1.5')) return 'gpt-image-1.5';
   if (
     normalized.startsWith('kimi-k2-5') ||

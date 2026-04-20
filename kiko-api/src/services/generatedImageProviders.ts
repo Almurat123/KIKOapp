@@ -66,7 +66,7 @@ import { Buffer } from 'node:buffer';
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 export type GeneratedImageProviderName = 'openai' | 'xai';
-export type GeneratedImageProviderModel = 'gpt-image-1.5' | 'grok-imagine-image';
+export type GeneratedImageProviderModel = 'gpt-image-1.5' | 'gpt-image-1-mini' | 'grok-imagine-image';
 export type GeneratedImageProviderQuality = 'low' | 'medium' | 'high' | 'normal';
 
 export interface GeneratedImageProviderRequest {
@@ -90,7 +90,7 @@ export interface GeneratedImageProviderResult {
 export interface GeneratedImageProviderProgressEvent {
     type: 'partial_image';
     provider: 'openai';
-    model: 'gpt-image-1.5';
+    model: 'gpt-image-1.5' | 'gpt-image-1-mini';
     quality: 'low' | 'medium' | 'high';
     partialImageIndex: number;
     partialImageCount: number;
@@ -100,6 +100,11 @@ const PROVIDER_TIMEOUT_MS = Math.max(15_000, Number(process.env.GENERATED_IMAGE_
 const OPENAI_IMAGE_ENDPOINT = 'https://api.openai.com/v1/images/generations';
 const XAI_IMAGE_ENDPOINT = 'https://api.x.ai/v1/images/generations';
 const OPENAI_PARTIAL_IMAGE_COUNT = 2;
+
+function isOpenAiGeneratedImageModel(model?: string | null): model is 'gpt-image-1.5' | 'gpt-image-1-mini' {
+    const normalized = String(model || '').trim().toLowerCase();
+    return normalized === 'gpt-image-1.5' || normalized === 'gpt-image-1-mini';
+}
 
 class GeneratedImageProviderError extends Error {
     readonly code: string;
@@ -244,6 +249,7 @@ async function* iterateSseBlocks(stream: ReadableStream<Uint8Array>): AsyncGener
 }
 
 async function generateOpenAiImage(
+    model: 'gpt-image-1.5' | 'gpt-image-1-mini',
     prompt: string,
     quality: GeneratedImageProviderQuality,
     onProgress?: ((event: GeneratedImageProviderProgressEvent) => Promise<void> | void) | null,
@@ -261,7 +267,7 @@ async function generateOpenAiImage(
             Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-            model: 'gpt-image-1.5',
+            model,
             prompt,
             size: '1024x1024',
             quality: quality === 'low' || quality === 'high' ? quality : 'medium',
@@ -312,7 +318,7 @@ async function generateOpenAiImage(
                     await onProgress({
                         type: 'partial_image',
                         provider: 'openai',
-                        model: 'gpt-image-1.5',
+                        model,
                         quality: normalizedQuality,
                         partialImageIndex,
                         partialImageCount: OPENAI_PARTIAL_IMAGE_COUNT,
@@ -338,7 +344,7 @@ async function generateOpenAiImage(
 
         return {
             provider: 'openai',
-            model: 'gpt-image-1.5',
+            model,
             quality: normalizedQuality,
             imageBuffer: completedImageBuffer,
             contentType: 'image/png',
@@ -353,7 +359,7 @@ async function generateOpenAiImage(
     if (b64) {
         return {
             provider: 'openai',
-            model: 'gpt-image-1.5',
+            model,
             quality: normalizedQuality,
             imageBuffer: Buffer.from(b64, 'base64'),
             contentType: 'image/png',
@@ -370,7 +376,7 @@ async function generateOpenAiImage(
     const downloaded = await fetchBinaryFromUrl(url);
     return {
         provider: 'openai',
-        model: 'gpt-image-1.5',
+        model,
         quality: normalizedQuality,
         imageBuffer: downloaded.buffer,
         contentType: downloaded.contentType,
@@ -445,8 +451,9 @@ export async function generateImageWithProvider(params: GeneratedImageProviderRe
         throw new GeneratedImageProviderError('Generated image prompt is required.', 'GENERATED_IMAGE_PROMPT_REQUIRED', 400);
     }
 
-    if (params.provider === 'openai' || params.model === 'gpt-image-1.5') {
+    if (params.provider === 'openai' || isOpenAiGeneratedImageModel(params.model)) {
         return generateOpenAiImage(
+            isOpenAiGeneratedImageModel(params.model) ? params.model : 'gpt-image-1-mini',
             prompt,
             params.quality === 'low' || params.quality === 'high' ? params.quality : 'medium',
             params.onProgress,

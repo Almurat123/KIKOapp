@@ -124,16 +124,17 @@ function resolveGeneratedImageSource(context?: Record<string, any>, snapshot?: a
     return 'chat-v2-tool';
 }
 
-function pickDefaultGeneratedImageModel(taskModel?: string | null): 'gpt-image-1.5' | 'grok-imagine-image' {
+function pickDefaultGeneratedImageModel(taskModel?: string | null): 'gpt-image-1-mini' | 'grok-imagine-image' {
     const providerPreferredModel = resolveProviderInfo(String(taskModel || '')).provider === 'openai'
-        ? 'gpt-image-1.5'
+        ? 'gpt-image-1-mini'
         : 'grok-imagine-image';
     const resolved = resolveAvailableGeneratedImagePreference([
         { model: providerPreferredModel },
+        { model: 'gpt-image-1-mini' },
         { model: 'grok-imagine-image' },
         { model: 'gpt-image-1.5' },
     ]);
-    return (resolved.model || 'grok-imagine-image') as 'gpt-image-1.5' | 'grok-imagine-image';
+    return (resolved.model || 'grok-imagine-image') as 'gpt-image-1-mini' | 'grok-imagine-image';
 }
 
 export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record<string, any>> = {

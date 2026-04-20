@@ -185,6 +185,7 @@ export type ExecuteGeneratedImageChatTaskResult = {
 
 function inferProvider(requestedModel: string): 'openai' | 'xai' | null {
     const normalized = String(requestedModel || '').trim().toLowerCase();
+    if (normalized.startsWith('gpt-image-1-mini')) return 'openai';
     if (normalized.startsWith('gpt-image-1.5')) return 'openai';
     if (normalized.startsWith('grok-imagine-image')) return 'xai';
     return null;
@@ -192,6 +193,7 @@ function inferProvider(requestedModel: string): 'openai' | 'xai' | null {
 
 function inferProviderModel(requestedModel: string): string | null {
     const normalized = String(requestedModel || '').trim().toLowerCase();
+    if (normalized.startsWith('gpt-image-1-mini')) return 'gpt-image-1-mini';
     if (normalized.startsWith('gpt-image-1.5')) return 'gpt-image-1.5';
     if (normalized.startsWith('grok-imagine-image-pro')) return 'grok-imagine-image-pro';
     if (normalized.startsWith('grok-imagine-image')) return 'grok-imagine-image';
@@ -201,6 +203,10 @@ function inferProviderModel(requestedModel: string): string | null {
 function normalizeQuality(requestedModel: string, quality?: string | null): string | null {
     const normalizedModel = String(requestedModel || '').trim().toLowerCase();
     const normalizedQuality = String(quality || '').trim().toLowerCase();
+    if (normalizedModel.startsWith('gpt-image-1-mini')) {
+        if (normalizedQuality === 'low' || normalizedQuality === 'high') return normalizedQuality;
+        return 'medium';
+    }
     if (normalizedModel.startsWith('gpt-image-1.5')) {
         if (normalizedQuality === 'low' || normalizedQuality === 'high') return normalizedQuality;
         return 'medium';
@@ -245,6 +251,9 @@ function buildFailureMessage(params: {
         return 'Authorize billing in Wallet settings before using this image model.';
     }
     if (reason === 'MODEL_DISABLED') {
+        if (requestedModel.startsWith('gpt-image-1-mini')) {
+            return 'GPT Image 1 Mini is unavailable right now.';
+        }
         if (requestedModel.startsWith('gpt-image-1.5')) {
             return 'GPT Image 1.5 is unavailable right now.';
         }
@@ -527,7 +536,7 @@ async function runGeneratedImageChatTask(params: StartGeneratedImageChatTaskPara
 
         const providerResult = await generateImageWithProvider({
             provider: reservation.provider,
-            model: reservation.providerModel as 'gpt-image-1.5' | 'grok-imagine-image',
+            model: reservation.providerModel as 'gpt-image-1.5' | 'gpt-image-1-mini' | 'grok-imagine-image',
             prompt: params.prompt,
             quality: reservation.quality as 'low' | 'medium' | 'high' | 'normal',
             onProgress: reservation.provider === 'openai'

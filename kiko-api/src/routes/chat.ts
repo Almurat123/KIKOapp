@@ -221,7 +221,8 @@ function normalizeTaskModel(model?: string): string {
 
 function isGeneratedImageModel(model?: string | null): boolean {
     const normalized = String(model || '').trim().toLowerCase();
-    return normalized.startsWith('gpt-image-1.5')
+    return normalized.startsWith('gpt-image-1-mini')
+        || normalized.startsWith('gpt-image-1.5')
         || normalized.startsWith('grok-imagine-image');
 }
 

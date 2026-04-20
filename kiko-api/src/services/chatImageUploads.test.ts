@@ -22,6 +22,17 @@ test('generated-image public object keys use a jpg suffix for jpeg content', () 
   );
 });
 
+test('public generated-image proxy URLs include hotlink-ok to bypass Cloudflare hotlink protection', () => {
+  const url = __chatImageUploadsTest.buildPublicObjectUrl(
+    'chat-uploads/generated-public/farcaster/did_privy_test/2026-04-20/message-123.png',
+  );
+
+  assert.equal(
+    url,
+    'https://api.kikoapp.app/api/chat/generated-images/public/hotlink-ok/chat-uploads/generated-public/farcaster/did_privy_test/2026-04-20/message-123.png?v=message-123',
+  );
+});
+
 test('public image extension helpers normalize jpeg aliases', () => {
   assert.equal(inferPublicImageExtensionFromContentType('image/jpeg'), 'jpg');
   assert.equal(inferPublicImageExtensionFromContentType('image/png'), 'png');
@@ -52,4 +63,13 @@ test('legacy png-key jpeg bytes can be transcoded to a real png for public deliv
 
   assert.equal(metadata.format, 'png');
   assert.equal(transcoded.length > 0, true);
+});
+
+test('public generated-image loader strips the hotlink-ok proxy prefix before object-key validation', () => {
+  assert.equal(
+    __chatImageUploadsTest.normalizePublicGeneratedImageProxyPath(
+      'hotlink-ok/chat-uploads/generated-public/farcaster/did_privy_test/2026-04-20/message-123.png',
+    ),
+    'chat-uploads/generated-public/farcaster/did_privy_test/2026-04-20/message-123.png',
+  );
 });

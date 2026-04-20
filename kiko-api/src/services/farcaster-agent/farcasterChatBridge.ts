@@ -186,7 +186,7 @@ const DEFAULT_FARCASTER_GENERATED_IMAGE_READY_REPLY = 'Generated.';
 const DEFAULT_FARCASTER_GENERATED_IMAGE_PENDING_REPLY = 'Image generation is still running. Please try again in a moment.';
 const DEFAULT_FARCASTER_TASK_REPLY_TIMEOUT_MS = 180_000;
 const DEFAULT_FARCASTER_GENERATED_IMAGE_MODEL = 'grok-imagine-image';
-const DEFAULT_OPENAI_GENERATED_IMAGE_MODEL = 'gpt-image-1.5';
+const DEFAULT_OPENAI_GENERATED_IMAGE_MODEL = 'gpt-image-1-mini';
 const farcasterImageIntentRewriteClient = new PythonGenerationClient();
 
 function normalizeFarcasterIntentText(value: unknown): string {
@@ -242,7 +242,7 @@ function buildFarcasterGeneratedImageIntent(params: {
   };
 }
 
-function resolveDefaultGeneratedImageModel(chatModel?: string | null): 'gpt-image-1.5' | 'grok-imagine-image' {
+function resolveDefaultGeneratedImageModel(chatModel?: string | null): 'gpt-image-1-mini' | 'grok-imagine-image' {
   const providerPreferredModel = resolveProviderInfo(normalizeTaskModel(String(chatModel || ''))).provider === 'openai'
     ? DEFAULT_OPENAI_GENERATED_IMAGE_MODEL
     : DEFAULT_FARCASTER_GENERATED_IMAGE_MODEL;
@@ -251,7 +251,7 @@ function resolveDefaultGeneratedImageModel(chatModel?: string | null): 'gpt-imag
     { model: DEFAULT_FARCASTER_GENERATED_IMAGE_MODEL },
     { model: DEFAULT_OPENAI_GENERATED_IMAGE_MODEL },
   ]);
-  return (resolved.model || DEFAULT_FARCASTER_GENERATED_IMAGE_MODEL) as 'gpt-image-1.5' | 'grok-imagine-image';
+  return (resolved.model || DEFAULT_FARCASTER_GENERATED_IMAGE_MODEL) as 'gpt-image-1-mini' | 'grok-imagine-image';
 }
 
 function shouldUseModelOwnedImageRewrite(chatModel?: string | null): boolean {
@@ -263,7 +263,7 @@ function resolveRequestedGeneratedImagePreference(params: {
   preferredGeneratedImageModel?: string | null;
   preferredGeneratedImageQuality?: string | null;
 }): {
-  requestedModel: GeneratedImageProviderModel | 'gpt-image-1.5' | 'grok-imagine-image';
+  requestedModel: GeneratedImageProviderModel | 'gpt-image-1-mini' | 'grok-imagine-image';
   quality: GeneratedImageQuality | null;
 } {
   const preferredProviderDefault = resolveProviderInfo(normalizeTaskModel(String(params.chatModel || ''))).provider === 'openai'

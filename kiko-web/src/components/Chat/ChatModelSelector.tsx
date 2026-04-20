@@ -126,6 +126,8 @@ function getCompactFamilyLabel(
             return 'Grok-4.1';
         case 'gpt-image-1.5':
             return 'GPT Img';
+        case 'gpt-image-1-mini':
+            return 'GPT Mini Img';
         case 'grok-imagine-image':
             return 'Grok Img';
         default:

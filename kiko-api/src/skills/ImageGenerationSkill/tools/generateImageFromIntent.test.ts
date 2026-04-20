@@ -49,10 +49,10 @@ test('generated image source uses Farcaster from snapshot page context', () => {
     assert.equal(source, 'farcaster');
 });
 
-test('generated image tool falls back to enabled Grok image when OpenAI image is disabled', () => {
+test('generated image tool prefers GPT Image 1 Mini for OpenAI chat sessions', () => {
     assert.equal(
         __generateImageFromIntentTest.pickDefaultGeneratedImageModel('gpt-5.4-mini-2026-03-17'),
-        'grok-imagine-image',
+        'gpt-image-1-mini',
     );
 });
 

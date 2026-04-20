@@ -90,6 +90,9 @@ const GENERATED_IMAGE_RESERVATION_LOCK_TTL_SECONDS = 8;
 const GPT_IMAGE_15_LOW_PRICE_USD_PER_OUTPUT = 0.009;
 const GPT_IMAGE_15_MEDIUM_PRICE_USD_PER_OUTPUT = 0.034;
 const GPT_IMAGE_15_HIGH_PRICE_USD_PER_OUTPUT = 0.133;
+const GPT_IMAGE_1_MINI_LOW_PRICE_USD_PER_OUTPUT = 0.005;
+const GPT_IMAGE_1_MINI_MEDIUM_PRICE_USD_PER_OUTPUT = 0.011;
+const GPT_IMAGE_1_MINI_HIGH_PRICE_USD_PER_OUTPUT = 0.036;
 const GROK_IMAGE_PRICE_USD_PER_OUTPUT = 0.02;
 const GROK_IMAGE_PRO_PRICE_USD_PER_OUTPUT = 0.07;
 function getGrokImageFreeOutputsPerDay(): number {
@@ -97,8 +100,8 @@ function getGrokImageFreeOutputsPerDay(): number {
 }
 
 export type GeneratedImageProvider = 'openai' | 'xai';
-export type GeneratedImageModelFamily = 'gpt-image-1.5' | 'grok-imagine-image';
-export type GeneratedImageProviderModel = 'gpt-image-1.5' | 'grok-imagine-image' | 'grok-imagine-image-pro';
+export type GeneratedImageModelFamily = 'gpt-image-1.5' | 'gpt-image-1-mini' | 'grok-imagine-image';
+export type GeneratedImageProviderModel = 'gpt-image-1.5' | 'gpt-image-1-mini' | 'grok-imagine-image' | 'grok-imagine-image-pro';
 export type GeneratedImageQuality = 'low' | 'medium' | 'high' | 'normal' | 'pro';
 export type GeneratedImageReservationStatus = 'reserved' | 'completed' | 'failed' | 'cancelled';
 export type GeneratedImageDecisionReason =
@@ -268,6 +271,27 @@ function normalizeGeneratedImageRequest(model: string, quality?: string | null):
             enabled: true,
             freeOutputImageLimit: getGrokImageFreeOutputsPerDay(),
             pricePerOutputImageUsd: GROK_IMAGE_PRICE_USD_PER_OUTPUT,
+        };
+    }
+
+    if (requestedModel.startsWith('gpt-image-1-mini')) {
+        const normalizedMiniQuality = normalizedQuality === 'low' || normalizedQuality === 'high'
+            ? normalizedQuality
+            : 'medium';
+        const pricePerOutputImageUsd = normalizedMiniQuality === 'low'
+            ? GPT_IMAGE_1_MINI_LOW_PRICE_USD_PER_OUTPUT
+            : normalizedMiniQuality === 'high'
+                ? GPT_IMAGE_1_MINI_HIGH_PRICE_USD_PER_OUTPUT
+                : GPT_IMAGE_1_MINI_MEDIUM_PRICE_USD_PER_OUTPUT;
+        return {
+            requestedModel,
+            provider: 'openai',
+            providerModel: 'gpt-image-1-mini',
+            modelFamily: 'gpt-image-1-mini',
+            quality: normalizedMiniQuality,
+            enabled: true,
+            freeOutputImageLimit: 0,
+            pricePerOutputImageUsd,
         };
     }
 

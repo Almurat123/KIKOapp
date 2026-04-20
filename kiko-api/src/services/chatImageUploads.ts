@@ -105,6 +105,17 @@
 //   real encoded MIME type and repairing legacy `.png` object keys whose bytes
 //   were stored as JPEG
 // - Verification: verified in runtime curl repro and code
+// - Source: Cloudflare Hotlink Protection docs and live 2026-04-20 curl repro
+//   where `Referer: https://farcaster.xyz/` returned `403 error code: 1011`
+//   for `/api/chat/generated-images/public/...png`, while the same path under
+//   `/api/chat/generated-images/public/hotlink-ok/...png` returned a normal
+//   app-level `404`
+// - Kind: official doc + runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: forcing public Farcaster proxy URLs onto a `hotlink-ok`
+//   subpath so Cloudflare zone-level Hotlink Protection does not block social
+//   image embeds before the API route runs
+// - Verification: verified in docs, runtime curl, and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/social-agent-multimodal-input.md
@@ -151,6 +162,7 @@ const CHAT_GENERATED_IMAGE_PUBLIC_PROXY_BASE_URL = String(
 ).trim().replace(/\/+$/g, '');
 const GENERATED_IMAGE_PUBLIC_CACHE_CONTROL = process.env.CHAT_GENERATED_IMAGE_PUBLIC_CACHE_CONTROL || 'public, max-age=31536000, immutable';
 const MAX_IMAGE_PIXELS = CHAT_IMAGE_UPLOAD_MAX_DIMENSION * CHAT_IMAGE_UPLOAD_MAX_DIMENSION;
+const PUBLIC_GENERATED_IMAGE_HOTLINK_OK_SEGMENT = 'hotlink-ok';
 
 type SupportedImageFormat = 'jpeg' | 'png' | 'webp';
 type PublicImageExtension = 'png' | 'jpg' | 'webp';
@@ -433,10 +445,20 @@ function buildPublicObjectUrlVersion(objectKey: string): string {
         .slice(0, 120) || 'image';
 }
 
+function ensureHotlinkOkProxyBaseUrl(baseUrl: string): string {
+    const trimmed = String(baseUrl || '').trim().replace(/\/+$/g, '');
+    if (!trimmed) return '';
+    const marker = `/${PUBLIC_GENERATED_IMAGE_HOTLINK_OK_SEGMENT}`;
+    if (trimmed.includes(marker)) {
+        return trimmed;
+    }
+    return `${trimmed}${marker}`;
+}
+
 function buildPublicObjectUrl(objectKey: string): string | null {
     const baseUrl = CHAT_GENERATED_IMAGE_PUBLIC_URL_MODE === 'direct'
         ? CHAT_GENERATED_IMAGE_PUBLIC_DIRECT_BASE_URL
-        : CHAT_GENERATED_IMAGE_PUBLIC_PROXY_BASE_URL;
+        : ensureHotlinkOkProxyBaseUrl(CHAT_GENERATED_IMAGE_PUBLIC_PROXY_BASE_URL);
     if (!baseUrl) return null;
     const encodedPath = String(objectKey || '')
         .split('/')
@@ -459,6 +481,15 @@ export function resolveGeneratedImagePublicUrl(attachment: any): string | null {
 export function isPublicGeneratedImageObjectKey(objectKey: string): boolean {
     const normalizedKey = String(objectKey || '').trim().replace(/^\/+/, '');
     return normalizedKey.startsWith(`${CHAT_GENERATED_IMAGE_PUBLIC_PREFIX}/`);
+}
+
+export function normalizePublicGeneratedImageProxyPath(pathOrObjectKey: string): string {
+    const normalized = String(pathOrObjectKey || '').trim().replace(/^\/+/, '');
+    const prefix = `${PUBLIC_GENERATED_IMAGE_HOTLINK_OK_SEGMENT}/`;
+    if (normalized.startsWith(prefix)) {
+        return normalized.slice(prefix.length);
+    }
+    return normalized;
 }
 
 async function headObjectWithRetry(objectKey: string, attempts = 4): Promise<{ contentLength: number; contentType: string } | null> {
@@ -1105,7 +1136,7 @@ export async function loadPublicGeneratedChatImageObject(objectKey: string): Pro
     contentType: string;
     cacheControl: string;
 }> {
-    const normalizedKey = String(objectKey || '').trim().replace(/^\/+/, '');
+    const normalizedKey = normalizePublicGeneratedImageProxyPath(objectKey);
     if (!normalizedKey || !isPublicGeneratedImageObjectKey(normalizedKey)) {
         throw new ChatImageUploadError('Generated image not found.', 404);
     }
@@ -1154,6 +1185,8 @@ export const __chatImageUploadsTest = {
     inferPublicImageContentTypeFromExtension,
     readObjectKeyImageExtension,
     buildGeneratedPublicObjectKey,
+    buildPublicObjectUrl,
+    normalizePublicGeneratedImageProxyPath,
     transcodeImageBufferForPublicDelivery,
 };
 
