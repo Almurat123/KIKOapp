@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-19
+// Updated: 2026-04-20
 // Author: Rowan
 // Reason: model-owned image generation needs one server-owned optimizer boundary
 //         between the chat model's intent-level tool call and the provider
@@ -9,7 +9,10 @@
 //         free-form provider prompting. A short-lived server watermark
 //         experiment was removed, but this optimizer should still avoid asking
 //         the provider to place logos, signatures, or watermarks inside the
-//         scene itself.
+//         scene itself. A later NVIDIA/GLM Farcaster trace showed some models
+//         can call the image tool with structured fields like `subject` and
+//         `scene` but omit `user_intent`, so this owner now has to synthesize a
+//         stable intent string from those structured fields before execution.
 // Goal: accept intent-level image-generation arguments, normalize them into one
 //       structured prompt spec, and compile a provider prompt plus a short
 //       user-safe summary without leaking provider-only controls into chat history.
@@ -23,6 +26,9 @@
 // - image prompt control should be additive and deterministic, not a second hidden model call
 // - provider prompts should block extra provider/artist marks inside the scene
 //   without relying on a server watermark layer
+// - structured image fields may recover a missing user_intent, but the server
+//   must synthesize it deterministically from provided fields instead of
+//   inventing new creative direction
 // - forbidden local patch pattern: letting provider-specific prompt strings leak directly into visible assistant history
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
@@ -41,6 +47,12 @@
 // - Retrieved: 2026-04-19
 // - Applied To: keeping provider prompt defaults focused on in-scene marks only
 // - Verification: verified in code
+// - Source: /Users/almurat/Downloads/logs.1776663333220.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: synthesizing user_intent from structured image fields when
+//   NVIDIA/GLM tool calls omit the required intent string
+// - Verification: verified in runtime log and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/generated-image-safety.md
@@ -48,6 +60,7 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-v2-model-owned-image-generation-tool.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-generated-image-tool-call-repair-and-farcaster-wait-window.md
 
 export type GeneratedImageIntentMode = 'generate' | 'edit';
 
@@ -130,6 +143,28 @@ function inferIntentMode(params: GeneratedImageIntentInput): GeneratedImageInten
         return 'edit';
     }
     return 'generate';
+}
+
+function synthesizeUserIntent(params: GeneratedImageIntentInput): string {
+    const parts = [
+        normalizeText(params.subject) ? `Subject: ${normalizeText(params.subject)}` : '',
+        normalizeText(params.scene) ? `Scene: ${normalizeText(params.scene)}` : '',
+        normalizeText(params.style) || normalizeText(params.style_hint)
+            ? `Style: ${normalizeText(params.style) || normalizeText(params.style_hint)}`
+            : '',
+        normalizeText(params.composition) ? `Composition: ${normalizeText(params.composition)}` : '',
+        normalizeText(params.lighting) ? `Lighting: ${normalizeText(params.lighting)}` : '',
+        normalizeText(params.camera) ? `Camera: ${normalizeText(params.camera)}` : '',
+        normalizeText(params.aspect_ratio) ? `Aspect ratio: ${normalizeText(params.aspect_ratio)}` : '',
+    ].filter(Boolean);
+    return parts.join('. ');
+}
+
+export function normalizeGeneratedImageIntentInput(input: GeneratedImageIntentInput): GeneratedImageIntentInput {
+    return {
+        ...input,
+        user_intent: normalizeText(input.user_intent) || synthesizeUserIntent(input),
+    };
 }
 
 function inferSubject(params: GeneratedImageIntentInput): string {
@@ -248,34 +283,35 @@ function buildPromptSummary(spec: OptimizedGeneratedImagePromptSpec): string {
 }
 
 export function optimizeGeneratedImagePrompt(input: GeneratedImageIntentInput): OptimizedGeneratedImagePrompt {
-    const userIntent = normalizeText(input.user_intent);
+    const normalizedInput = normalizeGeneratedImageIntentInput(input);
+    const userIntent = normalizeText(normalizedInput.user_intent);
     if (!userIntent) {
         throw new Error('user_intent is required for image generation.');
     }
 
-    const safetyLevel = normalizeSafetyLevel(input.safety_level);
+    const safetyLevel = normalizeSafetyLevel(normalizedInput.safety_level);
     const spec: OptimizedGeneratedImagePromptSpec = {
-        editOrGenerate: inferIntentMode(input),
-        subject: inferSubject(input),
-        scene: inferScene(input),
-        composition: inferComposition(input),
-        style: inferStyle(input),
-        lighting: inferLighting(input),
-        camera: inferCamera(input),
-        aspectRatio: normalizeText(input.aspect_ratio) || DEFAULT_ASPECT_RATIO,
+        editOrGenerate: inferIntentMode(normalizedInput),
+        subject: inferSubject(normalizedInput),
+        scene: inferScene(normalizedInput),
+        composition: inferComposition(normalizedInput),
+        style: inferStyle(normalizedInput),
+        lighting: inferLighting(normalizedInput),
+        camera: inferCamera(normalizedInput),
+        aspectRatio: normalizeText(normalizedInput.aspect_ratio) || DEFAULT_ASPECT_RATIO,
         safetyLevel,
         constraints: dedupe([
             ...buildDefaultConstraints({
-                aspectRatio: normalizeText(input.aspect_ratio) || DEFAULT_ASPECT_RATIO,
+                aspectRatio: normalizeText(normalizedInput.aspect_ratio) || DEFAULT_ASPECT_RATIO,
                 safetyLevel,
             }),
-            ...normalizeList(input.constraints),
+            ...normalizeList(normalizedInput.constraints),
         ]),
         negativeConstraints: dedupe([
             ...buildDefaultNegativeConstraints(safetyLevel),
-            ...normalizeList(input.negative_constraints),
+            ...normalizeList(normalizedInput.negative_constraints),
         ]),
-        referenceImages: normalizeReferenceImages(input.reference_images),
+        referenceImages: normalizeReferenceImages(normalizedInput.reference_images),
     };
 
     return {

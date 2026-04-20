@@ -86,6 +86,7 @@ owner boundaries, and major fixes.
 - [Fix Log: 2026-04-20 OpenAI 400 Request Shape Diagnostics And Guard](./fix-log/2026-04-20-openai-400-request-shape-diagnostics.md)
 - [Fix Log: 2026-04-20 Generated Image Free Allowance Env Control](./fix-log/2026-04-20-generated-image-free-allowance-env-control.md)
 - [Fix Log: 2026-04-20 Generated Image Source Classification](./fix-log/2026-04-20-generated-image-source-classification.md)
+- [Fix Log: 2026-04-20 Generated Image Tool-Call Repair And Farcaster Wait Window](./fix-log/2026-04-20-generated-image-tool-call-repair-and-farcaster-wait-window.md)
 - [Fix Log: 2026-04-20 Social Agent Session Title Format](./fix-log/2026-04-20-social-agent-session-title-format.md)
 - [Fix Log: 2026-04-19 Chat Orphan Session Loading State](./fix-log/2026-04-19-chat-orphan-session-loading-state.md)
 - [Fix Log: 2026-04-19 Chat Selector Chevron Spacing](./fix-log/2026-04-19-chat-selector-chevron-spacing.md)

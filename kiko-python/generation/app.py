@@ -14,8 +14,11 @@ from __future__ import annotations
 #         length-only logging was not enough to diagnose provider request-shape
 #         failures, so this owner now also has to emit one truncated raw error
 #         excerpt for production debugging.
+#         failures, so this owner now also has to repair malformed tool-call
+#         argument fragments before empty-name inference runs.
 # Goal: preserve a clean generation stream contract that can repair strongly
-#       identifiable empty-name tool calls before emitting final SSE events.
+#       identifiable empty-name tool calls and malformed JSON argument
+#       fragments before emitting final SSE events.
 # Owns: conversion from provider streaming events into generation SSE events.
 # Does Not Own: provider routing, tool execution, or chat business policy.
 # Design Language:
@@ -41,10 +44,17 @@ from __future__ import annotations
 # - Retrieved: 2026-04-20
 # - Applied To: logging a truncated raw provider error excerpt for OpenAI 400 diagnosis
 # - Verification: verified in code and local syntax check
+# - Source: /Users/almurat/Downloads/logs.1776663333220.json
+# - Kind: runtime observation
+# - Retrieved: 2026-04-20
+# - Applied To: repairing malformed NVIDIA/GLM image-tool argument fragments
+#   before empty-name tool-call inference and SSE emission
+# - Verification: verified in runtime log and targeted tests
 # See also:
 # - /Users/almurat/KiKo/system-journal/INDEX.md
 # - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-openai-400-request-shape-diagnostics.md
 # - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-generation-empty-tool-call-repair.md
+# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-generated-image-tool-call-repair-and-farcaster-wait-window.md
 # - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-glm-mode-alignment-and-stream-timeout-hardening.md
 # - /Users/almurat/KiKo/system-journal/conflicts.md
 
@@ -58,7 +68,7 @@ from fastapi.responses import StreamingResponse
 
 from service_auth import require_internal_service
 from orchestration.llm_client import stream_llm_with_options
-from generation.tool_call_repair import infer_tool_name_from_arguments
+from generation.tool_call_repair import infer_tool_name_from_arguments, parse_tool_arguments
 
 from .schemas import GenerationRequest
 
@@ -190,10 +200,7 @@ async def stream_generation(body: GenerationRequest):
                     salvage_tool_call_arguments(tool_deltas)
                     for tool_call in tool_deltas.values():
                         arguments = ((tool_call.get("function") or {}).get("arguments")) or "{}"
-                        try:
-                            parsed_arguments = json.loads(arguments)
-                        except Exception:
-                            parsed_arguments = {}
+                        parsed_arguments = parse_tool_arguments(arguments)
                         tool_name = str(((tool_call.get("function") or {}).get("name")) or "").strip()
                         if not tool_name:
                             inferred_name = infer_tool_name_from_arguments(body.tools, parsed_arguments)

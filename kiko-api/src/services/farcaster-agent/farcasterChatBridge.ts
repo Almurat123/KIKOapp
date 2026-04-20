@@ -16,7 +16,10 @@
 //         production check showed the acknowledgement was still Chinese and the
 //         cast embed list could be empty even after image generation completed,
 //         so Farcaster publication must use English status text and fall back to
-//         generated-image task output media before publishing.
+//         generated-image task output media before publishing. A later runtime
+//         trace showed NVIDIA/GLM tool-first turns could exceed the bridge's
+//         original 90-second wait window, causing Farcaster to publish the
+//         generic pending reply before the first tool round completed.
 // Goal: enqueue Farcaster-originated chat work with enough context for the
 //       existing agent runtime, billing gates, vision-capable providers, and
 //       social reply publication of generated-image assets.
@@ -41,6 +44,8 @@
 //   outbound publish failures with a single production test.
 // - Farcaster public replies are international-facing; generated-image fallback
 //   text must stay English and must not reintroduce Chinese status copy.
+// - social-bridge wait windows must be long enough for slow tool-first model
+//   rounds, or publication will race ahead of the real assistant result
 // Document Provenance:
 // - Source: repo code review of X chat bridge
 // - Kind: repo doc
@@ -87,6 +92,12 @@
 // - Retrieved: 2026-04-20
 // - Applied To: structured bridge-level resolved-embed diagnostics
 // - Verification: verified in code
+// - Source: /Users/almurat/Downloads/logs.1776663333220.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: extending Farcaster assistant-reply wait timeout so slow
+//   NVIDIA/GLM tool rounds do not publish premature pending text
+// - Verification: verified in runtime log and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
@@ -94,6 +105,7 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-farcaster-generated-image-english-media-reply.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-farcaster-generated-image-publish-diagnostics.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-generated-image-tool-call-repair-and-farcaster-wait-window.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import * as chatRepo from '../../repositories/chatRepository.js';
 import { LogCode } from '../../config/logRegistry.js';
@@ -126,6 +138,7 @@ const DEFAULT_FARCASTER_ERROR_REPLY = 'I ran into an issue processing that reque
 const DEFAULT_FARCASTER_TIMEOUT_REPLY = 'I am still working on that. Please try again in a moment.';
 const DEFAULT_FARCASTER_GENERATED_IMAGE_READY_REPLY = 'Generated.';
 const DEFAULT_FARCASTER_GENERATED_IMAGE_PENDING_REPLY = 'Image generation is still running. Please try again in a moment.';
+const DEFAULT_FARCASTER_TASK_REPLY_TIMEOUT_MS = 180_000;
 
 function normalizeFarcasterReplyEmbedUrls(value: unknown): string[] {
   const rawUrls = Array.isArray(value) ? value : [];
@@ -467,7 +480,7 @@ export async function waitForFarcasterTaskAssistantReply(params: {
     return resolvedReply;
   }
 
-  const timeoutMs = Math.max(1_000, Number(params.timeoutMs || 90_000));
+  const timeoutMs = Math.max(1_000, Number(params.timeoutMs || DEFAULT_FARCASTER_TASK_REPLY_TIMEOUT_MS));
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {

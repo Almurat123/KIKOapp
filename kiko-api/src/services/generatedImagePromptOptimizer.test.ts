@@ -33,3 +33,19 @@ test('optimizeGeneratedImagePrompt infers edit mode from reference images', () =
     assert.equal(optimized.spec.editOrGenerate, 'edit');
     assert.equal(optimized.spec.referenceImages.length, 1);
 });
+
+test('optimizeGeneratedImagePrompt synthesizes user_intent from structured image fields when missing', () => {
+    const optimized = optimizeGeneratedImagePrompt({
+        user_intent: '',
+        subject: 'full moon in the night sky',
+        scene: 'serene stars above a quiet ocean horizon',
+        style: 'cinematic and ethereal',
+        composition: 'wide atmospheric frame with the moon as focal point',
+        aspect_ratio: '16:9',
+    });
+
+    assert.equal(optimized.spec.subject, 'full moon in the night sky');
+    assert.equal(optimized.spec.scene, 'serene stars above a quiet ocean horizon');
+    assert.equal(optimized.spec.aspectRatio, '16:9');
+    assert.match(optimized.providerPrompt, /full moon in the night sky/i);
+});

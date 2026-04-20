@@ -6,6 +6,7 @@ import {
     executeGeneratedImageChatTask,
 } from '../../../services/generatedImageChatTask.js';
 import {
+    normalizeGeneratedImageIntentInput,
     optimizeGeneratedImagePrompt,
     type GeneratedImageIntentInput,
 } from '../../../services/generatedImagePromptOptimizer.js';
@@ -24,6 +25,10 @@ import {
 //         ordinary Web chat users with linked Farcaster profiles were being
 //         misclassified as Farcaster-originated image tasks, forcing public URL
 //         publication and failing when the local public CDN base was absent.
+//         Later runtime logs also showed NVIDIA/GLM image-tool calls can omit
+//         `user_intent` while still providing structured fields like `subject`
+//         and `scene`, so this tool now has to normalize the intent payload
+//         before delegating into the optimizer.
 // Goal: expose one intent-level `generate_image_from_intent` tool that rewrites
 //       image direction into a controlled provider prompt and then converts the
 //       current assistant turn into a generated-image task inside the same transcript.
@@ -40,6 +45,9 @@ import {
 //   so downstream storage can decide whether a public publication copy is needed
 // - linked Farcaster profile data is identity context only; it must not by itself
 //   turn ordinary Web chat image generation into social publication
+// - structured image fields may recover missing user_intent before optimizer
+//   handoff, but this tool still must not invent new user-facing intent beyond
+//   the provided image fields
 // Document Provenance:
 // - Source: operator requirement on 2026-04-18 for model-owned image generation inside main chat
 // - Kind: product doc
@@ -62,6 +70,12 @@ import {
 // - Applied To: requiring explicit Farcaster page/runtime source before public
 //   generated-image publication is requested
 // - Verification: verified in code and targeted test
+// - Source: /Users/almurat/Downloads/logs.1776663333220.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-20
+// - Applied To: normalizing missing `user_intent` from structured image fields
+//   before optimizer handoff for NVIDIA/GLM image-tool turns
+// - Verification: verified in runtime log and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/generated-image-safety.md
@@ -70,6 +84,7 @@ import {
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-v2-model-owned-image-generation-tool.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-generated-image-source-classification.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-generated-image-tool-call-repair-and-farcaster-wait-window.md
 
 function resolveImageToolContext(context?: Record<string, any>) {
     const snapshot = context?.__snapshot || null;
@@ -185,7 +200,8 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
             throw new Error('generate_image_from_intent requires task, session, assistant message, and user context.');
         }
 
-        const optimized = optimizeGeneratedImagePrompt(args);
+        const normalizedArgs = normalizeGeneratedImageIntentInput(args);
+        const optimized = optimizeGeneratedImagePrompt(normalizedArgs);
         if (optimized.spec.editOrGenerate === 'edit') {
             return {
                 handled_response: false,
@@ -207,7 +223,7 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
             generatedImage: {
                 requestedModel,
                 quality: null,
-                userIntent: String(args.user_intent || '').trim(),
+                userIntent: String(normalizedArgs.user_intent || '').trim(),
                 optimizedPromptSummary: optimized.optimizedPromptSummary,
                 promptOptimizer: {
                     aspectRatio: optimized.spec.aspectRatio,
