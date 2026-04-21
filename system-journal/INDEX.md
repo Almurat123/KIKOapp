@@ -189,6 +189,8 @@ owner boundaries, and major fixes.
 - [Fix Log: 2026-04-16 Non-Chain Normalization Bypass](./fix-log/2026-04-16-non-chain-normalization-bypass.md)
 - [Fix Log: 2026-04-16 Chat Stream Diagnostics](./fix-log/2026-04-16-chat-stream-diagnostics.md)
 - [Fix Log: 2026-04-20 Chat Stream Hydration Stale Overwrite](./fix-log/2026-04-20-chat-stream-hydration-stale-overwrite.md)
+- [Fix Log: 2026-04-21 Model-Led Picture Generation Tool](./fix-log/2026-04-21-model-led-picture-generation-tool.md)
+- [Fix Log: 2026-04-21 GPT Image Mini Free Allowance](./fix-log/2026-04-21-gpt-image-mini-free-allowance.md)
 - [Fix Log: 2026-04-20 Farcaster Generated Image Publish Diagnostics](./fix-log/2026-04-20-farcaster-generated-image-publish-diagnostics.md)
 - [Fix Log: 2026-04-17 Default Chat Model Switch To Kimi Instant](./fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md)
 - [Fix Log: 2026-04-15 Farcaster Query Unwrapping And Wallet Guard](./fix-log/2026-04-15-farcaster-query-unwrapping-and-wallet-guard.md)

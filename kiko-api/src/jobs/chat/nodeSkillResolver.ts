@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-20
+// Updated: 2026-04-21
 // Author: Renata
 // Reason: Clanker launch turns now need a first-class skill note so the model
 //         sees the deploy prompt, collects missing launch fields, and keeps
@@ -31,6 +31,10 @@
 //         Business execution turns now also need a fixed fast-path template so
 //         swap-style requests bind wallet, chain, token, and amount once and
 //         keep moving instead of reopening discovery after every tool result.
+//         Operator correction on 2026-04-21 clarified that image execution
+//         ownership still belongs to the model: resolver hints may expose the
+//         image tool, but must not phrase keyword matches as a backend-decided
+//         image task verdict.
 // Goal: keep skill resolution aligned with the actual user task so Clanker
 //       launch requests surface the deploy skill, while onboarding/meta turns
 //       still stay lean.
@@ -55,6 +59,9 @@
 // - The model-visible task menu owns single or multi-task choice, while this layer owns tool exposure and mutation safety.
 // - Prompt-help-only image turns should load image prompt guidance without auto-triggering image execution.
 // - Real image requests may load both `image_generation` and `image_prompting`, with generation first.
+// - Image-generation query signals are tool-exposure hints, not forced tool
+//   calls; the model decides whether the latest user turn asks for execution or
+//   prompt/advice text.
 // - Image prompt-coaching turns should explicitly read `read_skill_prompts` before answering so the OpenAI-aligned playbook actually reaches the model.
 // - OpenAI-first prompt coaching should not volunteer Midjourney/SD/other-model rewrites unless the user asked for them.
 // - Image prompt coaching is not a lean direct-answer turn; it must get a specialist context contract.
@@ -77,6 +84,12 @@
 // - Retrieved: 2026-04-17
 // - Applied To: Clanker launch routing note, dry-run confirmation guidance, and token_deploy envelope
 // - Verification: inferred from code and tests
+// - Source: operator correction on 2026-04-21 that generated-image execution
+//   should be model-decided
+// - Kind: product doc
+// - Retrieved: 2026-04-21
+// - Applied To: image-generation strategy wording in model-visible resolver notes
+// - Verification: verified in targeted tests
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-lean-chat-context-exposure.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-17
@@ -294,8 +307,8 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const hasRequestedToken = querySignals.hasRequestedToken;
     const requiresSocialChainEvidence = querySignals.socialChainEvidence;
     if (querySignals.imageGeneration) {
-        strategyNotes.push('This turn is an image-generation request. If the user is clearly asking for a visual asset, optimize the prompt into structured image direction and call generate_image_from_intent directly.');
-        strategyNotes.push('Do not ask for a second confirmation before generating. If a truly critical visual field is missing, ask one precise clarification instead of calling the tool.');
+        strategyNotes.push('This turn has image-generation signals. Decide from the latest user wording whether they want an image generated now or only prompt/advice text; call generate_image_from_intent only when the visual execution request is clear enough.');
+        strategyNotes.push('If generating, do not ask for a second confirmation. If a truly critical visual field is missing, ask one precise clarification instead of calling the tool.');
         strategyNotes.push('If prompt structure is still weak before generation, call read_skill_prompts first so the request follows the OpenAI-aligned image prompting playbook.');
     }
     if (querySignals.imagePrompting && !querySignals.imageGeneration) {

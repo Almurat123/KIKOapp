@@ -12,10 +12,8 @@ import {
   getFarcasterInboundIgnoreReason,
 } from './farcasterIngressWorker.js';
 import {
-  __farcasterChatBridgeTest,
   buildFarcasterAssistantReplyFromGeneratedImageState,
   buildFarcasterAssistantReplyFromMessage,
-  isLikelyFarcasterGeneratedImageRequest,
   resolveFarcasterAssistantReplyText,
 } from './farcasterChatBridge.js';
 
@@ -114,100 +112,6 @@ test('getFarcasterInboundIgnoreReason rejects self and configured bot authors', 
   assert.equal(getFarcasterInboundIgnoreReason(1576616, { botFid: 1576616 }), 'self_author');
   assert.equal(getFarcasterInboundIgnoreReason(4242, { botFid: 1576616, blockedBotFids: [4242] }), 'blocked_bot_author');
   assert.equal(getFarcasterInboundIgnoreReason(877398, { botFid: 1576616, blockedBotFids: [4242] }), null);
-});
-
-test('isLikelyFarcasterGeneratedImageRequest routes explicit image-bearing generation casts', () => {
-  const socialInput = {
-    platform: 'farcaster' as const,
-    currentText: '@kikoapp generate an image based on these two references',
-    images: [
-      { url: 'https://example.com/one.png', sourceLabel: 'current cast image 1' },
-      { url: 'https://example.com/two.png', sourceLabel: 'current cast image 2' },
-    ],
-  };
-
-  assert.equal(isLikelyFarcasterGeneratedImageRequest({ socialInput }), true);
-});
-
-test('isLikelyFarcasterGeneratedImageRequest routes Chinese image generation casts with attachments', () => {
-  const socialInput = {
-    platform: 'farcaster' as const,
-    currentText: '@kikoapp 根据这两张图生成一个模型',
-    images: [
-      { url: 'https://example.com/one.png' },
-      { url: 'https://example.com/two.png' },
-    ],
-  };
-
-  assert.equal(isLikelyFarcasterGeneratedImageRequest({ socialInput }), true);
-});
-
-test('isLikelyFarcasterGeneratedImageRequest does not route visual Q&A as generation', () => {
-  const socialInput = {
-    platform: 'farcaster' as const,
-    currentText: '@kikoapp what is in these images?',
-    images: [
-      { url: 'https://example.com/one.png', sourceLabel: 'current cast image 1' },
-      { url: 'https://example.com/two.png', sourceLabel: 'current cast image 2' },
-    ],
-  };
-
-  assert.equal(isLikelyFarcasterGeneratedImageRequest({ socialInput }), false);
-});
-
-test('Farcaster generated-image routing prefers GPT Image 1 Mini for GPT chat sessions', () => {
-  assert.equal(
-    __farcasterChatBridgeTest.resolveDefaultGeneratedImageModel('gpt-5.4-mini-2026-03-17'),
-    'gpt-image-1-mini',
-  );
-  assert.equal(
-    __farcasterChatBridgeTest.shouldUseModelOwnedImageRewrite('gpt-5.4-mini-2026-03-17'),
-    true,
-  );
-});
-
-test('Farcaster generated-image routing still defaults to GPT Image 1 Mini for non-OpenAI chat sessions', () => {
-  assert.equal(
-    __farcasterChatBridgeTest.resolveDefaultGeneratedImageModel('grok-4-1-fast-non-reasoning'),
-    'gpt-image-1-mini',
-  );
-  assert.equal(
-    __farcasterChatBridgeTest.shouldUseModelOwnedImageRewrite('grok-4-1-fast-non-reasoning'),
-    false,
-  );
-});
-
-test('Farcaster generated-image routing honors a saved generated-image model and quality', () => {
-  assert.deepEqual(
-    __farcasterChatBridgeTest.resolveRequestedGeneratedImagePreference({
-      chatModel: 'gpt-5.4-mini-2026-03-17',
-      preferredGeneratedImageModel: 'grok-imagine-image',
-      preferredGeneratedImageQuality: 'normal',
-    }),
-    {
-      requestedModel: 'grok-imagine-image',
-      quality: 'normal',
-    },
-  );
-  assert.deepEqual(
-    __farcasterChatBridgeTest.resolveRequestedGeneratedImagePreference({
-      chatModel: 'kimi-k2-5-instant',
-      preferredGeneratedImageModel: 'gpt-image-1.5',
-      preferredGeneratedImageQuality: 'high',
-    }),
-    {
-      requestedModel: 'gpt-image-1-mini',
-      quality: 'medium',
-    },
-  );
-});
-
-test('Farcaster hidden image rewrite helper extracts the first JSON object from model output', () => {
-  const text = '```json\n{\"user_intent\":\"make a poster\",\"style\":\"cinematic\"}\n```';
-  assert.equal(
-    __farcasterChatBridgeTest.extractFirstJsonObject(text),
-    '{"user_intent":"make a poster","style":"cinematic"}',
-  );
 });
 
 test('FarcasterIngressWorker drops self-authored webhook events before persistence', async () => {

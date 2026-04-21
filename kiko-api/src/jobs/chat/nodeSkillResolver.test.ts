@@ -189,6 +189,13 @@ test('routes image-generation requests to the generated-image skill and tool', (
     assert.ok(resolution.strategyNotes.some((note) => note.includes('image-generation request')));
 });
 
+test('routes concrete English picture requests to the generated-image skill and tool', () => {
+    const resolution = resolveNodeSkills(makeSnapshot('How to generate a picture of the beautiful view of the moon?'), null);
+    assert.equal(resolution.selectedSkills[0], 'image_generation');
+    assert.ok(resolution.selectedSkills.includes('image_prompting'));
+    assert.ok(resolution.allowedTools.includes('generate_image_from_intent'));
+});
+
 test('model-selected image turns expose only the matched image tool package', () => {
     const snapshot = makeSnapshot('帮我做一张赛博朋克风的产品海报');
     const resolution = resolveNodeSkills(snapshot, null);

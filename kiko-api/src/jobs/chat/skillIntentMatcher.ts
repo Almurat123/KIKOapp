@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-19
+// Updated: 2026-04-21
 // Author: Renata
 // Reason: Clanker token-launch queries were still being treated as generic
 //         trading traffic, which meant the dedicated launch prompt could be
@@ -16,7 +16,9 @@
 //         prompt-writing playbook alongside the execution skill. OpenAI-aligned
 //         runtime evaluation then showed Chinese edit-prompt requests such as
 //         "改图提示词" could still miss image-prompt routing unless edit wording
-//         was treated as prompt-help intent too.
+//         was treated as prompt-help intent too. Production Farcaster review
+//         then showed English "picture" wording could miss the generated-image
+//         skill even when the request was a concrete visual deliverable.
 // Goal: keep Clanker launch, history, and reward queries routed to the
 //       dedicated Clanker skill so the model sees the launch prompt before it
 //       attempts deployment, and expose the generated-image skill only on real
@@ -30,6 +32,8 @@
 // - `clanker_deploy` canonical intent must select the Clanker skill before generic token analysis.
 // - Plain capability questions such as "what can you do" should route to onboarding, not a generic market skill.
 // - Chinese visual-asset requests may include modifiers between the verb and noun; keep those routed to image generation.
+// - English `picture` is a first-class generated-image object, not only
+//   conversational prose.
 // - Image prompt coaching should route to a dedicated prompt skill, not to the image tool.
 // - Real image requests may load both the image-generation skill and the image-prompt guidance skill.
 // - Chinese edit-prompt wording such as 改图/修图/图像编辑提示词 should count as image prompt coaching.
@@ -74,6 +78,12 @@
 // - Retrieved: 2026-04-19
 // - Applied To: matching Chinese edit-prompt phrasing such as 改图提示词 to image_prompting
 // - Verification: verified in runtime and code
+// - Source: operator review on 2026-04-21 of "how to generate a picture of..."
+//   image request behavior
+// - Kind: runtime observation
+// - Retrieved: 2026-04-21
+// - Applied To: routing concrete English picture-generation asks to image_generation
+// - Verification: verified in targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/image-prompt-guidance.md
@@ -200,7 +210,7 @@ const INTENT_SIGNAL_MAP: Record<NormalizedIntent, keyof QuerySignals> = {
 };
 
 const CLANKER_DEPLOY_QUERY_RE = /\bclanker\b|\b(?:deploy|launch|create|mint)\s+(?:a\s+)?(?:token|coin|memecoin)\b|\btoken\s+(?:deploy|launch|launchpad)\b|部署代币|上线代币|创建代币|发币|发行代币/i;
-const IMAGE_GENERATION_QUERY_RE = /\b(?:generate|create|make|design|draw|render|illustrate)\b.{0,40}\b(?:image|poster|cover|illustration|thumbnail|banner|hero|visual|artwork|ad|creative|mockup|photo)\b|\b(?:image|poster|cover|illustration|thumbnail|banner|hero|visual|artwork|ad|creative|mockup|photo)\b.{0,40}\b(?:generate|create|make|design|draw|render)\b|(?:做|生成|画|设计)(?:一张|一个|个)?[^。！？\n]{0,40}(?:图|图片|海报|封面|插画|配图|宣传图|视觉稿)/i;
+const IMAGE_GENERATION_QUERY_RE = /\b(?:generate|create|make|design|draw|render|illustrate)\b.{0,40}\b(?:image|picture|poster|cover|illustration|thumbnail|banner|hero|visual|artwork|ad|creative|mockup|photo)\b|\b(?:image|picture|poster|cover|illustration|thumbnail|banner|hero|visual|artwork|ad|creative|mockup|photo)\b.{0,40}\b(?:generate|create|make|design|draw|render)\b|(?:做|生成|画|设计)(?:一张|一个|个)?[^。！？\n]{0,40}(?:图|图片|海报|封面|插画|配图|宣传图|视觉稿)/i;
 const IMAGE_PROMPT_ADVICE_QUERY_RE = /\b(?:prompt|prompts|image prompt)\b.{0,32}\b(?:how|write|writing|improve|optimi[sz]e|tutorial|guide|better)\b|\b(?:how|write|writing|improve|optimi[sz]e)\b.{0,32}\b(?:prompt|image prompt)\b|(?:图片|出图|海报|封面|插画|视觉稿)?提示词.{0,24}(?:怎么写|教程|优化|写法|模板|指南)|(?:怎么写|优化|改写).{0,24}(?:图片|出图|海报|封面|插画|视觉稿)?提示词|给我(?:写|改写|优化)一个(?:图片|出图|海报|封面|插画|视觉稿)?提示词|(?:改图|修图|改图片|修图片|改照片|修照片|图像编辑|图片编辑).{0,24}(?:提示词|prompt)|(?:帮我|给我|告诉我)(?:写|改写|优化).{0,24}(?:改图|修图|图像编辑).{0,12}(?:提示词|prompt)/i;
 
 function detectImageGenerationSignal(query: string): boolean {

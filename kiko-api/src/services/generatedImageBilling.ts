@@ -11,17 +11,19 @@ import {
 import { getUtcDateString } from './billing/billingService.js';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-20
+// Updated: 2026-04-21
 // Author: Rowan
 // Reason: generated-image billing must not reuse chat quota logic. Image
 //         generation has stricter anti-abuse requirements: the free allowance
-//         is per authenticated user per UTC day, GPT Image remains temporarily
-//         disabled even though pricing is already known, unavailable variants
-//         must fail closed, and generated-image reservations must stay bound to
-//         one server-owned request context so frontend state cannot mint extra
-//         free runs or replay a reservation across contexts. The Grok normal
-//         free-image allowance is env-driven so ops can raise or lower the
-//         daily count without code changes.
+//         is per authenticated user per UTC day, GPT Image 1.5 remains
+//         temporarily disabled even though pricing is already known, unavailable
+//         variants must fail closed, and generated-image reservations must stay
+//         bound to one server-owned request context so frontend state cannot mint
+//         free runs or replay a reservation across contexts. GPT Image Mini is
+//         now the default generated-image model and must share the same
+//         env-driven daily free-image allowance as Grok normal so default image
+//         turns do not trip billing consent before the user's free runs are
+//         exhausted.
 // Goal: expose one server-side owner for generated-image availability,
 //       free-image accounting, paid-cost calculation, and reservation/finalize
 //       transitions.
@@ -39,6 +41,9 @@ import { getUtcDateString } from './billing/billingService.js';
 // - image-model preference resolution must not surface disabled models to
 //   callers that need an executable default
 // - generated-image reservation replays must match the original server-owned context
+// - GPT Image Mini and Grok normal both consume the backend-owned
+//   generated-image daily free allowance before paid spillover; they must share
+//   one free pool, not receive separate per-family free pools
 // - paid generated-image calls require active billing consent before provider execution
 // - forbidden local patch patterns: relying on localStorage or client-side counters for image freebies
 // Document Provenance:
@@ -65,8 +70,15 @@ import { getUtcDateString } from './billing/billingService.js';
 // - Source: operator requirement on 2026-04-18
 // - Kind: product doc
 // - Retrieved: 2026-04-18
-// - Applied To: GPT image disabled with no free allowance, Grok normal daily free allowance, Grok Pro disabled, and consent-required paid fallback
+// - Applied To: GPT Image 1.5 disabled, Grok normal daily free allowance,
+//   Grok Pro disabled, and consent-required paid fallback
 // - Verification: verified in code
+// - Source: operator correction on 2026-04-21
+// - Kind: product doc
+// - Retrieved: 2026-04-21
+// - Applied To: GPT Image Mini participating in the generated-image daily free
+//   allowance while remaining the default image model
+// - Verification: verified in code and targeted tests
 // - Source: /Users/almurat/KiKo/system-journal/design-language/generated-image-billing.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-20
@@ -95,7 +107,11 @@ const GPT_IMAGE_1_MINI_MEDIUM_PRICE_USD_PER_OUTPUT = 0.011;
 const GPT_IMAGE_1_MINI_HIGH_PRICE_USD_PER_OUTPUT = 0.036;
 const GROK_IMAGE_PRICE_USD_PER_OUTPUT = 0.02;
 const GROK_IMAGE_PRO_PRICE_USD_PER_OUTPUT = 0.07;
-function getGrokImageFreeOutputsPerDay(): number {
+const GENERATED_IMAGE_FREE_QUOTA_MODEL_FAMILIES: GeneratedImageModelFamily[] = [
+    'gpt-image-1-mini',
+    'grok-imagine-image',
+];
+function getGeneratedImageFreeOutputsPerDay(): number {
     return Math.max(0, Number(env.generatedImage.dailyFreeOutputs || 0));
 }
 
@@ -269,7 +285,7 @@ function normalizeGeneratedImageRequest(model: string, quality?: string | null):
             modelFamily: 'grok-imagine-image',
             quality: 'normal',
             enabled: true,
-            freeOutputImageLimit: getGrokImageFreeOutputsPerDay(),
+            freeOutputImageLimit: getGeneratedImageFreeOutputsPerDay(),
             pricePerOutputImageUsd: GROK_IMAGE_PRICE_USD_PER_OUTPUT,
         };
     }
@@ -290,7 +306,7 @@ function normalizeGeneratedImageRequest(model: string, quality?: string | null):
             modelFamily: 'gpt-image-1-mini',
             quality: normalizedMiniQuality,
             enabled: true,
-            freeOutputImageLimit: 0,
+            freeOutputImageLimit: getGeneratedImageFreeOutputsPerDay(),
             pricePerOutputImageUsd,
         };
     }
@@ -419,8 +435,15 @@ export function buildGeneratedImageBillingDecision(snapshot: GeneratedImageBilli
     };
 }
 
-function toReservationLockKey(userId: string, dateUtc: string, modelFamily: GeneratedImageModelFamily): string {
-    return `generated-image:billing:${dateUtc}:${userId}:${modelFamily}`;
+function getGeneratedImageFreeQuotaModelFamilies(normalized: NormalizedGeneratedImageRequest): GeneratedImageModelFamily[] {
+    if (normalized.freeOutputImageLimit <= 0) {
+        return normalized.modelFamily ? [normalized.modelFamily] : [];
+    }
+    return GENERATED_IMAGE_FREE_QUOTA_MODEL_FAMILIES;
+}
+
+function toReservationLockKey(userId: string, dateUtc: string, quotaKey: string): string {
+    return `generated-image:billing:${dateUtc}:${userId}:${quotaKey}`;
 }
 
 function assertReservationBindingMatches(
@@ -524,7 +547,9 @@ export async function reserveGeneratedImageUsage(
         };
     }
 
-    const lockKey = toReservationLockKey(userId, dateUtc, normalized.modelFamily);
+    const quotaModelFamilies = getGeneratedImageFreeQuotaModelFamilies(normalized);
+    const quotaKey = normalized.freeOutputImageLimit > 0 ? 'free-pool' : normalized.modelFamily;
+    const lockKey = toReservationLockKey(userId, dateUtc, quotaKey);
     const lockValue = randomUUID();
     const hasLock = await acquireLock(lockKey, GENERATED_IMAGE_RESERVATION_LOCK_TTL_SECONDS, lockValue);
     if (!hasLock) {
@@ -546,7 +571,7 @@ export async function reserveGeneratedImageUsage(
         const summary = await getDailyGeneratedImageReservationSummary({
             userId,
             dateUtc,
-            modelFamily: normalized.modelFamily,
+            modelFamily: quotaModelFamilies,
         });
         const remainingFreeOutputs = Math.max(normalized.freeOutputImageLimit - summary.freeImageCount, 0);
         const needsBillingConsent = imageCount > remainingFreeOutputs;

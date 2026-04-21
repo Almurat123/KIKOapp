@@ -66,3 +66,33 @@ test('generated image tool still defaults to GPT Image 1 Mini for non-OpenAI cha
         'gpt-image-1-mini',
     );
 });
+
+test('generated image tool honors saved image model preferences from tool context', () => {
+    assert.deepEqual(
+        __generateImageFromIntentTest.resolveGeneratedImageToolPreference({
+            generatedImagePreference: {
+                model: 'grok-imagine-image',
+                quality: 'normal',
+            },
+        }, 'gpt-5.4-mini-2026-03-17'),
+        {
+            requestedModel: 'grok-imagine-image',
+            quality: 'normal',
+        },
+    );
+});
+
+test('generated image tool falls back when saved image preference is disabled', () => {
+    assert.deepEqual(
+        __generateImageFromIntentTest.resolveGeneratedImageToolPreference({
+            generatedImagePreference: {
+                model: 'gpt-image-1.5',
+                quality: 'high',
+            },
+        }, 'gpt-5.4-mini-2026-03-17'),
+        {
+            requestedModel: 'gpt-image-1-mini',
+            quality: 'medium',
+        },
+    );
+});

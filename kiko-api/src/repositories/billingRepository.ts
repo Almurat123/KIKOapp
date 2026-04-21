@@ -2,13 +2,15 @@ import prisma from '../db/prisma.js';
 import { Prisma } from '@prisma/client';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-18
+// Updated: 2026-04-21
 // Author: Rowan
 // Reason: chat token usage and generated-image billing now need separate ledgers.
 //         Chat usage is keyed by assistant-message id, but generated-image
 //         usage must reserve against a server-owned request/context id before a
 //         provider call so free-image quotas cannot be bypassed by frontend or
-//         retry-state drift.
+//         retry-state drift. Generated-image summary reads now also support a
+//         model-family set so GPT Image Mini and Grok normal can share one free
+//         pool and one sidebar counter.
 // Goal: keep billing persistence split by product surface while still exposing
 //       one aggregate paid-USD view for the daily billing job.
 // Owns: raw SQL persistence and aggregation for chat usage, generated-image
@@ -18,6 +20,8 @@ import { Prisma } from '@prisma/client';
 // Design Language:
 // - chat and generated-image traffic must not share one idempotency key space
 // - generated-image free quota must be counted from reserved or completed rows
+// - generated-image summaries may aggregate a model-family set when the
+//   request-time quota pool is shared across enabled image families
 // - only completed paid generated-image rows may enter the daily billing charge
 // - billing aggregates must stay additive across ledgers
 // - forbidden local patch patterns: squeezing generated-image state into
@@ -33,6 +37,12 @@ import { Prisma } from '@prisma/client';
 // - Retrieved: 2026-04-18
 // - Applied To: storing per-image paid image generation usage in a dedicated ledger
 // - Verification: verified in docs
+// - Source: operator correction on 2026-04-21
+// - Kind: product doc
+// - Retrieved: 2026-04-21
+// - Applied To: generated-image summary aggregation across GPT Image Mini and
+//   Grok normal free-quota families
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/generated-image-billing.md
@@ -280,8 +290,14 @@ export async function findGeneratedImageUsageRecord(requestId: string): Promise<
 export async function getDailyGeneratedImageReservationSummary(params: {
     userId: string;
     dateUtc: string;
-    modelFamily: string;
+    modelFamily: string | string[];
 }): Promise<{ imageCount: number; freeImageCount: number; billedImageCount: number; usdCost: number }> {
+    const modelFamilies = (Array.isArray(params.modelFamily) ? params.modelFamily : [params.modelFamily])
+        .map((family) => String(family || '').trim())
+        .filter(Boolean);
+    const modelFamilyFilter = modelFamilies.length > 0
+        ? Prisma.sql`AND model_family IN (${Prisma.join(modelFamilies)})`
+        : Prisma.empty;
     const rows = await prisma.$queryRaw<Array<{
         image_count: number | bigint;
         free_image_count: number | bigint;
@@ -296,7 +312,7 @@ export async function getDailyGeneratedImageReservationSummary(params: {
         FROM generated_image_usage_ledger
         WHERE user_id = ${params.userId}
           AND date_utc = ${params.dateUtc}::date
-          AND model_family = ${params.modelFamily}
+          ${modelFamilyFilter}
           AND status IN ('reserved', 'completed')
     `;
 

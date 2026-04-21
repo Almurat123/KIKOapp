@@ -24,7 +24,7 @@ import { useFarcasterContext } from '../../contexts/FarcasterContext';
 import { moderationService } from '../../services/moderation';
 import { logger } from '../../utils/logger';
 import { getStoredSlippageBps } from '@/config/slippageConfig';
-import { getUserSettings } from '../../services/userSettingsApi';
+import { getUserSettings, saveUserSettings } from '../../services/userSettingsApi';
 import { ChatMessageList } from './ChatMessageList';
 import { ChatComposer } from './ChatComposer';
 import {
@@ -40,6 +40,7 @@ import {
 import {
   ACTION_CARD_TYPE_MAP,
   COMMON_TOKENS,
+  type ChatModelOption,
   coerceSelectableChatModelOption,
   findChatModelOption,
   getDefaultChatModelOption,
@@ -71,7 +72,7 @@ const LazyChatStrategyRuntime = React.lazy(() =>
 );
 
 // CONTEXT MEMORY
-// Updated: 2026-04-20
+// Updated: 2026-04-21
 // Author: Rowan
 // Reason: First-send interaction and live assistant-card rendering both depend
 //         on this owner preserving a single in-place chat surface while websocket
@@ -103,7 +104,11 @@ const LazyChatStrategyRuntime = React.lazy(() =>
 //         production payload. The local test path now also owns a chat-box
 //         full-flow replay command that binds a stable already-generated image
 //         and logs each state transition so flash-to-loading regressions can be
-//         separated from component rendering bugs.
+//         separated from component rendering bugs. Production Farcaster logs on
+//         2026-04-21 showed live-chat image-model picker changes were only
+//         local, so explicit picker clicks now also persist the matching remote
+//         text or generated-image default without letting route hydration write
+//         back old conversation models.
 // Goal: keep `ChatInterface` as the stable owner for welcome -> send ->
 //       conversation creation and live card presentation, rendering the chat
 //       surface immediately and attaching assistant cards even if their client
@@ -114,11 +119,12 @@ const LazyChatStrategyRuntime = React.lazy(() =>
 // Owns: chat runtime bootstrapping, first-send/session behavior, local image
 //       draft lifecycle, selection-time image upload orchestration, active
 //       conversation model selection, local generated-image quality selection,
-//       text-vs-image send branching, and live assistant card attachment in the
-//       active conversation view.
-// Does Not Own: the welcome-shell default model snapshot, remote user-settings
-//       writes for chat-route model flips, route-level shell experiments, or
-//       the borderless picker chrome now owned by ChatComposer and WelcomeScreen.
+//       user-initiated remote model preference writes, text-vs-image send
+//       branching, and live assistant card attachment in the active conversation
+//       view.
+// Does Not Own: the welcome-shell default model snapshot, route/session
+//       hydration writes back into user defaults, route-level shell experiments,
+//       or the borderless picker chrome now owned by ChatComposer and WelcomeScreen.
 // Design Language:
 // - first-send flow should stay inside one chat owner
 // - the primary message list is part of the core chat surface, not a deferred
@@ -135,6 +141,8 @@ const LazyChatStrategyRuntime = React.lazy(() =>
 // - text-only models must not silently accept image turns
 // - generated-image model selections may live in local picker state, but must
 //   not be saved as remote default chat models
+// - user-initiated live picker changes may update remote defaults, but
+//   conversation/session hydration must not write remote defaults
 // - disabled image variants must never be restored as the active selection from
 //   local persistence
 // - generated-image prompts should use the dedicated image route, not the text send route
@@ -170,6 +178,12 @@ const LazyChatStrategyRuntime = React.lazy(() =>
 // - Retrieved: 2026-04-13
 // - Applied To: ensure `show_strategy_card` can create the live assistant card message when the placeholder has not been inserted yet
 // - Verification: verified in code
+// - Source: /Users/almurat/Downloads/logs.1776742368695.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-21
+// - Applied To: persisting live-chat image-model picker changes to
+//   `defaultGeneratedImageModel` for Farcaster social image turns
+// - Verification: verified in runtime log and code
 // - Source: user-provided local UI requirement and screenshot review on 2026-04-16
 // - Kind: product doc
 // - Retrieved: 2026-04-16
@@ -897,6 +911,28 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   const [selectedModel, setSelectedModel] = useState(getInitialModel);
+
+  const persistUserSelectedModelPreference = useCallback(async (model: ChatModelOption) => {
+    if (!authenticated) return;
+
+    try {
+      const token = await getAccessToken();
+      if (!token) return;
+      if (isTextChatModelOption(model)) {
+        await saveUserSettings(token, {
+          defaultChatModel: model.id,
+          defaultChatReasoningLevel: model.reasoningLevel,
+        });
+        return;
+      }
+      await saveUserSettings(token, {
+        defaultGeneratedImageModel: model.id,
+        defaultGeneratedImageQuality: model.imageQuality || String(model.reasoningLevel || ''),
+      });
+    } catch (error) {
+      logger.warn('Failed to persist selected model preference:', error);
+    }
+  }, [authenticated, getAccessToken]);
 
   // Suggestions State (Managed by Hook)
   const {
@@ -3710,6 +3746,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         onCompositionEnd={handleCompositionEnd}
         onSelectModel={(model) => {
           setSelectedModel(model);
+          void persistUserSelectedModelPreference(model);
           logger.debug('Model changed to:', model.id);
         }}
         onSelectImages={handleSelectImages}

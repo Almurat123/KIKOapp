@@ -20,13 +20,16 @@ import { getUsageCountForModel, getUsageCounts } from '../services/usageCounter.
 import { getUserUsageQuota } from '../services/usageLimitsService.js';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-21
 // Author: Rowan
 // Reason: the billing summary route used to expose Normal/Advanced quota
 //         buckets. After DeepSeek removal, the product has free GLM/Kimi
 //         traffic and one shared premium GPT/Grok quota, but the actual limits
 //         now come from the current user's holder tier whenever token gating is
-//         configured.
+//         configured. Generated-image summary now also has to report the shared
+//         free image pool for GPT Image Mini and Grok normal, because GPT Image
+//         Mini is the default image model and must move the same sidebar free
+//         counter.
 // Goal: expose one honest quota summary envelope that reflects the current
 //       user's resolved free/premium limits without inventing client-side buckets.
 // Owns: authenticated billing summary/read APIs and consent endpoints.
@@ -36,6 +39,8 @@ import { getUserUsageQuota } from '../services/usageLimitsService.js';
 // - Server-provided model rows are diagnostics; premium gating uses one shared counter.
 // - Consent reads and quota reads must stay in the same route family, but quota math lives elsewhere.
 // - Summary limits must come from the same holder-tier resolver as request-time gating.
+// - Generated-image free usage summary must include GPT Image Mini and Grok
+//   normal together so the sidebar counter matches the shared free pool.
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/kiko-api/src/services/usageAccess.ts
 // - Kind: repo doc
@@ -52,6 +57,12 @@ import { getUserUsageQuota } from '../services/usageLimitsService.js';
 // - Retrieved: 2026-04-16
 // - Applied To: preserving one summary shape the sidebar can render without guessing quota policy
 // - Verification: verified in code
+// - Source: operator correction on 2026-04-21
+// - Kind: product doc
+// - Retrieved: 2026-04-21
+// - Applied To: generated-image free summary counting GPT Image Mini as the
+//   default image model
+// - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/chat-usage-quota-policy.md
@@ -135,14 +146,15 @@ export async function billingRoutes(fastify: FastifyInstance) {
             }
 
             const dateUtc = getUtcDateString();
-            const imageFreeLimit = getGeneratedImageDailyFreeLimit('grok-imagine-image');
+            const generatedImageFreeModelFamilies = ['gpt-image-1-mini', 'grok-imagine-image'];
+            const imageFreeLimit = getGeneratedImageDailyFreeLimit('gpt-image-1-mini');
             const [counts, quota, generatedImageSummary] = await Promise.all([
                 getUsageCounts({ userId, dateUtc }),
                 getUserUsageQuota({ userId }),
                 getDailyGeneratedImageReservationSummary({
                     userId,
                     dateUtc,
-                    modelFamily: 'grok-imagine-image',
+                    modelFamily: generatedImageFreeModelFamilies,
                 }),
             ]);
             const freeLimit = quota.freeModelLimit > 0 ? quota.freeModelLimit : null;
@@ -175,7 +187,8 @@ export async function billingRoutes(fastify: FastifyInstance) {
                 free: { used: counts.free, limit: freeLimit },
                 premium: { used: counts.premium, limit: quota.premiumLimit },
                 generatedImage: {
-                    modelFamily: 'grok-imagine-image',
+                    modelFamily: 'gpt-image-1-mini',
+                    modelFamilies: generatedImageFreeModelFamilies,
                     free: {
                         used: generatedImageFreeUsed,
                         limit: imageFreeLimit,

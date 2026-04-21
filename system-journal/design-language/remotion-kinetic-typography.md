@@ -64,6 +64,24 @@ Three source patterns are relevant:
 For this design language, prefer pattern 1 as the base, borrow pattern 2 for
 momentum, and keep pattern 3 as implementation vocabulary only.
 
+## Study / Template References
+
+Keep these links as active study material for future Remotion promo work:
+
+- [W3Schools CSS Animation Properties](https://www.w3schools.com/CSS//css3_animations_properties.asp)
+  for animation vocabulary such as duration, delay, direction, fill mode,
+  iteration count, timing function, and keyframes. In Remotion, these should be
+  translated into frame ranges, cue windows, easing functions, and explicit
+  pre/post states.
+- [Anime.js](https://github.com/juliangarnier/anime) for practical motion
+  vocabulary: stagger, transforms, easing, alternation, loop behavior, and
+  coordinated property animation. Do not use runtime timelines directly inside
+  renders; borrow the choreography ideas and implement them deterministically
+  with `frame`.
+- [Jitter text templates](https://jitter.video/templates/text/) for text-
+  animation references: kinetic title cards, product-promo text reveals,
+  looped typography fields, list reveals, and clean social-motion templates.
+
 ## What To Learn From The Current References
 
 These four references imply a tighter motion brief than "make some animated

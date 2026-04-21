@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-19
+// Updated: 2026-04-21
 // Author: Linh Tran / Almurat
 // Reason: Farcaster mention automation now consumes normalized events from the
 //         webhook ingress when enabled, while webhook-enabled polling falls
@@ -15,7 +15,10 @@
 //         bot-authored reply cannot recursively trigger more public link replies.
 //         Generated-image social turns now return structured image embeds from
 //         the chat bridge, so the worker must dispatch both text and media to
-//         the Farcaster reply owner.
+//         the Farcaster reply owner. Farcaster image intent selection must stay
+//         model-led: ingress may provide image context and saved model
+//         preferences, but it must not bypass the ordinary agent by regex-routing
+//         user wording directly to generated-image execution.
 // Goal: preserve deterministic Farcaster mention handling while keeping polling
 //       cheap, idempotent, and aligned with linked-user chat sessions, while
 //       handing real thread/media context to the model and preserving direct
@@ -44,9 +47,8 @@
 //   embeds remain visible to vision-capable providers.
 // - Publish generated-image task results as cast embeds when the chat bridge
 //   returns hydrated preview URLs.
-// - Route explicit Farcaster image-generation casts directly into generated-image
-//   execution before text-model intent classification can downgrade them to
-//   ordinary `general_answer` replies.
+// - Let the model decide whether to call `generate_image_from_intent`; ingress
+//   should not hard-route user wording into image execution.
 // - Accept no-mention follow-ups only when they are direct replies to a tracked
 //   bot-authored outbound cast; do not watch arbitrary root-thread comments.
 // - Reject self-authored and blocked-bot-authored inbound casts before event-log
@@ -101,6 +103,13 @@
 // - Retrieved: 2026-04-19
 // - Applied To: passing generated-image reply embeds through outbound mention replies
 // - Verification: verified in code and targeted tests
+// - Source: operator correction on 2026-04-21 that Farcaster image intent must
+//   be model-decided, not regex-decided by ingress
+// - Kind: product doc
+// - Retrieved: 2026-04-21
+// - Applied To: removing direct generated-image routing from mention ingress
+//   while preserving user image-model preferences in the model-led tool path
+// - Verification: verified in code and targeted tests
 // - Source: production runtime log /Users/almurat/Downloads/logs.1776611031853.json
 // - Kind: runtime observation
 // - Retrieved: 2026-04-19
@@ -118,7 +127,7 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-inbound-event-idempotence.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-farcaster-generated-image-direct-routing.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-21-model-led-picture-generation-tool.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import prisma from '../../db/prisma.js';
 import cacheClient from '../../cache/cacheClient.js';
@@ -138,8 +147,6 @@ import {
 } from './farcasterConversationService.js';
 import {
   enqueueFarcasterAgentMessage,
-  enqueueFarcasterGeneratedImageMessage,
-  isLikelyFarcasterGeneratedImageRequest,
   waitForFarcasterTaskAssistantReply,
 } from './farcasterChatBridge.js';
 import { farcasterReplyService } from './farcasterReplyService.js';
@@ -781,33 +788,18 @@ export class FarcasterIngressWorker {
 
     const inboundPrompt = await buildMentionPromptContent(mention);
 
-    const shouldGenerateImage = isLikelyFarcasterGeneratedImageRequest({
-      text: mention.text,
+    const queued = await enqueueFarcasterAgentMessage({
+      userId: user.privyDid,
+      sessionId: mapping.chatSessionId,
+      content: inboundPrompt.content,
       socialInput: inboundPrompt.socialInput,
+      preferredGeneratedImageModel,
+      preferredGeneratedImageQuality,
+      farcasterFid: mention.authorFid,
+      farcasterUsername: mention.authorUsername || user.farcasterUsername || null,
+      sourceMessageId: mention.castHash,
+      rootCastHash: mention.rootCastHash || mention.castHash,
     });
-    const queued = shouldGenerateImage
-      ? await enqueueFarcasterGeneratedImageMessage({
-          userId: user.privyDid,
-          sessionId: mapping.chatSessionId,
-          content: inboundPrompt.content,
-          socialInput: inboundPrompt.socialInput,
-          preferredGeneratedImageModel,
-          preferredGeneratedImageQuality,
-          farcasterFid: mention.authorFid,
-          farcasterUsername: mention.authorUsername || user.farcasterUsername || null,
-          sourceMessageId: mention.castHash,
-          rootCastHash: mention.rootCastHash || mention.castHash,
-        })
-      : await enqueueFarcasterAgentMessage({
-          userId: user.privyDid,
-          sessionId: mapping.chatSessionId,
-          content: inboundPrompt.content,
-          socialInput: inboundPrompt.socialInput,
-          farcasterFid: mention.authorFid,
-          farcasterUsername: mention.authorUsername || user.farcasterUsername || null,
-          sourceMessageId: mention.castHash,
-          rootCastHash: mention.rootCastHash || mention.castHash,
-        });
 
     const assistantReply = queued.completedSynchronously
       ? { text: queued.assistantContent || '', embeds: [] as string[] }

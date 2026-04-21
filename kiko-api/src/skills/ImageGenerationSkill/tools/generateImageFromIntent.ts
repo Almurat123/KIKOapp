@@ -13,7 +13,7 @@ import {
 import { resolveAvailableGeneratedImagePreference } from '../../../services/generatedImageBilling.js';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-20
+// Updated: 2026-04-21
 // Author: Rowan
 // Reason: chat v2 now needs an internal image-generation skill that the main
 //         model can call directly from the ordinary chat surface. Product
@@ -51,7 +51,9 @@ import { resolveAvailableGeneratedImagePreference } from '../../../services/gene
 //   the provided image fields
 // - Default image-model family should prefer GPT Image 1 Mini for all chats,
 //   but it must still fall back to the first enabled image model instead of
-//   selecting a disabled provider
+//   selecting a disabled provider. Farcaster ingress is model-led again: it may
+//   carry saved image-model preferences in tool context, but the text model
+//   still decides whether this tool is called.
 // Document Provenance:
 // - Source: operator requirement on 2026-04-18 for model-owned image generation inside main chat
 // - Kind: product doc
@@ -87,6 +89,14 @@ import { resolveAvailableGeneratedImagePreference } from '../../../services/gene
 // - Retrieved: 2026-04-20
 // - Applied To: image-model family default selection inside the image tool
 // - Verification: verified in code and targeted tests
+// - Source: operator correction on 2026-04-21 that Farcaster image generation
+//   should be decided by the model, while still honoring saved image-model
+//   preferences once the model calls the tool
+// - Kind: product doc
+// - Retrieved: 2026-04-21
+// - Applied To: reading generatedImagePreference from tool context before
+//   falling back to GPT Image 1 Mini
+// - Verification: verified in targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/generated-image-safety.md
@@ -104,6 +114,10 @@ function resolveImageToolContext(context?: Record<string, any>) {
     const assistantMessageId = String(context?.assistantMessageId || snapshot?.assistantMessageId || '').trim();
     const userId = String(context?.userId || snapshot?.runtime?.userId || '').trim();
     const taskModel = String(snapshot?.model || context?.model || '').trim();
+    const generatedImagePreference = {
+        model: String(context?.generatedImagePreference?.model || snapshot?.runtime?.generatedImagePreference?.model || '').trim(),
+        quality: String(context?.generatedImagePreference?.quality || snapshot?.runtime?.generatedImagePreference?.quality || '').trim(),
+    };
     return {
         snapshot,
         taskId,
@@ -111,6 +125,7 @@ function resolveImageToolContext(context?: Record<string, any>) {
         assistantMessageId,
         userId,
         taskModel,
+        generatedImagePreference,
         source: resolveGeneratedImageSource(context, snapshot),
     };
 }
@@ -131,6 +146,26 @@ function pickDefaultGeneratedImageModel(_taskModel?: string | null): 'gpt-image-
         { model: 'gpt-image-1.5' },
     ]);
     return (resolved.model || 'gpt-image-1-mini') as 'gpt-image-1-mini' | 'grok-imagine-image';
+}
+
+function resolveGeneratedImageToolPreference(context?: Record<string, any>, taskModel?: string | null): {
+    requestedModel: string;
+    quality: string | null;
+} {
+    const generatedImagePreference = resolveImageToolContext(context).generatedImagePreference;
+    const resolved = resolveAvailableGeneratedImagePreference([
+        {
+            model: generatedImagePreference.model,
+            quality: generatedImagePreference.quality,
+        },
+        { model: 'gpt-image-1-mini' },
+        { model: 'grok-imagine-image' },
+        { model: 'gpt-image-1.5' },
+    ]);
+    return {
+        requestedModel: resolved.model || pickDefaultGeneratedImageModel(taskModel),
+        quality: resolved.quality,
+    };
 }
 
 export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record<string, any>> = {
@@ -228,10 +263,12 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
             };
         }
 
-        const requestedModel = pickDefaultGeneratedImageModel(taskModel);
+        const imagePreference = resolveGeneratedImageToolPreference(context, taskModel);
+        const requestedModel = imagePreference.requestedModel;
+        const requestedQuality = imagePreference.quality;
         const pendingGeneratedImage = buildGeneratedImagePendingData({
             requestedModel,
-            quality: null,
+            quality: requestedQuality,
             prompt: optimized.providerPrompt,
         });
 
@@ -240,7 +277,7 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
             ...(existingTask?.toolContext || {}),
             generatedImage: {
                 requestedModel,
-                quality: null,
+                quality: requestedQuality,
                 userIntent: String(normalizedArgs.user_intent || '').trim(),
                 optimizedPromptSummary: optimized.optimizedPromptSummary,
                 promptOptimizer: {
@@ -295,7 +332,7 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
             sessionId,
             assistantMessageId,
             requestedModel,
-            quality: null,
+            quality: requestedQuality,
             prompt: optimized.providerPrompt,
             source,
         });
@@ -317,4 +354,5 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
 export const __generateImageFromIntentTest = {
     resolveGeneratedImageSource,
     pickDefaultGeneratedImageModel,
+    resolveGeneratedImageToolPreference,
 };

@@ -3,7 +3,7 @@
  * Validates and loads environment variables
  */
 // CONTEXT MEMORY
-// Updated: 2026-04-20
+// Updated: 2026-04-21
 // Author: Almurat
 // Reason: X OAuth now depends on explicit operator allowlisting, encrypted
 //         bot-token storage, a distinct CRC signing secret for webhook setup,
@@ -20,7 +20,10 @@
 //         explicit env owner for free-model and premium-model lists, the
 //         optional shared free-model cap, the shared premium daily quota, and
 //         token-tier quota parsing that can bind both free and premium chat
-//         allowances for each holder tier.
+//         allowances for each holder tier. Generated-image free allowance now
+//         defaults to three daily output images so GPT Image Mini, the default
+//         image model, can consume the expected free runs before billing
+//         consent is required.
 // Goal: keep startup validation as the single owner for deployment-time security
 //       and connectivity requirements around X auth, Farcaster agent ingress,
 //       and chat quota env parsing.
@@ -45,6 +48,8 @@
 // - GPT and Grok are premium-model traffic and share one daily free quota.
 // - Generated-image free allowance is backend-owned, env-driven, and must not
 //   be inferred from client-side counters or chat billing knobs.
+// - `GENERATED_IMAGE_DAILY_FREE_OUTPUTS` defaults to 3 unless deployment env
+//   explicitly overrides it.
 // - `USAGE_LIMITS_TIERS_JSON` may define `freeModelLimit` and `premiumLimit`;
 //   legacy `dailyLimit` must still map into the premium limit for backward compatibility.
 // - Quota env parsing must normalize model ids once and never depend on ad hoc caller string rewrites.
@@ -110,6 +115,11 @@
 // - Retrieved: 2026-04-20
 // - Applied To: the generated-image free-output env knob and default fallback
 // - Verification: verified in code
+// - Source: operator correction on 2026-04-21
+// - Kind: product doc
+// - Retrieved: 2026-04-21
+// - Applied To: default generated-image daily free output count of three
+// - Verification: verified in code and targeted tests
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/design-language/chat-usage-quota-policy.md
@@ -355,7 +365,7 @@ function validateEnv(): EnvConfig {
     const billingMinLiquidityUsd = parseFloat(process.env.BILLING_DEXSCREENER_MIN_LIQUIDITY_USD || '5000');
     const billingDailyFreeModelLimit = parseInt(process.env.BILLING_DAILY_FREE_MODEL_LIMIT || '0', 10);
     const billingDailyFreePremium = parseInt(process.env.BILLING_DAILY_FREE_PREMIUM || '8', 10);
-    const generatedImageDailyFreeOutputs = parseInt(process.env.GENERATED_IMAGE_DAILY_FREE_OUTPUTS || '2', 10);
+    const generatedImageDailyFreeOutputs = parseInt(process.env.GENERATED_IMAGE_DAILY_FREE_OUTPUTS || '3', 10);
     const billingUsdMultiplier = parseFloat(process.env.BILLING_USD_MULTIPLIER || '3');
     const billingToolPricePerCall = parseFloat(process.env.BILLING_TOOL_PRICE_PER_CALL || '0.005');
     const billingTermsVersion = process.env.BILLING_TERMS_VERSION || 'billing-terms-v1';
@@ -641,7 +651,7 @@ function validateEnv(): EnvConfig {
             modelPricing,
         },
         generatedImage: {
-            dailyFreeOutputs: Number.isFinite(generatedImageDailyFreeOutputs) ? Math.max(0, generatedImageDailyFreeOutputs) : 2,
+            dailyFreeOutputs: Number.isFinite(generatedImageDailyFreeOutputs) ? Math.max(0, generatedImageDailyFreeOutputs) : 3,
         },
         usageLimits: {
             enabled: usageLimitsEnabled,
