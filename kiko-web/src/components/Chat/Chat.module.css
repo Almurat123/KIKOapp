@@ -4004,17 +4004,19 @@
 }
 
 /* CONTEXT MEMORY
- * Updated: 2026-04-19
+ * Updated: 2026-04-22
  * Author: Rowan
  * Reason: generated-image rows now need a plain blur-to-clear reveal with a
- *         soft fluid gradient wash in both themes, with light mode still
- *         reading as a visible pastel flow instead of a near-white plate.
- *         A centered model label is allowed, but percentage and stage text
- *         are not. The loading icon and model label should breathe slowly so
- *         the badge feels alive without turning into a busy animation stack.
- *         Generated-image frames stay inline, and ready images open the shared
- *         NativeLightbox viewer used by the social page and chat-uploaded
- *         images.
+ *         homepage-aura-like motion path and seven possible color themes.
+ *         The frame can use layered oval gradient fields that drift, scale,
+ *         and rotate like the homepage background, while light mode still
+ *         reads as a visible pastel flow instead of a near-white plate. A
+ *         centered model label is allowed, but percentage and stage text are
+ *         not. The loading icon and model label should breathe slowly so the
+ *         badge feels alive without turning into a busy animation stack.
+ *         Generated-image frames stay inline, and ready images open the
+ *         shared NativeLightbox viewer used by the social page and
+ *         chat-uploaded images.
  * Goal: keep generated-image frames compact, theme-aware, and text-free while
  *       blur carries the loading semantics and the viewer behavior stays
  *       shared.
@@ -4024,6 +4026,7 @@
  * Design Language:
  * - generated-image replies stay inside the transcript rather than floating separately
  * - loading must be a plain blur reveal with one soft fluid gradient wash
+ * - loading theme variables should stay aligned with the seven homepage aura palettes
  * - progress may only influence blur strength and reveal timing
  * - a centered loading icon may show the model name beneath it, but not a
  *   percentage or backend stage
@@ -4055,6 +4058,11 @@
  * - Retrieved: 2026-04-18
  * - Applied To: keeping Grok on a no-stream image reveal path
  * - Verification: verified in docs
+ * - Source: operator request on 2026-04-22
+ * - Kind: product doc
+ * - Retrieved: 2026-04-22
+ * - Applied To: using homepage-aura-like motion and seven themed gradient palettes for generated-image loading
+ * - Verification: verified in code
  * See also:
  * - /Users/almurat/KiKo/system-journal/INDEX.md
  * - /Users/almurat/KiKo/system-journal/design-language/chat-image-viewing.md
@@ -4085,6 +4093,34 @@
 .generatedImageFrame {
   --generated-image-aspect: 1;
   --generated-image-preview-blur: 18px;
+  --generated-image-aura-deep: #051429;
+  --generated-image-aura-primary: #00b5d9;
+  --generated-image-aura-light: #8ee0f0;
+  --generated-image-aura-medium: #47cae6;
+  --generated-image-aura-highlight: #c9f0f7;
+  --generated-image-aura-shadow: #0075b5;
+  --generated-image-aura-primary-70: rgba(0, 181, 217, 0.7);
+  --generated-image-aura-primary-46: rgba(0, 181, 217, 0.46);
+  --generated-image-aura-primary-36: rgba(0, 181, 217, 0.36);
+  --generated-image-aura-primary-26: rgba(0, 181, 217, 0.26);
+  --generated-image-aura-primary-22: rgba(0, 181, 217, 0.22);
+  --generated-image-aura-primary-18: rgba(0, 181, 217, 0.18);
+  --generated-image-aura-primary-16: rgba(0, 181, 217, 0.16);
+  --generated-image-aura-light-62: rgba(142, 224, 240, 0.62);
+  --generated-image-aura-light-52: rgba(142, 224, 240, 0.52);
+  --generated-image-aura-light-24: rgba(142, 224, 240, 0.24);
+  --generated-image-aura-medium-54: rgba(71, 202, 230, 0.54);
+  --generated-image-aura-medium-34: rgba(71, 202, 230, 0.34);
+  --generated-image-aura-medium-20: rgba(71, 202, 230, 0.2);
+  --generated-image-aura-medium-18: rgba(71, 202, 230, 0.18);
+  --generated-image-aura-highlight-60: rgba(201, 240, 247, 0.6);
+  --generated-image-aura-highlight-45: rgba(201, 240, 247, 0.45);
+  --generated-image-aura-highlight-34: rgba(201, 240, 247, 0.34);
+  --generated-image-aura-highlight-28: rgba(201, 240, 247, 0.28);
+  --generated-image-aura-highlight-24: rgba(201, 240, 247, 0.24);
+  --generated-image-aura-highlight-16: rgba(201, 240, 247, 0.16);
+  --generated-image-aura-shadow-44: rgba(0, 117, 181, 0.44);
+  --generated-image-aura-shadow-20: rgba(0, 117, 181, 0.2);
   position: relative;
   overflow: hidden;
   width: 100%;
@@ -4103,7 +4139,14 @@
 }
 
 .generatedImageFrameLoading {
-  background: linear-gradient(135deg, #161321 0%, #0d1016 48%, #171325 100%);
+  background:
+    radial-gradient(circle at 50% 0%, var(--generated-image-aura-primary-18) 0%, transparent 72%),
+    linear-gradient(
+      135deg,
+      var(--generated-image-aura-deep) 0%,
+      #05060c 48%,
+      var(--generated-image-aura-shadow) 100%
+    );
 }
 
 .generatedImageFrameLoading::before,
@@ -4117,19 +4160,28 @@
 
 .generatedImageFrameLoading::before {
   background:
-    radial-gradient(circle at 20% 34%, rgba(255, 166, 210, 0.5) 0%, rgba(255, 166, 210, 0.24) 20%, transparent 50%),
-    radial-gradient(circle at 78% 28%, rgba(186, 175, 255, 0.44) 0%, rgba(186, 175, 255, 0.18) 18%, transparent 48%),
-    radial-gradient(circle at 48% 76%, rgba(120, 198, 255, 0.34) 0%, rgba(120, 198, 255, 0.12) 18%, transparent 50%),
-    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.16) 0%, transparent 58%);
-  filter: blur(62px) saturate(190%);
+    radial-gradient(ellipse at 18% 22%, var(--generated-image-aura-primary-70) 0%, var(--generated-image-aura-primary-26) 24%, transparent 55%),
+    radial-gradient(ellipse at 76% 38%, var(--generated-image-aura-light-62) 0%, var(--generated-image-aura-light-24) 22%, transparent 54%),
+    radial-gradient(ellipse at 28% 78%, var(--generated-image-aura-medium-54) 0%, var(--generated-image-aura-medium-20) 24%, transparent 58%),
+    radial-gradient(ellipse at 62% 70%, var(--generated-image-aura-highlight-45) 0%, var(--generated-image-aura-highlight-16) 18%, transparent 48%);
+  filter: blur(42px) saturate(175%);
   mix-blend-mode: screen;
-  opacity: 0.9;
-  animation: generatedImageFluidFlow 18s ease-in-out infinite;
+  opacity: 0.92;
+  transform-origin: 46% 50%;
+  animation: generatedImageAuraOrbit 19s cubic-bezier(0.45, 0, 0.2, 1) infinite;
 }
 
 .generatedImageFrameLoading::after {
-  opacity: 0;
-  animation: none;
+  z-index: 1;
+  background:
+    radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.18) 0%, transparent 34%),
+    radial-gradient(ellipse at 72% 14%, var(--generated-image-aura-highlight-24) 0%, transparent 48%),
+    radial-gradient(ellipse at 54% 86%, var(--generated-image-aura-shadow-44) 0%, transparent 58%);
+  filter: blur(34px) saturate(145%);
+  mix-blend-mode: screen;
+  opacity: 0.78;
+  transform-origin: 54% 52%;
+  animation: generatedImageAuraCounterflow 25s ease-in-out infinite;
 }
 
 .generatedImageLoadingBadge {
@@ -4142,7 +4194,7 @@
   justify-content: center;
   gap: 10px;
   pointer-events: none;
-  color: rgba(255, 255, 255, 0.95);
+  color: var(--generated-image-aura-highlight);
   text-align: center;
   user-select: none;
 }
@@ -4150,8 +4202,10 @@
 .generatedImageLoadingIcon {
   width: 46px;
   height: 46px;
-  color: rgba(255, 255, 255, 0.96);
-  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.16));
+  color: var(--generated-image-aura-highlight);
+  filter:
+    drop-shadow(0 8px 18px rgba(0, 0, 0, 0.18))
+    drop-shadow(0 0 18px var(--generated-image-aura-primary-36));
   transform-origin: center;
   animation: generatedImageLoadingIconBreath 4.8s ease-in-out infinite;
 }
@@ -4167,8 +4221,10 @@
   font-weight: 600;
   line-height: 1.2;
   letter-spacing: 0;
-  color: rgba(255, 255, 255, 0.86);
-  text-shadow: 0 1px 10px rgba(255, 255, 255, 0.08);
+  color: var(--generated-image-aura-highlight);
+  text-shadow:
+    0 1px 12px rgba(255, 255, 255, 0.08),
+    0 0 22px var(--generated-image-aura-primary-26);
   transform-origin: center;
   animation: generatedImageLoadingTextBreath 4.8s ease-in-out infinite;
 }
@@ -4176,6 +4232,7 @@
 .generatedImageAsset {
   display: block;
   position: relative;
+  z-index: 2;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -4209,25 +4266,37 @@
 }
 
 .light .generatedImageFrameLoading {
-  background: linear-gradient(135deg, #fffefd 0%, #faf4ff 28%, #eef4ff 56%, #fff1f8 82%, #ffffff 100%);
+  background:
+    radial-gradient(circle at 50% 0%, var(--generated-image-aura-primary-16) 0%, transparent 70%),
+    linear-gradient(
+      135deg,
+      #fffefd 0%,
+      #f8fbff 38%,
+      #fff7fb 72%,
+      #ffffff 100%
+    );
 }
 
 .light .generatedImageFrameLoading::before {
   background:
-    radial-gradient(circle at 18% 38%, rgba(255, 154, 205, 0.76) 0%, rgba(255, 154, 205, 0.42) 18%, transparent 50%),
-    radial-gradient(circle at 80% 28%, rgba(191, 176, 255, 0.64) 0%, rgba(191, 176, 255, 0.34) 18%, transparent 48%),
-    radial-gradient(circle at 34% 72%, rgba(171, 145, 255, 0.34) 0%, rgba(171, 145, 255, 0.16) 16%, transparent 44%),
-    radial-gradient(circle at 70% 76%, rgba(143, 210, 255, 0.52) 0%, rgba(143, 210, 255, 0.24) 18%, transparent 48%),
-    radial-gradient(circle at 50% 52%, rgba(255, 248, 253, 0.92) 0%, rgba(255, 248, 253, 0.48) 22%, transparent 62%);
-  filter: blur(46px) saturate(150%);
+    radial-gradient(ellipse at 18% 22%, var(--generated-image-aura-primary-46) 0%, var(--generated-image-aura-primary-22) 24%, transparent 55%),
+    radial-gradient(ellipse at 76% 38%, var(--generated-image-aura-light-52) 0%, var(--generated-image-aura-light-24) 22%, transparent 54%),
+    radial-gradient(ellipse at 28% 78%, var(--generated-image-aura-medium-34) 0%, var(--generated-image-aura-medium-18) 24%, transparent 58%),
+    radial-gradient(ellipse at 62% 70%, var(--generated-image-aura-highlight-60) 0%, var(--generated-image-aura-highlight-28) 18%, transparent 48%);
+  filter: blur(38px) saturate(152%);
   mix-blend-mode: normal;
-  opacity: 0.96;
-  animation: generatedImageFluidFlowLight 18s ease-in-out infinite;
+  opacity: 0.88;
+  animation: generatedImageAuraOrbit 19s cubic-bezier(0.45, 0, 0.2, 1) infinite;
 }
 
 .light .generatedImageFrameLoading::after {
-  opacity: 0;
-  animation: none;
+  background:
+    radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.86) 0%, transparent 34%),
+    radial-gradient(ellipse at 72% 14%, var(--generated-image-aura-highlight-34) 0%, transparent 48%),
+    radial-gradient(ellipse at 54% 86%, var(--generated-image-aura-shadow-20) 0%, transparent 58%);
+  mix-blend-mode: normal;
+  opacity: 0.7;
+  animation: generatedImageAuraCounterflow 25s ease-in-out infinite;
 }
 
 .light .generatedImageError {
@@ -4260,45 +4329,45 @@
   }
 }
 
-@keyframes generatedImageFluidFlow {
+@keyframes generatedImageAuraOrbit {
   0% {
-    transform: translate3d(-3%, -2%, 0) scale(1.04);
-    opacity: 0.8;
+    transform: translate3d(-5%, -4%, 0) scale(1.04) rotate(-8deg);
+    opacity: 0.76;
   }
-  50% {
-    transform: translate3d(2%, 1%, 0) scale(1.1);
+  28% {
+    transform: translate3d(5%, -2%, 0) scale(1.1) rotate(18deg);
+    opacity: 0.98;
+  }
+  58% {
+    transform: translate3d(3%, 5%, 0) scale(1.16) rotate(42deg);
+    opacity: 0.9;
+  }
+  82% {
+    transform: translate3d(-4%, 3%, 0) scale(1.08) rotate(18deg);
     opacity: 1;
   }
   100% {
-    transform: translate3d(-1%, 2%, 0) scale(1.06);
+    transform: translate3d(-5%, -4%, 0) scale(1.04) rotate(-8deg);
+    opacity: 0.76;
+  }
+}
+
+@keyframes generatedImageAuraCounterflow {
+  0% {
+    transform: translate3d(4%, 3%, 0) scale(1.08) rotate(18deg);
+    opacity: 0.58;
+  }
+  33% {
+    transform: translate3d(-3%, 5%, 0) scale(1.14) rotate(-22deg);
     opacity: 0.84;
   }
-}
-
-@keyframes generatedImageAmbientSweep {
-  0% {
-    transform: translate3d(-12%, 0, 0);
-  }
-  50% {
-    transform: translate3d(12%, 0, 0);
+  66% {
+    transform: translate3d(-5%, -3%, 0) scale(1.06) rotate(-44deg);
+    opacity: 0.72;
   }
   100% {
-    transform: translate3d(-12%, 0, 0);
-  }
-}
-
-@keyframes generatedImageFluidFlowLight {
-  0% {
-    transform: translate3d(-2%, -1%, 0) scale(1.03);
-    opacity: 0.42;
-  }
-  50% {
-    transform: translate3d(2%, 1.5%, 0) scale(1.08);
-    opacity: 0.56;
-  }
-  100% {
-    transform: translate3d(-1%, 2%, 0) scale(1.04);
-    opacity: 0.44;
+    transform: translate3d(4%, 3%, 0) scale(1.08) rotate(18deg);
+    opacity: 0.58;
   }
 }
 

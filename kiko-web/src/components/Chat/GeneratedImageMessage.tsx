@@ -120,6 +120,50 @@ interface GeneratedImageMessageProps {
   payload: GeneratedImagePayload;
 }
 
+type GeneratedImageLoadingTheme = {
+  deep: string;
+  primary: string;
+  light: string;
+  medium: string;
+  highlight: string;
+  shadow: string;
+};
+
+// CONTEXT MEMORY
+// Updated: 2026-04-22
+// Status: verified
+// Why: Generated-image loading now borrows the homepage MakeDream aura theme
+//      language, but stays inside the transcript-local blur-to-clear frame.
+// Debug Goal: Loading cards should feel like the homepage aura flow with seven
+//             possible palettes while preserving generated-image state rules.
+// Search Tags: generated image aura loading themes homepage flow
+// Invariants:
+// - Keep seven loading themes aligned with the homepage aura palette family.
+// - Use theme color variables only for visual treatment, not provider state.
+// Failure Modes:
+// - Loading theme becomes fixed because the selected index is recomputed every render.
+// - Loading visuals reintroduce progress labels or stage copy inside the frame.
+const GENERATED_IMAGE_LOADING_THEMES: GeneratedImageLoadingTheme[] = [
+  { deep: '#051429', primary: '#00B5D9', light: '#8EE0F0', medium: '#47CAE6', highlight: '#C9F0F7', shadow: '#0075B5' },
+  { deep: '#031F0F', primary: '#057A42', light: '#51C66B', medium: '#2E9E61', highlight: '#8CE09E', shadow: '#035C2E' },
+  { deep: '#0D0526', primary: '#592EB8', light: '#A67AF2', medium: '#7A47D1', highlight: '#D9C0FA', shadow: '#381E84' },
+  { deep: '#2E0D0D', primary: '#FA7A6B', light: '#FFC6B8', medium: '#F2A694', highlight: '#FFE0D9', shadow: '#D95147' },
+  { deep: '#051A40', primary: '#4794FA', light: '#ADE0FF', medium: '#7AC0F2', highlight: '#D9F2FF', shadow: '#2E6AC6' },
+  { deep: '#331400', primary: '#F2A60D', light: '#FFE03D', medium: '#FAC61F', highlight: '#FFF273', shadow: '#D97303' },
+  { deep: '#140A2E', primary: '#857AE0', light: '#C6ADF2', medium: '#9E8CEA', highlight: '#EAD9FA', shadow: '#6147C6' },
+];
+
+function pickGeneratedImageLoadingThemeIndex(): number {
+  return Math.floor(Math.random() * GENERATED_IMAGE_LOADING_THEMES.length);
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 type GeneratedImageNormalizedStatus =
   | 'queued'
   | 'generating'
@@ -269,6 +313,7 @@ function logGeneratedImageUi(stage: string, metadata: Record<string, unknown>) {
 export const GeneratedImageMessage: React.FC<GeneratedImageMessageProps> = ({ payload }) => {
   const [loadedImageIds, setLoadedImageIds] = useState<Record<string, boolean>>({});
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  const [loadingThemeIndex] = useState(pickGeneratedImageLoadingThemeIndex);
   const images = Array.isArray(payload.images)
     ? payload.images.filter((image) => resolveGeneratedImageUrl(image))
     : [];
@@ -288,6 +333,7 @@ export const GeneratedImageMessage: React.FC<GeneratedImageMessageProps> = ({ pa
   const showLoadingBadge = showLoadingFrame && !showPreviewImage;
   const showMultiGrid = isComplete && imageCount > 1;
   const loadingModelLabel = useMemo(() => resolveGeneratedImageModelLabel(payload), [payload]);
+  const loadingTheme = GENERATED_IMAGE_LOADING_THEMES[loadingThemeIndex];
   const viewerImages = useMemo(
     () => images.map((image) => resolveGeneratedImageUrl(image)).filter(Boolean),
     [images]
@@ -310,8 +356,36 @@ export const GeneratedImageMessage: React.FC<GeneratedImageMessageProps> = ({ pa
           revealProgress,
           hasPreviewImage: showPreviewImage,
         })}px`,
+        ['--generated-image-aura-deep' as string]: loadingTheme.deep,
+        ['--generated-image-aura-primary' as string]: loadingTheme.primary,
+        ['--generated-image-aura-light' as string]: loadingTheme.light,
+        ['--generated-image-aura-medium' as string]: loadingTheme.medium,
+        ['--generated-image-aura-highlight' as string]: loadingTheme.highlight,
+        ['--generated-image-aura-shadow' as string]: loadingTheme.shadow,
+        ['--generated-image-aura-primary-70' as string]: hexToRgba(loadingTheme.primary, 0.7),
+        ['--generated-image-aura-primary-46' as string]: hexToRgba(loadingTheme.primary, 0.46),
+        ['--generated-image-aura-primary-36' as string]: hexToRgba(loadingTheme.primary, 0.36),
+        ['--generated-image-aura-primary-26' as string]: hexToRgba(loadingTheme.primary, 0.26),
+        ['--generated-image-aura-primary-22' as string]: hexToRgba(loadingTheme.primary, 0.22),
+        ['--generated-image-aura-primary-18' as string]: hexToRgba(loadingTheme.primary, 0.18),
+        ['--generated-image-aura-primary-16' as string]: hexToRgba(loadingTheme.primary, 0.16),
+        ['--generated-image-aura-light-62' as string]: hexToRgba(loadingTheme.light, 0.62),
+        ['--generated-image-aura-light-52' as string]: hexToRgba(loadingTheme.light, 0.52),
+        ['--generated-image-aura-light-24' as string]: hexToRgba(loadingTheme.light, 0.24),
+        ['--generated-image-aura-medium-54' as string]: hexToRgba(loadingTheme.medium, 0.54),
+        ['--generated-image-aura-medium-34' as string]: hexToRgba(loadingTheme.medium, 0.34),
+        ['--generated-image-aura-medium-20' as string]: hexToRgba(loadingTheme.medium, 0.2),
+        ['--generated-image-aura-medium-18' as string]: hexToRgba(loadingTheme.medium, 0.18),
+        ['--generated-image-aura-highlight-60' as string]: hexToRgba(loadingTheme.highlight, 0.6),
+        ['--generated-image-aura-highlight-45' as string]: hexToRgba(loadingTheme.highlight, 0.45),
+        ['--generated-image-aura-highlight-34' as string]: hexToRgba(loadingTheme.highlight, 0.34),
+        ['--generated-image-aura-highlight-28' as string]: hexToRgba(loadingTheme.highlight, 0.28),
+        ['--generated-image-aura-highlight-24' as string]: hexToRgba(loadingTheme.highlight, 0.24),
+        ['--generated-image-aura-highlight-16' as string]: hexToRgba(loadingTheme.highlight, 0.16),
+        ['--generated-image-aura-shadow-44' as string]: hexToRgba(loadingTheme.shadow, 0.44),
+        ['--generated-image-aura-shadow-20' as string]: hexToRgba(loadingTheme.shadow, 0.2),
       }) as React.CSSProperties,
-    [frameAspectRatio, revealProgress, showPreviewImage]
+    [frameAspectRatio, loadingTheme, revealProgress, showPreviewImage]
   );
   const openViewer = (index: number) => {
     logGeneratedImageUi('open-request', {
