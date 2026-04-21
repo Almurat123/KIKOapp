@@ -25,6 +25,11 @@ implementation.
 homepage aura as a generic welcome background rather than a parity-bound visual
 surface with external provenance.
 
+Follow-up diagnosis on 2026-04-22 found that the served production bundle was
+still stale. The `dist` bundle did not contain the non-repeating theme seed
+logic, and the first rebuild attempt was blocked by TypeScript because an
+unused `BRAND_ACCENT` constant remained in `AuraBackground.tsx`.
+
 ## Fix
 
 - Rebuilt `AuraBackground` from the MakeDream `MobileLiquidAuraBackground`
@@ -36,6 +41,8 @@ surface with external provenance.
 - Tightened the seed rule so the next homepage load never reuses the last
   entry theme and the first frame always lands inside the hold window instead
   of the crossfade window.
+- Removed the unused `BRAND_ACCENT` constant that blocked the production build
+  and prevented the updated theme logic from reaching `dist`.
 - Removed the web-only noise layer and light-theme alternate styling.
 - Added the same dark veil used in MakeDream's `MobileAIChatCanvas`.
 - Updated `WelcomeScreen` ownership notes so the homepage background placement
@@ -55,6 +62,12 @@ source instead of layering ad hoc CSS tweaks on top.
   blob geometry from the referenced source files.
 - Verified in code that the homepage background no longer mounts the prior
   noise/light-theme aura variant.
+- Verified with `npm run build` on 2026-04-22 after removing the unused
+  constant.
+- Verified the rebuilt `dist` bundle contains `kiko-home-aura-theme-index`.
+- Verified against local `vite preview` with Puppeteer on 2026-04-22:
+  five reloads produced theme indices `1 -> 6 -> 0 -> 3 -> 2` and matching
+  background colors.
 
 ## Document Provenance
 
@@ -73,6 +86,11 @@ source instead of layering ad hoc CSS tweaks on top.
   - Retrieved: 2026-04-20
   - Applied To: seeding the aura cycle with a non-repeating start theme and hold-window entry offset instead of a fixed theme-zero entry
   - Verification: verified in code
+- Source: local `vite preview` runtime probe with Puppeteer
+  - Kind: runtime observation
+  - Retrieved: 2026-04-22
+  - Applied To: confirming the rebuilt production bundle changes aura theme across refreshes
+  - Verification: verified in runtime
 
 ## See Also
 

@@ -93,7 +93,6 @@ const CYCLE_DURATION = 30;
 const TRANSITION_DURATION = 6;
 const HOLD_DURATION = CYCLE_DURATION - TRANSITION_DURATION;
 const TOTAL_CYCLE = CYCLE_DURATION * THEMES.length;
-const BRAND_ACCENT = 'rgba(79, 69, 230, 0.12)';
 const LAST_THEME_STORAGE_KEY = 'kiko-home-aura-theme-index';
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
