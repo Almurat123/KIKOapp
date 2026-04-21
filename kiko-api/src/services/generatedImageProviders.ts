@@ -69,11 +69,17 @@ export type GeneratedImageProviderName = 'openai' | 'xai';
 export type GeneratedImageProviderModel = 'gpt-image-1.5' | 'gpt-image-1-mini' | 'grok-imagine-image';
 export type GeneratedImageProviderQuality = 'low' | 'medium' | 'high' | 'normal';
 
+export interface GeneratedImageProviderInputImage {
+    url: string;
+    sourceLabel?: string | null;
+}
+
 export interface GeneratedImageProviderRequest {
     model: GeneratedImageProviderModel;
     provider: GeneratedImageProviderName;
     prompt: string;
     quality: GeneratedImageProviderQuality;
+    inputImages?: GeneratedImageProviderInputImage[] | null;
     onProgress?: ((event: GeneratedImageProviderProgressEvent) => Promise<void> | void) | null;
 }
 
@@ -98,12 +104,27 @@ export interface GeneratedImageProviderProgressEvent {
 
 const PROVIDER_TIMEOUT_MS = Math.max(15_000, Number(process.env.GENERATED_IMAGE_PROVIDER_TIMEOUT_MS || '120000'));
 const OPENAI_IMAGE_ENDPOINT = 'https://api.openai.com/v1/images/generations';
+const OPENAI_IMAGE_EDIT_ENDPOINT = 'https://api.openai.com/v1/images/edits';
 const XAI_IMAGE_ENDPOINT = 'https://api.x.ai/v1/images/generations';
 const OPENAI_PARTIAL_IMAGE_COUNT = 2;
 
 function isOpenAiGeneratedImageModel(model?: string | null): model is 'gpt-image-1.5' | 'gpt-image-1-mini' {
     const normalized = String(model || '').trim().toLowerCase();
     return normalized === 'gpt-image-1.5' || normalized === 'gpt-image-1-mini';
+}
+
+export function supportsGeneratedImageReferenceInputModel(model?: string | null): model is 'gpt-image-1.5' | 'gpt-image-1-mini' {
+    return isOpenAiGeneratedImageModel(model);
+}
+
+function normalizeProviderInputImages(inputImages?: GeneratedImageProviderInputImage[] | null): GeneratedImageProviderInputImage[] {
+    if (!Array.isArray(inputImages)) return [];
+    return inputImages
+        .map((item) => ({
+            url: String(item?.url || '').trim(),
+            sourceLabel: String(item?.sourceLabel || '').trim() || null,
+        }))
+        .filter((item) => Boolean(item.url));
 }
 
 class GeneratedImageProviderError extends Error {
@@ -252,6 +273,7 @@ async function generateOpenAiImage(
     model: 'gpt-image-1.5' | 'gpt-image-1-mini',
     prompt: string,
     quality: GeneratedImageProviderQuality,
+    inputImages?: GeneratedImageProviderInputImage[] | null,
     onProgress?: ((event: GeneratedImageProviderProgressEvent) => Promise<void> | void) | null,
 ): Promise<GeneratedImageProviderResult> {
     const apiKey = String(process.env.OPENAI_API_KEY || '').trim();
@@ -259,8 +281,27 @@ async function generateOpenAiImage(
         throw new GeneratedImageProviderError('OpenAI image generation is not configured on the server.', 'GENERATED_IMAGE_PROVIDER_NOT_CONFIGURED', 503);
     }
 
+    // CONTEXT MEMORY
+    // Updated: 2026-04-21
+    // Status: verified
+    // Why: GPT Image uploaded-image support now uses OpenAI's JSON
+    // `/v1/images/edits` request shape with signed `image_url` references
+    // instead of multipart uploads because chat uploads already live behind
+    // short-lived signed read URLs in our storage boundary.
+    // Debug Goal: GPT image requests with uploaded task images must hit the
+    // edits endpoint, preserve upload order, and still decode both JSON and
+    // SSE edit responses.
+    // Search Tags: gpt image edits image_url signed read urls uploaded task images
+    // Invariants:
+    // - OpenAI generations without input images must stay on /images/generations.
+    // - OpenAI edits with input images must stay on /images/edits and use JSON `images`.
+    // Failure Modes:
+    // - Sending uploaded-image turns to /images/generations drops the edit context entirely.
+    // - Parsing only image_generation.* SSE events breaks streamed edit responses.
+    const normalizedInputImages = normalizeProviderInputImages(inputImages);
+    const useEditEndpoint = normalizedInputImages.length > 0;
     const controller = createAbortController(PROVIDER_TIMEOUT_MS);
-    const response = await fetch(OPENAI_IMAGE_ENDPOINT, {
+    const response = await fetch(useEditEndpoint ? OPENAI_IMAGE_EDIT_ENDPOINT : OPENAI_IMAGE_ENDPOINT, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -274,6 +315,12 @@ async function generateOpenAiImage(
             moderation: 'auto',
             output_format: 'png',
             n: 1,
+            ...(useEditEndpoint ? {
+                images: normalizedInputImages.map((image) => ({
+                    image_url: image.url,
+                })),
+                input_fidelity: 'high',
+            } : {}),
             ...(onProgress ? {
                 stream: true,
                 partial_images: OPENAI_PARTIAL_IMAGE_COUNT,
@@ -312,7 +359,7 @@ async function generateOpenAiImage(
             }
 
             const eventType = String(eventPayload?.type || chunk.event || '').trim();
-            if (eventType === 'image_generation.partial_image') {
+            if (eventType === 'image_generation.partial_image' || eventType === 'image_edit.partial_image') {
                 const partialImageIndex = Number(eventPayload?.partial_image_index);
                 if (Number.isFinite(partialImageIndex) && partialImageIndex >= 0) {
                     await onProgress({
@@ -327,7 +374,7 @@ async function generateOpenAiImage(
                 continue;
             }
 
-            if (eventType === 'image_generation.completed') {
+            if (eventType === 'image_generation.completed' || eventType === 'image_edit.completed') {
                 const b64 = String(eventPayload?.b64_json || '').trim();
                 if (b64) {
                     completedImageBuffer = Buffer.from(b64, 'base64');
@@ -450,13 +497,23 @@ export async function generateImageWithProvider(params: GeneratedImageProviderRe
     if (!prompt) {
         throw new GeneratedImageProviderError('Generated image prompt is required.', 'GENERATED_IMAGE_PROMPT_REQUIRED', 400);
     }
+    const inputImages = normalizeProviderInputImages(params.inputImages);
 
     if (params.provider === 'openai' || isOpenAiGeneratedImageModel(params.model)) {
         return generateOpenAiImage(
             isOpenAiGeneratedImageModel(params.model) ? params.model : 'gpt-image-1-mini',
             prompt,
             params.quality === 'low' || params.quality === 'high' ? params.quality : 'medium',
+            inputImages,
             params.onProgress,
+        );
+    }
+
+    if (inputImages.length > 0) {
+        throw new GeneratedImageProviderError(
+            'This image model does not support uploaded-image editing yet.',
+            'GENERATED_IMAGE_INPUT_NOT_SUPPORTED',
+            400,
         );
     }
 

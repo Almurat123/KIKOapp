@@ -46,6 +46,7 @@ import {
   getDefaultChatModelOption,
   hydrateChatModelOption,
   isTextChatModelOption,
+  supportsGeneratedImageInputModel,
   supportsVisionChatModel,
 } from './chatConstants';
 import {
@@ -146,7 +147,7 @@ const LazyChatStrategyRuntime = React.lazy(() =>
 // - disabled image variants must never be restored as the active selection from
 //   local persistence
 // - generated-image prompts should use the dedicated image route, not the text send route
-// - image-generation models must not silently accept reference-image drafts until edit flow exists
+// - only GPT image models may accept reference-image drafts; unsupported image families must block before send
 // - local generated-image test commands must mirror the real provider progress
 //   contract, not obsolete fake stage labels
 // - local generated-image test injections must promote the welcome shell into
@@ -2639,7 +2640,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
         return;
       }
-      if (!isTextChatModelOption(selectedModel) || !supportsVisionChatModel(selectedModel?.id)) {
+      const supportsSelectedModelImageInput = isTextChatModelOption(selectedModel)
+        ? supportsVisionChatModel(selectedModel?.id)
+        : supportsGeneratedImageInputModel(selectedModel?.id);
+      if (!supportsSelectedModelImageInput) {
         toast.error('The selected model does not support image input yet.');
         return;
       }
@@ -3084,11 +3088,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const trimmedText = text.trim();
     const hasImageDrafts = draftSnapshot.length > 0;
     if (!trimmedText && !hasImageDrafts) return;
-    if (
-      hasImageDrafts &&
-      (!isTextChatModelOption(selectedModel) || !supportsVisionChatModel(selectedModel?.id))
-    ) {
+    const supportsSelectedModelImageInput = isTextChatModelOption(selectedModel)
+      ? supportsVisionChatModel(selectedModel?.id)
+      : supportsGeneratedImageInputModel(selectedModel?.id);
+    if (hasImageDrafts && !supportsSelectedModelImageInput) {
       toast.error('The selected model does not support image input yet.');
+      return;
+    }
+    if (hasImageDrafts && selectedModel.kind === 'image' && !trimmedText) {
+      toast.error('Add instructions for the image edit before sending.');
       return;
     }
     if (hasImageDrafts) {
@@ -3290,6 +3298,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           ? await chatApi.generateImage(currentConvId, trimmedText, {
               model: modelToUse.id,
               imageQuality: modelToUse.imageQuality,
+              imageUploadIds: preparedImageUploadIds,
               signal: sendAbortController.signal,
             })
           : await chatApi.sendMessage(currentConvId, trimmedText, {

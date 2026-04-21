@@ -2,6 +2,10 @@ import { Tool } from '../../../tooling/registry.js';
 import * as chatRepo from '../../../repositories/chatRepository.js';
 import { chatWS } from '../../../services/chatWebSocket.js';
 import {
+    hasTaskChatImageInputs,
+    loadTaskChatImageInputs,
+} from '../../../services/chatImageUploads.js';
+import {
     buildGeneratedImagePendingData,
     executeGeneratedImageChatTask,
 } from '../../../services/generatedImageChatTask.js';
@@ -11,6 +15,10 @@ import {
     type GeneratedImageIntentInput,
 } from '../../../services/generatedImagePromptOptimizer.js';
 import { resolveAvailableGeneratedImagePreference } from '../../../services/generatedImageBilling.js';
+import {
+    supportsGeneratedImageReferenceInputModel,
+    type GeneratedImageProviderInputImage,
+} from '../../../services/generatedImageProviders.js';
 
 // CONTEXT MEMORY
 // Updated: 2026-04-21
@@ -152,20 +160,66 @@ function resolveGeneratedImageToolPreference(context?: Record<string, any>, task
     requestedModel: string;
     quality: string | null;
 } {
+    return resolveGeneratedImageToolPreferenceWithOptions(context, taskModel, {
+        hasReferenceInputs: false,
+    });
+}
+
+function resolveGeneratedImageToolPreferenceWithOptions(
+    context?: Record<string, any>,
+    taskModel?: string | null,
+    options: {
+        hasReferenceInputs?: boolean;
+    } = {},
+): {
+    requestedModel: string;
+    quality: string | null;
+} {
     const generatedImagePreference = resolveImageToolContext(context).generatedImagePreference;
-    const resolved = resolveAvailableGeneratedImagePreference([
-        {
-            model: generatedImagePreference.model,
-            quality: generatedImagePreference.quality,
-        },
-        { model: 'gpt-image-1-mini' },
-        { model: 'grok-imagine-image' },
-        { model: 'gpt-image-1.5' },
-    ]);
+    const hasReferenceInputs = options.hasReferenceInputs === true;
+    const preferredModel = hasReferenceInputs && !supportsGeneratedImageReferenceInputModel(generatedImagePreference.model)
+        ? ''
+        : generatedImagePreference.model;
+    const resolved = resolveAvailableGeneratedImagePreference(
+        [
+            {
+                model: preferredModel,
+                quality: generatedImagePreference.quality,
+            },
+            { model: 'gpt-image-1-mini' },
+            ...(hasReferenceInputs ? [{ model: 'gpt-image-1.5' }] : [{ model: 'grok-imagine-image' }, { model: 'gpt-image-1.5' }]),
+        ],
+    );
     return {
         requestedModel: resolved.model || pickDefaultGeneratedImageModel(taskModel),
         quality: resolved.quality,
     };
+}
+
+function mergeImplicitTaskReferenceImages(
+    explicitReferenceImages: GeneratedImageIntentInput['reference_images'],
+    taskImages: Array<{ url: string; sourceLabel: string }>,
+): NonNullable<GeneratedImageIntentInput['reference_images']> {
+    const explicit = Array.isArray(explicitReferenceImages)
+        ? explicitReferenceImages
+            .map((item) => ({
+                url: String(item?.url || '').trim() || null,
+                description: String(item?.description || '').trim() || null,
+                purpose: String(item?.purpose || '').trim() || null,
+            }))
+            .filter((item) => Boolean(item.url || item.description))
+        : [];
+    if (taskImages.length === 0) {
+        return explicit;
+    }
+    return [
+        ...explicit,
+        ...taskImages.map((image, index) => ({
+            url: image.url,
+            description: image.sourceLabel || `uploaded task image ${index + 1}`,
+            purpose: 'preserve subject identity and visual details from the uploaded image',
+        })),
+    ];
 }
 
 export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record<string, any>> = {
@@ -253,17 +307,36 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
             throw new Error('generate_image_from_intent requires task, session, assistant message, and user context.');
         }
 
-        const normalizedArgs = normalizeGeneratedImageIntentInput(args);
+        const uploadedTaskImages = await hasTaskChatImageInputs(taskId)
+            ? await loadTaskChatImageInputs(taskId).catch(() => [])
+            : [];
+        const mergedReferenceImages = mergeImplicitTaskReferenceImages(
+            args.reference_images,
+            uploadedTaskImages.map((image) => ({
+                url: image.url,
+                sourceLabel: image.sourceLabel,
+            })),
+        );
+        const explicitProviderReferenceImages: GeneratedImageProviderInputImage[] = Array.isArray(args.reference_images)
+            ? args.reference_images
+                .map((item) => ({
+                    url: String(item?.url || '').trim(),
+                    sourceLabel: [
+                        String(item?.description || '').trim(),
+                        String(item?.purpose || '').trim(),
+                    ].filter(Boolean).join(' | ') || null,
+                }))
+                .filter((item) => Boolean(item.url))
+            : [];
+        const normalizedArgs = normalizeGeneratedImageIntentInput({
+            ...args,
+            reference_images: mergedReferenceImages,
+        });
+        const hasReferenceInputs = mergedReferenceImages.length > 0;
         const optimized = optimizeGeneratedImagePrompt(normalizedArgs);
-        if (optimized.spec.editOrGenerate === 'edit') {
-            return {
-                handled_response: false,
-                unsupported_mode: 'edit',
-                message: 'Image edit/reference flow is not wired in this tool yet. Ask one precise clarification or keep the turn in text until edit support lands.',
-            };
-        }
-
-        const imagePreference = resolveGeneratedImageToolPreference(context, taskModel);
+        const imagePreference = resolveGeneratedImageToolPreferenceWithOptions(context, taskModel, {
+            hasReferenceInputs,
+        });
         const requestedModel = imagePreference.requestedModel;
         const requestedQuality = imagePreference.quality;
         const pendingGeneratedImage = buildGeneratedImagePendingData({
@@ -279,6 +352,7 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
                 requestedModel,
                 quality: requestedQuality,
                 userIntent: String(normalizedArgs.user_intent || '').trim(),
+                referenceImageCount: mergedReferenceImages.length,
                 optimizedPromptSummary: optimized.optimizedPromptSummary,
                 promptOptimizer: {
                     aspectRatio: optimized.spec.aspectRatio,
@@ -334,6 +408,7 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
             requestedModel,
             quality: requestedQuality,
             prompt: optimized.providerPrompt,
+            referenceImages: explicitProviderReferenceImages,
             source,
         });
 
@@ -355,4 +430,5 @@ export const __generateImageFromIntentTest = {
     resolveGeneratedImageSource,
     pickDefaultGeneratedImageModel,
     resolveGeneratedImageToolPreference,
+    resolveGeneratedImageToolPreferenceWithOptions,
 };

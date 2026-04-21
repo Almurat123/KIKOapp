@@ -7,6 +7,7 @@ import {
     buildChatImageMessageAttachments,
     hydrateGeneratedChatImageDataForClient,
     inferPublicImageExtensionFromContentType,
+    loadTaskChatImageInputs,
     storeGeneratedChatImage,
     type ChatImageMessageAttachment,
 } from './chatImageUploads.js';
@@ -24,6 +25,7 @@ import {
 import {
     generateImageWithProvider,
     isGeneratedImageProviderError,
+    type GeneratedImageProviderInputImage,
 } from './generatedImageProviders.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
@@ -171,6 +173,7 @@ export type StartGeneratedImageChatTaskParams = {
     requestedModel: string;
     quality?: string | null;
     prompt: string;
+    referenceImages?: GeneratedImageProviderInputImage[] | null;
     source?: string | null;
 };
 
@@ -534,11 +537,37 @@ async function runGeneratedImageChatTask(params: StartGeneratedImageChatTaskPara
             text: params.prompt,
         });
 
+        const taskInputImages = reservation.provider === 'openai'
+            ? await loadTaskChatImageInputs(params.taskId).catch((error) => {
+                logger.warn(LogCode.SYS_INFO, 'Generated image chat task: failed to load task input images', {
+                    taskId: params.taskId,
+                    assistantMessageId: params.assistantMessageId,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+                return [];
+            })
+            : [];
+        const explicitReferenceImages = Array.isArray(params.referenceImages)
+            ? params.referenceImages
+                .map((image) => ({
+                    url: String(image?.url || '').trim(),
+                    sourceLabel: String(image?.sourceLabel || '').trim() || null,
+                }))
+                .filter((image) => Boolean(image.url))
+            : [];
+        const providerInputImages = [
+            ...taskInputImages,
+            ...explicitReferenceImages.filter((image) => (
+                !taskInputImages.some((taskImage) => taskImage.url === image.url)
+            )),
+        ];
+
         const providerResult = await generateImageWithProvider({
             provider: reservation.provider,
             model: reservation.providerModel as 'gpt-image-1.5' | 'gpt-image-1-mini' | 'grok-imagine-image',
             prompt: params.prompt,
             quality: reservation.quality as 'low' | 'medium' | 'high' | 'normal',
+            inputImages: providerInputImages,
             onProgress: reservation.provider === 'openai'
                 ? async (event) => {
                     const progressState: GeneratedImageMessageState = {

@@ -1232,7 +1232,7 @@ export const chatApi = {
     async generateImage(
         sessionId: string,
         prompt: string,
-        options: { model: string; imageQuality?: string; signal?: AbortSignal },
+        options: { model: string; imageQuality?: string; imageUploadIds?: string[]; signal?: AbortSignal },
     ): Promise<{ success: boolean; userMessage: ChatMessage; assistantMessage: ChatMessage; task: ChatTask }> {
         const { signal, ...payload } = options;
         const startedAt = performance.now();

@@ -1094,6 +1094,11 @@ export async function loadTaskChatImageInputs(taskId: string): Promise<ChatImage
     return modelInputs;
 }
 
+export async function hasTaskChatImageInputs(taskId: string): Promise<boolean> {
+    const binding = await readTaskBinding(taskId);
+    return Boolean(binding && Array.isArray(binding.images) && binding.images.length > 0);
+}
+
 export async function storeGeneratedChatImage(params: {
     userId: string;
     assistantMessageId: string;

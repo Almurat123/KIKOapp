@@ -8,6 +8,7 @@ import { CopyTradeToastTest } from './CopyTradeToastTest';
 import { CopyTradeToastSequence } from './CopyTradeToastSequence';
 
 import { FarcasterSupportVideo } from './FarcasterSupportVideo';
+import { KikoTagPromoSequence, KIKO_TAG_PROMO_DURATION } from './KikoTagPromoSequence';
 import { KikoTokenOrbitOutro } from './KikoTokenOrbitOutro';
 
 export const RemotionRoot = () => {
@@ -57,6 +58,14 @@ export const RemotionRoot = () => {
                 id="CopyTradeToastSequence"
                 component={CopyTradeToastSequence}
                 durationInFrames={480}
+                fps={30}
+                width={1920}
+                height={1080}
+            />
+            <Composition
+                id="KikoTagPromoSequence"
+                component={KikoTagPromoSequence}
+                durationInFrames={KIKO_TAG_PROMO_DURATION}
                 fps={30}
                 width={1920}
                 height={1080}

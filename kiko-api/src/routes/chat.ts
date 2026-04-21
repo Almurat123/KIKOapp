@@ -152,6 +152,7 @@ import {
     type ChatImageUploadRequest,
 } from '../services/chatImageUploads.js';
 import { buildGeneratedImagePendingData, startGeneratedImageChatTask } from '../services/generatedImageChatTask.js';
+import { supportsGeneratedImageReferenceInputModel } from '../services/generatedImageProviders.js';
 
 // Request body types
 interface CreateSessionBody {
@@ -199,6 +200,7 @@ interface GenerateImageBody {
     prompt: string;
     model?: string;
     imageQuality?: string;
+    imageUploadIds?: string[];
 }
 
 interface UpdateSessionBody {
@@ -1039,29 +1041,43 @@ export async function chatRoutes(fastify: FastifyInstance) {
         async (request: FastifyRequest<{ Params: { sessionId: string }; Body: GenerateImageBody }>, reply: FastifyReply) => {
             let createdTaskId: string | null = null;
             let createdAssistantMessageId: string | null = null;
+            let createdImageAttachmentsPersisted = false;
             try {
                 const userId = (request as any).user?.sub;
                 const { sessionId } = request.params;
                 const prompt = String(request.body?.prompt || '').trim();
                 const requestedModel = String(request.body?.model || '').trim().toLowerCase();
                 const imageQuality = String(request.body?.imageQuality || '').trim().toLowerCase() || undefined;
+                const normalizedImageUploadIds = Array.from(
+                    new Set((Array.isArray(request.body?.imageUploadIds) ? request.body.imageUploadIds : [])
+                        .map((value) => String(value || '').trim())
+                        .filter(Boolean))
+                );
 
                 if (!prompt) {
+                    await discardPreparedUploadsSafely(fastify, userId, normalizedImageUploadIds);
                     return reply.code(400).send({ error: 'Image prompt is required' });
                 }
                 if (!isGeneratedImageModel(requestedModel)) {
+                    await discardPreparedUploadsSafely(fastify, userId, normalizedImageUploadIds);
                     return reply.code(400).send({ error: 'Unsupported image model' });
+                }
+                if (normalizedImageUploadIds.length > 0 && !supportsGeneratedImageReferenceInputModel(requestedModel)) {
+                    await discardPreparedUploadsSafely(fastify, userId, normalizedImageUploadIds);
+                    return reply.code(400).send({ error: 'The selected image model does not support uploaded-image input yet.' });
                 }
 
                 const session = await chatRepo.getSession(sessionId);
                 if (!session) {
+                    await discardPreparedUploadsSafely(fastify, userId, normalizedImageUploadIds);
                     return reply.code(404).send({ error: 'Session not found' });
                 }
                 if (session.userId !== userId) {
+                    await discardPreparedUploadsSafely(fastify, userId, normalizedImageUploadIds);
                     return reply.code(403).send({ error: 'Access denied' });
                 }
 
-                const userMessage = await chatRepo.createMessage(sessionId, 'user', prompt);
+                let userMessage = await chatRepo.createMessage(sessionId, 'user', prompt);
 
                 const userRecord = await prisma.user.findUnique({ where: { privyDid: userId } });
                 if (userRecord) {
@@ -1070,6 +1086,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
 
                 const activeTask = await chatRepo.getSessionActiveTask(sessionId);
                 if (activeTask) {
+                    await discardPreparedUploadsSafely(fastify, userId, normalizedImageUploadIds);
                     const assistantMessage = await chatRepo.createMessage(
                         sessionId,
                         'assistant',
@@ -1125,6 +1142,22 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     },
                     { status: 'pending' },
                 );
+                if (normalizedImageUploadIds.length > 0) {
+                    const boundImages = await bindPreparedChatImageUploadsToTask({
+                        userId,
+                        taskId: task.id,
+                        uploadIds: normalizedImageUploadIds,
+                    });
+                    if (boundImages.length > 0) {
+                        userMessage = await chatRepo.updateMessage(userMessage.id, {
+                            data: {
+                                ...(userMessage.data || {}),
+                                attachments: buildChatImageMessageAttachments(boundImages),
+                            },
+                        });
+                        createdImageAttachmentsPersisted = true;
+                    }
+                }
                 createdTaskId = task.id;
 
                 chatWS.broadcastToUser(userId, {
@@ -1183,9 +1216,15 @@ export async function chatRoutes(fastify: FastifyInstance) {
 
                 return reply.send(payload);
             } catch (error: any) {
+                const userId = (request as any).user?.sub;
+                const uploadIds = Array.from(
+                    new Set((Array.isArray(request.body?.imageUploadIds) ? request.body.imageUploadIds : []).map((value) => String(value || '').trim()).filter(Boolean))
+                );
+                await discardPreparedUploadsSafely(fastify, userId, uploadIds);
                 if (createdTaskId) {
                     try {
                         await chatRepo.updateTaskStatus(createdTaskId, 'cancelled');
+                        await cleanupTaskChatImageUploads(createdTaskId, { deleteObjects: !createdImageAttachmentsPersisted });
                     } catch (taskError) {
                         fastify.log.warn({ err: taskError, taskId: createdTaskId }, 'Failed to cancel generated image task after route error');
                     }
