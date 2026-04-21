@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-21
+// Updated: 2026-04-22
 // Author: Linh Tran
 // Reason: Farcaster polling ingress needs a dedicated bridge into the shared
 //         chat worker so mention threads can reuse the same AI runtime without
@@ -26,7 +26,10 @@
 //         Farcaster image intent selection back to the model-led agent path:
 //         this bridge carries saved image-model preferences into tool context,
 //         but it must not regex-route user wording directly into generated-image
-//         execution.
+//         execution. Farcaster live logs on 2026-04-21 showed an OpenAI provider
+//         transport error leaking into the public cast body as `[HTTP_400]`;
+//         public social replies must never publish raw internal/provider error
+//         strings.
 // Goal: enqueue Farcaster-originated chat work with enough context for the
 //       existing agent runtime, billing gates, vision-capable providers, and
 //       social reply publication of generated-image assets.
@@ -59,6 +62,8 @@
 // - Saved generated-image model/quality preferences must travel with Farcaster
 //   agent tasks so the tool can execute the user's selected image provider when
 //   the model chooses to generate.
+// - Public Farcaster fallback text must be user-safe. Keep raw provider errors
+//   in logs/task state, not in cast text.
 // Document Provenance:
 // - Source: repo code review of X chat bridge
 // - Kind: repo doc
@@ -166,6 +171,19 @@ const DEFAULT_FARCASTER_TIMEOUT_REPLY = 'I am still working on that. Please try 
 const DEFAULT_FARCASTER_GENERATED_IMAGE_READY_REPLY = 'Generated.';
 const DEFAULT_FARCASTER_GENERATED_IMAGE_PENDING_REPLY = 'Image generation is still running. Please try again in a moment.';
 const DEFAULT_FARCASTER_TASK_REPLY_TIMEOUT_MS = 180_000;
+
+function sanitizeFarcasterPublicReplyText(text: string): string {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return '';
+  if (
+    /^\[(HTTP_\d{3}|NO_FINAL_USER_FACING_OUTPUT|[A-Z][A-Z0-9_]+)\]\s*(?:\||$)/.test(trimmed)
+    || /^HTTP\s+\d{3}\b/i.test(trimmed)
+    || /Invalid parameter:\s*messages with role 'tool'/i.test(trimmed)
+  ) {
+    return DEFAULT_FARCASTER_ERROR_REPLY;
+  }
+  return trimmed;
+}
 
 function normalizeFarcasterReplyEmbedUrls(value: unknown): string[] {
   const rawUrls = Array.isArray(value) ? value : [];
@@ -278,10 +296,13 @@ function logResolvedAssistantReply(params: {
 }
 
 function buildGeneratedImageFallbackText(generatedImage: any, content: string): string {
-  if (content) return content;
+  const safeContent = sanitizeFarcasterPublicReplyText(content);
+  if (safeContent) return safeContent;
   const status = String(generatedImage?.status || '').trim().toLowerCase();
   const errorMessage = String(generatedImage?.errorMessage || '').trim();
-  if (status === 'failed' && errorMessage) return errorMessage;
+  if (status === 'failed' && errorMessage) {
+    return sanitizeFarcasterPublicReplyText(errorMessage);
+  }
   if (status === 'complete') return DEFAULT_FARCASTER_GENERATED_IMAGE_READY_REPLY;
   return '';
 }
@@ -294,7 +315,8 @@ export function resolveFarcasterAssistantReplyText(
   },
 ): string {
   const content = String(assistantMessage?.content || '').trim();
-  if (content) return content;
+  const safeContent = sanitizeFarcasterPublicReplyText(content);
+  if (safeContent) return safeContent;
 
   const taskStatus = String(options?.taskStatus || '').trim().toLowerCase();
   const generatedImage = assistantMessage?.data?.generatedImage || null;

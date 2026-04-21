@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-21
+// Updated: 2026-04-22
 // Author: Renata
 // Reason: Clanker launch turns now need a first-class skill note so the model
 //         sees the deploy prompt, collects missing launch fields, and keeps
@@ -37,6 +37,11 @@
 //         image task verdict. The same model-first rule also means local
 //         follow-up wording cannot widen a canonical early_buyers turn into
 //         wallet_pnl tooling; only a later same-model intent pass can do that.
+//         Farcaster live logs on 2026-04-21 showed a canonical image_generation
+//         turn can still degrade to read-only context tools if the generated
+//         image skill package is absent from the runtime skill registry; when
+//         the actual image tool exists in the tool registry, it must remain
+//         visible after the main model selects image_generation.
 // Goal: keep skill resolution aligned with the actual user task so Clanker
 //       launch requests surface the deploy skill, while onboarding/meta turns
 //       still stay lean.
@@ -71,6 +76,9 @@
 // - Required context should be gathered once and then carried forward until a hard blocker appears.
 // - Prompt text must not encourage the model to restart discovery after every tool result.
 // - Local follow-up heuristics can rank tools only when compatible with the canonical intent.
+// - A model-selected image_generation turn must expose generate_image_from_intent
+//   whenever that tool is present in the runtime tool registry, even if the
+//   optional image skill prompt package failed to load.
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/test.txt
 // - Kind: runtime observation
@@ -515,6 +523,8 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const isLeanDirectAnswerTurn = selected.length === 0
         && !querySignals.welcome
         && !querySignals.metaDebug
+        && normalizedIntent?.intent !== 'image_generation'
+        && normalizedIntent?.intent !== 'image_prompting'
         && matchResult.searchMode === 'forbidden';
 
     const skillPrompts: string[] = [];
@@ -693,6 +703,16 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     allowedTools = allowedTools.filter((toolName) => availableToolNames.has(String(toolName)));
     preferredTools.splice(0, preferredTools.length, ...preferredTools.filter((toolName) => availableToolNames.has(String(toolName))));
     blockedTools.splice(0, blockedTools.length, ...blockedTools.filter((toolName) => availableToolNames.has(String(toolName)) || isSyntheticBlockedTool(toolName)));
+
+    if (
+        normalizedIntent?.intent === 'image_generation'
+        && availableToolNames.has('generate_image_from_intent')
+        && !allowedTools.includes('generate_image_from_intent')
+    ) {
+        allowedTools.unshift('generate_image_from_intent');
+        pushPreferred(preferredTools, 'generate_image_from_intent');
+        strategyNotes.push('The same model selected image_generation. Expose generate_image_from_intent from the runtime tool registry even if the optional image skill prompt package is unavailable; the model still decides whether to call it.');
+    }
 
     if (allowedTools.length === 0 && selected.length > 0) {
         strategyNotes.push('Matched skills did not have any registry-backed tools available in this runtime snapshot, so the model must rely on provider-native search or direct answering.');

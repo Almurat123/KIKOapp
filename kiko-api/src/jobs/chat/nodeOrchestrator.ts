@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-19
+// Updated: 2026-04-22
 // Author: Rowan
 // Reason: Node orchestration now needs to persist reasoning content for
 //         NVIDIA-hosted GLM and Kimi reasoning models using the same internal
@@ -39,7 +39,10 @@
 //         Product correction on 2026-04-20 then moved fixed execution flows to
 //         backend-prefetched required context reads so execution turns start
 //         with the needed runtime state already loaded instead of burning a
-//         first model round deciding which `read_*` tools to call.
+//         first model round deciding which `read_*` tools to call. Farcaster
+//         live logs on 2026-04-21 showed those backend-prefetched reads must not
+//         be inserted as provider `tool` messages because no assistant
+//         `tool_calls` preceded them; OpenAI rejects that shape with HTTP 400.
 // Goal: keep the broker/runtime reasoning stream and stored assistant messages
 //       consistent across reasoning-capable providers without changing the
 //       downstream message schema, while avoiding unnecessary plan-model work
@@ -70,6 +73,8 @@
 //   generation round starts, not only after a premature final answer arrives
 // - fixed execution flows may prefetch required read-only context before the
 //   first generation round so the model starts from loaded worker state
+// - backend-prefetched context belongs in system context blocks, never as raw
+//   provider tool messages without a preceding assistant tool call
 // Document Provenance:
 // - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
 // - Kind: official API doc
@@ -562,9 +567,8 @@ export async function runNodeOrchestration(params: {
             chatAiTrace.recordToolResult(0, result);
             await params.broker.recordToolResult(result);
             messages.push({
-                role: 'tool',
-                tool_call_id: call.id,
-                content: buildModelToolMessageContent(result),
+                role: 'system',
+                content: buildPrefetchedContextSystemMessage(toolName, result),
             });
         }
     };
@@ -1527,6 +1531,16 @@ function buildModelToolMessageContent(result: Record<string, any>): string {
                 continuation: result.continuation || null,
             },
     );
+}
+
+function buildPrefetchedContextSystemMessage(toolName: string, result: Record<string, any>): string {
+    return [
+        '[BACKEND_PREFETCHED_CONTEXT]',
+        `tool: ${toolName}`,
+        'source: backend_required_context_prefetch',
+        'Use this as already-read context for the current turn. Do not call the same read_* tool again unless the user changes the relevant state.',
+        buildModelToolMessageContent(result),
+    ].join('\n');
 }
 
 function buildTruncationContinuationInstruction(locale: 'en' | 'zh'): string {

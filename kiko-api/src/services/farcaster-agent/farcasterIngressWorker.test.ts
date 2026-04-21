@@ -363,3 +363,26 @@ test('resolveFarcasterAssistantReplyText keeps generated-image timeout replies o
 
   assert.equal(reply, 'Image generation is still running. Please try again in a moment.');
 });
+
+test('resolveFarcasterAssistantReplyText does not publish raw provider HTTP errors', () => {
+  const reply = resolveFarcasterAssistantReplyText({
+    type: 'text',
+    content: '[HTTP_400] | HTTP 400',
+    data: null,
+  }, {
+    taskStatus: 'error',
+  });
+
+  assert.equal(reply, 'I ran into an issue processing that request. Please try again.');
+});
+
+test('buildFarcasterAssistantReplyFromGeneratedImageState sanitizes failed image provider errors', async () => {
+  const reply = await buildFarcasterAssistantReplyFromGeneratedImageState({
+    status: 'failed',
+    errorMessage: "[HTTP_403] | HTTP 403",
+    images: [],
+  });
+
+  assert.equal(reply.text, 'I ran into an issue processing that request. Please try again.');
+  assert.deepEqual(reply.embeds, []);
+});

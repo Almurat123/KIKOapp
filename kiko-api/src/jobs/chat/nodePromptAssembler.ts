@@ -48,7 +48,9 @@
 //         specialist prompt playbooks exist. Specialist business execution now
 //         also needs a fixed fast-path template so swap-like requests bind
 //         context once and keep moving instead of reopening discovery after
-//         every tool result.
+//         every tool result. Farcaster live logs on 2026-04-21 showed provider
+//         history can also be corrupted by orphan `role: tool` messages when
+//         backend-prefetched context is not attached to an assistant tool call.
 // Goal: keep generation messages explicit about surface mode, especially for
 //       Farcaster agent turns where short, direct replies are the default,
 //       replay stored reasoning only for provider/model paths that officially
@@ -111,6 +113,8 @@
 //   execute
 // - when matched specialist prompt playbooks exist, prompt-coaching turns should
 //   load read_skill_prompts before drafting the answer
+// - provider replay must drop orphan tool messages unless they immediately
+//   answer a preceding assistant message with matching tool_calls
 // Document Provenance:
 // - Source: Neynar/Farcaster cast writing docs and runtime screenshots of
 //           report-style public replies
@@ -1796,23 +1800,45 @@ function sanitizeOrphanedToolCalls(
         toolCalls.map((tc) => String(tc?.id || "")).filter(Boolean),
       );
       let checkIndex = i + 1;
+      const toolMessages: GenerationMessage[] = [];
+      let validSequence = expected.size > 0;
       while (checkIndex < history.length && expected.size > 0) {
         const next = history[checkIndex];
         if (next.role === "tool" && next.tool_call_id) {
-          expected.delete(String(next.tool_call_id));
+          const toolCallId = String(next.tool_call_id);
+          if (!expected.has(toolCallId)) {
+            validSequence = false;
+            break;
+          }
+          expected.delete(toolCallId);
+          toolMessages.push(next);
           checkIndex += 1;
           continue;
         }
         break;
       }
-      if (expected.size > 0) {
+      if (!validSequence || expected.size > 0) {
         sanitized.push({
           role: "assistant",
           content: msg.content || "(Tool call was interrupted)",
         });
+        while (
+          checkIndex < history.length &&
+          history[checkIndex]?.role === "tool"
+        ) {
+          checkIndex += 1;
+        }
+        i = checkIndex;
+        continue;
       } else {
         sanitized.push(msg);
+        sanitized.push(...toolMessages);
+        i = checkIndex;
+        continue;
       }
+    } else if (msg.role === "tool") {
+      i += 1;
+      continue;
     } else {
       sanitized.push(msg);
     }
@@ -1825,8 +1851,8 @@ export function sanitizeProviderHistory(
   history: GenerationMessage[],
   model: string,
 ): GenerationMessage[] {
-  const providerSafeHistory = history.filter(
-    (msg) => !shouldDropProviderHistoryMessage(msg),
+  const providerSafeHistory = sanitizeOrphanedToolCalls(
+    history.filter((msg) => !shouldDropProviderHistoryMessage(msg)),
   );
   if (
     String(model || "")

@@ -5,6 +5,7 @@ import { resolveProviderInfo, buildProviderOptions } from './providerPolicyBuild
 import { resolveNodeSkills } from './nodeSkillResolver.js';
 import { toolRegistry } from '../../tooling/registry.js';
 import type { CanonicalIntent } from './canonicalIntent.js';
+import { skillRegistryExec } from '../../skills/registry.js';
 
 function makeSnapshot(message: string, overrides: Partial<ChatContextSnapshot> = {}): ChatContextSnapshot {
     const { runtime: runtimeOverrides, ...restOverrides } = overrides;
@@ -283,6 +284,33 @@ test('model-selected image turns expose only the matched image tool package', ()
     assert.ok(!resolution.allowedTools.includes('prepare_swap_transaction'));
     assert.ok(!resolution.allowedTools.includes('place_polymarket_order'));
     assert.ok(resolution.strategyNotes.some((note) => note.includes('matched business tools plus explicit context-read tools')));
+});
+
+test('model-selected image turns keep the image tool visible if the skill prompt package is unavailable', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'general',
+        intent: 'image_generation',
+        taskMode: 'discover',
+    });
+    const originalGetSkill = skillRegistryExec.getSkill;
+    (skillRegistryExec as any).getSkill = (id: string) => {
+        if (id === 'image_generation' || id === 'image_prompting') {
+            return undefined;
+        }
+        return originalGetSkill.call(skillRegistryExec, id);
+    };
+
+    try {
+        const resolution = resolveNodeSkills(makeSnapshot('Generate a square poster for Kiko', {
+            normalizedIntent: canonicalIntent,
+        }), null, canonicalIntent);
+
+        assert.ok(resolution.allowedTools.includes('generate_image_from_intent'));
+        assert.ok(resolution.preferredTools.includes('generate_image_from_intent'));
+        assert.ok(resolution.strategyNotes.some((note) => note.includes('same model selected image_generation')));
+    } finally {
+        (skillRegistryExec as any).getSkill = originalGetSkill;
+    }
 });
 
 test('does not select the image-generation skill for prompt-writing advice', () => {

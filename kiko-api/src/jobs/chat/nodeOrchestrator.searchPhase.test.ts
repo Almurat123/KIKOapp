@@ -182,6 +182,7 @@ test('execution turns expose only missing required read tools before wider local
     });
     const broker = makeBroker();
     const seenRounds: Array<{ tools: string[]; bufferVisibleOutput: boolean }> = [];
+    const seenMessages: any[][] = [];
     let generationRound = 0;
 
     const generationClient = {
@@ -195,6 +196,7 @@ test('execution turns expose only missing required read tools before wider local
                 tools: roundTools,
                 bufferVisibleOutput: Boolean(params.providerOptions?.buffer_visible_output),
             });
+            seenMessages.push(params.messages || []);
             return {
                 text: 'Ready to prepare the launch after reading the required context.',
                 reasoning: '',
@@ -236,6 +238,8 @@ test('execution turns expose only missing required read tools before wider local
     assert.ok(!seenRounds[0]!.tools.includes('read_workflow_state'));
     assert.ok(!seenRounds[0]!.tools.includes('prepare_swap_transaction'));
     assert.ok(!seenRounds[0]!.tools.includes('generate_image_from_intent'));
+    assert.ok(!seenMessages[0]!.some((message: any) => message.role === 'tool'));
+    assert.ok(seenMessages[0]!.some((message: any) => String(message.content || '').includes('[BACKEND_PREFETCHED_CONTEXT]')));
     assert.deepEqual(
         broker.recordedToolResults.map((item: any) => item.name),
         [

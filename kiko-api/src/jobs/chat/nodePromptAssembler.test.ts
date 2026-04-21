@@ -263,6 +263,26 @@ test("sanitizeProviderHistory drops empty placeholder assistant rows before prov
   );
 });
 
+test("sanitizeProviderHistory drops orphan tool rows before provider replay", () => {
+  const sanitized = sanitizeProviderHistory(
+    [
+      { role: "user", content: "Generate an image" },
+      {
+        role: "tool",
+        content: "{\"ok\":true}",
+        tool_call_id: "prefetch-read_user_context",
+      },
+      { role: "system", content: "Continue safely" },
+    ] as any,
+    "gpt-5.4-mini",
+  );
+
+  assert.deepEqual(
+    sanitized.map((message) => message.role),
+    ["user", "system"],
+  );
+});
+
 test("assembleGenerationMessages surfaces Clanker deploy confirmation payloads in worker memory", () => {
   const snapshot: ChatContextSnapshot = {
     sessionId: "session-clanker-confirm",
