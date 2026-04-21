@@ -145,7 +145,7 @@ test("assembleGenerationMessages exposes context tools instead of pre-injecting 
   const content = String(userMessage?.content || "");
   const systemContent = String(systemMessage?.content || "");
   assert.match(systemContent, /\[MODEL_LED_TOOL_ORCHESTRATION\]/);
-  assert.match(systemContent, /You decide whether to answer directly or call tools/);
+  assert.match(systemContent, /Use the current intent and tool package to decide whether to answer directly or call tools/);
   assert.doesNotMatch(systemContent, /\[WORKER_STATE_MACHINE\]/);
   assert.doesNotMatch(systemContent, /\[CONTEXT_TRIGGER_POLICY\]/);
   assert.match(systemContent, /\[ANSWER_QUALITY_CONTRACT\]/);
@@ -417,8 +417,9 @@ test("assembleGenerationMessages uses model-led tool orchestration prompt by def
     const userContent = String(messages.find((message) => message.role === "user")?.content || "");
 
     assert.match(systemContent, /\[MODEL_LED_TOOL_ORCHESTRATION\]/);
-    assert.match(systemContent, /You decide whether to answer directly or call tools/);
+    assert.match(systemContent, /Use the current intent and tool package to decide whether to answer directly or call tools/);
     assert.match(systemContent, /call generate_image_from_intent directly/);
+    assert.match(systemContent, /do not reply with a standalone optimized prompt draft/i);
     assert.doesNotMatch(systemContent, /\[WORKER_STATE_MACHINE\]/);
     assert.doesNotMatch(systemContent, /\[CONTEXT_TRIGGER_POLICY\]/);
     assert.doesNotMatch(userContent, /\[TASK_MENU\]/);
@@ -553,7 +554,7 @@ test("assembleGenerationMessages keeps unresolved model-led turns lean without c
 
   const messages = assembleGenerationMessages(snapshot, [], providerInfo, {
     intentEnvelope: {
-      primary_intent: "model_selected_task_menu",
+      primary_intent: "general_answer",
       task_mode: "discover",
       search_mode: "forbidden",
       search_target: "none",

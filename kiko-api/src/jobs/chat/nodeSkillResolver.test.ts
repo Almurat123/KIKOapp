@@ -121,7 +121,16 @@ test('tool registry self-initializes even when imported directly', () => {
 });
 
 test('routes Clanker deploy queries to the dedicated Clanker skill first', () => {
-    const resolution = resolveNodeSkills(makeSnapshot('Deploy a token via Clanker'), null);
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'token',
+        intent: 'clanker_deploy',
+        taskMode: 'execute',
+        outputMode: 'execution_ready',
+        executionCandidate: true,
+    });
+    const resolution = resolveNodeSkills(makeSnapshot('Deploy a token via Clanker', {
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
     assert.equal(resolution.selectedSkills[0], 'clanker_deploy_token');
     assert.ok(resolution.allowedTools.includes('deploy_clanker_token'));
     assert.ok(resolution.preferredTools.includes('deploy_clanker_token'));
@@ -182,23 +191,90 @@ test('routes capabilities questions to welcome skill without search', () => {
 });
 
 test('routes image-generation requests to the generated-image skill and tool', () => {
-    const resolution = resolveNodeSkills(makeSnapshot('帮我做一张赛博朋克风的产品海报'), null);
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'general',
+        intent: 'image_generation',
+        taskMode: 'discover',
+    });
+    const resolution = resolveNodeSkills(makeSnapshot('帮我做一张赛博朋克风的产品海报', {
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
     assert.equal(resolution.selectedSkills[0], 'image_generation');
     assert.ok(resolution.selectedSkills.includes('image_prompting'));
     assert.ok(resolution.allowedTools.includes('generate_image_from_intent'));
-    assert.ok(resolution.strategyNotes.some((note) => note.includes('image-generation request')));
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('generate_image_from_intent')));
 });
 
 test('routes concrete English picture requests to the generated-image skill and tool', () => {
-    const resolution = resolveNodeSkills(makeSnapshot('How to generate a picture of the beautiful view of the moon?'), null);
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'general',
+        intent: 'image_generation',
+        taskMode: 'discover',
+    });
+    const resolution = resolveNodeSkills(makeSnapshot('How to generate a picture of the beautiful view of the moon?', {
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
     assert.equal(resolution.selectedSkills[0], 'image_generation');
     assert.ok(resolution.selectedSkills.includes('image_prompting'));
+    assert.ok(resolution.allowedTools.includes('generate_image_from_intent'));
+});
+
+test('routes multiline visual briefs with uppercase subject names to the generated-image skill and tool', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'general',
+        intent: 'image_generation',
+        taskMode: 'discover',
+        entities: {
+            tokenAddresses: [],
+            tokenSymbols: ['ICELAND'],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+    });
+    const resolution = resolveNodeSkills(makeSnapshot('Generate something for ICELAND\ncampaign poster with cinematic aurora lighting and premium product framing', {
+        requestedTokenSymbols: ['ICELAND'],
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
+    assert.equal(resolution.selectedSkills[0], 'image_generation');
+    assert.ok(resolution.allowedTools.includes('generate_image_from_intent'));
+});
+
+test('routes reference-image edit phrasing to the generated-image skill when current-turn image context exists', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'general',
+        intent: 'image_generation',
+        taskMode: 'discover',
+    });
+    const resolution = resolveNodeSkills(makeSnapshot('Put KIKO on the horse and restyle it to feel cinematic and premium.', {
+        normalizedIntent: canonicalIntent,
+        runtime: {
+            socialInput: {
+                text: 'Current @almurat cast',
+                images: [{ url: 'https://example.com/horse.png', sourceLabel: 'horse' }],
+            },
+            currentPage: 'farcaster',
+            pageContext: 'farcaster_agent',
+            toolContext: {
+                generatedImagePreference: {
+                    model: 'gpt-image-1-mini',
+                },
+            },
+        },
+    }), null, canonicalIntent);
+    assert.ok(resolution.selectedSkills.includes('image_generation'));
     assert.ok(resolution.allowedTools.includes('generate_image_from_intent'));
 });
 
 test('model-selected image turns expose only the matched image tool package', () => {
-    const snapshot = makeSnapshot('帮我做一张赛博朋克风的产品海报');
-    const resolution = resolveNodeSkills(snapshot, null);
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'general',
+        intent: 'image_generation',
+        taskMode: 'discover',
+    });
+    const snapshot = makeSnapshot('帮我做一张赛博朋克风的产品海报', {
+        normalizedIntent: canonicalIntent,
+    });
+    const resolution = resolveNodeSkills(snapshot, null, canonicalIntent);
 
     assert.equal(resolution.allowAllTools, false);
     assert.ok(resolution.selectedSkills.includes('image_generation'));
@@ -210,15 +286,30 @@ test('model-selected image turns expose only the matched image tool package', ()
 });
 
 test('does not select the image-generation skill for prompt-writing advice', () => {
-    const resolution = resolveNodeSkills(makeSnapshot('告诉我怎么写一个图片提示词'), null);
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'general',
+        intent: 'image_prompting',
+        taskMode: 'discover',
+    });
+    const resolution = resolveNodeSkills(makeSnapshot('告诉我怎么写一个图片提示词', {
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
     assert.equal(resolution.allowAllTools, false);
     assert.ok(resolution.selectedSkills.includes('image_prompting'));
     assert.ok(!resolution.selectedSkills.includes('image_generation'));
     assert.ok(!resolution.allowedTools.includes('prepare_swap_transaction'));
 });
 
-test('routes malformed Kiko capability questions to welcome skill even without canonical intent', () => {
-    const resolution = resolveNodeSkills(makeSnapshot('What can you doing Kiko?'), null);
+test('routes malformed Kiko capability questions to welcome skill when canonical assistant_meta is selected', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'assistant_meta',
+        intent: 'assistant_meta',
+        taskMode: 'discover',
+        inheritEntitiesFromContext: false,
+    });
+    const resolution = resolveNodeSkills(makeSnapshot('What can you doing Kiko?', {
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
     assert.deepEqual(resolution.selectedSkills, ['welcome_onboarding']);
     assert.equal(resolution.searchMode, 'forbidden');
     assert.ok(resolution.strategyNotes.some((note) => note.includes('real onboarding answer')));
@@ -537,7 +628,7 @@ test('official announcement date lookups are treated as required search even wit
     }), null, canonicalIntent);
 
     assert.equal(resolution.searchMode, 'required');
-    assert.equal(resolution.searchReason, 'canonical_social_discovery');
+    assert.equal(resolution.searchReason, 'canonical_intent');
     assert.equal(resolution.toolPhasePolicy.initialPhase, 'native_search_only');
     assert.equal(resolution.toolPhasePolicy.nextPhaseAfterNativeSearch, 'local_analysis');
     assert.ok(resolution.allowedTools.includes('get_token_info'));
@@ -671,9 +762,23 @@ test('explicit early-buyer row count queries are treated as full exports', () =>
 
 test('swap intents prefer wallet info and preflight before prepare swap execution', () => {
     const contract = '0x950e88438098bc08879243984a3cf7c63eb95ba3';
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'token',
+        intent: 'swap',
+        taskMode: 'execute',
+        outputMode: 'execution_ready',
+        entities: {
+            tokenAddresses: [contract],
+            tokenSymbols: ['ETH'],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        executionCandidate: true,
+    });
     const resolution = resolveNodeSkills(makeSnapshot(`Sell all ${contract} to ETH`, {
         model: 'gpt-5-mini',
         requestedTokenAddresses: [contract],
+        normalizedIntent: canonicalIntent,
         runtime: {
             chainId: 8453,
             chainName: 'Base',
@@ -682,7 +787,7 @@ test('swap intents prefer wallet info and preflight before prepare swap executio
     }), {
         kind: 'trading',
         type: 'swap',
-    } as any);
+    } as any, canonicalIntent);
 
     assert.ok(resolution.preferredTools.includes('get_wallet_info'));
     assert.ok(resolution.preferredTools.includes('simulate_swap'));
@@ -914,7 +1019,7 @@ test('resolver only exposes tools that exist in the runtime toolDefinitions snap
     assert.deepEqual(resolution.preferredTools, ['get_token_info']);
 });
 
-test('resolver carries forward session-used tools into orchestration context', () => {
+test('resolver keeps session-used tools as evidence hints without reopening tool exposure on plain turns', () => {
     const snapshot = makeSnapshot('继续', {
         recentToolTrace: {
             messageId: 'assistant-1',
@@ -926,15 +1031,20 @@ test('resolver carries forward session-used tools into orchestration context', (
     });
 
     const resolution = resolveNodeSkills(snapshot, null);
-    assert.ok(resolution.allowedTools.includes('external_web_search'));
-    assert.ok(resolution.allowedTools.includes('get_token_info'));
-    assert.ok(resolution.preferredTools.includes('external_web_search'));
-    assert.ok(resolution.preferredTools.includes('get_token_info'));
+    assert.deepEqual(resolution.allowedTools, []);
+    assert.deepEqual(resolution.preferredTools, []);
     assert.ok(resolution.strategyNotes.some((note) => note.includes('Recent tool evidence is available from this session')));
 });
 
-test('plain capability questions route to onboarding without exposing unrelated tools', () => {
+test('plain capability questions route to onboarding without exposing unrelated tools once canonical assistant_meta is selected', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'assistant_meta',
+        intent: 'assistant_meta',
+        taskMode: 'discover',
+        inheritEntitiesFromContext: false,
+    });
     const snapshot = makeSnapshot('What can you do?', {
+        normalizedIntent: canonicalIntent,
         toolDefinitions: [
             {
                 name: 'get_token_info',
@@ -949,7 +1059,7 @@ test('plain capability questions route to onboarding without exposing unrelated 
         ] as any,
     });
 
-    const resolution = resolveNodeSkills(snapshot, null);
+    const resolution = resolveNodeSkills(snapshot, null, canonicalIntent);
     assert.deepEqual(resolution.selectedSkills, ['welcome_onboarding']);
     assert.equal(resolution.allowAllTools, false);
     assert.deepEqual(resolution.allowedTools, []);
@@ -960,7 +1070,7 @@ test('generic direct answers do not fall back to a market skill', () => {
     assert.deepEqual(resolution.selectedSkills, []);
     assert.equal(resolution.allowAllTools, false);
     assert.deepEqual(resolution.allowedTools, []);
-    assert.equal(resolution.intentEnvelope.primary_intent, 'model_selected_task_menu');
+    assert.equal(resolution.intentEnvelope.primary_intent, 'general_answer');
     assert.equal(resolution.contextContract.mode, 'lean');
     assert.deepEqual(resolution.contextContract.requiredContexts, []);
 });
@@ -980,24 +1090,11 @@ test('model-led unresolved social turns keep social context instead of lean fall
         },
     }), null);
 
-    assert.equal(resolution.intentEnvelope.primary_intent, 'model_selected_task_menu');
+    assert.equal(resolution.intentEnvelope.primary_intent, 'general_answer');
     assert.equal(resolution.contextContract.mode, 'social');
     assert.ok(resolution.contextContract.requiredContexts.includes('workflow_state'));
     assert.ok(resolution.contextContract.optionalContexts.includes('social_thread_context'));
     assert.ok(resolution.contextContract.optionalContexts.includes('social_images'));
-});
-
-test('model-selected routing infers execution envelope from explicit raw swap text without canonical intent', () => {
-    const resolution = resolveNodeSkills(makeSnapshot('Buy CAKE on BNB chain', {
-        requestedTokenSymbols: ['CAKE', 'BNB'],
-    }), null);
-    assert.ok(resolution.selectedSkills.includes('swap'));
-    assert.equal(resolution.intentEnvelope.primary_intent, 'swap_execution');
-    assert.equal(resolution.intentEnvelope.execution_risk, 'mutation');
-    assert.equal(resolution.contextContract.mode, 'execution');
-    assert.ok(resolution.contextContract.requiredContexts.includes('wallet_state'));
-    assert.ok(resolution.contextContract.requiredContexts.includes('token_context'));
-    assert.ok(resolution.contextContract.requiredContexts.includes('user_settings'));
 });
 
 test('phase strategy notes frame resolver output as backend safety, not selected intent', () => {
@@ -1013,8 +1110,7 @@ test('phase strategy notes frame resolver output as backend safety, not selected
         normalizedIntent: canonicalIntent,
     }), null, canonicalIntent);
     const strategyText = resolution.strategyNotes.join('\n');
-    assert.match(strategyText, /Model chooses one or more tasks from TASK_MENU/);
-    assert.match(strategyText, /Backend safety phase/);
+    assert.match(strategyText, /Current tool package starts in provider-native search only/);
     assert.doesNotMatch(strategyText, /Structured intent:/);
 });
 
@@ -1177,8 +1273,21 @@ test('wallet PnL follow-ups reuse recent early-buyer evidence as batch candidate
 });
 
 test('early-buyer follow-ups asking for per-wallet buy and sell summaries force token batch PnL analysis', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'wallet',
+        intent: 'wallet_pnl',
+        taskMode: 'analyze',
+        inheritEntitiesFromContext: true,
+        entities: {
+            tokenAddresses: ['0x1111111111111111111111111111111111111111'],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+    });
     const resolution = resolveNodeSkills(makeSnapshot('Show each early buyer buy and sell summary for this token', {
         requestedTokenAddresses: ['0x1111111111111111111111111111111111111111'],
+        normalizedIntent: canonicalIntent,
         recentToolTrace: {
             toolCalls: [
                 {
@@ -1193,7 +1302,7 @@ test('early-buyer follow-ups asking for per-wallet buy and sell summaries force 
                 },
             ],
         },
-    }), null, null);
+    }), null, canonicalIntent);
 
     assert.ok(resolution.selectedSkills.includes('wallet_portfolio'));
     assert.ok(resolution.preferredTools.includes('analyze_wallet_pnl_batch'));
@@ -1202,8 +1311,21 @@ test('early-buyer follow-ups asking for per-wallet buy and sell summaries force 
 });
 
 test('Chinese early-buyer follow-up about token profit stays on token batch PnL path', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'wallet',
+        intent: 'wallet_pnl',
+        taskMode: 'analyze',
+        inheritEntitiesFromContext: true,
+        entities: {
+            tokenAddresses: ['0x1111111111111111111111111111111111111111'],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+    });
     const resolution = resolveNodeSkills(makeSnapshot('这些钱包在这个代币上的利润是怎么样的？', {
         requestedTokenAddresses: ['0x1111111111111111111111111111111111111111'],
+        normalizedIntent: canonicalIntent,
         recentToolTrace: {
             toolCalls: [
                 {
@@ -1218,7 +1340,7 @@ test('Chinese early-buyer follow-up about token profit stays on token batch PnL 
                 },
             ],
         },
-    }), null, null);
+    }), null, canonicalIntent);
 
     assert.ok(resolution.selectedSkills.includes('wallet_portfolio'));
     assert.ok(resolution.preferredTools.includes('analyze_wallet_pnl_batch'));
@@ -1227,8 +1349,21 @@ test('Chinese early-buyer follow-up about token profit stays on token batch PnL 
 });
 
 test('Chinese early-buyer follow-up using 利益 stays on token batch PnL path', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'wallet',
+        intent: 'wallet_pnl',
+        taskMode: 'analyze',
+        inheritEntitiesFromContext: true,
+        entities: {
+            tokenAddresses: ['0x1111111111111111111111111111111111111111'],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+    });
     const resolution = resolveNodeSkills(makeSnapshot('它们在这个代币上的利益是多少？', {
         requestedTokenAddresses: ['0x1111111111111111111111111111111111111111'],
+        normalizedIntent: canonicalIntent,
         recentToolTrace: {
             toolCalls: [
                 {
@@ -1243,14 +1378,14 @@ test('Chinese early-buyer follow-up using 利益 stays on token batch PnL path',
                 },
             ],
         },
-    }), null, null);
+    }), null, canonicalIntent);
 
     assert.ok(resolution.selectedSkills.includes('wallet_portfolio'));
     assert.ok(resolution.preferredTools.includes('analyze_wallet_pnl_batch'));
     assert.ok(resolution.strategyNotes.some((note) => note.includes('reuse those wallet addresses as the candidate set for batch wallet PnL analysis')));
 });
 
-test('misnormalized early-buyer follow-up still routes 利益 question to token batch PnL', () => {
+test('misnormalized early-buyer follow-up does not override the model-selected early_buyer intent', () => {
     const canonicalIntent = makeCanonicalIntent({
         domain: 'token',
         intent: 'early_buyers',
@@ -1284,7 +1419,7 @@ test('misnormalized early-buyer follow-up still routes 利益 question to token 
         },
     }), null, canonicalIntent);
 
-    assert.ok(resolution.selectedSkills.includes('wallet_portfolio'));
-    assert.ok(resolution.preferredTools.includes('analyze_wallet_pnl_batch'));
-    assert.ok(!resolution.strategyNotes.some((note) => note.includes('Early-buyer queries default to full-list output')));
+    assert.ok(!resolution.selectedSkills.includes('wallet_portfolio'));
+    assert.ok(!resolution.allowedTools.includes('analyze_wallet_pnl_batch'));
+    assert.ok(resolution.selectedSkills.includes('token_analysis'));
 });

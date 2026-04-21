@@ -34,7 +34,9 @@
 //         Operator correction on 2026-04-21 clarified that image execution
 //         ownership still belongs to the model: resolver hints may expose the
 //         image tool, but must not phrase keyword matches as a backend-decided
-//         image task verdict.
+//         image task verdict. The same model-first rule also means local
+//         follow-up wording cannot widen a canonical early_buyers turn into
+//         wallet_pnl tooling; only a later same-model intent pass can do that.
 // Goal: keep skill resolution aligned with the actual user task so Clanker
 //       launch requests surface the deploy skill, while onboarding/meta turns
 //       still stay lean.
@@ -68,6 +70,7 @@
 // - Specialist execution turns should collapse into a fixed template once the task mode is clear.
 // - Required context should be gathered once and then carried forward until a hard blocker appears.
 // - Prompt text must not encourage the model to restart discovery after every tool result.
+// - Local follow-up heuristics can rank tools only when compatible with the canonical intent.
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/test.txt
 // - Kind: runtime observation
@@ -184,7 +187,6 @@ import { CONTEXT_READ_TOOL_BY_BLOCK } from './contextReadTools.js';
 import type { CanonicalIntent } from './canonicalIntent.js';
 import {
     detectQuerySignals,
-    matchSkillsForQuery,
     type QuerySignals,
     type SearchMode,
     type SkillMatch,
@@ -192,10 +194,11 @@ import {
 import type { TradingIntent } from './tradingIntentResolver.js';
 
 export type IntentPrimaryIntent =
-    | 'model_selected_task_menu'
     | 'meta_debug'
     | 'search_discovery'
     | 'social_discovery'
+    | 'image_generation'
+    | 'image_prompting'
     | 'token_analysis'
     | 'token_risk'
     | 'wallet_analysis'
@@ -245,6 +248,7 @@ export interface SkillResolution {
     contextContract: ChatContextContract;
     toolPhasePolicy: ToolPhasePolicy;
     currentPhase: ToolPhase;
+    toolPackageSource: 'canonical_intent' | 'none';
 }
 
 const GROK_BLOCKED_FARCASTER_TOOLS = new Set([
@@ -262,14 +266,93 @@ const EXPLICIT_SOCIAL_SOURCE_QUERY_RE = /\b(x|twitter|tweet|tweets|farcaster|cas
 const EXPLICIT_SEARCH_QUERY_RE = /\b(search|look\s*up|lookup|find on|search on|from x|from twitter|from farcaster)\b/i;
 const TOKEN_LEADERBOARD_QUERY_RE = /\b(trend|trending|hot token|hot coin|top token|top coin|pumping|top gainers|gainers|movers)\b/i;
 const DETAILED_ONBOARDING_QUERY_RE = /\b(new here|how do i start|how to start|how do i use|how to use|get(?:ting)? started|intro(?:duction)? to kiko|about kiko|what is kiko|what can\b.{0,24}\bkiko\b|what can kiko do|who are you)\b|怎么使用\s*kiko|如何使用\s*kiko|kiko\s*怎么用|kiko\s*如何用|介绍一下\s*kiko|kiko\s*是什么|kiko\s*能做什么|你能做什么|我是新手|新手怎么开始/i;
-const EXPLICIT_TRADE_ACTION_QUERY_RE = /\b(buy|sell|swap|bridge|trade)\b|买入|卖出|买\b|卖\b|换币|兑换|交换|跨链|交易/i;
-
-function isModelSelectedTaskMenuIntent(intent: IntentPrimaryIntent | null | undefined): boolean {
-    return intent === 'model_selected_task_menu';
-}
 
 function isLeanFallbackIntent(intent: IntentPrimaryIntent | null | undefined): boolean {
-    return intent === 'general_answer' || isModelSelectedTaskMenuIntent(intent);
+    return intent === 'general_answer';
+}
+
+function mapCanonicalIntentToSkillIds(canonicalIntent: CanonicalIntent, querySignals: QuerySignals): string[] {
+    const selected: string[] = [];
+    const push = (skillId: string) => {
+        if (!selected.includes(skillId)) {
+            selected.push(skillId);
+        }
+    };
+
+    switch (canonicalIntent.intent) {
+        case 'assistant_meta':
+            if (canonicalIntent.taskMode === 'analyze') {
+                push('meta_debug');
+            } else if (querySignals.welcome) {
+                push('welcome_onboarding');
+            }
+            break;
+        case 'general_answer':
+            break;
+        case 'image_generation':
+            push('image_generation');
+            push('image_prompting');
+            break;
+        case 'image_prompting':
+            push('image_prompting');
+            break;
+        case 'swap':
+            push('swap');
+            push('wallet_portfolio');
+            break;
+        case 'cross_chain_swap':
+            push('cross_chain_swap');
+            push('wallet_portfolio');
+            break;
+        case 'copy_trade':
+            push('copy_trade');
+            push('wallet_portfolio');
+            break;
+        case 'token_analysis':
+        case 'early_buyers':
+        case 'creator_analysis':
+            push('token_analysis');
+            break;
+        case 'token_risk':
+            push('risk_security');
+            push('token_analysis');
+            break;
+        case 'wallet_analysis':
+        case 'wallet_pnl':
+            push('wallet_portfolio');
+            break;
+        case 'social_discovery':
+            push(canonicalIntent.domain === 'x' || canonicalIntent.domain === 'farcaster'
+                ? 'social_farcaster'
+                : 'market_macro');
+            if (querySignals.socialChainEvidence) {
+                if (querySignals.hasRequestedToken) push('token_analysis');
+                if (querySignals.wallet || querySignals.pnl) push('wallet_portfolio');
+                push('market_macro');
+            }
+            break;
+        case 'market_macro':
+            push('market_macro');
+            break;
+        case 'polymarket_discovery':
+        case 'polymarket_short_window':
+        case 'polymarket_order':
+            push('polymarket_prediction');
+            break;
+        case 'zora_discovery':
+            push('zora_nfts');
+            break;
+        case 'token_alerts':
+            push('token_alert');
+            break;
+        case 'clanker_deploy':
+            push('clanker_deploy_token');
+            break;
+        default:
+            break;
+    }
+
+    return selected;
 }
 
 export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: TradingIntent | null, canonicalIntent?: CanonicalIntent | null): SkillResolution {
@@ -291,7 +374,6 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const preferredTools: string[] = [];
     const strategyNotes: string[] = [];
     let allowAllTools = false;
-    const strictPolicy = snapshot.policySnapshot?.enforcementLevel === 'hard';
     const sessionToolNames = Array.from(new Set(
         (snapshot.recentToolTrace?.toolCalls || [])
             .map((call) => String(call?.tool || '').trim())
@@ -300,23 +382,43 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const hasRequestedTokenAddress = effectiveRequestedTokenAddresses.length > 0;
     const refersToPriorWalletSet = /\b(these|those|them|their)\b/i.test(rawQuery) || /这些|它们|他们|这批|这几个|这群/.test(rawQuery);
 
-    const matchResult = matchSkillsForQuery({ snapshot: normalizedIntent ? { ...snapshot, normalizedIntent } : snapshot, tradingIntent });
-    const querySignals = matchResult.querySignals;
+    const querySignals = detectQuerySignals(
+        rawQuery,
+        normalizedIntent ? { ...snapshot, normalizedIntent } : snapshot,
+        tradingIntent,
+        normalizedIntent,
+    );
+    const matchResult = normalizedIntent
+        ? {
+            rankedMatches: [] as SkillMatch[],
+            rejectedMatches: [] as SkillMatch[],
+            querySignals,
+            searchMode: normalizedIntent.searchMode,
+            searchReason: 'canonical_intent',
+        }
+        : {
+            rankedMatches: [] as SkillMatch[],
+            rejectedMatches: [] as SkillMatch[],
+            querySignals,
+            searchMode: 'forbidden' as SearchMode,
+            searchReason: 'normalization_unavailable',
+        };
     const explicitRiskRequest = querySignals.risk;
     const asksWalletPnl = querySignals.pnl;
     const hasRequestedToken = querySignals.hasRequestedToken;
     const requiresSocialChainEvidence = querySignals.socialChainEvidence;
-    if (querySignals.imageGeneration) {
+    if (normalizedIntent?.intent === 'image_generation') {
         strategyNotes.push('This turn has image-generation signals. Decide from the latest user wording whether they want an image generated now or only prompt/advice text; call generate_image_from_intent only when the visual execution request is clear enough.');
         strategyNotes.push('If generating, do not ask for a second confirmation. If a truly critical visual field is missing, ask one precise clarification instead of calling the tool.');
         strategyNotes.push('If prompt structure is still weak before generation, call read_skill_prompts first so the request follows the OpenAI-aligned image prompting playbook.');
+        strategyNotes.push('When generate_image_from_intent is visible and the user is asking to generate or edit an image now, do not answer with a packaged prompt draft in assistant text. Call the tool and let it package the optimized prompt for the image model.');
     }
-    if (querySignals.imagePrompting && !querySignals.imageGeneration) {
+    if (normalizedIntent?.intent === 'image_prompting') {
         strategyNotes.push('This turn is asking for image prompt guidance, not automatic image execution. Call read_skill_prompts before answering so the rewrite follows the OpenAI-aligned image prompting playbook.');
         strategyNotes.push('Return one copy-ready prompt, the negative constraints, and a few single-variable refinements. Do not call generate_image_from_intent unless the user explicitly asks to generate now.');
         strategyNotes.push('Do not volunteer Midjourney, Stable Diffusion, or other non-OpenAI prompt variants unless the user explicitly asks for another model.');
     }
-    if (querySignals.clankerDeploy) {
+    if (normalizedIntent?.intent === 'clanker_deploy') {
         strategyNotes.push('This is a Clanker launch or Clanker history request. Follow the Clanker launch safety template: collect only hard-missing launch inputs, keep optional defaults implicit, prepare a dry-run preview first, and wait for explicit user confirmation before any real deploy. Do not restate this internal checklist to the user.');
     }
     const requestedChain = resolveCanonicalChainRef({
@@ -326,11 +428,14 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         runtimeChainId: snapshot.runtime.chainId,
         runtimeChainName: snapshot.runtime.chainName,
     });
-    const explicitlyMentionsFarcaster = normalizedIntent?.domain === 'farcaster';
     const preferXNativeSearch = normalizedIntent
         ? (normalizedIntent.searchTarget === 'x' || normalizedIntent.searchTarget === 'x_and_web' || normalizedIntent.domain === 'x')
         : false;
-    const asksEarlyBuyerWalletPnlFollowup = sessionToolNames.includes('get_early_buyers')
+    const canUseEarlyBuyerWalletPnlFollowup = !normalizedIntent
+        || normalizedIntent.intent === 'wallet_pnl'
+        || normalizedIntent.intent === 'wallet_analysis';
+    const asksEarlyBuyerWalletPnlFollowup = canUseEarlyBuyerWalletPnlFollowup
+        && sessionToolNames.includes('get_early_buyers')
         && hasRequestedToken
         && refersToPriorWalletSet
         && (querySignals.pnl || asksProfitRankingFollowup || asksWalletTradeSummaryFollowup);
@@ -349,7 +454,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const asksCreator = normalizedIntent?.intent === 'creator_analysis';
     const shouldConstrainToolExposure = querySignals.welcome || querySignals.metaDebug;
 
-    let selected = matchResult.rankedMatches.map((item) => item.skillId);
+    let selected = normalizedIntent ? mapCanonicalIntentToSkillIds(normalizedIntent, querySignals) : [];
     if (querySignals.welcome) {
         strategyNotes.push('This is a greeting, self-introduction, or capabilities question. Answer directly without tools unless the user explicitly asks for live data or on-chain evidence.');
         if (asksDetailedOnboarding) {
@@ -362,7 +467,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         selected = selected.filter((skillId) => skillId === 'meta_debug');
     }
 
-    if (tradingIntent) {
+    if (normalizedIntent && tradingIntent) {
         if (tradingIntent.type === 'copy_trade') {
             ensurePrimarySkill(selected, 'copy_trade');
             ensureSupportingSkill(selected, 'wallet_portfolio');
@@ -374,28 +479,6 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
             ensureSupportingSkill(selected, 'wallet_portfolio');
             if (explicitRiskRequest) {
                 ensureSupportingSkill(selected, 'risk_security');
-            }
-        }
-    } else {
-        if (querySignals.imageGeneration) {
-            ensurePrimarySkill(selected, 'image_generation');
-            ensureSupportingSkill(selected, 'image_prompting');
-        } else if (querySignals.imagePrompting) {
-            ensurePrimarySkill(selected, 'image_prompting');
-        }
-        if (querySignals.wallet || asksWalletPnl) {
-            ensurePrimarySkill(selected, 'wallet_portfolio');
-        }
-        if (explicitRiskRequest) {
-            ensureSupportingSkill(selected, 'risk_security');
-        }
-        if (hasRequestedToken) {
-            ensureSupportingSkill(selected, 'token_analysis');
-        }
-        if ((asksProfitRankingFollowup || asksWalletTradeSummaryFollowup) && sessionToolNames.includes('get_early_buyers')) {
-            ensurePrimarySkill(selected, 'wallet_portfolio');
-            if (hasRequestedToken) {
-                ensureSupportingSkill(selected, 'token_analysis');
             }
         }
     }
@@ -562,14 +645,6 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     }
 
     if (sessionToolNames.length > 0) {
-        for (const toolName of sessionToolNames) {
-            if (!allowedTools.includes(toolName)) {
-                allowedTools.push(toolName);
-            }
-        }
-        for (const toolName of sessionToolNames) {
-            pushPreferred(preferredTools, toolName);
-        }
         strategyNotes.push(`Recent tool evidence is available from this session: ${sessionToolNames.join(', ')}. Reuse it when it still answers the current turn, and refresh only when the structured workflow state or new user request makes targeted re-verification necessary.`);
         if (
             polymarketOrderQuery
@@ -641,21 +716,10 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     let effectiveSearchMode = matchResult.searchMode;
     let effectiveSearchReason = matchResult.searchReason;
     const intentEnvelope = buildIntentEnvelope({
-        snapshot,
-        tradingIntent,
         canonicalIntent: normalizedIntent,
-        querySignals,
-        searchMode: effectiveSearchMode,
-        preferXNativeSearch,
-        explicitlyMentionsFarcaster,
-        explicitRiskRequest,
-        asksWalletPnl,
-        hasRequestedToken,
-        selectedSkills: selected,
     });
     const contextContract = buildContextContract({
         snapshot,
-        tradingIntent,
         intentEnvelope,
         querySignals,
     });
@@ -686,7 +750,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         preferredTools.splice(0, preferredTools.length, ...preferredTools.filter((toolName) => !GROK_BLOCKED_FARCASTER_TOOLS.has(toolName)));
         strategyNotes.push('Grok path does not expose local Farcaster cache/search tools. Use provider-native search instead for social discovery.');
     }
-    const toolPhasePolicy = buildToolPhasePolicy(snapshot, tradingIntent, intentEnvelope, Boolean(normalizedIntent));
+    const toolPhasePolicy = buildToolPhasePolicy(snapshot, tradingIntent, intentEnvelope);
     if (!preferLocalTokenLeaderboard && !isGrok && intentEnvelope.search_mode === 'required') {
         strategyNotes.push('This provider does not support provider-native X/web search in the current orchestration path. Use only relevant local tools if they truly match the request, otherwise state the limitation plainly.');
     }
@@ -702,6 +766,14 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         allowedTools,
         preferredTools,
     });
+
+    if (normalizedIntent?.intent === 'early_buyers') {
+        for (const toolName of ['analyze_wallet_pnl_batch', 'analyze_wallet_pnl', 'analyze_wallet_pnl_analysis']) {
+            removeTool(allowedTools, toolName);
+            removeTool(preferredTools, toolName);
+        }
+        strategyNotes.push('The canonical intent is early_buyers. Keep this turn on buyer/token evidence only; do not widen into wallet PnL tools unless a later same-model intent pass selects wallet_pnl.');
+    }
 
     if (!isLeanDirectAnswerTurn) {
         strategyNotes.push('Chat v2 exposes only matched business tools plus explicit context-read tools. Read the required context first instead of assuming the full registry is available.');
@@ -742,49 +814,14 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         contextContract,
         toolPhasePolicy,
         currentPhase: toolPhasePolicy.initialPhase,
+        toolPackageSource: normalizedIntent ? 'canonical_intent' : 'none',
     };
 }
 
 function buildIntentEnvelope(params: {
-    snapshot: ChatContextSnapshot;
-    tradingIntent: TradingIntent | null;
     canonicalIntent: CanonicalIntent | null;
-    querySignals: QuerySignals;
-    searchMode: SearchMode;
-    preferXNativeSearch: boolean;
-    explicitlyMentionsFarcaster: boolean;
-    explicitRiskRequest: boolean;
-    asksWalletPnl: boolean;
-    hasRequestedToken: boolean;
-    selectedSkills: string[];
 }): IntentEnvelope {
-    // CONTEXT MEMORY
-    // Updated: 2026-04-20
-    // Status: verified
-    // Why: TASK_MENU routing makes the main model own task selection, so this
-    // function must stop fabricating a business intent for unresolved turns.
-    // Debug Goal: unresolved model-led turns keep backend safety/search gates
-    // without claiming `general_answer` as if the backend had classified them.
-    // Search Tags: model selected task menu unresolved intent envelope general_answer fallback
-    // Invariants:
-    // - Canonical intents and explicit mutation/search routes still map to concrete envelopes.
-    // - Catch-all fallback must stay neutral and preserve model-owned task choice.
-    // Failure Modes:
-    // - A generic fallback reappears and overrides model task selection.
-    // - Prompt/context layers silently coerce unresolved turns back to general_answer.
-    const {
-        snapshot,
-        tradingIntent,
-        canonicalIntent,
-        querySignals,
-        searchMode,
-        preferXNativeSearch,
-        explicitlyMentionsFarcaster,
-        explicitRiskRequest,
-        asksWalletPnl,
-        hasRequestedToken,
-        selectedSkills,
-    } = params;
+    const { canonicalIntent } = params;
 
     if (canonicalIntent) {
         const canonicalPrimary = (() => {
@@ -793,6 +830,12 @@ function buildIntentEnvelope(params: {
                     return canonicalIntent.taskMode === 'analyze'
                         ? 'meta_debug' as const
                         : 'general_answer' as const;
+                case 'general_answer':
+                    return 'general_answer' as const;
+                case 'image_generation':
+                    return 'image_generation' as const;
+                case 'image_prompting':
+                    return 'image_prompting' as const;
                 case 'copy_trade':
                     return 'copytrade_execution' as const;
                 case 'clanker_deploy':
@@ -842,123 +885,10 @@ function buildIntentEnvelope(params: {
         };
     }
 
-    if (tradingIntent?.type === 'copy_trade') {
-        return {
-            primary_intent: 'copytrade_execution',
-            task_mode: tradingIntent.kind === 'trade_confirmation' ? 'confirm' : 'execute',
-            search_mode: searchMode,
-            search_target: 'none',
-            domain: 'wallet',
-            execution_risk: 'mutation',
-            required_evidence: [],
-        };
-    }
-    if (tradingIntent?.type === 'swap' || tradingIntent?.type === 'cross_chain_trade') {
-        return {
-            primary_intent: 'swap_execution',
-            task_mode: tradingIntent.kind === 'trade_confirmation' ? 'confirm' : 'execute',
-            search_mode: searchMode,
-            search_target: 'none',
-            domain: hasRequestedToken ? 'token' : 'general',
-            execution_risk: 'mutation',
-            required_evidence: [],
-        };
-    }
-    if (querySignals.clankerDeploy) {
-        return {
-            primary_intent: 'token_deploy',
-            task_mode: 'execute',
-            search_mode: searchMode,
-            search_target: 'none',
-            domain: 'token',
-            execution_risk: 'mutation',
-            required_evidence: [],
-        };
-    }
-    const rawQuery = String(snapshot.lastUserMessage || '');
-    const selectedSet = new Set(selectedSkills);
-    if (selectedSet.has('swap') && querySignals.swap && EXPLICIT_TRADE_ACTION_QUERY_RE.test(rawQuery)) {
-        return {
-            primary_intent: 'swap_execution',
-            task_mode: 'execute',
-            search_mode: searchMode,
-            search_target: 'none',
-            domain: hasRequestedToken ? 'token' : 'general',
-            execution_risk: 'mutation',
-            required_evidence: [],
-        };
-    }
-    if (selectedSet.has('copy_trade') && querySignals.copyTrade) {
-        return {
-            primary_intent: 'copytrade_execution',
-            task_mode: 'execute',
-            search_mode: searchMode,
-            search_target: 'none',
-            domain: 'wallet',
-            execution_risk: 'mutation',
-            required_evidence: [],
-        };
-    }
-    if (selectedSet.has('wallet_portfolio') && (querySignals.wallet || asksWalletPnl)) {
-        return {
-            primary_intent: 'wallet_analysis',
-            task_mode: 'analyze',
-            search_mode: searchMode,
-            search_target: 'none',
-            domain: 'wallet',
-            execution_risk: 'read_only',
-            required_evidence: ['onchain_wallet_evidence'],
-        };
-    }
-    if (selectedSet.has('token_analysis') && (hasRequestedToken || querySignals.tokenAnalysis)) {
-        return {
-            primary_intent: explicitRiskRequest ? 'token_risk' : 'token_analysis',
-            task_mode: 'analyze',
-            search_mode: searchMode,
-            search_target: 'none',
-            domain: 'token',
-            execution_risk: 'read_only',
-            required_evidence: ['onchain_token_evidence'],
-        };
-    }
-    if (selectedSet.has('polymarket_prediction') || querySignals.prediction) {
-        return {
-            primary_intent: 'polymarket_discovery',
-            task_mode: 'discover',
-            search_mode: searchMode,
-            search_target: searchMode === 'forbidden' ? 'none' : 'web',
-            domain: 'polymarket',
-            execution_risk: 'read_only',
-            required_evidence: searchMode === 'forbidden' ? [] : ['native_search_results'],
-        };
-    }
-    if (selectedSet.has('social_farcaster') || querySignals.social) {
-        return {
-            primary_intent: 'social_discovery',
-            task_mode: 'discover',
-            search_mode: searchMode,
-            search_target: preferXNativeSearch ? 'x' : searchMode === 'forbidden' ? 'none' : 'x_and_web',
-            domain: explicitlyMentionsFarcaster ? 'farcaster' : querySignals.xSearch ? 'x' : 'general',
-            execution_risk: 'read_only',
-            required_evidence: searchMode === 'forbidden' ? [] : ['native_search_results'],
-        };
-    }
-    if (selectedSet.has('market_macro') || searchMode === 'required') {
-        return {
-            primary_intent: 'search_discovery',
-            task_mode: 'discover',
-            search_mode: searchMode,
-            search_target: querySignals.xSearch ? 'x' : querySignals.webSearch ? 'web' : searchMode === 'forbidden' ? 'none' : 'web',
-            domain: querySignals.market ? 'market' : 'general',
-            execution_risk: 'read_only',
-            required_evidence: searchMode === 'forbidden' ? [] : ['native_search_results'],
-        };
-    }
-
     return {
-        primary_intent: 'model_selected_task_menu',
+        primary_intent: 'general_answer',
         task_mode: 'discover',
-        search_mode: searchMode,
+        search_mode: 'forbidden',
         search_target: 'none',
         domain: 'general',
         execution_risk: 'read_only',
@@ -968,11 +898,10 @@ function buildIntentEnvelope(params: {
 
 function buildContextContract(params: {
     snapshot: ChatContextSnapshot;
-    tradingIntent: TradingIntent | null;
     intentEnvelope: IntentEnvelope;
     querySignals: QuerySignals;
 }): ChatContextContract {
-    const { snapshot, tradingIntent, intentEnvelope, querySignals } = params;
+    const { snapshot, intentEnvelope, querySignals } = params;
     const required = new Set<ChatContextBlockName>();
     const optional = new Set<ChatContextBlockName>();
     const hasSocialInput = Boolean(snapshot.runtime?.socialInput);
@@ -1004,8 +933,15 @@ function buildContextContract(params: {
         required.add('user_settings');
     }
 
+    if (needsImagePromptPlaybook) {
+        required.add('skill_prompts');
+    }
+
     if (intentEnvelope.primary_intent === 'wallet_analysis') {
         required.add('wallet_state');
+    }
+    if (intentEnvelope.primary_intent === 'image_generation' || intentEnvelope.primary_intent === 'image_prompting') {
+        optional.add('social_images');
     }
     if (intentEnvelope.primary_intent === 'token_analysis' || intentEnvelope.primary_intent === 'token_risk') {
         required.add('token_context');
@@ -1088,7 +1024,6 @@ function buildToolPhasePolicy(
     snapshot: ChatContextSnapshot,
     tradingIntent: TradingIntent | null,
     intentEnvelope: IntentEnvelope,
-    hasCanonicalIntent: boolean,
 ): ToolPhasePolicy {
     const supportsNativeSearch = String(snapshot.model || '').toLowerCase().includes('grok');
     const confirmationKind = String(snapshot.confirmationState?.kind || '');
@@ -1163,12 +1098,12 @@ function requiresPostSearchLocalAnalysis(intentEnvelope: IntentEnvelope): boolea
 
 function describePhasePolicy(toolPhasePolicy: ToolPhasePolicy): string {
     if (toolPhasePolicy.initialPhase === 'native_search_only') {
-        return `Model chooses one or more tasks from TASK_MENU. Backend safety phase: start with provider-native search only, then move to ${toolPhasePolicy.nextPhaseAfterNativeSearch || 'final answer'} once evidence is gathered.`;
+        return `Current tool package starts in provider-native search only, then moves to ${toolPhasePolicy.nextPhaseAfterNativeSearch || 'final answer'} once the required evidence is gathered.`;
     }
     if (toolPhasePolicy.initialPhase === 'execution') {
-        return 'Model chooses one or more tasks from TASK_MENU. Backend safety phase: execution is allowed only for the approved mutation tools in this turn.';
+        return 'Current tool package is in execution mode. Only the approved mutation tools for this canonical intent are allowed in this turn.';
     }
-    return 'Model chooses one or more tasks from TASK_MENU. Backend safety phase: start with local analysis tools; search stays gated by the phase policy.';
+    return 'Current tool package starts with local analysis tools. Search remains gated by the phase policy.';
 }
 
 function shouldPreferLocalTokenLeaderboard(snapshot: ChatContextSnapshot, intentEnvelope: IntentEnvelope): boolean {

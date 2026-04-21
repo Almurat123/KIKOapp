@@ -19,6 +19,11 @@
 //         was treated as prompt-help intent too. Production Farcaster review
 //         then showed English "picture" wording could miss the generated-image
 //         skill even when the request was a concrete visual deliverable.
+//         Another runtime trace on 2026-04-21 showed multiline social prompts
+//         and reference-image edit wording such as "put X on Y" could still
+//         miss image-generation routing, which left the model with no image
+//         tool and caused it to answer with a packaged prompt instead of
+//         executing the image tool.
 // Goal: keep Clanker launch, history, and reward queries routed to the
 //       dedicated Clanker skill so the model sees the launch prompt before it
 //       attempts deployment, and expose the generated-image skill only on real
@@ -37,6 +42,9 @@
 // - Image prompt coaching should route to a dedicated prompt skill, not to the image tool.
 // - Real image requests may load both the image-generation skill and the image-prompt guidance skill.
 // - Chinese edit-prompt wording such as 改图/修图/图像编辑提示词 should count as image prompt coaching.
+// - Multiline visual briefs should be normalized before image regex matching.
+// - Reference-image edit requests like "put X on Y" should expose the image
+//   tool when current-turn image context or explicit image-model preference exists.
 // Document Provenance:
 // - Source: Clanker Documentation, Deploy Token (v4.0.0)
 // - Kind: official API doc
@@ -84,6 +92,13 @@
 // - Retrieved: 2026-04-21
 // - Applied To: routing concrete English picture-generation asks to image_generation
 // - Verification: verified in targeted tests
+// - Source: production runtime log /Users/almurat/Downloads/logs.1776781337663.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-21
+// - Applied To: normalizing multiline social prompts and exposing image-generation
+//   on reference-image edit wording so the model calls the image tool instead
+//   of replying with a rewritten prompt
+// - Verification: verified in runtime log and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/image-prompt-guidance.md
@@ -211,14 +226,42 @@ const INTENT_SIGNAL_MAP: Record<NormalizedIntent, keyof QuerySignals> = {
 
 const CLANKER_DEPLOY_QUERY_RE = /\bclanker\b|\b(?:deploy|launch|create|mint)\s+(?:a\s+)?(?:token|coin|memecoin)\b|\btoken\s+(?:deploy|launch|launchpad)\b|部署代币|上线代币|创建代币|发币|发行代币/i;
 const IMAGE_GENERATION_QUERY_RE = /\b(?:generate|create|make|design|draw|render|illustrate)\b.{0,40}\b(?:image|picture|poster|cover|illustration|thumbnail|banner|hero|visual|artwork|ad|creative|mockup|photo)\b|\b(?:image|picture|poster|cover|illustration|thumbnail|banner|hero|visual|artwork|ad|creative|mockup|photo)\b.{0,40}\b(?:generate|create|make|design|draw|render)\b|(?:做|生成|画|设计)(?:一张|一个|个)?[^。！？\n]{0,40}(?:图|图片|海报|封面|插画|配图|宣传图|视觉稿)/i;
+const IMAGE_VISUAL_ACTION_RE = /\b(?:generate|create|make|design|draw|render|illustrate|edit|restyle|transform|photoshop|composite|remix|reimagine|replace|remove|erase|extend|inpaint|outpaint|place|put|turn)\b|(?:做|生成|画|设计|改|修|编辑|重绘|扩图|补图|抠掉|去掉|替换|换成|放到|放在|合成|变成|做成)/i;
+const IMAGE_VISUAL_NOUN_RE = /\b(?:image|picture|poster|cover|illustration|thumbnail|banner|hero|visual|artwork|ad|creative|mockup|photo|photograph|wallpaper|portrait|scene|shot)\b|(?:图|图片|海报|封面|插画|配图|宣传图|视觉稿|壁纸|头像|照片|场景图)/i;
+const IMAGE_REFERENCE_EDIT_QUERY_RE = /\b(?:edit|restyle|transform|replace|remove|erase|extend|inpaint|outpaint|photoshop|composite|place|put)\b|\bturn\b.{0,32}\binto\b|\bmake\b.{0,32}\blook\b|(?:改图|修图|修照片|改照片|图像编辑|图片编辑|替换背景|去掉背景|换背景|扩图|补图|抠图|把.+变成|把.+放到)/i;
 const IMAGE_PROMPT_ADVICE_QUERY_RE = /\b(?:prompt|prompts|image prompt)\b.{0,32}\b(?:how|write|writing|improve|optimi[sz]e|tutorial|guide|better)\b|\b(?:how|write|writing|improve|optimi[sz]e)\b.{0,32}\b(?:prompt|image prompt)\b|(?:图片|出图|海报|封面|插画|视觉稿)?提示词.{0,24}(?:怎么写|教程|优化|写法|模板|指南)|(?:怎么写|优化|改写).{0,24}(?:图片|出图|海报|封面|插画|视觉稿)?提示词|给我(?:写|改写|优化)一个(?:图片|出图|海报|封面|插画|视觉稿)?提示词|(?:改图|修图|改图片|修图片|改照片|修照片|图像编辑|图片编辑).{0,24}(?:提示词|prompt)|(?:帮我|给我|告诉我)(?:写|改写|优化).{0,24}(?:改图|修图|图像编辑).{0,12}(?:提示词|prompt)/i;
 
-function detectImageGenerationSignal(query: string): boolean {
-    return IMAGE_GENERATION_QUERY_RE.test(query) && !IMAGE_PROMPT_ADVICE_QUERY_RE.test(query);
+function normalizeQueryForIntentMatching(query: string): string {
+    return String(query || '').replace(/\s+/g, ' ').trim();
 }
 
-function detectImagePromptingSignal(query: string): boolean {
-    return detectImageGenerationSignal(query) || IMAGE_PROMPT_ADVICE_QUERY_RE.test(query);
+function hasImageExecutionContext(snapshot: ChatContextSnapshot): boolean {
+    const runtime = snapshot.runtime as any;
+    const socialImageCount = Array.isArray(snapshot.runtime?.socialInput?.images)
+        ? snapshot.runtime.socialInput.images.length
+        : 0;
+    const preferredGeneratedImageModel = String(
+        runtime?.generatedImagePreference?.model
+        || runtime?.toolContext?.generatedImagePreference?.model
+        || '',
+    ).trim().toLowerCase();
+    return socialImageCount > 0 || preferredGeneratedImageModel.includes('image');
+}
+
+function detectImageGenerationSignal(query: string, snapshot: ChatContextSnapshot): boolean {
+    const normalizedQuery = normalizeQueryForIntentMatching(query);
+    if (!normalizedQuery) return false;
+    if (IMAGE_PROMPT_ADVICE_QUERY_RE.test(normalizedQuery)) return false;
+
+    const explicitVisualDeliverable = IMAGE_GENERATION_QUERY_RE.test(normalizedQuery)
+        || (IMAGE_VISUAL_ACTION_RE.test(normalizedQuery) && IMAGE_VISUAL_NOUN_RE.test(normalizedQuery));
+    const referenceImageEdit = hasImageExecutionContext(snapshot) && IMAGE_REFERENCE_EDIT_QUERY_RE.test(normalizedQuery);
+    return explicitVisualDeliverable || referenceImageEdit;
+}
+
+function detectImagePromptingSignal(query: string, snapshot: ChatContextSnapshot): boolean {
+    const normalizedQuery = normalizeQueryForIntentMatching(query);
+    return detectImageGenerationSignal(normalizedQuery, snapshot) || IMAGE_PROMPT_ADVICE_QUERY_RE.test(normalizedQuery);
 }
 
 export function matchSkillsForQuery(params: {
@@ -394,8 +437,8 @@ export function detectQuerySignals(query: string, snapshot: ChatContextSnapshot,
     const welcomeQuery = !tradingIntent
         && !hasRequestedToken
         && (GREETING_QUERY_RE.test(query) || PLATFORM_ONBOARDING_QUERY_RE.test(query));
-    const imageGeneration = detectImageGenerationSignal(query);
-    const imagePrompting = detectImagePromptingSignal(query);
+    const imageGeneration = detectImageGenerationSignal(query, snapshot);
+    const imagePrompting = detectImagePromptingSignal(query, snapshot);
 
     return {
         welcome: welcomeQuery,
@@ -445,8 +488,8 @@ function deriveQuerySignalsFromCanonicalIntent(
             )
         );
     const requiredEvidence = new Set(canonicalIntent.evidenceRequirements || []);
-    const imageGeneration = detectImageGenerationSignal(query);
-    const imagePrompting = detectImagePromptingSignal(query);
+    const imageGeneration = detectImageGenerationSignal(query, snapshot);
+    const imagePrompting = detectImagePromptingSignal(query, snapshot);
 
     return {
         welcome: isAssistantMeta && canonicalIntent.taskMode === 'discover',

@@ -87,6 +87,14 @@ type RequiredContextTrace = {
     missing_tools: string[];
 };
 
+type IntentSelectionTrace = {
+    round: number;
+    model: string;
+    canonical_intent: string | null;
+    task_mode: string | null;
+    tool_package_source: 'canonical_intent' | 'none';
+};
+
 const TRACE_ENABLED = String(process.env.CHAT_AI_TRACE_LOGS || 'true').trim().toLowerCase() !== 'false';
 
 export class ChatAiTraceLogger {
@@ -94,6 +102,7 @@ export class ChatAiTraceLogger {
     private readonly rounds: GenerationRoundTrace[] = [];
     private readonly tools: ToolTrace[] = [];
     private readonly requiredContextEnforcements: RequiredContextTrace[] = [];
+    private readonly intentSelections: IntentSelectionTrace[] = [];
     private providerNativeEvidenceCount = 0;
     private status: TraceStatus = 'completed';
     private terminalReason: string | undefined;
@@ -110,6 +119,21 @@ export class ChatAiTraceLogger {
         this.skillResolution = skillResolution;
         this.contextContract = skillResolution.contextContract || null;
         this.intentEnvelope = skillResolution.intentEnvelope || null;
+    }
+
+    recordCanonicalIntentSelection(args: {
+        round: number;
+        canonicalIntent: ChatContextSnapshot['normalizedIntent'] | null | undefined;
+        model?: string | null;
+        toolPackageSource: 'canonical_intent' | 'none';
+    }) {
+        this.intentSelections.push({
+            round: args.round,
+            model: String(args.model || this.snapshot.model || '').trim(),
+            canonical_intent: args.canonicalIntent?.intent || null,
+            task_mode: args.canonicalIntent?.taskMode || null,
+            tool_package_source: args.toolPackageSource,
+        });
     }
 
     recordRoundStart(args: {
@@ -281,6 +305,11 @@ export class ChatAiTraceLogger {
                     search_mode: this.intentEnvelope.search_mode,
                 }
                 : null,
+            intentSelectionModel: this.intentSelections.at(-1)?.model || this.snapshot.model,
+            canonicalIntent: this.intentSelections.at(-1)?.canonical_intent || this.snapshot.normalizedIntent?.intent || null,
+            canonicalIntentRound: this.intentSelections.at(-1)?.round || null,
+            toolPackageSource: this.intentSelections.at(-1)?.tool_package_source || this.skillResolution?.toolPackageSource || 'none',
+            intentSelections: this.intentSelections,
             contextContract: this.contextContract
                 ? {
                     mode: this.contextContract.mode,

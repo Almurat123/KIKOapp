@@ -1,70 +1,20 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-18
-// Author: Renata
-// Reason: LLM canonical-intent wallet entities can drift from the user's
-//         literal wallet string and must not be treated as authoritative when
-//         malformed. A later runtime review showed that obvious non-chain turns
-//         must be able to bypass canonical normalization without losing an
-//         explicit owner-visible state marker. Clanker launch requests now need
-//         a first-class canonical intent so deploy turns do not collapse back
-//         into generic token analysis or free-form clarification. Product owner
-//         correction on 2026-04-18 moved default task selection to the main
-//         model, so canonical normalization state also needs an explicit
-//         `model_selected_task_menu` bypass marker. A later runtime correction
-//         removed backend-authored clarification copy so canonical intent stays
-//         structured state only, not a source of worker-written user replies.
-// Goal: keep canonical intent normalization usable while filtering malformed
-//       wallet entities out of downstream execution paths, and preserve
-//       deterministic bypass state for non-chain turns that must not re-enter
-//       the JSON normalizer, while carrying token-deploy execution intent as
-//       structured runtime state.
-// Owns: canonical intent schema validation and entity normalization for chat.
-// Does Not Own: exact wallet extraction from the user's literal message or
-//               final copy-trade tool argument repair.
-// Design Language:
+// Updated: 2026-04-21
+// Status: mixed
+// Why: chat v2 now selects one canonical intent with the current session model
+// before backend tool exposure. The schema must therefore cover plain direct
+// answers and image work instead of relying on resolver-side query matching to
+// invent those routes later.
+// Debug Goal: keep canonical intent validation strict while allowing runtime to
+// map one model-chosen intent to one tool package per round.
+// Search Tags: model first intent selection canonical general answer image generation image prompting
+// Invariants:
 // - malformed wallet entities from LLM normalization are discarded
 // - canonical intent may enrich context, but must not invent wallet identity
-// - do not let invalid wallet entities outrank exact addresses extracted elsewhere
-// - deterministic normalization bypass must be explicit state, not hidden worker memory
-// - Clanker launch/deploy turns are canonical `clanker_deploy`, not generic token analysis
-// - model-selected task-menu bypass means no backend canonical intent was chosen for the user-facing turn
-// - canonical normalization may request clarification as state, but backend-authored clarification prose is forbidden
-// Document Provenance:
-// - Source: chat transcript + runtime logs + production database inspection for BSC copy-trade target wallets
-// - Kind: runtime observation
-// - Retrieved: 2026-04-13
-// - Applied To: filtering invalid wallet entities before copy-trade target resolution
-// - Verification: verified in code review and unit tests
-// - Source: /Users/almurat/KiKo/test.txt
-// - Kind: runtime observation
-// - Retrieved: 2026-04-16
-// - Applied To: representing deterministic non-chain normalization bypass state
-// - Verification: verified in runtime and applied in code
-// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
-// - Kind: repo doc
-// - Retrieved: 2026-04-17
-// - Applied To: first-class `clanker_deploy` canonical intent
-// - Verification: verified in code and targeted tests
-// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-model-selected-task-menu.md
-// - Kind: repo doc
-// - Retrieved: 2026-04-18
-// - Applied To: `model_selected_task_menu` deterministic bypass marker
-// - Verification: verified in code and targeted tests
-// - Source: /Users/almurat/Downloads/logs.1776445174160.json
-// - Kind: runtime observation
-// - Retrieved: 2026-04-18
-// - Applied To: removing backend-authored canonical clarification reply text
-// - Verification: verified in runtime and then removed in code
-// See also:
-// - /Users/almurat/KiKo/system-journal/INDEX.md
-// - /Users/almurat/KiKo/system-journal/design-language/copytrade-race-recovery.md
-// - /Users/almurat/KiKo/system-journal/owner-map/copytrade-buy-confirmation.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-13-copytrade-wallet-entity-hardening.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-non-chain-normalization-bypass.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-model-selected-task-menu.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-hardcoded-reply-path-removal.md
-// - /Users/almurat/KiKo/system-journal/conflicts.md
+// - canonical schema must represent direct-answer and image-routing turns
+// Failure Modes:
+// - runtime falls back to legacy matcher because canonical schema cannot represent the turn
+// - invalid wallet entities outrank exact addresses extracted elsewhere
 import type { ChatContextSnapshot } from './contracts.js';
 import { resolveBinaryLocale } from './runtimeLocale.js';
 import { isStrictWalletAddress } from '../../utils/validation.js';
@@ -82,6 +32,9 @@ export type CanonicalDomain =
 
 export type CanonicalIntentName =
     | 'assistant_meta'
+    | 'general_answer'
+    | 'image_generation'
+    | 'image_prompting'
     | 'swap'
     | 'cross_chain_swap'
     | 'copy_trade'
@@ -185,6 +138,9 @@ const DOMAIN_VALUES = new Set<CanonicalDomain>([
 
 const INTENT_VALUES = new Set<CanonicalIntentName>([
     'assistant_meta',
+    'general_answer',
+    'image_generation',
+    'image_prompting',
     'swap',
     'cross_chain_swap',
     'copy_trade',

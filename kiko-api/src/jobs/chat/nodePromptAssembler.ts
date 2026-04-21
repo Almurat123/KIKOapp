@@ -325,11 +325,12 @@ const WORKER_PROTOCOL_PROMPT = [
 
 const MODEL_LED_TOOL_ORCHESTRATION_PROMPT = [
   "[MODEL_LED_TOOL_ORCHESTRATION]",
-  "- You decide whether to answer directly or call tools. Do not wait for backend intent labels.",
-  "- All registered tools may be visible, but visibility is not permission. Backend policy, quota, safety, and confirmation gates still decide whether side effects can execute.",
+  "- A canonical intent has already been selected for this round. Use the current intent and tool package to decide whether to answer directly or call tools.",
+  "- Visible tools belong to the current canonical-intent package. Backend policy, quota, safety, and confirmation gates still decide whether side effects can execute.",
   "- Use tools when the user asks for live/current facts, private wallet/runtime state, execution preparation, image generation/editing, or another action that cannot be honestly completed from conversation alone.",
   "- Do not call tools for ordinary explanation, brainstorming, prompt-writing advice, translation, or casual chat unless the user explicitly asks for runtime evidence or an action.",
   "- For image creation or editing requests, call generate_image_from_intent directly when the visual request is clear enough. The image tool owns prompt optimization and generated-image task execution.",
+  "- If the user is clearly asking to generate or edit an image now and generate_image_from_intent is visible, do not reply with a standalone optimized prompt draft. Send the packaged prompt through the image tool instead. Only return prompt text when the user explicitly asks for prompt/advice/template help.",
   "- If a tool request is ambiguous, ask one precise clarification. Do not add a confirmation step before generation or read-only tool use unless the missing field is truly necessary.",
   "- For mutation tools, prepare or execute only within returned tool contracts and explicit user confirmation. Never bypass backend policy by describing an action as completed.",
 ].join("\n");
@@ -709,8 +710,7 @@ function buildFallbackContextContract(
     String(snapshot.runtime?.pageContext || "").toLowerCase() ===
       "farcaster_agent",
   );
-  const primaryIntent =
-    intentEnvelope?.primary_intent || "model_selected_task_menu";
+  const primaryIntent = intentEnvelope?.primary_intent || "general_answer";
   const domain = intentEnvelope?.domain || "general";
   const executionRisk = intentEnvelope?.execution_risk || "read_only";
   const required = new Set<ChatContextBlockName>();
@@ -718,8 +718,7 @@ function buildFallbackContextContract(
 
   let mode: ChatContextContract["mode"] = "analysis";
   if (
-    (primaryIntent === "general_answer" ||
-      primaryIntent === "model_selected_task_menu") &&
+    primaryIntent === "general_answer" &&
     !hasTaskSignals &&
     !hasSocialInput
   ) {
@@ -804,6 +803,25 @@ function buildContextCatalogBlock(): string {
     );
   }
   return lines.join("\n");
+}
+
+function buildCanonicalIntentBlock(snapshot: ChatContextSnapshot): string {
+  const canonicalIntent = snapshot.normalizedIntent;
+  if (!canonicalIntent) {
+    return [
+      "[CANONICAL_INTENT]",
+      "- selected: unavailable",
+      "- tool_package_source: none",
+    ].join("\n");
+  }
+  return [
+    "[CANONICAL_INTENT]",
+    `- selected: ${canonicalIntent.intent}`,
+    `- domain: ${canonicalIntent.domain}`,
+    `- task_mode: ${canonicalIntent.taskMode}`,
+    `- search_mode: ${canonicalIntent.searchMode}`,
+    "- tool_package_source: canonical_intent",
+  ].join("\n");
 }
 
 function buildContextContractBlock(contract: ChatContextContract): string {
@@ -944,7 +962,6 @@ function isLeanDirectAnswerTurn(guidance?: {
   const primaryIntent = guidance?.intentEnvelope?.primary_intent;
   if (
     primaryIntent !== "general_answer" &&
-    primaryIntent !== "model_selected_task_menu" &&
     primaryIntent !== "meta_debug"
   ) {
     return false;
@@ -1068,6 +1085,7 @@ export function assembleGenerationMessages(
   }
   const contextTextParts: string[] = modelLedTools
     ? [
+        buildCanonicalIntentBlock(snapshot),
         buildContextCatalogBlock(),
         buildContextContractBlock(contextContract),
       ]
@@ -1143,7 +1161,7 @@ function buildToolGuidanceBlock(guidance?: {
       );
     } else {
       lines.push(
-        "- Only the matched business tools and explicit context-read tools are available on this turn.",
+        "- Only the current canonical-intent tool package and explicit context-read tools are available on this turn.",
       );
     }
     lines.push(

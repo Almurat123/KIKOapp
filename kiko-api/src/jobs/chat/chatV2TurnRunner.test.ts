@@ -89,7 +89,7 @@ test('runChatV2Turn reuses a pre-normalized snapshot without issuing a normalize
         normalizedIntent: {
             domain: 'general',
             intent: 'general_answer',
-            taskMode: 'answer',
+            taskMode: 'discover',
             outputMode: 'narrative',
             searchMode: 'forbidden',
             searchTarget: 'none',
@@ -137,12 +137,49 @@ test('runChatV2Turn reuses a pre-normalized snapshot without issuing a normalize
     assert.equal(String(result.snapshot.conversationActionState?.pendingAction || 'none'), 'none');
 });
 
-test('runChatV2Turn defaults unnormalized turns to model-led tool orchestration instead of normalize call', async () => {
+test('runChatV2Turn normalizes unnormalized turns with the same session model before orchestration', async () => {
     const taskIds: string[] = [];
     const userContents: string[] = [];
     const generationClient = {
         async generate(params: { taskId: string; messages?: Array<{ role: string; content: any }>; onTextDelta: (text: string) => Promise<void> }) {
             taskIds.push(params.taskId);
+            if (params.taskId.endsWith(':normalize')) {
+                return {
+                    toolCalls: [],
+                    text: JSON.stringify({
+                        domain: 'token',
+                        intent: 'swap',
+                        task_mode: 'execute',
+                        output_mode: 'execution_ready',
+                        search_mode: 'forbidden',
+                        search_target: 'none',
+                        confidence: 0.94,
+                        explanation: 'The user wants to prepare a swap.',
+                        entities: {
+                            token_addresses: [],
+                            token_symbols: ['CAKE', 'BNB'],
+                            wallet_addresses: [],
+                            market_identifiers: [],
+                        },
+                        requested_chain: {
+                            chain_id: 56,
+                            chain_name: 'BNB Chain',
+                        },
+                        requested_time_window: null,
+                        evidence_requirements: [],
+                        requires_realtime: false,
+                        requires_onchain_evidence: false,
+                        execution_candidate: true,
+                        inherit_entities_from_context: false,
+                        row_count: null,
+                        locale: 'en',
+                        needs_clarification: false,
+                        clarification_question: null,
+                    }),
+                    reasoning: '',
+                    citations: [],
+                };
+            }
             const userMessage = (params.messages || []).find((message) => message.role === 'user');
             userContents.push(typeof userMessage?.content === 'string' ? userMessage.content : JSON.stringify(userMessage?.content || ''));
             await params.onTextDelta('I can prepare a CAKE quote on BNB when the required trade details are available.');
@@ -173,12 +210,12 @@ test('runChatV2Turn defaults unnormalized turns to model-led tool orchestration 
         toolExecutionEngine: {} as any,
     });
 
-    assert.equal(taskIds.includes('task-runner:normalize'), false);
+    assert.equal(taskIds.includes('task-runner:normalize'), true);
     assert.ok(taskIds.includes('task-runner'));
-    assert.equal(result.snapshot.normalizedIntent, null);
-    assert.equal(result.snapshot.normalizationState?.bypassKind, 'model_selected_task_menu');
-    assert.match(String(result.snapshot.normalizationState?.rawText || ''), /one_or_more/);
+    assert.equal(result.snapshot.normalizedIntent?.intent, 'swap');
+    assert.equal(result.snapshot.normalizationState?.status, 'ok');
     assert.ok(userContents.every((content) => !/\[TASK_MENU\]/.test(content)));
+    assert.ok(userContents.some((content) => /\[CANONICAL_INTENT\]/.test(content)));
     assert.ok(userContents.some((content) => /\[CONTEXT_CATALOG\]/.test(content)));
     assert.ok(userContents.some((content) => /\[TOOL_CONTEXT\]/.test(content)));
     assert.match(broker.getContent(), /CAKE quote/);
@@ -189,6 +226,40 @@ test('runChatV2Turn sends bare greetings through the main model instead of a dir
     const generationClient = {
         async generate(params: { taskId: string; messages?: Array<{ role: string; content: any }>; onTextDelta: (text: string) => Promise<void> }) {
             taskIds.push(params.taskId);
+            if (params.taskId.endsWith(':normalize')) {
+                return {
+                    toolCalls: [],
+                    text: JSON.stringify({
+                        domain: 'assistant_meta',
+                        intent: 'assistant_meta',
+                        task_mode: 'discover',
+                        output_mode: 'narrative',
+                        search_mode: 'forbidden',
+                        search_target: 'none',
+                        confidence: 0.98,
+                        explanation: 'Greeting and assistant introduction turn.',
+                        entities: {
+                            token_addresses: [],
+                            token_symbols: [],
+                            wallet_addresses: [],
+                            market_identifiers: [],
+                        },
+                        requested_chain: null,
+                        requested_time_window: null,
+                        evidence_requirements: [],
+                        requires_realtime: false,
+                        requires_onchain_evidence: false,
+                        execution_candidate: false,
+                        inherit_entities_from_context: false,
+                        row_count: null,
+                        locale: 'zh',
+                        needs_clarification: false,
+                        clarification_question: null,
+                    }),
+                    reasoning: '',
+                    citations: [],
+                };
+            }
             await params.onTextDelta('你好，有什么我可以帮你分析的？');
             return {
                 toolCalls: [],
@@ -215,9 +286,10 @@ test('runChatV2Turn sends bare greetings through the main model instead of a dir
         toolExecutionEngine: {} as any,
     });
 
-    assert.equal(taskIds.includes('task-runner:normalize'), false);
+    assert.equal(taskIds.includes('task-runner:normalize'), true);
     assert.ok(taskIds.includes('task-runner'));
     assert.equal(result.terminal, false);
+    assert.equal(result.snapshot.normalizedIntent?.intent, 'assistant_meta');
     assert.equal(broker.getContent(), '你好，有什么我可以帮你分析的？');
     assert.doesNotMatch(broker.getContent(), /我是 KiKo/);
 });
@@ -232,6 +304,40 @@ test('runChatV2Turn model-led mode exposes tools and skips synthetic plan cards 
             tools?: Array<{ function?: { name?: string } }>;
             onTextDelta: (text: string) => Promise<void>;
         }) {
+            if (params.taskId.endsWith(':normalize')) {
+                return {
+                    toolCalls: [],
+                    text: JSON.stringify({
+                        domain: 'general',
+                        intent: 'image_generation',
+                        task_mode: 'discover',
+                        output_mode: 'narrative',
+                        search_mode: 'forbidden',
+                        search_target: 'none',
+                        confidence: 0.97,
+                        explanation: 'The user wants an image generated now.',
+                        entities: {
+                            token_addresses: [],
+                            token_symbols: [],
+                            wallet_addresses: [],
+                            market_identifiers: [],
+                        },
+                        requested_chain: null,
+                        requested_time_window: null,
+                        evidence_requirements: [],
+                        requires_realtime: false,
+                        requires_onchain_evidence: false,
+                        execution_candidate: false,
+                        inherit_entities_from_context: false,
+                        row_count: null,
+                        locale: 'en',
+                        needs_clarification: false,
+                        clarification_question: null,
+                    }),
+                    reasoning: '',
+                    citations: [],
+                };
+            }
             const userMessage = (params.messages || []).find((message) => message.role === 'user');
             userContents.push(typeof userMessage?.content === 'string' ? userMessage.content : JSON.stringify(userMessage?.content || ''));
             toolNamesByRound.push((params.tools || []).map((tool) => String(tool.function?.name || '')).filter(Boolean));
@@ -268,8 +374,9 @@ test('runChatV2Turn model-led mode exposes tools and skips synthetic plan cards 
 
     assert.equal(result.terminal, false);
     assert.ok(toolNamesByRound.some((tools) => tools.includes('generate_image_from_intent')));
-    assert.ok(toolNamesByRound.some((tools) => tools.includes('prepare_swap_transaction')));
+    assert.ok(toolNamesByRound.every((tools) => !tools.includes('prepare_swap_transaction')));
     assert.ok(userContents.every((content) => !/\[TASK_MENU\]/.test(content)));
+    assert.ok(userContents.some((content) => /\[CANONICAL_INTENT\]/.test(content)));
     assert.ok(userContents.some((content) => /\[CONTEXT_CATALOG\]/.test(content)));
     assert.deepEqual(broker.getRuntimeActions().filter((action) => action === 'bootstrapRuntime' || action === 'applyModelPlan'), []);
 });

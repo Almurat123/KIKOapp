@@ -460,19 +460,19 @@ test('normalizeCanonicalIntent forwards requested address classifications to the
     assert.equal(result.snapshot.normalizedIntent?.intent, 'token_analysis');
 });
 
-test('resolveNormalizationModel prefers fast non-reasoning variants unless an override is configured', () => {
-    assert.equal(resolveNormalizationModel('grok-4-1-fast-reasoning'), 'grok-4-1-fast-non-reasoning');
+test('resolveNormalizationModel uses the active session model unchanged', () => {
+    assert.equal(resolveNormalizationModel('grok-4-1-fast-reasoning'), 'grok-4-1-fast-reasoning');
     assert.equal(resolveNormalizationModel('grok-4-1-fast-non-reasoning'), 'grok-4-1-fast-non-reasoning');
-    assert.equal(resolveNormalizationModel('kimi-k2-5-reasoning'), 'kimi-k2-5');
-    assert.equal(resolveNormalizationModel('moonshotai/kimi-k2.5-reasoning'), 'moonshotai/kimi-k2.5');
-    assert.equal(resolveNormalizationModel('glm-5'), 'kimi-k2-5-instant');
-    assert.equal(resolveNormalizationModel('glm-5-reasoning'), 'kimi-k2-5-instant');
-    assert.equal(resolveNormalizationModel('deepseek-reasoner'), 'deepseek-chat');
+    assert.equal(resolveNormalizationModel('kimi-k2-5-reasoning'), 'kimi-k2-5-reasoning');
+    assert.equal(resolveNormalizationModel('moonshotai/kimi-k2.5-reasoning'), 'moonshotai/kimi-k2.5-reasoning');
+    assert.equal(resolveNormalizationModel('glm-5'), 'glm-5');
+    assert.equal(resolveNormalizationModel('glm-5-reasoning'), 'glm-5-reasoning');
+    assert.equal(resolveNormalizationModel('deepseek-reasoner'), 'deepseek-reasoner');
     assert.equal(resolveNormalizationModel('deepseek-chat'), 'deepseek-chat');
     assert.equal(resolveNormalizationModel('gpt-5-mini'), 'gpt-5-mini');
 });
 
-test('normalizeCanonicalIntent fast-paths deterministic assistant intro without calling the model', async () => {
+test('normalizeCanonicalIntent sends greetings through the same-model canonical stage', async () => {
     let called = false;
     const snapshot = makeSnapshot('Hi, who are you?');
     snapshot.model = 'glm-5';
@@ -482,19 +482,49 @@ test('normalizeCanonicalIntent fast-paths deterministic assistant intro without 
         generationClient: {
             async generate() {
                 called = true;
-                throw new Error('model should not be called for deterministic assistant intro');
+                return {
+                    text: JSON.stringify({
+                        domain: 'assistant_meta',
+                        intent: 'assistant_meta',
+                        task_mode: 'discover',
+                        output_mode: 'narrative',
+                        search_mode: 'forbidden',
+                        search_target: 'none',
+                        confidence: 0.99,
+                        explanation: 'Greeting and introduction turn.',
+                        entities: {
+                            token_addresses: [],
+                            token_symbols: [],
+                            wallet_addresses: [],
+                            market_identifiers: [],
+                        },
+                        requested_chain: null,
+                        requested_time_window: null,
+                        evidence_requirements: [],
+                        requires_realtime: false,
+                        requires_onchain_evidence: false,
+                        execution_candidate: false,
+                        inherit_entities_from_context: false,
+                        row_count: null,
+                        locale: 'en',
+                        needs_clarification: false,
+                        clarification_question: null,
+                    }),
+                    reasoning: '',
+                    toolCalls: [],
+                };
             },
         } as any,
     });
 
-    assert.equal(called, false);
+    assert.equal(called, true);
     assert.equal(result.state.status, 'ok');
     assert.equal(result.snapshot.normalizedIntent?.domain, 'assistant_meta');
     assert.equal(result.snapshot.normalizedIntent?.intent, 'assistant_meta');
     assert.equal(result.snapshot.normalizedIntent?.searchMode, 'forbidden');
 });
 
-test('normalizeCanonicalIntent bypasses obvious non-chain questions without calling the model', async () => {
+test('normalizeCanonicalIntent sends ordinary non-chain questions through the same-model canonical stage', async () => {
     let called = false;
 
     const result = await normalizeCanonicalIntent({
@@ -502,16 +532,45 @@ test('normalizeCanonicalIntent bypasses obvious non-chain questions without call
         generationClient: {
             async generate() {
                 called = true;
-                throw new Error('model should not be called for obvious non-chain bypass');
+                return {
+                    text: JSON.stringify({
+                        domain: 'general',
+                        intent: 'general_answer',
+                        task_mode: 'discover',
+                        output_mode: 'narrative',
+                        search_mode: 'forbidden',
+                        search_target: 'none',
+                        confidence: 0.97,
+                        explanation: 'Ordinary general knowledge question.',
+                        entities: {
+                            token_addresses: [],
+                            token_symbols: [],
+                            wallet_addresses: [],
+                            market_identifiers: [],
+                        },
+                        requested_chain: null,
+                        requested_time_window: null,
+                        evidence_requirements: [],
+                        requires_realtime: false,
+                        requires_onchain_evidence: false,
+                        execution_candidate: false,
+                        inherit_entities_from_context: false,
+                        row_count: null,
+                        locale: 'zh',
+                        needs_clarification: false,
+                        clarification_question: null,
+                    }),
+                    reasoning: '',
+                    toolCalls: [],
+                };
             },
         } as any,
     });
 
-    assert.equal(called, false);
-    assert.equal(result.snapshot.normalizedIntent, null);
+    assert.equal(called, true);
     assert.equal(result.state.status, 'ok');
-    assert.equal(result.state.source, 'deterministic');
-    assert.equal(result.state.bypassKind, 'general_non_chain');
+    assert.equal(result.snapshot.normalizedIntent?.intent, 'general_answer');
+    assert.equal(result.snapshot.normalizedIntent?.domain, 'general');
 });
 
 test('normalizeCanonicalIntent still calls the model for token-domain queries', async () => {

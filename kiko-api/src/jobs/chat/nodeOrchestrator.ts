@@ -161,13 +161,13 @@
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { containsPseudoToolCallOutput, stripPseudoToolCallOutput } from '../../services/ai/promptLeakSanitizer.js';
-import type { ChatContextContract, ChatContextSnapshot, OrchestratorToolResult, ProviderNativeEvidenceSnapshot } from './contracts.js';
+import type { ChatContextContract, ChatContextSnapshot, ChatHistoryMessage, OrchestratorToolResult, ProviderNativeEvidenceSnapshot } from './contracts.js';
 import { CONTEXT_READ_TOOL_BY_BLOCK } from './contextReadTools.js';
 import { buildProviderOptions, normalizeOpenAIReasoningEffort, resolveProviderInfo } from './providerPolicyBuilder.js';
-import { resolveNodeSkills } from './nodeSkillResolver.js';
+import { resolveNodeSkills, type ToolPhase } from './nodeSkillResolver.js';
 import { assembleGenerationMessages, buildRoundToolPolicySystemMessage, sanitizeProviderHistory, type GenerationMessage } from './nodePromptAssembler.js';
 import { parseTradingIntent } from './tradingIntentResolver.js';
-import { checkToolAgainstPolicy, isProviderNativeTool, resolvePolicyToolBudget } from './controlPolicy.js';
+import { buildControlPolicySnapshot, checkToolAgainstPolicy, isProviderNativeTool, resolvePolicyToolBudget } from './controlPolicy.js';
 import type { ToolExecutionEngine } from './toolExecutionEngine.js';
 import type { ChatStreamBroker } from './streamBroker.js';
 import type { GenerationProviderState, PythonGenerationClient } from './pythonGenerationClient.js';
@@ -182,8 +182,6 @@ import {
 } from './taskPlanner.js';
 import { generateModelPlan } from './modelPlanGenerator.js';
 import {
-    buildNonChainNormalizationBypass,
-    isDeterministicNormalizationBypassState,
     normalizeCanonicalIntent,
 } from './canonicalIntentNormalizer.js';
 import type { CanonicalIntent } from './canonicalIntent.js';
@@ -288,28 +286,13 @@ export async function runNodeOrchestration(params: {
             await params.broker.bootstrapRuntime(buildWarmupPlan(params.snapshot.lastUserMessage));
         }
     let normalizedSnapshot = tryBuildFastLaneSwapIntent(params.snapshot).snapshot;
-    const preNormalizationTradingIntent = parseTradingIntent(
-        normalizedSnapshot.lastUserMessage,
-        normalizedSnapshot,
-        normalizedSnapshot.normalizedIntent,
-    );
     if (!normalizedSnapshot.normalizedIntent && !normalizedSnapshot.normalizationState) {
-        const deterministicBypass = buildNonChainNormalizationBypass(normalizedSnapshot, preNormalizationTradingIntent);
-        if (deterministicBypass) {
-            logger.info(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: skipped canonical normalization for deterministic non-chain turn', {
-                sessionId: normalizedSnapshot.sessionId,
-                taskId: normalizedSnapshot.taskId,
-                bypassKind: deterministicBypass.state.bypassKind,
-            });
-            normalizedSnapshot = applyConversationActionState(deterministicBypass.snapshot);
-        } else {
-            const normalization = await normalizeCanonicalIntent({
-                snapshot: normalizedSnapshot,
-                generationClient: params.generationClient,
-                shouldCancel: params.shouldCancel,
-            });
-            normalizedSnapshot = applyConversationActionState(normalization.snapshot);
-        }
+        const normalization = await normalizeCanonicalIntent({
+            snapshot: normalizedSnapshot,
+            generationClient: params.generationClient,
+            shouldCancel: params.shouldCancel,
+        });
+        normalizedSnapshot = applyConversationActionState(normalization.snapshot);
     }
     if (normalizedSnapshot.normalizedIntent && !normalizedSnapshot.conversationActionState) {
         normalizedSnapshot = applyConversationActionState(normalizedSnapshot);
@@ -323,13 +306,13 @@ export async function runNodeOrchestration(params: {
         chatAiTrace.emit();
         return { terminal: false };
     }
-    const tradingIntent = normalizedSnapshot.normalizedIntent
+    let tradingIntent = normalizedSnapshot.normalizedIntent
         ? parseTradingIntent(
             normalizedSnapshot.lastUserMessage,
             normalizedSnapshot,
             normalizedSnapshot.normalizedIntent,
         )
-        : preNormalizationTradingIntent;
+        : null;
     if (await tryRunFastSwapLane({
         snapshot: normalizedSnapshot,
         tradingIntent,
@@ -346,14 +329,20 @@ export async function runNodeOrchestration(params: {
         chatAiTrace.emit();
         return { terminal: false };
     }
-    const skillResolution = resolveNodeSkills(normalizedSnapshot, tradingIntent, normalizedSnapshot.normalizedIntent);
+    let skillResolution = resolveNodeSkills(normalizedSnapshot, tradingIntent, normalizedSnapshot.normalizedIntent);
     chatAiTrace.recordSkillResolution(skillResolution);
+    chatAiTrace.recordCanonicalIntentSelection({
+        round: 1,
+        canonicalIntent: normalizedSnapshot.normalizedIntent,
+        model: normalizedSnapshot.model,
+        toolPackageSource: skillResolution.toolPackageSource,
+    });
     const strictPolicy = params.snapshot.policySnapshot?.enforcementLevel === 'hard';
     params.snapshot = normalizedSnapshot;
-    const effectiveAllowedTools = strictPolicy && params.snapshot.policySnapshot
+    let effectiveAllowedTools = strictPolicy && params.snapshot.policySnapshot
         ? params.snapshot.policySnapshot.allowedTools
         : skillResolution.allowedTools;
-    const planning = buildTaskPlanningContext(params.snapshot, skillResolution);
+    let planning = buildTaskPlanningContext(params.snapshot, skillResolution);
     let plan = modelLedTools ? null : materializePlanCard(planning);
     const shouldGenerateModelPlan = !modelLedTools && !(skillResolution.querySignals.welcome || skillResolution.querySignals.metaDebug);
     if (shouldGenerateModelPlan) {
@@ -388,6 +377,7 @@ export async function runNodeOrchestration(params: {
     const toolUsageCount = new Map<string, number>();
     const knownToolNames = new Set(params.snapshot.toolDefinitions.map((item) => item.name));
     const providerNativeEvidence: ProviderNativeEvidenceSnapshot[] = [];
+    const intentSelectionHistory: ChatHistoryMessage[] = [];
     const deferredProviderCitations: any[] = [];
     let currentPhase = skillResolution.currentPhase;
     let previousResponseId: string | null | undefined = params.snapshot.previousResponseId;
@@ -397,7 +387,7 @@ export async function runNodeOrchestration(params: {
     let truncationContinuationCount = 0;
     let visibleFinalAnswerText = '';
     let requiredContextEnforcementCount = 0;
-    const isReadOnlyTask = (params.snapshot.policySnapshot?.actionClass || 'READ_ONLY') === 'READ_ONLY';
+    let isReadOnlyTask = (params.snapshot.policySnapshot?.actionClass || 'READ_ONLY') === 'READ_ONLY';
     const prefetchedRequiredContextTools = new Set<string>();
 
     updateChatContextRuntime(params.toolContext, {
@@ -424,6 +414,64 @@ export async function runNodeOrchestration(params: {
             providerNativeEvidence,
         },
     );
+
+    const refreshIntentForNextRound = async (
+        round: number,
+        options?: { phaseAfterNativeSearch?: ToolPhase | null },
+    ) => {
+        const normalization = await normalizeCanonicalIntent({
+            snapshot: buildIntentReentrySnapshot(params.snapshot, intentSelectionHistory),
+            generationClient: params.generationClient,
+            shouldCancel: params.shouldCancel,
+        });
+        normalizedSnapshot = applyConversationActionState(normalization.snapshot);
+        params.snapshot = normalizedSnapshot;
+        tradingIntent = normalizedSnapshot.normalizedIntent
+            ? parseTradingIntent(
+                normalizedSnapshot.lastUserMessage,
+                normalizedSnapshot,
+                normalizedSnapshot.normalizedIntent,
+            )
+            : null;
+        skillResolution = resolveNodeSkills(normalizedSnapshot, tradingIntent, normalizedSnapshot.normalizedIntent);
+        normalizedSnapshot.policySnapshot = buildControlPolicySnapshot({
+            snapshot: normalizedSnapshot,
+            tradingIntent,
+            skillResolution,
+        });
+        chatAiTrace.recordSkillResolution(skillResolution);
+        chatAiTrace.recordCanonicalIntentSelection({
+            round,
+            canonicalIntent: normalizedSnapshot.normalizedIntent,
+            model: normalizedSnapshot.model,
+            toolPackageSource: skillResolution.toolPackageSource,
+        });
+        effectiveAllowedTools = strictPolicy && normalizedSnapshot.policySnapshot
+            ? normalizedSnapshot.policySnapshot.allowedTools
+            : skillResolution.allowedTools;
+        isReadOnlyTask = (normalizedSnapshot.policySnapshot?.actionClass || 'READ_ONLY') === 'READ_ONLY';
+        planning = buildTaskPlanningContext(normalizedSnapshot, skillResolution);
+        if (!modelLedTools) {
+            plan = materializePlanCard(planning);
+        }
+        currentPhase = options?.phaseAfterNativeSearch ?? skillResolution.currentPhase;
+        lastRoundPolicyMessage = '';
+        updateChatContextRuntime(params.toolContext, {
+            executionPlan: plan,
+            skillPrompts: skillResolution.skillPrompts,
+            providerNativeEvidence,
+        });
+        if (
+            normalizedSnapshot.normalizedIntent?.needsClarification
+            && normalizedSnapshot.normalizedIntent.clarificationQuestion
+        ) {
+            await params.broker.pushText(normalizedSnapshot.normalizedIntent.clarificationQuestion);
+            chatAiTrace.markTerminal('normalized_intent_clarification');
+            chatAiTrace.emit({ finalRound: round, finalReason: 'normalized_intent_clarification' });
+            return true;
+        }
+        return false;
+    };
 
     logger.info(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: starting generation loop', {
         sessionId: params.snapshot.sessionId,
@@ -907,10 +955,19 @@ export async function runNodeOrchestration(params: {
                 await params.broker.recordProviderNativeEvidence?.(evidenceSnapshot);
             }
             chatAiTrace.recordProviderNativeToolRound(round, normalizedToolCalls, Boolean(evidenceSnapshot));
+            intentSelectionHistory.push(
+                buildProviderIntentHistoryEntry(round, normalizedToolCalls, evidenceSnapshot, roundResult.text || ''),
+            );
 
             if (effectivePhase === 'native_search_only') {
                 if (evidenceSnapshot && skillResolution.toolPhasePolicy.nextPhaseAfterNativeSearch) {
-                    currentPhase = skillResolution.toolPhasePolicy.nextPhaseAfterNativeSearch;
+                    const nextPhaseAfterNativeSearch = skillResolution.toolPhasePolicy.nextPhaseAfterNativeSearch;
+                    const intentHandled = await refreshIntentForNextRound(round + 1, {
+                        phaseAfterNativeSearch: nextPhaseAfterNativeSearch,
+                    });
+                    if (intentHandled) {
+                        return { terminal: false };
+                    }
                     await params.broker.setRuntimeState?.(
                         'chain_query_in_progress',
                         planning.locale === 'zh'
@@ -978,6 +1035,9 @@ export async function runNodeOrchestration(params: {
                         ? '已收到搜索工具结果。你可以继续使用任何相关工具，或直接基于现有证据回答。'
                         : 'Search tool output is available. You may continue with any relevant tools or answer directly from the evidence you already have.',
                 });
+                if (await refreshIntentForNextRound(round + 1)) {
+                    return { terminal: false };
+                }
                 continue;
             }
 
@@ -1275,6 +1335,7 @@ export async function runNodeOrchestration(params: {
                 tool_call_id: call.id,
                 content: buildModelToolMessageContent(result),
             });
+            intentSelectionHistory.push(buildToolIntentHistoryEntry(result));
         }
         if (!executedFreshTool) {
             duplicateOnlyRounds += 1;
@@ -1292,6 +1353,9 @@ export async function runNodeOrchestration(params: {
             duplicateOnlyRounds = 0;
         }
         forceAnswerFromEvidence = shouldForceAnswerAfterRound;
+        if (await refreshIntentForNextRound(round + 1)) {
+            return { terminal: false };
+        }
     }
 
     throw new Error('Max orchestration rounds exceeded');
@@ -1302,8 +1366,86 @@ export async function runNodeOrchestration(params: {
     }
 }
 
+function buildIntentReentrySnapshot(
+    snapshot: ChatContextSnapshot,
+    intentSelectionHistory: ChatHistoryMessage[],
+): ChatContextSnapshot {
+    const mergedHistory = [
+        ...(Array.isArray(snapshot.history) ? snapshot.history : []),
+        ...intentSelectionHistory,
+    ].slice(-12);
+    return {
+        ...snapshot,
+        history: mergedHistory,
+        normalizedIntent: null,
+        normalizationState: null,
+    };
+}
+
+function buildProviderIntentHistoryEntry(
+    round: number,
+    toolCalls: Array<{ name?: string; arguments?: Record<string, any> }>,
+    evidenceSnapshot: ProviderNativeEvidenceSnapshot | null,
+    finalText: string,
+): ChatHistoryMessage {
+    return {
+        role: 'assistant',
+        content: JSON.stringify({
+            type: 'provider_native_round',
+            round,
+            tools: toolCalls.map((call) => String(call?.name || '').trim()).filter(Boolean),
+            sourceTypes: Array.isArray(evidenceSnapshot?.sourceTypes) ? evidenceSnapshot.sourceTypes : [],
+            resultCount: Array.isArray(evidenceSnapshot?.results) ? evidenceSnapshot.results.length : 0,
+            provisionalText: truncateForIntentHistory(finalText, 280),
+        }),
+    };
+}
+
+function buildToolIntentHistoryEntry(result: OrchestratorToolResult): ChatHistoryMessage {
+    const resultRecord = result.result && typeof result.result === 'object' && !Array.isArray(result.result)
+        ? result.result as Record<string, any>
+        : null;
+    return {
+        role: 'tool',
+        content: JSON.stringify({
+            type: 'tool_result',
+            tool: String(result.name || '').trim(),
+            ok: Boolean(result.ok),
+            source: normalizeIntentHistoryString(result.metadata?.source),
+            reasonCode: normalizeIntentHistoryString(result.reasonCode || resultRecord?.reason_code || resultRecord?.reasonCode),
+            continuation: summarizeContinuationForIntentHistory(result.continuation),
+            resultKeys: resultRecord ? Object.keys(resultRecord).slice(0, 16) : [],
+        }),
+    };
+}
+
 function buildToolCallKey(name: string, args: Record<string, any>): string {
     return `${name}:${stableStringify(args || {})}`;
+}
+
+function summarizeContinuationForIntentHistory(continuation: any) {
+    if (!continuation || typeof continuation !== 'object') return null;
+    const missingEvidence = Array.isArray(continuation.missing_evidence)
+        ? continuation.missing_evidence.map((item: unknown) => String(item || '').trim()).filter(Boolean).slice(0, 8)
+        : [];
+    return {
+        next_action: normalizeIntentHistoryString(continuation.next_action),
+        can_answer_now: continuation.can_answer_now === true,
+        missing_evidence: missingEvidence,
+        reusable_for_next_turn: continuation.reusable_for_next_turn === true,
+    };
+}
+
+function truncateForIntentHistory(text: string, limit: number): string | null {
+    const normalized = String(text || '').trim();
+    if (!normalized) return null;
+    if (normalized.length <= limit) return normalized;
+    return `${normalized.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
+}
+
+function normalizeIntentHistoryString(value: unknown): string | null {
+    const normalized = String(value || '').trim();
+    return normalized || null;
 }
 
 function updateChatContextRuntime(
