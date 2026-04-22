@@ -1,0 +1,244 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  background: rgba(7, 8, 12, 0.8);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal {
+  width: min(880px, 100%);
+  max-height: 88vh;
+  overflow-y: auto;
+  border-radius: 28px;
+  padding: 24px;
+  background:
+    radial-gradient(circle at top right, rgba(64, 101, 255, 0.14), transparent 34%),
+    linear-gradient(180deg, rgba(18, 19, 27, 0.98), rgba(10, 11, 16, 0.98));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #f7f3ee;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(221, 188, 131, 0.78);
+  margin-bottom: 8px;
+}
+
+.title {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+}
+
+.closeButton {
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: #f7f3ee;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.closeButton svg,
+.primaryButton svg,
+.rowMeta svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+  flex-shrink: 0;
+  color: inherit;
+  stroke: currentColor;
+  stroke-width: 2.1;
+  fill: none;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.rowBody {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rowTitle {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.rowMeta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  color: rgba(247, 243, 238, 0.68);
+  line-height: 1.45;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+}
+
+.primaryButton,
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.primaryButton {
+  border: none;
+  background: linear-gradient(135deg, #f7e7ce, #dcb577);
+  color: #11131a;
+  cursor: pointer;
+}
+
+.statusBadge {
+  color: rgba(247, 243, 238, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.emptyState {
+  border-radius: 18px;
+  padding: 20px;
+  text-align: center;
+  font-size: 13px;
+  color: rgba(247, 243, 238, 0.62);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+:global(.light) .overlay {
+  background:
+    radial-gradient(circle at top, rgba(89, 110, 255, 0.12), transparent 38%),
+    rgba(248, 250, 252, 0.76);
+}
+
+:global(.light) .modal {
+  color: var(--text-primary);
+  background:
+    radial-gradient(circle at top right, rgba(64, 101, 255, 0.09), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 249, 252, 0.96));
+  border-color: rgba(15, 23, 42, 0.08);
+  box-shadow:
+    0 24px 68px rgba(15, 23, 42, 0.12),
+    0 1px 0 rgba(255, 255, 255, 0.8) inset;
+}
+
+:global(.light) .eyebrow {
+  color: rgba(170, 114, 34, 0.82);
+}
+
+:global(.light) .closeButton {
+  border-color: rgba(15, 23, 42, 0.08);
+  background: rgba(15, 23, 42, 0.04);
+  color: #111827;
+}
+
+:global(.light) .row,
+:global(.light) .emptyState,
+:global(.light) .statusBadge {
+  border-color: rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.74);
+}
+
+:global(.light) .rowMeta,
+:global(.light) .emptyState,
+:global(.light) .statusBadge {
+  color: var(--text-secondary);
+}
+
+@media (max-width: 760px) {
+  .overlay {
+    padding: 12px;
+  }
+
+  .modal {
+    padding: 18px;
+    border-radius: 22px;
+  }
+
+  .eyebrow {
+    font-size: 10px;
+    margin-bottom: 6px;
+  }
+
+  .title {
+    font-size: 20px;
+  }
+
+  .closeButton {
+    width: 34px;
+    height: 34px;
+  }
+
+  .row {
+    flex-direction: column;
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .rowTitle {
+    font-size: 14px;
+  }
+
+  .rowMeta {
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .primaryButton,
+  .statusBadge {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 11px;
+  }
+
+  .emptyState {
+    padding: 18px;
+    font-size: 12px;
+  }
+}

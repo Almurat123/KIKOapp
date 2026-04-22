@@ -32,6 +32,7 @@ import { AppError } from './errorHandler.js';
 import { resolvePrivyServerConfig } from '../config/privy.js';
 import { maybeAutoSyncVerifiedPrivyFarcasterUser } from '../services/farcaster-agent/farcasterIdentityService.js';
 import { maybeAutoSyncVerifiedPrivyXUser } from '../services/x/xIdentityService.js';
+import prisma from '../db/prisma.js';
 
 const PRIVY_JWKS_URL = process.env.PRIVY_JWKS_URL || '';
 const { appId: PRIVY_APP_ID } = resolvePrivyServerConfig();
@@ -199,6 +200,40 @@ export async function requireEndUserAuth(request: FastifyRequest, reply: Fastify
     });
     throw new AppError(403, 'Service authentication is not allowed for this endpoint', 'END_USER_AUTH_REQUIRED');
   }
+}
+
+export async function requireAdminAuth(request: FastifyRequest, reply: FastifyReply) {
+  await requireEndUserAuth(request, reply);
+  const userId = String((request as any).user?.sub || '').trim();
+  if (!userId) {
+    throw new AppError(401, 'Unauthorized', 'UNAUTHORIZED');
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { privyDid: userId },
+    select: {
+      id: true,
+      privyDid: true,
+      role: true,
+      walletAddress: true,
+    },
+  });
+
+  if (!user || user.role !== 'admin') {
+    throw new AppError(403, 'Admin access required', 'ADMIN_REQUIRED');
+  }
+
+  (request as any).authUserRecord = user;
+}
+
+export async function canManageRefunds(userId: string | null | undefined): Promise<boolean> {
+  const normalized = String(userId || '').trim();
+  if (!normalized) return false;
+  const user = await prisma.user.findUnique({
+    where: { privyDid: normalized },
+    select: { role: true },
+  });
+  return user?.role === 'admin';
 }
 
 /**

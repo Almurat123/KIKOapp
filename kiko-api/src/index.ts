@@ -124,6 +124,7 @@ import { aiRoutes } from './routes/ai.js';
 import { internalToolsRoutes } from './routes/internalTools.js';
 import { imageRoutes } from './routes/images.js';
 import { billingRoutes } from './routes/billing.js';
+import { adminBillingRoutes } from './routes/adminBilling.js';
 import { xShareRoutes } from './routes/xShare.js';
 import { initAutoTradeService, stopAutoTradeService } from './services/autoTradeService.js';
 import { tokenAlertService } from './services/tokenAlertService.js';
@@ -147,6 +148,7 @@ import helmet from '@fastify/helmet';
 import { tracingHook } from './middleware/tracing.js';
 import { startRpcBenchmarkSampling } from './services/rpcManager.js';
 import { startNativePriceRefresh } from './services/onChainPriceService.js';
+import { startCreditDepositWatcherService, stopCreditDepositWatcherService } from './services/creditDepositWatcherService.js';
 import { requireAuth } from './middleware/auth.js';
 import { markEndUserActivity } from './services/runtimeActivityService.js';
 import { xIngressWorker } from './services/x/index.js';
@@ -518,6 +520,7 @@ fastify.register(async (fastify) => {
     fastify.register(imageRoutes, { prefix: '/api/images' });
     fastify.register(xShareRoutes);
     fastify.register(billingRoutes, { prefix: '/api/billing' });
+    fastify.register(adminBillingRoutes, { prefix: '/api/admin/billing' });
     fastify.register(aiRoutes, { prefix: '/api/ai' });
     fastify.register(internalToolsRoutes);
     fastify.register(xAuthRoutes, { prefix: '/api/auth/x' });
@@ -609,6 +612,13 @@ async function start() {
             logger.info(LogCode.SYS_STARTUP, 'Background jobs started');
         } catch (jobError: any) {
             logger.error(LogCode.SYS_ERROR, 'Some background jobs failed to start', { error: jobError.message });
+        }
+
+        try {
+            await startCreditDepositWatcherService();
+            logger.info(LogCode.SYS_STARTUP, 'Credit deposit watcher started');
+        } catch (creditWatcherError: any) {
+            logger.error(LogCode.SYS_ERROR, 'Credit deposit watcher failed to start', { error: creditWatcherError.message });
         }
 
         // Start auto trade service
@@ -716,6 +726,7 @@ process.on('SIGTERM', async () => {
     stopPositionExitIntentWorker();
     stopOrderObservationJob();
     stopPolymarketWatcher();
+    stopCreditDepositWatcherService();
     xIngressWorker.stop();
     farcasterIngressWorker.stop();
     closeHubClient();
@@ -731,6 +742,7 @@ process.on('SIGINT', async () => {
     stopPositionExitIntentWorker();
     stopOrderObservationJob();
     stopPolymarketWatcher();
+    stopCreditDepositWatcherService();
     xIngressWorker.stop();
     farcasterIngressWorker.stop();
     closeHubClient();

@@ -106,18 +106,54 @@ export async function executeSolanaSwap(
 
     // CRITICAL: Refresh blockhash before sending to prevent "Blockhash not found" errors
     // Solana blockhashes expire after ~60-90 seconds
+    let latestBlockhash: Awaited<ReturnType<ReturnType<typeof getSolanaRpcConnection>['getLatestBlockhash']>> | null = null;
     try {
       const connection = getSolanaRpcConnection({ commitment: 'confirmed' });
 
-      const { blockhash } = await connection.getLatestBlockhash('finalized');
-      transaction.message.recentBlockhash = blockhash;
-      console.log('[SolanaSwapService] Blockhash refreshed:', blockhash.slice(0, 8) + '...');
+      latestBlockhash = await connection.getLatestBlockhash('finalized');
+      transaction.message.recentBlockhash = latestBlockhash.blockhash;
+      console.log('[SolanaSwapService] Blockhash refreshed:', latestBlockhash.blockhash.slice(0, 8) + '...');
     } catch (error) {
       console.warn('[SolanaSwapService] Failed to refresh blockhash, using original:', error);
     }
 
     // Send transaction using Privy wallet
     const txHash = await sendTransaction(transaction);
+
+    // CONTEXT MEMORY
+    // Updated: 2026-04-22
+    // Status: mixed
+    // Why: A Solana signature means the transaction was submitted, not necessarily finalized successfully. The swap card needs a terminal success/failure state after broadcast.
+    // Debug Goal: Local Solana swaps must wait for confirmation and surface failed signatures as swap failures.
+    // Search Tags: solana swap wait for signature confirmation
+    // Invariants:
+    // - A submitted Solana signature is not reported as success until confirmed without an error.
+    // - Confirmation failures are returned to the card as failed execution results.
+    // Failure Modes:
+    // - UI shows success for a dropped or failed Solana transaction.
+    // - User never sees a terminal state after Solana signAndSend.
+    try {
+      const connection = getSolanaRpcConnection({ commitment: 'confirmed' });
+      const confirmation = latestBlockhash
+        ? await connection.confirmTransaction({
+          signature: txHash,
+          blockhash: latestBlockhash.blockhash,
+          lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+        }, 'confirmed')
+        : await connection.confirmTransaction(txHash, 'confirmed');
+
+      if (confirmation.value.err) {
+        throw new Error(`Solana transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+      }
+    } catch (confirmError) {
+      const message = confirmError instanceof Error ? confirmError.message : 'Solana transaction confirmation failed';
+      console.error('[SolanaSwapService] Confirmation failed:', confirmError);
+      return {
+        success: false,
+        txHash,
+        error: message,
+      };
+    }
 
     // Record transaction to backend (optional)
     try {

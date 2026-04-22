@@ -23,6 +23,7 @@ export interface UseSolanaSwapOptions {
 }
 
 export interface SolanaSwapState {
+  status: 'idle' | 'quoting' | 'quote_ready' | 'submitting' | 'success' | 'error';
   tokenIn: Token | null;
   tokenOut: Token | null;
   amountIn: string;
@@ -177,6 +178,7 @@ export function useSolanaSwap({
   }, [solanaWallets]);
 
   const [state, setState] = useState<SolanaSwapState>({
+    status: 'idle',
     tokenIn: null,
     tokenOut: null,
     amountIn: '',
@@ -295,12 +297,12 @@ export function useSolanaSwap({
   // Fetch quote when inputs change
   useEffect(() => {
     if (!state.tokenIn || !state.tokenOut || !state.amountIn || parseFloat(state.amountIn) <= 0) {
-      setState(prev => ({ ...prev, quote: null, amountOut: '', priceImpact: 0 }));
+      setState(prev => ({ ...prev, status: 'idle', quote: null, amountOut: '', priceImpact: 0 }));
       return;
     }
 
     const fetchQuote = async () => {
-      setState(prev => ({ ...prev, isLoading: true, error: null }));
+      setState(prev => ({ ...prev, status: 'quoting', isLoading: true, error: null }));
 
       try {
         // IMPORTANT: Only use Solana wallet address, not EVM address
@@ -324,6 +326,7 @@ export function useSolanaSwap({
         if (quote) {
           setState(prev => ({
             ...prev,
+            status: 'quote_ready',
             quote,
             amountOut: quote.amountOut,
             priceImpact: quote.priceImpact,
@@ -332,6 +335,7 @@ export function useSolanaSwap({
         } else {
           setState(prev => ({
             ...prev,
+            status: 'error',
             quote: null,
             amountOut: '',
             priceImpact: 0,
@@ -343,6 +347,7 @@ export function useSolanaSwap({
         const message = error instanceof Error ? error.message : 'Failed to get quote';
         setState(prev => ({
           ...prev,
+          status: 'error',
           quote: null,
           amountOut: '',
           priceImpact: 0,
@@ -357,20 +362,21 @@ export function useSolanaSwap({
   }, [state.tokenIn, state.tokenOut, state.amountIn, slippageBps, userAddress, activeWallet?.address, aggregator]);
 
   const setTokenIn = useCallback((token: Token | null) => {
-    setState(prev => ({ ...prev, tokenIn: token, quote: null, amountOut: '', error: null }));
+    setState(prev => ({ ...prev, status: prev.amountIn && parseFloat(prev.amountIn) > 0 ? 'quoting' : 'idle', tokenIn: token, quote: null, amountOut: '', error: null }));
   }, []);
 
   const setTokenOut = useCallback((token: Token | null) => {
-    setState(prev => ({ ...prev, tokenOut: token, quote: null, amountOut: '', error: null }));
+    setState(prev => ({ ...prev, status: prev.amountIn && parseFloat(prev.amountIn) > 0 ? 'quoting' : 'idle', tokenOut: token, quote: null, amountOut: '', error: null }));
   }, []);
 
   const setAmountIn = useCallback((amount: string) => {
-    setState(prev => ({ ...prev, amountIn: amount, error: null }));
+    setState(prev => ({ ...prev, status: amount && parseFloat(amount) > 0 ? 'quoting' : 'idle', amountIn: amount, error: null }));
   }, []);
 
   const swapTokens = useCallback(() => {
     setState(prev => ({
       ...prev,
+      status: prev.amountOut && parseFloat(prev.amountOut) > 0 ? 'quoting' : 'idle',
       tokenIn: prev.tokenOut,
       tokenOut: prev.tokenIn,
       amountIn: prev.amountOut,
@@ -394,6 +400,7 @@ export function useSolanaSwap({
       console.error('[useSolanaSwap]', error);
       setState(prev => ({
         ...prev,
+        status: 'error',
         error,
         isExecuting: false,
       }));
@@ -406,6 +413,7 @@ export function useSolanaSwap({
       console.error('[useSolanaSwap]', error);
       setState(prev => ({
         ...prev,
+        status: 'error',
         error,
         isExecuting: false,
       }));
@@ -417,13 +425,14 @@ export function useSolanaSwap({
       console.error('[useSolanaSwap]', error);
       setState(prev => ({
         ...prev,
+        status: 'error',
         error,
         isExecuting: false,
       }));
       return { success: false, error };
     }
 
-    setState(prev => ({ ...prev, isExecuting: true, error: null }));
+    setState(prev => ({ ...prev, status: 'submitting', isExecuting: true, error: null }));
 
     try {
       // Prefer local wallet execution if available
@@ -436,6 +445,7 @@ export function useSolanaSwap({
         if (result.success) {
           setState(prev => ({
             ...prev,
+            status: 'success',
             isExecuting: false,
             error: null,
             amountIn: '',
@@ -482,6 +492,7 @@ export function useSolanaSwap({
 
       setState(prev => ({
         ...prev,
+        status: 'success',
         isExecuting: false,
         error: null,
         amountIn: '',
@@ -495,6 +506,7 @@ export function useSolanaSwap({
       console.error('[useSolanaSwap] Error executing swap:', error);
       setState(prev => ({
         ...prev,
+        status: 'error',
         isExecuting: false,
         error: message,
       }));
@@ -559,7 +571,17 @@ export function useSolanaSwap({
     const gasEstimate = state.quote?.gasEstimate || 0.000005;
     const gasCostUSD = '0.00'; // Very low, can be ignored
 
+    const amountInValid = amountInNum > 0;
+    const amountOutValid = parseFloat(state.amountOut || '0') > 0;
+    let actionLabel = 'Swap';
+    if (!amountInValid) actionLabel = 'Enter Amount';
+    else if (state.status === 'quoting' || state.isLoading) actionLabel = 'Getting Quote...';
+    else if (!hasEnoughBalance) actionLabel = 'Insufficient Balance';
+    else if (state.status === 'submitting') actionLabel = 'Swapping...';
+    else if (state.status === 'error') actionLabel = 'Swap Unavailable';
+
     return {
+      status: state.status,
       tokenInSymbol,
       tokenOutSymbol,
       tokenInEmoji: state.tokenIn?.emoji || '🔄',
@@ -581,6 +603,13 @@ export function useSolanaSwap({
       hasEnoughBalance,
       availableQuotes: state.quote ? [state.quote as any] : [],
       selectedDex: state.quote?.dex || state.quote?.router,
+      actionLabel,
+      isActionDisabled: state.status === 'submitting' ||
+        state.status === 'quoting' ||
+        !amountInValid ||
+        !amountOutValid ||
+        !hasEnoughBalance ||
+        !!state.error,
     };
   }, [state, solanaBalance, tokenBalances]);
 

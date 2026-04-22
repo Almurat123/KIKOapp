@@ -23,6 +23,7 @@ model Chain {
 model User {
   id                  String                 @id @default(cuid())
   privyDid            String                 @unique
+  role                String                 @default("user")
   username            String?
   walletAddress       String                 @unique
   solanaWalletAddress String?
@@ -56,6 +57,10 @@ model User {
   billingUsage        BillingUsageLedger[]
   generatedImageUsage GeneratedImageUsageLedger[]
   dailyBilling        DailyBilling[]
+  creditAccount       CreditAccount?
+  creditDeposits      CreditDeposit[]
+  creditLedgerEntries CreditLedgerEntry[]
+  creditRefunds       CreditRefundRequest[]
   copytradeOrdersV2   CopytradeOrder[]
   farcasterConversationMappings FarcasterConversationMapping[]
   farcasterEventLogs  FarcasterEventLog[]
@@ -325,6 +330,7 @@ model GeneratedImageUsageLedger {
   quality          String
   status           String   @default("reserved")
   imageCount       Int      @default(1) @map("image_count")
+  freeRequestCount Int      @default(0) @map("free_request_count")
   freeImageCount   Int      @default(0) @map("free_image_count")
   billedImageCount Int      @default(0) @map("billed_image_count")
   usdCost          Decimal  @default(0) @map("usd_cost") @db.Decimal
@@ -396,6 +402,154 @@ model BillingConsent {
   @@unique([userId, chainId])
   @@index([userId])
   @@map("billing_consents")
+}
+
+model CreditAccount {
+  id               String   @id @default(uuid())
+  userId           String   @unique @map("user_id")
+  availableCredits Decimal  @default(0) @map("available_credits") @db.Decimal(20, 8)
+  reservedCredits  Decimal  @default(0) @map("reserved_credits") @db.Decimal(20, 8)
+  status           String   @default("active")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at")
+  user             User     @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
+  deposits         CreditDeposit[]
+  ledgerEntries    CreditLedgerEntry[]
+  refundRequests   CreditRefundRequest[]
+
+  @@map("credit_accounts")
+}
+
+model CreditDeposit {
+  id                   String   @id @default(uuid())
+  userId               String   @map("user_id")
+  accountId            String   @map("account_id")
+  depositKey           String   @unique @map("deposit_key")
+  status               String   @default("detected")
+  chainId              Int      @map("chain_id")
+  assetSymbol          String   @map("asset_symbol")
+  tokenAddress         String?  @map("token_address")
+  fromAddress          String?  @map("from_address")
+  toAddress            String?  @map("to_address")
+  txHash               String   @map("tx_hash")
+  logIndex             Int      @default(0) @map("log_index")
+  amountRaw            String   @map("amount_raw")
+  amountHuman          Decimal  @default(0) @map("amount_human") @db.Decimal(20, 8)
+  priceUsd             Decimal  @default(0) @map("price_usd") @db.Decimal(20, 8)
+  usdValue             Decimal  @default(0) @map("usd_value") @db.Decimal(20, 8)
+  paidCredits          Decimal  @default(0) @map("paid_credits") @db.Decimal(20, 8)
+  bonusCredits         Decimal  @default(0) @map("bonus_credits") @db.Decimal(20, 8)
+  remainingPaidCredits Decimal  @default(0) @map("remaining_paid_credits") @db.Decimal(20, 8)
+  remainingBonusCredits Decimal @default(0) @map("remaining_bonus_credits") @db.Decimal(20, 8)
+  heldPaidCredits      Decimal  @default(0) @map("held_paid_credits") @db.Decimal(20, 8)
+  heldBonusCredits     Decimal  @default(0) @map("held_bonus_credits") @db.Decimal(20, 8)
+  confirmations        Int      @default(0)
+  requiredConfirmations Int     @default(1) @map("required_confirmations")
+  metadata             Json?
+  creditedAt           DateTime? @map("credited_at")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at")
+  user                 User     @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
+  account              CreditAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  allocations          CreditLedgerAllocation[]
+  refundRequests       CreditRefundRequest[]
+
+  @@index([userId, status, createdAt])
+  @@index([accountId, status])
+  @@index([chainId, assetSymbol, status])
+  @@unique([txHash, logIndex])
+  @@map("credit_deposits")
+}
+
+model CreditLedgerEntry {
+  id                  String   @id @default(uuid())
+  accountId           String   @map("account_id")
+  userId              String   @map("user_id")
+  entryType           String   @map("entry_type")
+  direction           String
+  amountCredits       Decimal  @default(0) @map("amount_credits") @db.Decimal(20, 8)
+  paidCreditsDelta    Decimal  @default(0) @map("paid_credits_delta") @db.Decimal(20, 8)
+  bonusCreditsDelta   Decimal  @default(0) @map("bonus_credits_delta") @db.Decimal(20, 8)
+  availableAfterCredits Decimal @default(0) @map("available_after_credits") @db.Decimal(20, 8)
+  reservedAfterCredits Decimal @default(0) @map("reserved_after_credits") @db.Decimal(20, 8)
+  sourceType          String   @map("source_type")
+  sourceId            String   @map("source_id")
+  idempotencyKey      String   @unique @map("idempotency_key")
+  metadata            Json?
+  createdAt           DateTime @default(now()) @map("created_at")
+  account             CreditAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  user                User     @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
+  allocations         CreditLedgerAllocation[]
+
+  @@index([userId, createdAt])
+  @@index([accountId, createdAt])
+  @@index([sourceType, sourceId])
+  @@map("credit_ledger_entries")
+}
+
+model CreditLedgerAllocation {
+  id               String   @id @default(uuid())
+  ledgerEntryId    String   @map("ledger_entry_id")
+  depositId        String   @map("deposit_id")
+  paidCreditsDelta Decimal  @default(0) @map("paid_credits_delta") @db.Decimal(20, 8)
+  bonusCreditsDelta Decimal @default(0) @map("bonus_credits_delta") @db.Decimal(20, 8)
+  createdAt        DateTime @default(now()) @map("created_at")
+  ledgerEntry      CreditLedgerEntry @relation(fields: [ledgerEntryId], references: [id], onDelete: Cascade)
+  deposit          CreditDeposit @relation(fields: [depositId], references: [id], onDelete: Cascade)
+
+  @@unique([ledgerEntryId, depositId])
+  @@index([depositId, createdAt])
+  @@map("credit_ledger_allocations")
+}
+
+model CreditRefundRequest {
+  id                    String   @id @default(uuid())
+  userId                String   @map("user_id")
+  accountId             String   @map("account_id")
+  depositId             String   @unique @map("deposit_id")
+  status                String   @default("pending")
+  chainId               Int      @map("chain_id")
+  assetSymbol           String   @map("asset_symbol")
+  tokenAddress          String?  @map("token_address")
+  refundToAddress       String   @map("refund_to_address")
+  requestedPaidCredits  Decimal  @default(0) @map("requested_paid_credits") @db.Decimal(20, 8)
+  reclaimedBonusCredits Decimal  @default(0) @map("reclaimed_bonus_credits") @db.Decimal(20, 8)
+  refundAmountHuman     Decimal  @default(0) @map("refund_amount_human") @db.Decimal(20, 8)
+  approvedByUserId      String?  @map("approved_by_user_id")
+  approvedAt            DateTime? @map("approved_at")
+  approvedNote          String?  @map("approved_note")
+  payoutTxHash          String?  @map("payout_tx_hash")
+  failureReason         String?  @map("failure_reason")
+  resolvedByUserId      String?  @map("resolved_by_user_id")
+  resolvedNote          String?  @map("resolved_note")
+  requestedAt           DateTime @default(now()) @map("requested_at")
+  resolvedAt            DateTime? @map("resolved_at")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @default(now()) @updatedAt @map("updated_at")
+  user                  User     @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
+  account               CreditAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  deposit               CreditDeposit @relation(fields: [depositId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, createdAt])
+  @@index([accountId, status])
+  @@map("credit_refund_requests")
+}
+
+model CreditDepositWatcherState {
+  id               String   @id @default(uuid())
+  watcherKey       String   @unique @map("watcher_key")
+  chainId          Int      @map("chain_id")
+  paymentAddress   String   @map("payment_address")
+  cursorBlock      String?  @map("cursor_block")
+  lastWebhookBlock String?  @map("last_webhook_block")
+  lastWebhookAt    DateTime? @map("last_webhook_at")
+  lastReconciledAt DateTime? @map("last_reconciled_at")
+  stats            Json?
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@index([chainId, paymentAddress])
+  @@map("credit_deposit_watcher_states")
 }
 
 model PolymarketPosition {

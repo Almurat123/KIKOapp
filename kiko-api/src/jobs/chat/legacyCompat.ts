@@ -1,6 +1,6 @@
 import { computeTotalTokens, computeUsdCost, getBillingCategory, getUtcDateString } from '../../services/billing/billingService.js';
 import { insertUsageRecord } from '../../repositories/billingRepository.js';
-import { recordUsage } from '../../services/usageCounter.js';
+import { settleChatUsageCharge } from '../../services/creditBillingService.js';
 
 export function getToolStatusMessage(toolName: string): string {
     const toolMessages: Record<string, string> = {
@@ -69,14 +69,6 @@ export async function persistBillingUsage(params: {
     const modelCategory = billingContext.modelCategory || getBillingCategory(params.model);
     const dateUtc = getUtcDateString();
 
-    await recordUsage({
-        userId: params.userId,
-        dateUtc,
-        modelCategory,
-        model: params.model,
-        assistantMessageId: params.assistantMessageId,
-    });
-
     if (!params.usage) return;
 
     const isFree = typeof billingContext.isFree === 'boolean' ? billingContext.isFree : false;
@@ -89,7 +81,7 @@ export async function persistBillingUsage(params: {
     const completionTokens = Number(params.usage.completion_tokens || 0);
     const totalTokens = computeTotalTokens(params.usage, params.model);
 
-    await insertUsageRecord({
+    const inserted = await insertUsageRecord({
         assistantMessageId: params.assistantMessageId,
         userId: params.userId,
         model: params.model,
@@ -100,6 +92,19 @@ export async function persistBillingUsage(params: {
         toolCallsCount: Array.isArray(params.toolCallNames) ? params.toolCallNames.length : 0,
         usdCost,
         dateUtc,
+        isFree,
+    });
+    if (!inserted) return;
+
+    await settleChatUsageCharge({
+        assistantMessageId: params.assistantMessageId,
+        userId: params.userId,
+        model: params.model,
+        promptTokens,
+        completionTokens,
+        totalTokens,
+        toolCallsCount: Array.isArray(params.toolCallNames) ? params.toolCallNames.length : 0,
+        modelCategory,
         isFree,
     });
 }

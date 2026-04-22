@@ -59,6 +59,7 @@ export type GeneratedImageUsageRecord = {
     quality: string;
     status: string;
     imageCount: number;
+    freeRequestCount: number;
     freeImageCount: number;
     billedImageCount: number;
     usdCost: number;
@@ -142,8 +143,8 @@ export async function insertUsageRecord(params: {
     usdCost: number;
     dateUtc: string;
     isFree: boolean;
-}, tx: Prisma.TransactionClient = prisma): Promise<void> {
-    await tx.$executeRaw`
+}, tx: Prisma.TransactionClient = prisma): Promise<boolean> {
+    const rows = await tx.$queryRaw<Array<{ inserted: boolean }>>`
         INSERT INTO billing_usage_ledger (
             id,
             assistant_message_id,
@@ -172,7 +173,9 @@ export async function insertUsageRecord(params: {
             ${params.isFree}
         )
         ON CONFLICT (assistant_message_id) DO NOTHING
+        RETURNING TRUE AS inserted
     `;
+    return Boolean(rows[0]?.inserted);
 }
 
 export async function hasBillingBlock(userId: string, dateUtc: string): Promise<boolean> {
@@ -234,6 +237,7 @@ export async function findGeneratedImageUsageRecord(requestId: string): Promise<
         quality: string;
         status: string;
         image_count: number | bigint;
+        free_request_count: number | bigint;
         free_image_count: number | bigint;
         billed_image_count: number | bigint;
         usd_cost: number | string | null;
@@ -252,6 +256,7 @@ export async function findGeneratedImageUsageRecord(requestId: string): Promise<
             quality,
             status,
             image_count,
+            free_request_count,
             free_image_count,
             billed_image_count,
             usd_cost,
@@ -276,6 +281,7 @@ export async function findGeneratedImageUsageRecord(requestId: string): Promise<
         quality: row.quality,
         status: row.status,
         imageCount: Number(row.image_count || 0),
+        freeRequestCount: Number(row.free_request_count || 0),
         freeImageCount: Number(row.free_image_count || 0),
         billedImageCount: Number(row.billed_image_count || 0),
         usdCost: Number(row.usd_cost || 0),
@@ -334,6 +340,7 @@ export async function insertGeneratedImageUsageReservation(params: {
     quality: string;
     status?: string;
     imageCount: number;
+    freeRequestCount: number;
     freeImageCount: number;
     billedImageCount: number;
     usdCost: number;
@@ -353,6 +360,7 @@ export async function insertGeneratedImageUsageReservation(params: {
             quality,
             status,
             image_count,
+            free_request_count,
             free_image_count,
             billed_image_count,
             usd_cost,
@@ -370,6 +378,7 @@ export async function insertGeneratedImageUsageReservation(params: {
             ${params.quality},
             ${params.status || 'reserved'},
             ${params.imageCount},
+            ${params.freeRequestCount},
             ${params.freeImageCount},
             ${params.billedImageCount},
             ${params.usdCost},

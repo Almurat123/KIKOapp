@@ -250,8 +250,11 @@ function buildFailureMessage(params: {
 }): string {
     const requestedModel = String(params.requestedModel || '').trim().toLowerCase();
     const reason = String(params.reason || '').trim().toUpperCase();
-    if (reason === 'BILLING_CONSENT_REQUIRED') {
-        return 'Authorize billing in Wallet settings before using this image model.';
+    if (reason === 'INSUFFICIENT_CREDITS') {
+        return 'Insufficient credits for this image request. Please top up and try again.';
+    }
+    if (reason === 'MODEL_PRICING_NOT_CONFIGURED') {
+        return 'This image model is not available for paid credits yet.';
     }
     if (reason === 'MODEL_DISABLED') {
         if (requestedModel.startsWith('gpt-image-1-mini')) {

@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-22
 // Author: Almurat
 // Reason: X outbound requests must resolve the current official bot token at
 //         runtime, not assume a single static env-only credential, and must
@@ -19,12 +19,14 @@
 //         must be derived from both `verified` and `verified_type`. Social-agent
 //         mention replies now also need hydrated thread/media context so the
 //         model can reason over parent posts and attached images instead of only
-//         the webhook's short text snapshot.
+//         the webhook's short text snapshot. X API v2 media upload is now used
+//         for generated-image replies so public mention responses can attach
+//         real media IDs instead of OGP/share links.
 // Goal: keep all X API calls using the same credential source and filtering
 //       rules that the webhook and auth layers rely on while exposing one
 //       normalized tweet/thread hydration path for social-agent turns.
 // Owns: authenticated X REST access for bot replies, mention confirmation,
-//       tweet hydration, and outbound DM sends.
+//       tweet hydration, outbound media uploads, and outbound DM sends.
 // Does Not Own: OAuth exchange, webhook subscription setup, or chat orchestration.
 // Design Language:
 // - Resolve bot credentials through the shared credential service first.
@@ -42,6 +44,8 @@
 //   do not rely on legacy `verified` alone.
 // - Hydrate X thread/media context through REST lookups after webhook intake;
 //   do not pretend webhook payloads already contain model-ready context.
+// - Generated-image replies must upload image bytes first, then attach returned
+//   media IDs to POST /2/tweets.
 // Document Provenance:
 // - Source: X Direct Messages API docs (Send DM / lookup docs)
 // - Kind: official API doc
@@ -114,6 +118,15 @@ function authHeaders(accessToken: string) {
   return {
     Authorization: `Bearer ${accessToken}`,
     'Content-Type': 'application/json',
+  };
+}
+
+function bearerAuthHeaders(accessToken: string) {
+  if (!accessToken) {
+    throw new Error('X bot access token is not configured');
+  }
+  return {
+    Authorization: `Bearer ${accessToken}`,
   };
 }
 
@@ -321,14 +334,49 @@ export class XApiClient {
     });
   }
 
-  async replyToMention(params: { tweetId: string; text: string }): Promise<XSendResult> {
+  async uploadTweetImage(params: { buffer: Buffer; contentType: string; fileName?: string | null }): Promise<string> {
+    const contentType = String(params.contentType || '').trim().toLowerCase();
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(contentType)) {
+      throw new Error(`Unsupported X tweet image content type: ${contentType || 'unknown'}`);
+    }
+    const form = new FormData();
+    form.set('media_category', 'tweet_image');
+    form.set('media_type', contentType);
+    form.set('shared', 'false');
+    const mediaBytes = params.buffer.buffer.slice(
+      params.buffer.byteOffset,
+      params.buffer.byteOffset + params.buffer.byteLength,
+    ) as ArrayBuffer;
+    form.set('media', new Blob([mediaBytes], { type: contentType }), params.fileName || 'kiko-generated-image');
+
+    const payload = await requestJson<any>(baseUrl('/media/upload'), (accessToken) => ({
+      method: 'POST',
+      headers: bearerAuthHeaders(accessToken),
+      body: form,
+    }));
+    const mediaId = String(payload?.data?.id || '').trim();
+    if (!mediaId) {
+      throw new Error('X media upload did not return a media id');
+    }
+    return mediaId;
+  }
+
+  async replyToMention(params: { tweetId: string; text: string; mediaIds?: string[] | null }): Promise<XSendResult> {
+    const mediaIds = (Array.isArray(params.mediaIds) ? params.mediaIds : [])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean)
+      .slice(0, 4);
+    const body: Record<string, any> = {
+      text: params.text,
+      reply: { in_reply_to_tweet_id: params.tweetId },
+    };
+    if (mediaIds.length > 0) {
+      body.media = { media_ids: mediaIds };
+    }
     const payload = await requestJson<any>(baseUrl('/tweets'), (accessToken) => ({
       method: 'POST',
       headers: authHeaders(accessToken),
-      body: JSON.stringify({
-        text: params.text,
-        reply: { in_reply_to_tweet_id: params.tweetId },
-      }),
+      body: JSON.stringify(body),
     }));
     return {
       id: payload?.data?.id ? String(payload.data.id) : null,

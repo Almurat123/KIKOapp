@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+
 import { env } from '../config/env.js';
 import {
     buildGeneratedImageBillingDecision,
@@ -7,186 +8,102 @@ import {
     resolveAvailableGeneratedImagePreference,
 } from './generatedImageBilling.js';
 
-function withGeneratedImageFreeOutputs<T>(value: number, fn: () => T): T {
-    const originalFreeOutputs = env.generatedImage.dailyFreeOutputs;
-    env.generatedImage.dailyFreeOutputs = value;
+function withLifetimeFreeRequests<T>(value: number, fn: () => T): T {
+    const originalValue = env.credits.lifetimeImageFreeRequests;
+    env.credits.lifetimeImageFreeRequests = value;
     try {
         return fn();
     } finally {
-        env.generatedImage.dailyFreeOutputs = originalFreeOutputs;
+        env.credits.lifetimeImageFreeRequests = originalValue;
     }
 }
 
-test('GPT Image 2 requires billing consent when no free allowance is available', () => {
-    const decision = buildGeneratedImageBillingDecision({
-        dateUtc: '2026-04-22',
-        model: 'gpt-image-2',
-        quality: 'medium',
-        imageCount: 1,
-        freeOutputImagesUsed: 0,
-        hasBillingConsent: false,
-    });
+test('GPT Image 2 requires credits after the free lifetime pool is exhausted', () => {
+    withLifetimeFreeRequests(3, () => {
+        const decision = buildGeneratedImageBillingDecision({
+            dateUtc: '2026-04-22',
+            model: 'gpt-image-2',
+            quality: 'medium',
+            imageCount: 1,
+            freeOutputImagesUsed: 3,
+            availableCredits: 0,
+        });
 
-    assert.equal(decision.allowed, false);
-    assert.equal(decision.reason, 'BILLING_CONSENT_REQUIRED');
-    assert.equal(decision.freeOutputImageLimit, 0);
-    assert.equal(decision.providerModel, 'gpt-image-2');
-    assert.equal(decision.billedImageCount, 1);
-    assert.equal(decision.pricePerOutputImageUsd, 0.053);
-    assert.equal(decision.usdCost, 0.053);
+        assert.equal(decision.allowed, false);
+        assert.equal(decision.reason, 'INSUFFICIENT_CREDITS');
+        assert.equal(decision.freeRequestCount, 0);
+        assert.equal(decision.billedImageCount, 1);
+        assert.equal(decision.creditsCost, 1.59);
+    });
 });
 
-test('GPT Image 2 high quality is billable when billing consent is active', () => {
+test('GPT Image 2 high quality is billable when enough credits are available', () => {
     const decision = buildGeneratedImageBillingDecision({
         dateUtc: '2026-04-22',
         model: 'gpt-image-2',
         quality: 'high',
         imageCount: 1,
-        freeOutputImagesUsed: 0,
-        hasBillingConsent: true,
+        freeOutputImagesUsed: 3,
+        availableCredits: 20,
     });
 
     assert.equal(decision.allowed, true);
-    assert.equal(decision.reason, undefined);
-    assert.equal(decision.freeImageCount, 0);
+    assert.equal(decision.freeRequestCount, 0);
     assert.equal(decision.billedImageCount, 1);
-    assert.equal(decision.pricePerOutputImageUsd, 0.211);
+    assert.equal(decision.creditsCost, 6.33);
     assert.equal(decision.usdCost, 0.211);
 });
 
-test('GPT Image 1 Mini uses generated-image free allowance before billing', () => {
-    withGeneratedImageFreeOutputs(3, () => {
+test('GPT Image 1 Mini uses the shared lifetime free image request pool before charging credits', () => {
+    withLifetimeFreeRequests(3, () => {
         const decision = buildGeneratedImageBillingDecision({
-            dateUtc: '2026-04-20',
+            dateUtc: '2026-04-22',
             model: 'gpt-image-1-mini',
             quality: 'medium',
-            imageCount: 1,
-            freeOutputImagesUsed: 0,
-            hasBillingConsent: true,
-        });
-
-        assert.equal(decision.allowed, true);
-        assert.equal(decision.providerModel, 'gpt-image-1-mini');
-        assert.equal(decision.freeOutputImageLimit, 3);
-        assert.equal(decision.freeImageCount, 1);
-        assert.equal(decision.billedImageCount, 0);
-        assert.equal(decision.pricePerOutputImageUsd, 0.011);
-        assert.equal(decision.usdCost, 0);
-    });
-});
-
-test('GPT Image 1 Mini requires billing consent after free allowance is exhausted', () => {
-    withGeneratedImageFreeOutputs(3, () => {
-        const decision = buildGeneratedImageBillingDecision({
-            dateUtc: '2026-04-20',
-            model: 'gpt-image-1-mini',
-            quality: 'high',
-            imageCount: 1,
-            freeOutputImagesUsed: 3,
-            hasBillingConsent: false,
-        });
-
-        assert.equal(decision.allowed, false);
-        assert.equal(decision.reason, 'BILLING_CONSENT_REQUIRED');
-        assert.equal(decision.freeImageCount, 0);
-        assert.equal(decision.billedImageCount, 1);
-        assert.equal(decision.pricePerOutputImageUsd, 0.036);
-        assert.equal(decision.usdCost, 0.036);
-    });
-});
-
-test('Grok normal grants free output images while quota remains', () => {
-    withGeneratedImageFreeOutputs(3, () => {
-        const decision = buildGeneratedImageBillingDecision({
-            dateUtc: '2026-04-18',
-            model: 'grok-imagine-image',
-            quality: 'normal',
-            imageCount: 1,
-            freeOutputImagesUsed: 0,
-            hasBillingConsent: false,
-        });
-
-        assert.equal(decision.allowed, true);
-        assert.equal(decision.freeImageCount, 1);
-        assert.equal(decision.billedImageCount, 0);
-        assert.equal(decision.usdCost, 0);
-    });
-});
-
-test('Grok normal blocks after free quota without billing consent', () => {
-    withGeneratedImageFreeOutputs(3, () => {
-        const decision = buildGeneratedImageBillingDecision({
-            dateUtc: '2026-04-18',
-            model: 'grok-imagine-image',
-            quality: 'normal',
-            imageCount: 1,
-            freeOutputImagesUsed: 3,
-            hasBillingConsent: false,
-        });
-
-        assert.equal(decision.allowed, false);
-        assert.equal(decision.reason, 'BILLING_CONSENT_REQUIRED');
-        assert.equal(decision.freeImageCount, 0);
-        assert.equal(decision.billedImageCount, 1);
-        assert.equal(decision.usdCost, 0.02);
-    });
-});
-
-test('Grok normal uses remaining free output image before paid spillover', () => {
-    withGeneratedImageFreeOutputs(3, () => {
-        const decision = buildGeneratedImageBillingDecision({
-            dateUtc: '2026-04-18',
-            model: 'grok-imagine-image',
-            quality: 'normal',
             imageCount: 2,
-            freeOutputImagesUsed: 2,
-            hasBillingConsent: true,
+            freeOutputImagesUsed: 0,
+            availableCredits: 0,
         });
 
         assert.equal(decision.allowed, true);
+        assert.equal(decision.freeOutputImageLimit, 3);
+        assert.equal(decision.freeRequestCount, 1);
         assert.equal(decision.freeImageCount, 1);
-        assert.equal(decision.billedImageCount, 1);
-        assert.equal(decision.usdCost, 0.02);
+        assert.equal(decision.billedImageCount, 0);
+        assert.equal(decision.creditsCost, 0.66);
+        assert.equal(decision.usdCost, 0);
     });
 });
 
-test('Grok normal free output allowance can be tuned from env', () => {
-    const originalFreeOutputs = env.generatedImage.dailyFreeOutputs;
-    env.generatedImage.dailyFreeOutputs = 5;
+test('Grok normal charges credits after lifetime free requests are exhausted', () => {
+    const decision = buildGeneratedImageBillingDecision({
+        dateUtc: '2026-04-22',
+        model: 'grok-imagine-image',
+        quality: 'normal',
+        imageCount: 1,
+        freeOutputImagesUsed: 3,
+        availableCredits: 1,
+    });
 
-    try {
-        const decision = buildGeneratedImageBillingDecision({
-            dateUtc: '2026-04-18',
-            model: 'grok-imagine-image',
-            quality: 'normal',
-            imageCount: 1,
-            freeOutputImagesUsed: 4,
-            hasBillingConsent: false,
-        });
-
-        assert.equal(decision.allowed, true);
-        assert.equal(decision.freeOutputImageLimit, 5);
-        assert.equal(decision.freeImageCount, 1);
-        assert.equal(decision.billedImageCount, 0);
-        assert.equal(decision.usdCost, 0);
-    } finally {
-        env.generatedImage.dailyFreeOutputs = originalFreeOutputs;
-    }
+    assert.equal(decision.allowed, true);
+    assert.equal(decision.freeRequestCount, 0);
+    assert.equal(decision.billedImageCount, 1);
+    assert.equal(decision.creditsCost, 0.6);
+    assert.equal(decision.usdCost, 0.02);
 });
 
 test('Grok pro remains disabled even though pricing is known', () => {
     const decision = buildGeneratedImageBillingDecision({
-        dateUtc: '2026-04-18',
+        dateUtc: '2026-04-22',
         model: 'grok-imagine-image-pro',
         quality: 'pro',
         imageCount: 1,
         freeOutputImagesUsed: 0,
-        hasBillingConsent: true,
+        availableCredits: 100,
     });
 
     assert.equal(decision.allowed, false);
     assert.equal(decision.reason, 'MODEL_DISABLED');
-    assert.equal(decision.pricePerOutputImageUsd, 0.07);
 });
 
 test('generated image preference normalization rejects disabled models', () => {

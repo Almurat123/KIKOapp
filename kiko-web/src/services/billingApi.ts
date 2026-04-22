@@ -6,25 +6,109 @@ const USAGE_SUMMARY_CACHE_TTL_MS = 30_000;
 
 export interface UsageSummary {
   dateUtc: string;
-  total: { used: number; limit: number | null };
-  free: { used: number; limit: number | null };
-  premium: { used: number; limit: number };
-  generatedImage?: {
-    modelFamily: string;
-    free: {
-      used: number;
-      limit: number;
-      remaining: number;
-    };
+  credits: {
+    available: number;
+    reserved: number;
+    perUsd: number;
   };
-  models?: Array<{
-    model: string;
+  premiumTextFree: {
     used: number;
-    limit: number | null;
-    category: 'free' | 'premium' | 'other';
-    limitSource: 'free_unlimited' | 'free_shared' | 'premium_shared' | 'none';
-  }>;
-  usesPremiumSharedLimit: boolean;
+    limit: number;
+    remaining: number;
+  };
+  generatedImageFree: {
+    used: number;
+    limit: number;
+    remaining: number;
+  };
+  topUp: {
+    mode: 'treasury_transfer' | 'router_contract';
+    chainId: number;
+    minimumUsd: number;
+    paymentAddress: string | null;
+    routerAddress: string | null;
+    refundOperatorAddress: string | null;
+    supportedAssets: Array<{
+      symbol: string;
+      tokenAddress?: string;
+      decimals: number;
+      requiredConfirmations: number;
+      paymentAddress?: string;
+      pricingMode: 'stable_1_to_1' | 'market_price';
+    }>;
+  };
+  admin: {
+    canManageRefunds: boolean;
+  };
+}
+
+export interface CreditDepositItem {
+  id: string;
+  status: string;
+  chainId: number;
+  assetSymbol: string;
+  txHash: string;
+  amountHuman: number;
+  paidCredits: number;
+  bonusCredits: number;
+  remainingPaidCredits: number;
+  remainingBonusCredits: number;
+  heldPaidCredits: number;
+  heldBonusCredits: number;
+  refundablePaidCredits: number;
+  refundEligible: boolean;
+  refundWindowExpiresAt: string | null;
+  refundRequestId: string | null;
+  refundRequestStatus: string | null;
+  createdAt: string;
+  creditedAt: string | null;
+}
+
+export interface CreditRefundItem {
+  id: string;
+  depositId: string;
+  status: string;
+  assetSymbol: string;
+  requestedPaidCredits: number;
+  reclaimedBonusCredits: number;
+  refundAmountHuman: number;
+  payoutTxHash: string | null;
+  failureReason: string | null;
+  approvedAt: string | null;
+  approvedNote: string | null;
+  approvedByUserId: string | null;
+  resolvedByUserId: string | null;
+  resolvedNote: string | null;
+  requestedAt: string;
+  resolvedAt: string | null;
+}
+
+export interface AdminCreditRefundItem extends CreditRefundItem {
+  userId: string;
+  refundToAddress: string;
+  deposit: {
+    txHash: string;
+    fromAddress: string | null;
+    toAddress: string | null;
+    amountHuman: number;
+    paidCredits: number;
+    bonusCredits: number;
+    remainingPaidCredits: number;
+    remainingBonusCredits: number;
+    createdAt: string;
+    creditedAt: string | null;
+  };
+}
+
+export interface CreditWatcherStatus {
+  watcherKey: string;
+  chainId: number;
+  paymentAddress: string;
+  cursorBlock: string | null;
+  lastWebhookBlock: string | null;
+  lastWebhookAt: string | null;
+  lastReconciledAt: string | null;
+  stats: Record<string, number> | null;
 }
 
 interface UsageSummaryCacheEntry {
@@ -98,32 +182,25 @@ async function authFetch(path: string, options: RequestInit = {}, authToken?: st
 }
 
 export async function getBillingConsent() {
-  const response = await authFetch('/api/billing/consent');
-  if (!response.ok) {
-    throw new Error('Failed to fetch billing consent');
-  }
-  return response.json() as Promise<{ active: boolean; termsVersion: string; consentId?: string }>;
+  return {
+    active: false,
+    deprecated: true,
+  };
 }
 
 export async function grantBillingConsent(source: string) {
-  const response = await authFetch('/api/billing/consent', {
-    method: 'POST',
-    body: JSON.stringify({ source }),
-  });
-  if (!response.ok) {
-    throw new Error('Failed to grant billing consent');
-  }
-  return response.json() as Promise<{ success: boolean; termsVersion: string }>;
+  void source;
+  return {
+    success: false,
+    deprecated: true,
+  };
 }
 
 export async function revokeBillingConsent() {
-  const response = await authFetch('/api/billing/consent/revoke', {
-    method: 'POST',
-  });
-  if (!response.ok) {
-    throw new Error('Failed to revoke billing consent');
-  }
-  return response.json() as Promise<{ success: boolean }>;
+  return {
+    success: false,
+    deprecated: true,
+  };
 }
 
 export async function getUsageSummary(
@@ -146,7 +223,7 @@ export async function getUsageSummary(
   if (inFlight) return inFlight;
 
   const request = (async () => {
-    const response = await authFetch('/api/billing/usage-summary', {}, token);
+    const response = await authFetch('/api/billing/credits/summary', {}, token);
     if (!response.ok) {
       if (
         !forceFresh &&
@@ -177,4 +254,104 @@ export async function getUsageSummary(
       usageSummaryInFlight.delete(authKey);
     }
   }
+}
+
+export function invalidateBillingSummaryCache() {
+  usageSummaryCache = null;
+}
+
+export async function getCreditDeposits(authToken?: string | null) {
+  const response = await authFetch('/api/billing/deposits', {}, authToken);
+  if (!response.ok) {
+    throw new Error('Failed to fetch credit deposits');
+  }
+  const data = await response.json() as { items: CreditDepositItem[] };
+  return data.items;
+}
+
+export async function getCreditRefunds(authToken?: string | null) {
+  const response = await authFetch('/api/billing/refunds', {}, authToken);
+  if (!response.ok) {
+    throw new Error('Failed to fetch credit refunds');
+  }
+  const data = await response.json() as { items: CreditRefundItem[] };
+  return data.items;
+}
+
+export async function requestCreditRefund(depositId: string, authToken?: string | null) {
+  const response = await authFetch('/api/billing/refunds', {
+    method: 'POST',
+    body: JSON.stringify({ depositId }),
+  }, authToken);
+  if (!response.ok) {
+    const data = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(data?.error || 'Failed to request refund');
+  }
+  invalidateBillingSummaryCache();
+  return response.json();
+}
+
+export async function getAdminCreditRefunds(status = '', authToken?: string | null) {
+  const query = status ? `?status=${encodeURIComponent(status)}` : '';
+  const response = await authFetch(`/api/admin/billing/refunds${query}`, {}, authToken);
+  if (!response.ok) {
+    throw new Error('Failed to fetch admin refunds');
+  }
+  const data = await response.json() as { items: AdminCreditRefundItem[] };
+  return data.items;
+}
+
+export async function approveAdminCreditRefund(refundRequestId: string, note?: string | null, authToken?: string | null) {
+  const response = await authFetch(`/api/admin/billing/refunds/${encodeURIComponent(refundRequestId)}/approve-or-settle`, {
+    method: 'POST',
+    body: JSON.stringify({
+      action: 'approve',
+      note: note || undefined,
+    }),
+  }, authToken);
+  if (!response.ok) {
+    const data = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(data?.error || 'Failed to approve refund');
+  }
+  return response.json();
+}
+
+export async function settleAdminCreditRefund(refundRequestId: string, payoutTxHash: string, note?: string | null, authToken?: string | null) {
+  const response = await authFetch(`/api/admin/billing/refunds/${encodeURIComponent(refundRequestId)}/approve-or-settle`, {
+    method: 'POST',
+    body: JSON.stringify({
+      action: 'settle',
+      payoutTxHash,
+      note: note || undefined,
+    }),
+  }, authToken);
+  if (!response.ok) {
+    const data = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(data?.error || 'Failed to settle refund');
+  }
+  return response.json();
+}
+
+export async function rejectAdminCreditRefund(refundRequestId: string, failureReason: string, note?: string | null, authToken?: string | null) {
+  const response = await authFetch(`/api/admin/billing/refunds/${encodeURIComponent(refundRequestId)}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({
+      failureReason,
+      note: note || undefined,
+    }),
+  }, authToken);
+  if (!response.ok) {
+    const data = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(data?.error || 'Failed to reject refund');
+  }
+  return response.json();
+}
+
+export async function getCreditWatcherMonitor(authToken?: string | null) {
+  const response = await authFetch('/api/admin/billing/monitor', {}, authToken);
+  if (!response.ok) {
+    throw new Error('Failed to fetch credit watcher monitor');
+  }
+  const data = await response.json() as { watcher: CreditWatcherStatus | null };
+  return data.watcher;
 }

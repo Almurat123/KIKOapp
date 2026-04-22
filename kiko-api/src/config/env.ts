@@ -263,6 +263,37 @@ export interface EnvConfig {
         premiumModels: string[];
         modelPricing: Record<string, { promptUsdPer1M: number; completionUsdPer1M: number; cachedPromptUsdPer1M?: number }>;
     };
+    credits: {
+        enabled: boolean;
+        chainId: number;
+        creditsPerUsd: number;
+        minimumTopUpUsd: number;
+        refundWindowHours: number;
+        dailyPremiumFreeMessages: number;
+        lifetimeImageFreeRequests: number;
+        minPremiumTextReserveCredits: number;
+        reconciliationIntervalMinutes: number;
+        reconciliationBackfillBlocks: number;
+        reconciliationOverlapBlocks: number;
+        topUpMode: 'treasury_transfer' | 'router_contract';
+        paymentAddress?: string;
+        topUpRouterAddress?: string;
+        refundOperatorAddress?: string;
+        textPricing: Record<string, {
+            baseCreditsPerMessage: number;
+            inputCreditsPer1kTokens: number;
+            outputCreditsPer1kTokens: number;
+        }>;
+        imagePricing: Record<string, Record<string, number>>;
+        supportedAssets: Array<{
+            symbol: string;
+            tokenAddress?: string;
+            decimals: number;
+            requiredConfirmations: number;
+            paymentAddress?: string;
+            pricingMode: 'stable_1_to_1' | 'market_price';
+        }>;
+    };
     generatedImage: {
         dailyFreeOutputs: number;
     };
@@ -359,6 +390,10 @@ function validateEnv(): EnvConfig {
     const billingEnabled =
         (process.env.BILLING_ENABLED || '').toLowerCase() === 'true' ||
         (process.env.BILLING_ENABLED || '') === '1';
+    const creditsEnabledRaw = (process.env.CREDITS_ENABLED || '').trim().toLowerCase();
+    const creditsEnabled = creditsEnabledRaw
+        ? creditsEnabledRaw === 'true' || creditsEnabledRaw === '1'
+        : true;
     const billingChainId = parseInt(process.env.BILLING_CHAIN_ID || '8453', 10);
     const billingTokenDecimals = parseInt(process.env.BILLING_TOKEN_DECIMALS || '18', 10);
     const billingPriceCacheTtlSec = parseInt(process.env.BILLING_PRICE_CACHE_TTL_SEC || '600', 10);
@@ -369,6 +404,21 @@ function validateEnv(): EnvConfig {
     const billingUsdMultiplier = parseFloat(process.env.BILLING_USD_MULTIPLIER || '3');
     const billingToolPricePerCall = parseFloat(process.env.BILLING_TOOL_PRICE_PER_CALL || '0.005');
     const billingTermsVersion = process.env.BILLING_TERMS_VERSION || 'billing-terms-v1';
+    const creditsPerUsd = parseFloat(process.env.CREDITS_PER_USD || '10');
+    const creditsMinimumTopUpUsd = parseFloat(process.env.CREDITS_MINIMUM_TOPUP_USD || '1');
+    const creditsRefundWindowHours = parseInt(process.env.CREDITS_REFUND_WINDOW_HOURS || '24', 10);
+    const creditsDailyPremiumFreeMessages = parseInt(process.env.CREDITS_DAILY_PREMIUM_FREE_MESSAGES || '5', 10);
+    const creditsLifetimeImageFreeRequests = parseInt(process.env.CREDITS_LIFETIME_IMAGE_FREE_REQUESTS || '3', 10);
+    const creditsMinPremiumTextReserveCredits = parseFloat(process.env.CREDITS_MIN_PREMIUM_TEXT_RESERVE || '1');
+    const creditsReconciliationIntervalMinutes = parseInt(process.env.CREDITS_RECONCILIATION_INTERVAL_MINUTES || '5', 10);
+    const creditsReconciliationBackfillBlocks = parseInt(process.env.CREDITS_RECONCILIATION_BACKFILL_BLOCKS || '2000', 10);
+    const creditsReconciliationOverlapBlocks = parseInt(process.env.CREDITS_RECONCILIATION_OVERLAP_BLOCKS || '20', 10);
+    const creditsTopUpMode = String(process.env.CREDITS_TOPUP_MODE || '').trim().toLowerCase() === 'router_contract'
+        ? 'router_contract'
+        : 'treasury_transfer';
+    const creditsPaymentAddress = process.env.CREDITS_BASE_TREASURY_ADDRESS || process.env.BILLING_FEE_RECIPIENT;
+    const creditsTopUpRouterAddress = process.env.CREDITS_TOPUP_ROUTER_ADDRESS;
+    const creditsRefundOperatorAddress = process.env.CREDITS_REFUND_OPERATOR_ADDRESS;
     const alchemyWebhookSecret = process.env.ALCHEMY_WEBHOOK_SECRET;
     const alchemyWebhookSecretEth = process.env.ALCHEMY_WEBHOOK_SECRET_ETH;
     const alchemyWebhookSecretBase = process.env.ALCHEMY_WEBHOOK_SECRET_BASE;
@@ -541,6 +591,79 @@ function validateEnv(): EnvConfig {
             console.warn('[Env] Failed to parse BILLING_MODEL_PRICING_JSON, falling back to empty pricing map.');
         }
     }
+    let creditTextPricing: Record<string, {
+        baseCreditsPerMessage: number;
+        inputCreditsPer1kTokens: number;
+        outputCreditsPer1kTokens: number;
+    }> = Object.fromEntries(
+        Object.entries(modelPricing).map(([model, pricing]) => {
+            const multiplier = (Number.isFinite(billingUsdMultiplier) ? billingUsdMultiplier : 3)
+                * (Number.isFinite(creditsPerUsd) ? creditsPerUsd : 10);
+            return [
+                model,
+                {
+                    baseCreditsPerMessage: 1,
+                    inputCreditsPer1kTokens: Number((((pricing.promptUsdPer1M || 0) * multiplier) / 1_000_000 * 1000).toFixed(8)),
+                    outputCreditsPer1kTokens: Number((((pricing.completionUsdPer1M || 0) * multiplier) / 1_000_000 * 1000).toFixed(8)),
+                },
+            ];
+        })
+    );
+    if (process.env.CREDITS_TEXT_PRICING_JSON) {
+        try {
+            creditTextPricing = JSON.parse(process.env.CREDITS_TEXT_PRICING_JSON);
+        } catch (error) {
+            console.warn('[Env] Failed to parse CREDITS_TEXT_PRICING_JSON, falling back to derived text pricing map.');
+        }
+    }
+    let creditImagePricing: Record<string, Record<string, number>> = {
+        'gpt-image-1-mini': {
+            low: 0.15,
+            medium: 0.33,
+            high: 1.08,
+        },
+        'gpt-image-2': {
+            low: 0.18,
+            medium: 1.59,
+            high: 6.33,
+        },
+        'grok-imagine-image': {
+            normal: 0.6,
+        },
+    };
+    if (process.env.CREDITS_IMAGE_PRICING_JSON) {
+        try {
+            creditImagePricing = JSON.parse(process.env.CREDITS_IMAGE_PRICING_JSON);
+        } catch (error) {
+            console.warn('[Env] Failed to parse CREDITS_IMAGE_PRICING_JSON, falling back to default image pricing map.');
+        }
+    }
+    const creditSupportedAssets: EnvConfig['credits']['supportedAssets'] = [
+        {
+            symbol: 'USDC',
+            tokenAddress: process.env.CREDITS_BASE_USDC_ADDRESS,
+            decimals: parseInt(process.env.CREDITS_BASE_USDC_DECIMALS || '6', 10),
+            requiredConfirmations: parseInt(process.env.CREDITS_BASE_USDC_CONFIRMATIONS || '3', 10),
+            paymentAddress: creditsPaymentAddress,
+            pricingMode: 'stable_1_to_1',
+        },
+        {
+            symbol: 'USDT',
+            tokenAddress: process.env.CREDITS_BASE_USDT_ADDRESS,
+            decimals: parseInt(process.env.CREDITS_BASE_USDT_DECIMALS || '6', 10),
+            requiredConfirmations: parseInt(process.env.CREDITS_BASE_USDT_CONFIRMATIONS || '3', 10),
+            paymentAddress: creditsPaymentAddress,
+            pricingMode: 'stable_1_to_1',
+        },
+        {
+            symbol: 'KIKO',
+            tokenAddress: process.env.CREDITS_BASE_KIKO_ADDRESS || process.env.BILLING_TOKEN_ADDRESS,
+            decimals: parseInt(process.env.CREDITS_BASE_KIKO_DECIMALS || process.env.BILLING_TOKEN_DECIMALS || '18', 10),
+            requiredConfirmations: parseInt(process.env.CREDITS_BASE_KIKO_CONFIRMATIONS || '3', 10),
+            paymentAddress: creditsPaymentAddress,
+            pricingMode: 'market_price',
+        },
+    ];
     return {
         port,
         nodeEnv,
@@ -648,6 +771,26 @@ function validateEnv(): EnvConfig {
             freeModels,
             premiumModels,
             modelPricing,
+        },
+        credits: {
+            enabled: creditsEnabled,
+            chainId: Number.isFinite(billingChainId) ? billingChainId : 8453,
+            creditsPerUsd: Number.isFinite(creditsPerUsd) ? creditsPerUsd : 10,
+            minimumTopUpUsd: Number.isFinite(creditsMinimumTopUpUsd) ? Math.max(0, creditsMinimumTopUpUsd) : 1,
+            refundWindowHours: Number.isFinite(creditsRefundWindowHours) ? Math.max(1, creditsRefundWindowHours) : 24,
+            dailyPremiumFreeMessages: Number.isFinite(creditsDailyPremiumFreeMessages) ? Math.max(0, creditsDailyPremiumFreeMessages) : 5,
+            lifetimeImageFreeRequests: Number.isFinite(creditsLifetimeImageFreeRequests) ? Math.max(0, creditsLifetimeImageFreeRequests) : 3,
+            minPremiumTextReserveCredits: Number.isFinite(creditsMinPremiumTextReserveCredits) ? Math.max(0, creditsMinPremiumTextReserveCredits) : 1,
+            reconciliationIntervalMinutes: Number.isFinite(creditsReconciliationIntervalMinutes) ? Math.max(1, creditsReconciliationIntervalMinutes) : 5,
+            reconciliationBackfillBlocks: Number.isFinite(creditsReconciliationBackfillBlocks) ? Math.max(10, creditsReconciliationBackfillBlocks) : 2000,
+            reconciliationOverlapBlocks: Number.isFinite(creditsReconciliationOverlapBlocks) ? Math.max(0, creditsReconciliationOverlapBlocks) : 20,
+            topUpMode: creditsTopUpMode,
+            paymentAddress: creditsPaymentAddress,
+            topUpRouterAddress: creditsTopUpRouterAddress,
+            refundOperatorAddress: creditsRefundOperatorAddress,
+            textPricing: creditTextPricing,
+            imagePricing: creditImagePricing,
+            supportedAssets: creditSupportedAssets,
         },
         generatedImage: {
             dailyFreeOutputs: Number.isFinite(generatedImageDailyFreeOutputs) ? Math.max(0, generatedImageDailyFreeOutputs) : 3,

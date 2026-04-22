@@ -146,7 +146,7 @@ import { evaluateUsageAccess, getUsageLimitMessage, isCurrentRequestFree } from 
 import { recordUsage } from '../usageCounter.js';
 import { getEmbeddedWalletAddress, getSolanaEmbeddedWalletAddress } from '../privyWallet.js';
 import { chatWorker } from '../../jobs/chatWorker.js';
-import { normalizeSupportedChatModel } from '../../config/chatModels.js';
+import { inferSupportedChatReasoningLevel, normalizeSupportedChatModel, normalizeSupportedChatReasoningLevel } from '../../config/chatModels.js';
 import { buildFarcasterProfileUrl } from './farcasterIdentityService.js';
 import { env } from '../../config/env.js';
 import { hydrateGeneratedChatImageDataForClient, resolveGeneratedImagePublicUrl } from '../chatImageUploads.js';
@@ -390,6 +390,7 @@ export async function enqueueFarcasterAgentMessage(params: {
   sessionId: string;
   content: string;
   socialInput?: SocialAgentInput | null;
+  preferredReasoningLevel?: string | null;
   preferredGeneratedImageModel?: string | null;
   preferredGeneratedImageQuality?: string | null;
   farcasterFid: number;
@@ -406,6 +407,10 @@ export async function enqueueFarcasterAgentMessage(params: {
   }
 
   const taskModel = normalizeTaskModel(session.model);
+  const reasoningEffort =
+    normalizeSupportedChatReasoningLevel(params.preferredReasoningLevel)
+    || normalizeSupportedChatReasoningLevel(session.reasoningLevel)
+    || inferSupportedChatReasoningLevel(taskModel);
   const trimmedContent = params.content.trim();
   const socialInput = params.socialInput || null;
   const userMessage = await chatRepo.createMessage(params.sessionId, 'user', trimmedContent, {
@@ -476,6 +481,7 @@ export async function enqueueFarcasterAgentMessage(params: {
       rootCastHash: params.rootCastHash || null,
     },
     socialInput: socialInput || undefined,
+    reasoningEffort,
     generatedImagePreference: {
       model: params.preferredGeneratedImageModel || null,
       quality: params.preferredGeneratedImageQuality || null,

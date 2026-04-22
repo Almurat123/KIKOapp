@@ -152,6 +152,7 @@ import {
 import { farcasterReplyService } from './farcasterReplyService.js';
 import { trimCastText } from './farcasterCastText.js';
 import { dedupeSocialImages, type SocialAgentInput } from '../socialAgentInput.js';
+import { handleSocialSettingsCommand } from '../socialSettingsCommandService.js';
 
 const NOTIFICATION_WATERMARK_KEY = 'farcaster:ingress:mentions:last_seen_at';
 const RECOVERY_BATCH_SIZE = Math.max(1, Number(process.env.FARCASTER_AGENT_RECOVERY_BATCH_SIZE || '20'));
@@ -733,6 +734,22 @@ export class FarcasterIngressWorker {
       return;
     }
 
+    const settingsCommand = await handleSocialSettingsCommand({
+      userId: user.privyDid,
+      text: mention.text,
+    });
+    if (settingsCommand.handled) {
+      await farcasterReplyService.replyToMention({
+        userId: user.privyDid,
+        farcasterFid: mention.authorFid,
+        parentHash: mention.castHash,
+        parentAuthorFid: mention.authorFid,
+        text: trimCastText(settingsCommand.replyText),
+        idempotencyKey: `farcaster:reply:settings:${mention.castHash}`,
+      });
+      return;
+    }
+
     const messageQuota = await recordFarcasterQuotaMetric({ userId: user.privyDid, metric: 'messages' });
     const runQuota = await recordFarcasterQuotaMetric({ userId: user.privyDid, metric: 'agent_runs' });
     if (!messageQuota.allowed || !runQuota.allowed) {
@@ -748,6 +765,7 @@ export class FarcasterIngressWorker {
     }
 
     const preferredModel = normalizeSupportedChatModel(user.settings?.defaultChatModel);
+    const preferredReasoningLevel = String(user.settings?.defaultChatReasoningLevel || '').trim() || null;
     const preferredGeneratedImageModel = String(user.settings?.defaultGeneratedImageModel || '').trim() || null;
     const preferredGeneratedImageQuality = String(user.settings?.defaultGeneratedImageQuality || '').trim() || null;
     const mapping = await findOrCreateFarcasterConversation({
@@ -758,6 +776,7 @@ export class FarcasterIngressWorker {
       rootCastHash: mention.rootCastHash || mention.castHash,
       parentCastHash: mention.parentHash || null,
       preferredModel,
+      preferredReasoningLevel,
       initialMessageText: mention.text,
     });
 
@@ -778,6 +797,7 @@ export class FarcasterIngressWorker {
     await syncFarcasterConversationModel({
       chatSessionId: mapping.chatSessionId,
       preferredModel,
+      preferredReasoningLevel,
     });
     await markFarcasterConversationInbound({
       mappingId: mapping.id,
@@ -793,6 +813,7 @@ export class FarcasterIngressWorker {
       sessionId: mapping.chatSessionId,
       content: inboundPrompt.content,
       socialInput: inboundPrompt.socialInput,
+      preferredReasoningLevel,
       preferredGeneratedImageModel,
       preferredGeneratedImageQuality,
       farcasterFid: mention.authorFid,

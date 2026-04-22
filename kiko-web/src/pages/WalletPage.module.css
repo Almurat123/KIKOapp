@@ -1,9 +1,19 @@
 /* Container */
 .container {
+  --wallet-button-primary-bg: linear-gradient(135deg, #f7edd8, #dcb874);
+  --wallet-button-primary-text: #12131a;
+  --wallet-button-secondary-bg: rgba(255, 255, 255, 0.045);
+  --wallet-button-secondary-hover-bg: rgba(255, 255, 255, 0.08);
+  --wallet-button-secondary-border: rgba(255, 255, 255, 0.08);
+  --wallet-button-secondary-text: rgba(247, 243, 238, 0.78);
+  --wallet-button-secondary-shadow: 0 3px 9px rgba(0, 0, 0, 0.08);
+  --wallet-button-danger-bg: rgba(239, 68, 68, 0.1);
+  --wallet-button-danger-text: #ff8a8a;
+  --wallet-button-danger-border: rgba(239, 68, 68, 0.22);
   width: 100%;
   min-height: 100vh;
   background: transparent;
-  color: #f4f4f5;
+  color: var(--text-primary);
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   display: flex;
   flex-direction: column;
@@ -12,6 +22,14 @@
 
 /* Light theme - use white background */
 :global(.light) .container {
+  --wallet-button-secondary-bg: rgba(255, 255, 255, 0.78);
+  --wallet-button-secondary-hover-bg: rgba(255, 255, 255, 0.96);
+  --wallet-button-secondary-border: rgba(15, 23, 42, 0.08);
+  --wallet-button-secondary-text: #111827;
+  --wallet-button-secondary-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
+  --wallet-button-danger-bg: rgba(239, 68, 68, 0.08);
+  --wallet-button-danger-text: #dc2626;
+  --wallet-button-danger-border: rgba(239, 68, 68, 0.18);
   background: transparent;
   color: #18181b;
 }
@@ -99,17 +117,21 @@
 }
 
 .authorizationButton {
-  background: var(--accent-color);
-  color: var(--bg-primary);
-  border: none;
+  background: var(--wallet-button-primary-bg);
+  color: var(--wallet-button-primary-text);
+  border: 1px solid rgba(220, 184, 116, 0.34);
   padding: 8px 12px;
-  border-radius: 10px;
-  font-weight: 600;
+  border-radius: 999px;
+  font-weight: 800;
   cursor: pointer;
+  box-shadow: 0 3px 9px rgba(220, 184, 116, 0.14);
+  transition: transform 0.18s ease, filter 0.18s ease, box-shadow 0.18s ease;
 }
 
 .authorizationButton:hover {
-  filter: brightness(1.05);
+  filter: brightness(1.03);
+  transform: translateY(-1px);
+  box-shadow: 0 5px 12px rgba(220, 184, 116, 0.18);
 }
 
 /* Removed manual overrides - simplified to use vars */
@@ -124,6 +146,417 @@
   background: transparent;
   min-height: 100vh;
   transition: background-color 0.3s ease;
+}
+
+.creditsSection {
+  margin-bottom: 20px;
+}
+
+.creditLedgerCard {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.2fr) minmax(260px, 0.8fr) minmax(220px, 0.72fr);
+  gap: 18px;
+  align-items: center;
+  padding: 22px 24px;
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at top right, rgba(40, 74, 179, 0.16), transparent 34%),
+    rgba(19, 19, 22, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.18);
+  transition: background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.creditLedgerLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.creditLedgerTitle {
+  font-size: 28px;
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+  font-weight: 800;
+  color: var(--text-primary);
+  max-width: 560px;
+}
+
+.creditLedgerMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.creditLedgerBalance {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 18px 20px;
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: background 0.25s ease, border-color 0.25s ease;
+}
+
+.creditMetricBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.creditMetricDivider {
+  width: 1px;
+  align-self: stretch;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.creditLedgerActions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.creditsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.creditCard {
+  background:
+    radial-gradient(circle at top right, rgba(40, 74, 179, 0.16), transparent 34%),
+    rgba(19, 19, 22, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.18);
+  border-radius: 24px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.creditHeroCard {
+  grid-column: 1 / span 2;
+}
+
+.creditHeroSurface {
+  min-height: 210px;
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding:
+    6px 4px 2px;
+}
+
+.creditHeroText {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 480px;
+}
+
+.creditEyebrow {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: rgba(221, 188, 131, 0.78);
+}
+
+.creditAdminCard {
+  grid-column: 1 / -1;
+}
+
+.creditCardTitle {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.15;
+}
+
+.creditBalanceRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.creditBalanceValue {
+  font-size: 44px;
+  line-height: 1;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.04em;
+}
+
+.creditBalanceValueSecondary {
+  font-size: 28px;
+  line-height: 1;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.creditBalanceLabel,
+.paymentAddressLabel,
+.creditRowMeta,
+.creditMetaRow {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.creditMetaRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.paymentAddressBox {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.topUpPreviewBox {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03));
+  border-radius: 18px;
+  padding: 14px;
+}
+
+.topUpPreviewTitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin-bottom: 8px;
+}
+
+.topUpPreviewValue {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.paymentAddressValue {
+  margin-top: 4px;
+  font-size: 12px;
+  word-break: break-all;
+  color: var(--text-primary);
+}
+
+.assetChipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.assetChip,
+.creditStatusPill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.assetChip {
+  background: rgba(58, 92, 255, 0.16);
+  border: 1px solid rgba(96, 124, 255, 0.26);
+  color: var(--text-primary);
+}
+
+.creditStatusPill {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-secondary);
+  align-self: flex-start;
+}
+
+.creditActionRow,
+.creditAdminActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.creditActionButton,
+.creditActionButtonSecondary {
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+  transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease;
+}
+
+.creditActionButton {
+  background: var(--wallet-button-primary-bg);
+  color: var(--wallet-button-primary-text);
+  border: 1px solid rgba(220, 184, 116, 0.34);
+  box-shadow: 0 3px 9px rgba(220, 184, 116, 0.14);
+}
+
+.creditActionButton:disabled,
+.creditActionButtonSecondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.creditActionButtonSecondary {
+  background: var(--wallet-button-secondary-bg);
+  color: var(--wallet-button-secondary-text);
+  border: 1px solid var(--wallet-button-secondary-border);
+  box-shadow: var(--wallet-button-secondary-shadow);
+}
+
+.creditActionButton:hover:not(:disabled),
+.creditActionButtonSecondary:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.creditActionButton:hover:not(:disabled) {
+  filter: brightness(1.03);
+  box-shadow: 0 5px 12px rgba(220, 184, 116, 0.18);
+}
+
+.creditActionButtonSecondary:hover:not(:disabled) {
+  background: var(--wallet-button-secondary-hover-bg);
+  border-color: rgba(237, 202, 142, 0.24);
+}
+
+:global(.light) .creditLedgerCard {
+  background:
+    radial-gradient(circle at top right, rgba(73, 106, 214, 0.12), transparent 38%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 248, 251, 0.96));
+  border-color: rgba(15, 23, 42, 0.08);
+  box-shadow:
+    0 18px 44px rgba(15, 23, 42, 0.08),
+    0 1px 0 rgba(255, 255, 255, 0.7) inset;
+}
+
+:global(.light) .creditLedgerBalance {
+  background: linear-gradient(180deg, rgba(245, 247, 255, 0.94), rgba(241, 244, 251, 0.9));
+  border-color: rgba(15, 23, 42, 0.08);
+}
+
+:global(.light) .creditMetricDivider {
+  background: rgba(15, 23, 42, 0.08);
+}
+
+:global(.light) .creditEyebrow {
+  color: rgba(170, 114, 34, 0.82);
+}
+
+:global(.light) .creditActionButtonSecondary {
+  background: var(--wallet-button-secondary-bg);
+  border-color: var(--wallet-button-secondary-border);
+}
+
+:global(.light) .creditActionButtonSecondary:hover {
+  background: var(--wallet-button-secondary-hover-bg);
+  border-color: rgba(170, 114, 34, 0.22);
+}
+
+.creditList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.creditRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 16px;
+  padding: 12px;
+}
+
+.creditRowTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  word-break: break-word;
+}
+
+.creditEmpty,
+.creditNoticeError {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.creditNoticeError {
+  margin-bottom: 10px;
+  color: #f97316;
+}
+
+.creditFilterSelect {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+@media (max-width: 768px) {
+  .creditLedgerCard {
+    grid-template-columns: 1fr;
+    padding: 20px 18px;
+  }
+
+  .creditLedgerTitle {
+    font-size: 24px;
+  }
+
+  .creditLedgerBalance {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .creditMetricDivider {
+    width: 100%;
+    height: 1px;
+  }
+
+  .creditLedgerActions {
+    width: 100%;
+  }
+
+  .creditHeroCard {
+    grid-column: auto;
+  }
+
+  .creditHeroSurface {
+    min-height: auto;
+  }
+
+  .creditBalanceValue {
+    font-size: 36px;
+  }
+
+  .creditBalanceValueSecondary {
+    font-size: 24px;
+  }
+
+  .creditRow {
+    flex-direction: column;
+  }
+
+  .creditAdminActions {
+    width: 100%;
+  }
 }
 
 /* Mobile: Remove horizontal padding for full-width */
@@ -1246,23 +1679,26 @@
 /* Ensure export buttons look consistent */
 .exportSection button {
   flex: 1;
-  background: transparent;
-  color: var(--text-tertiary, #999);
+  background: var(--wallet-button-secondary-bg);
+  color: var(--wallet-button-secondary-text);
   font-size: 11px;
-  font-weight: 500;
-  border: none;
+  font-weight: 800;
+  border: 1px solid var(--wallet-button-secondary-border);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0;
-  border-radius: 0;
+  padding: 8px 10px;
+  border-radius: 999px;
+  box-shadow: var(--wallet-button-secondary-shadow);
 }
 
 .exportSection button:hover {
-  color: var(--text-primary);
-  background: var(--bg-hover);
+  color: var(--wallet-button-secondary-text);
+  background: var(--wallet-button-secondary-hover-bg);
+  border-color: rgba(237, 202, 142, 0.24);
+  transform: translateY(-1px);
 }
 
 
@@ -1365,41 +1801,38 @@
   width: 40px;
   height: 40px;
   padding: 0;
-  border-radius: 12px;
+  border-radius: 999px;
   cursor: pointer;
   flex-shrink: 0;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-
-  /* Liquid Glass Style */
-  background: rgba(255, 255, 255, 0.03);
+  transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+  background: var(--wallet-button-secondary-bg);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  color: var(--text-primary);
-  /* #a1a1aa previously, updated to text-primary for visibility */
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--wallet-button-secondary-border);
+  color: var(--wallet-button-secondary-text);
+  box-shadow: var(--wallet-button-secondary-shadow);
 }
 
 /* Light mode overrides handled by var or global light class */
 :global(.light) .settingsButton {
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(0, 0, 0, 0.05);
-  color: var(--text-primary);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+  background: var(--wallet-button-secondary-bg);
+  border: 1px solid var(--wallet-button-secondary-border);
+  color: var(--wallet-button-secondary-text);
+  box-shadow: var(--wallet-button-secondary-shadow);
 }
 
 .settingsButton:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-primary);
+  background: var(--wallet-button-secondary-hover-bg);
+  color: var(--wallet-button-secondary-text);
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
-  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: var(--wallet-button-secondary-shadow);
+  border-color: rgba(237, 202, 142, 0.24);
 }
 
 :global(.light) .settingsButton:hover {
-  background: rgba(255, 255, 255, 0.9);
-  color: var(--text-primary);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
+  background: var(--wallet-button-secondary-hover-bg);
+  color: var(--wallet-button-secondary-text);
+  box-shadow: var(--wallet-button-secondary-shadow);
 }
 
 .settingsDropdown {
@@ -1461,11 +1894,11 @@
 }
 
 .settingsMenuItem:hover {
-  background: #27272a;
+  background: rgba(255, 255, 255, 0.075);
 }
 
 :global(.light) .settingsMenuItem:hover {
-  background: #f3f4f6;
+  background: rgba(15, 23, 42, 0.045);
 }
 
 .chainLabel {
@@ -1507,31 +1940,35 @@
 
 /* Toggle Button Styles */
 .ghostButton {
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
+  background: var(--wallet-button-secondary-bg);
+  border: 1px solid var(--wallet-button-secondary-border);
+  color: var(--wallet-button-secondary-text);
   font-size: var(--settings-desc-fs);
-  font-weight: 600;
+  font-weight: 850;
   cursor: pointer;
-  padding: 0 4px;
+  padding: 6px 10px;
   margin-left: 12px;
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  border-radius: 999px;
+  text-decoration: none;
   white-space: nowrap;
   flex-shrink: 0;
-  transition: color 0.2s ease;
+  box-shadow: var(--wallet-button-secondary-shadow);
+  transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
 }
 
 .ghostButton:hover {
-  color: var(--text-primary);
+  color: var(--wallet-button-secondary-text);
+  background: var(--wallet-button-secondary-hover-bg);
+  border-color: rgba(237, 202, 142, 0.24);
+  transform: translateY(-1px);
 }
 
 :global(.light) .ghostButton {
-  color: #52525b;
+  color: var(--wallet-button-secondary-text);
 }
 
 :global(.light) .ghostButton:hover {
-  color: #18181b;
+  color: var(--wallet-button-secondary-text);
 }
 
 .showAllButton {
@@ -1539,46 +1976,50 @@
   width: 100%;
   margin-top: 12px;
   padding: 12px;
-  background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  color: var(--text-secondary);
+  background: var(--wallet-button-secondary-bg);
+  border: 1px solid var(--wallet-button-secondary-border);
+  border-radius: 999px;
+  color: var(--wallet-button-secondary-text);
   font-size: var(--settings-desc-fs);
-  font-weight: 600;
+  font-weight: 850;
   cursor: pointer;
   text-align: center;
-  transition: background 0.2s ease, color 0.2s ease;
+  box-shadow: var(--wallet-button-secondary-shadow);
+  transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
 }
 
 .showAllButton:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-primary);
+  background: var(--wallet-button-secondary-hover-bg);
+  border-color: rgba(237, 202, 142, 0.24);
+  color: var(--wallet-button-secondary-text);
+  transform: translateY(-1px);
 }
 
 :global(.light) .showAllButton {
-  border-color: rgba(0, 0, 0, 0.08);
-  color: #52525b;
+  border-color: var(--wallet-button-secondary-border);
+  color: var(--wallet-button-secondary-text);
 }
 
 :global(.light) .showAllButton:hover {
-  background: rgba(0, 0, 0, 0.04);
-  color: #18181b;
+  background: var(--wallet-button-secondary-hover-bg);
+  color: var(--wallet-button-secondary-text);
 }
 
 .toggleContainer {
   display: flex;
   align-items: center;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--wallet-button-secondary-bg);
   padding: 4px;
   border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--wallet-button-secondary-border);
   flex: 1;
   margin-right: 0;
+  box-shadow: var(--wallet-button-secondary-shadow);
 }
 
 :global(.light) .toggleContainer {
-  background: #f4f4f5;
-  border-color: rgba(0, 0, 0, 0.05);
+  background: var(--wallet-button-secondary-bg);
+  border-color: var(--wallet-button-secondary-border);
 }
 
 .toggleButton {
@@ -1589,8 +2030,8 @@
   height: 36px;
   padding: 0 16px;
   font-size: var(--settings-desc-fs);
-  font-weight: 600;
-  color: var(--text-secondary);
+  font-weight: 850;
+  color: var(--wallet-button-secondary-text);
   background: transparent;
   border: none;
   border-radius: 12px;
@@ -1600,24 +2041,24 @@
 }
 
 .toggleButton:hover {
-  color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--wallet-button-secondary-text);
+  background: var(--wallet-button-secondary-hover-bg);
 }
 
 :global(.light) .toggleButton:hover {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--wallet-button-secondary-hover-bg);
 }
 
 .toggleButton.active {
-  background: #ffffff;
-  color: #000000;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  background: var(--wallet-button-primary-bg);
+  color: var(--wallet-button-primary-text);
+  box-shadow: 0 3px 9px rgba(220, 184, 116, 0.14);
 }
 
 :global(.light) .toggleButton.active {
-  background: #18181b;
-  color: #ffffff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  background: var(--wallet-button-primary-bg);
+  color: var(--wallet-button-primary-text);
+  box-shadow: 0 2px 6px rgba(220, 184, 116, 0.14);
 }
 
 .cardHeader {
@@ -1669,38 +2110,38 @@
   justify-content: center;
   gap: 8px;
   height: var(--settings-input-height);
-  border-radius: var(--settings-input-radius);
-  font-weight: 700;
+  border-radius: 999px;
+  font-weight: 850;
   font-size: var(--settings-label-fs);
   cursor: pointer;
 
-  /* Liquid Glass Style */
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--wallet-button-secondary-bg);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  color: var(--text-primary);
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--wallet-button-secondary-border);
+  color: var(--wallet-button-secondary-text);
+  box-shadow: var(--wallet-button-secondary-shadow);
 
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 :global(.light) .actionButton {
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(0, 0, 0, 0.05);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
-  color: var(--text-primary);
+  background: var(--wallet-button-secondary-bg);
+  border: 1px solid var(--wallet-button-secondary-border);
+  box-shadow: var(--wallet-button-secondary-shadow);
+  color: var(--wallet-button-secondary-text);
 }
 
 .actionButton:hover {
-  background: rgba(255, 255, 255, 0.08);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+  background: var(--wallet-button-secondary-hover-bg);
+  transform: translateY(-1px);
+  border-color: rgba(237, 202, 142, 0.24);
+  box-shadow: var(--wallet-button-secondary-shadow);
 }
 
 :global(.light) .actionButton:hover {
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+  background: var(--wallet-button-secondary-hover-bg);
+  box-shadow: var(--wallet-button-secondary-shadow);
 }
 
 .actionButton:disabled {
@@ -1709,11 +2150,21 @@
   transform: none;
 }
 
-/* Variants - Unified Glass */
-.actionBtnPrimary,
+/* Variants - wallet actions use the same credit top-up palette. */
+.actionBtnPrimary {
+  background: var(--wallet-button-primary-bg);
+  color: var(--wallet-button-primary-text);
+  border-color: rgba(220, 184, 116, 0.34);
+  box-shadow: 0 3px 9px rgba(220, 184, 116, 0.14);
+}
+
+.actionBtnPrimary:hover {
+  filter: brightness(1.03);
+  box-shadow: 0 5px 12px rgba(220, 184, 116, 0.18);
+}
+
 .actionBtnSecondary {
-  /* Inherit base glass style, specialized colors if needed, but unified is cleaner */
-  background: var(--liquid-glass-bg);
+  background: var(--wallet-button-secondary-bg);
 }
 
 /* Prediction Orders Grid (Responsive Flex Wrap) */
@@ -2043,26 +2494,29 @@
 
 /* More Actions Menu */
 .moreButton {
-  background: none;
-  border: none;
-  color: #a1a1aa;
+  background: var(--wallet-button-secondary-bg);
+  border: 1px solid var(--wallet-button-secondary-border);
+  color: var(--wallet-button-secondary-text);
   cursor: pointer;
-  padding: 4px;
+  padding: 7px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  transition: background 0.2s;
+  border-radius: 999px;
+  box-shadow: var(--wallet-button-secondary-shadow);
+  transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
 }
 
 .moreButton:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: #f4f4f5;
+  background: var(--wallet-button-secondary-hover-bg);
+  border-color: rgba(237, 202, 142, 0.24);
+  color: var(--wallet-button-secondary-text);
+  transform: translateY(-1px);
 }
 
 :global(.light) .moreButton:hover {
-  background: rgba(0, 0, 0, 0.05);
-  color: #18181b;
+  background: var(--wallet-button-secondary-hover-bg);
+  color: var(--wallet-button-secondary-text);
 }
 
 .ordersContainer {
@@ -2094,49 +2548,51 @@
 }
 
 .cancelButton {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  padding: 4px 12px;
-  border-radius: 20px;
+  background: var(--wallet-button-danger-bg);
+  color: var(--wallet-button-danger-text);
+  border: 1px solid var(--wallet-button-danger-border);
+  padding: 7px 13px;
+  border-radius: 999px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 850;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
 }
 
 .cancelButton:hover {
   background: #ef4444;
+  border-color: #ef4444;
   color: #fff;
+  transform: translateY(-1px);
 }
 
 .sellButton {
   margin-left: auto;
-  background: #ffffff !important;
-  color: #000000 !important;
-  border: none !important;
-  padding: 6px 18px !important;
-  border-radius: 20px !important;
+  background: var(--wallet-button-primary-bg) !important;
+  color: var(--wallet-button-primary-text) !important;
+  border: 1px solid rgba(220, 184, 116, 0.34) !important;
+  padding: 7px 18px !important;
+  border-radius: 999px !important;
   font-size: 13px !important;
-  font-weight: 700 !important;
+  font-weight: 850 !important;
   cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  transition: transform 0.18s ease, filter 0.18s ease, box-shadow 0.18s ease;
+  box-shadow: 0 3px 9px rgba(220, 184, 116, 0.14);
 }
 
 :global(.light) .sellButton {
-  background: #000000 !important;
-  color: #ffffff !important;
+  background: var(--wallet-button-primary-bg) !important;
+  color: var(--wallet-button-primary-text) !important;
 }
 
 .sellButton:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 15px rgba(0, 0, 0, 0.3);
-  filter: brightness(1.1);
+  box-shadow: 0 5px 12px rgba(220, 184, 116, 0.18);
+  filter: brightness(1.03);
 }
 
 :global(.light) .sellButton:hover {
-  filter: brightness(0.9);
+  filter: brightness(1.03);
 }
 
 .pnlPercent {

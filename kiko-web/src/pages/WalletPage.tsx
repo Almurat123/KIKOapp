@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Shield } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom'; // Added useNavigate
@@ -12,6 +12,16 @@ import { WalletHeader } from '../components/Wallet/WalletHeader';
 import { AssetList } from '../components/Wallet/AssetList';
 import { TransactionList } from '../components/Wallet/TransactionList';
 import { PolymarketOrderCard, PolymarketHistoryItem } from '../components/Wallet/PolymarketSection';
+import { CreditTopUpModal } from '../components/Wallet/CreditTopUpModal';
+import { CreditRefundModal } from '../components/Wallet/CreditRefundModal';
+import { CreditDepositHistoryModal } from '../components/Wallet/CreditDepositHistoryModal';
+import {
+  getCreditDeposits,
+  getUsageSummary,
+  requestCreditRefund,
+  type CreditDepositItem,
+  type UsageSummary,
+} from '../services/billingApi';
 import { agentAttrs } from '../agent/attrs';
 import styles from './WalletPage.module.css';
 import { usePrivyEmbeddedWallets } from '../hooks/usePrivyEmbeddedWallets';
@@ -34,7 +44,17 @@ export default function WalletPage() {
   const [viewMode, setViewMode] = useState<'assets' | 'orders'>('assets');
   const [showAllAssets, setShowAllAssets] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; order: any | null }>({ isOpen: false, order: null });
+  const [billingSummary, setBillingSummary] = useState<UsageSummary | null>(null);
+  const [creditDeposits, setCreditDeposits] = useState<CreditDepositItem[]>([]);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingError, setBillingError] = useState<string | null>(null);
+  const [isTopUpOpen, setIsTopUpOpen] = useState(false);
+  const [isDepositHistoryOpen, setIsDepositHistoryOpen] = useState(false);
+  const [isRefundOpen, setIsRefundOpen] = useState(false);
+  const [refundModalDeposit, setRefundModalDeposit] = useState<CreditDepositItem | null>(null);
+  const [isRefundSubmitting, setIsRefundSubmitting] = useState(false);
   const swapScopedHoldings = holdings.filter(h => h.chainId === chainId);
+  const refundableDeposits = creditDeposits.filter((deposit) => deposit.refundEligible);
 
   const needsAuthorization = (() => {
     const evmNeeds = !!evmWallet && !evmWallet.delegated;
@@ -69,6 +89,44 @@ export default function WalletPage() {
       if (res.success) { toast.success('Close order submitted'); setOrders(prev => prev.filter(o => o.assetId !== order.assetId)); }
       else toast.error(res.error || 'Close failed');
     } catch (e) { console.error('Close failed', e); toast.error('Close failed'); }
+  };
+
+  const loadBillingData = async (forceFresh = false) => {
+    if (!authenticated) return;
+    setBillingLoading(true);
+    setBillingError(null);
+    try {
+      const token = await getAccessToken();
+      const summary = await getUsageSummary(token, { forceFresh });
+      const deposits = await getCreditDeposits(token);
+      setBillingSummary(summary);
+      setCreditDeposits(deposits);
+    } catch (error) {
+      console.error('Failed to load billing data', error);
+      setBillingError(error instanceof Error ? error.message : 'Failed to load billing data');
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!authenticated) return;
+    void loadBillingData();
+  }, [authenticated]);
+
+  const handleRequestRefund = async (depositId: string) => {
+    setIsRefundSubmitting(true);
+    try {
+      const token = await getAccessToken();
+      await requestCreditRefund(depositId, token);
+      toast.success('Refund request submitted');
+      setRefundModalDeposit(null);
+      await loadBillingData(true);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Refund request failed');
+    } finally {
+      setIsRefundSubmitting(false);
+    }
   };
 
   if (!authenticated) return (
@@ -141,6 +199,56 @@ export default function WalletPage() {
             </button>
           </div>
         )}
+        <div className={styles.creditsSection}>
+          <div className={styles.sectionHeader}>
+            <div className={styles.sectionTitle}>Credits</div>
+          </div>
+          {billingError && <div className={styles.creditNoticeError}>{billingError}</div>}
+          <div className={styles.creditLedgerCard}>
+            <div className={styles.creditLedgerLeft}>
+              <div className={styles.creditLedgerTitle}>Credits Balance</div>
+              <div className={styles.creditLedgerMeta}>
+                <span>1 USD = {billingSummary?.credits.perUsd ?? 10} credits</span>
+              </div>
+            </div>
+
+            <div className={styles.creditLedgerBalance}>
+              <div className={styles.creditMetricBlock}>
+                <div className={styles.creditBalanceValue}>{billingSummary ? billingSummary.credits.available.toFixed(2) : '--'}</div>
+                <div className={styles.creditBalanceLabel}>Credits balance</div>
+              </div>
+              {billingSummary && billingSummary.credits.reserved > 0 ? (
+                <>
+                  <div className={styles.creditMetricDivider} />
+                  <div className={styles.creditMetricBlock}>
+                    <div className={styles.creditBalanceValueSecondary}>{billingSummary.credits.reserved.toFixed(2)}</div>
+                    <div className={styles.creditBalanceLabel}>Pending hold</div>
+                  </div>
+                </>
+              ) : null}
+            </div>
+
+            <div className={styles.creditLedgerActions}>
+              <button className={styles.creditActionButton} onClick={() => setIsTopUpOpen(true)}>
+                Top Up
+              </button>
+              <button className={styles.creditActionButtonSecondary} onClick={() => setIsDepositHistoryOpen(true)}>
+                Deposits
+              </button>
+              <button
+                className={refundableDeposits.length > 0 ? styles.creditActionButton : styles.creditActionButtonSecondary}
+                onClick={() => setIsRefundOpen(true)}
+              >
+                {refundableDeposits.length > 0 ? `Refund (${refundableDeposits.length})` : 'Refund'}
+              </button>
+              {billingSummary?.admin.canManageRefunds && (
+                <button className={styles.creditActionButtonSecondary} onClick={() => navigate('/admin')}>
+                  Open Admin
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
         <div className={styles.assetsSection}>
           <div className={styles.sectionHeader}>
             <div className={styles.toggleContainer}>
@@ -165,7 +273,7 @@ export default function WalletPage() {
               {ordersLoading ? <div className={styles.emptyState}>Loading orders...</div> : (orders.length === 0 && pendingOrders.length === 0 ? <div className={styles.emptyState}>No positions.</div> : (
                 <>
                   {orders.map((o, i) => <PolymarketOrderCard key={i} order={o} styles={styles} onSell={() => setConfirmDialog({ isOpen: true, order: o })} />)}
-                  {pendingOrders.map((o, i) => <div key={i} className={styles.historyItemNew}><span>{o.title} (Pending)</span><button onClick={() => handleCancelOrder(o.id)}>Cancel</button></div>)}
+                  {pendingOrders.map((o, i) => <div key={i} className={styles.historyItemNew}><span>{o.title} (Pending)</span><button className={styles.cancelButton} onClick={() => handleCancelOrder(o.id)}>Cancel</button></div>)}
                 </>
               ))}
             </div>
@@ -192,6 +300,47 @@ export default function WalletPage() {
         holdings={holdings.filter(h => h.chainId === chainId)}
         onSelectToken={(token) => setSelectedToken(token)}
         onSuccess={refreshData}
+      />
+      <CreditTopUpModal
+        isOpen={isTopUpOpen}
+        onClose={() => setIsTopUpOpen(false)}
+        summary={billingSummary}
+        walletAddress={walletAddress}
+        holdings={holdings}
+        onSuccess={() => {
+          void loadBillingData(true);
+          void refreshData(true);
+        }}
+      />
+      <CreditDepositHistoryModal
+        isOpen={isDepositHistoryOpen}
+        onClose={() => setIsDepositHistoryOpen(false)}
+        deposits={creditDeposits}
+        loading={billingLoading}
+        onRefund={(deposit) => {
+          setIsDepositHistoryOpen(false);
+          setRefundModalDeposit(deposit);
+        }}
+      />
+      <CreditDepositHistoryModal
+        isOpen={isRefundOpen}
+        onClose={() => setIsRefundOpen(false)}
+        deposits={refundableDeposits}
+        loading={billingLoading}
+        eyebrow="Refund"
+        title="Choose a deposit to refund"
+        emptyMessage="No deposits can be refunded right now."
+        onRefund={(deposit) => {
+          setIsRefundOpen(false);
+          setRefundModalDeposit(deposit);
+        }}
+      />
+      <CreditRefundModal
+        isOpen={!!refundModalDeposit}
+        onClose={() => !isRefundSubmitting && setRefundModalDeposit(null)}
+        deposit={refundModalDeposit}
+        onConfirm={handleRequestRefund}
+        isSubmitting={isRefundSubmitting}
       />
       {isSwapOpen && createPortal(<div className={styles.modalOverlay} onClick={() => setIsSwapOpen(false)}><div onClick={e => e.stopPropagation()}><SwapCardIntegrated userAddress={walletAddress} chainId={chainId} onClose={() => setIsSwapOpen(false)} onSwapSuccess={() => refreshData(true)} userHoldings={swapScopedHoldings} /></div></div>, document.body)}
       <ConfirmDialog isOpen={confirmDialog.isOpen} title="Close Position" message={`Sell shares of "${confirmDialog.order?.title}"?`} onConfirm={handleClosePosition} onCancel={() => setConfirmDialog({ isOpen: false, order: null })} />

@@ -94,6 +94,15 @@ function isNativeTokenAddress(address?: string | null): boolean {
   return lower === '0x0000000000000000000000000000000000000000' || lower === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 }
 
+function isTokenAvailableOnChain(token: Token | null | undefined, chainTokens: Token[], chainId: number): boolean {
+  if (!token) return false;
+  if (typeof token.chainId === 'number' && token.chainId !== chainId) {
+    return false;
+  }
+  const tokenAddress = token.address.toLowerCase();
+  return chainTokens.some(chainToken => chainToken.address.toLowerCase() === tokenAddress);
+}
+
 export interface UseSwapOptions {
   chainId?: number;
   slippageBps?: number;
@@ -215,25 +224,53 @@ export function useSwap(options: UseSwapOptions = {}) {
       return;
     }
 
-    // Only reset tokens if they are null or explicitly invalid for this chain
-    // DO NOT force reset to commonTokens[0] and commonTokens[1] - this causes BNB to become ETH
+    // CONTEXT MEMORY
+    // Updated: 2026-04-22
+    // Status: verified
+    // Why: The wallet swap card reuses hook state across chain switches. Keeping the previous token blindly lets ETH leak into BSC/Polygon after the chain selector changes.
+    // Debug Goal: When the selected chain changes, tokenIn/tokenOut must either remain valid for that chain or reset to that chain's defaults before quoting.
+    // Search Tags: swap chain switch keeps ETH on BSC polygon wrong default token
+    // Invariants:
+    // - A token is preserved across chain changes only if its address exists in the new chain's common token list.
+    // - Invalid carried-over tokens reset to the new chain defaults before a fresh quote.
+    // Failure Modes:
+    // - BSC wallet shows ETH as tokenIn after switching from Ethereum.
+    // - Polygon/Solana quote requests use the previous chain's token addresses.
     setState(prev => {
-      // If tokens are null, initialize with first two common tokens
-      if (!prev.tokenIn || !prev.tokenOut) {
-        return {
-          ...prev,
-          status: prev.amountIn && parseFloat(prev.amountIn) > 0 ? 'quoting' : 'idle',
-          tokenIn: prev.tokenIn || commonTokens[0],
-          tokenOut: prev.tokenOut || (commonTokens[1] || commonTokens[0]),
-          quote: null,
-          amountOut: '0',
-          error: null,
-        };
+      const defaultTokenIn = commonTokens[0] as Token;
+      const fallbackTokenOut = (commonTokens[1] || commonTokens[0]) as Token;
+
+      const nextTokenIn: Token = isTokenAvailableOnChain(prev.tokenIn, commonTokens, chainId)
+        ? (prev.tokenIn as Token)
+        : defaultTokenIn;
+
+      let nextTokenOut: Token = isTokenAvailableOnChain(prev.tokenOut, commonTokens, chainId)
+        ? (prev.tokenOut as Token)
+        : fallbackTokenOut;
+
+      if (nextTokenOut.address.toLowerCase() === nextTokenIn.address.toLowerCase()) {
+        nextTokenOut = commonTokens.find(
+          token => token.address.toLowerCase() !== nextTokenIn.address.toLowerCase(),
+        ) || nextTokenIn;
       }
 
-      // If tokens exist, keep them - don't force reset
-      // This preserves AI-detected tokens (like BNB) and user selections
-      return prev;
+      const tokensChanged =
+        prev.tokenIn?.address?.toLowerCase() !== nextTokenIn.address.toLowerCase() ||
+        prev.tokenOut?.address?.toLowerCase() !== nextTokenOut.address.toLowerCase();
+
+      if (!tokensChanged) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        status: prev.amountIn && parseFloat(prev.amountIn) > 0 ? 'quoting' : 'idle',
+        tokenIn: nextTokenIn,
+        tokenOut: nextTokenOut,
+        quote: null,
+        amountOut: '0',
+        error: null,
+      };
     });
   }, [chainId, commonTokens]);
 
@@ -857,8 +894,7 @@ export function useSwap(options: UseSwapOptions = {}) {
     // Check if user has enough balance
     // CRITICAL: For native tokens (ETH), we must reserve gas fees
     // Otherwise, swapping the entire balance will fail
-    const isNativeToken = state.tokenIn?.address === '0x0000000000000000000000000000000000000000' ||
-      state.tokenIn?.address === '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
+    const isNativeToken = isNativeTokenAddress(state.tokenIn?.address);
 
     let hasEnoughBalance = false;
     let balanceRequired = amountInNum;

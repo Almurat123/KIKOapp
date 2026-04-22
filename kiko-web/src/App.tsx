@@ -50,6 +50,7 @@ const ChainsPage = lazyRoute('chains-page', () => import('./pages/ChainsPage').t
 const SuperDefiPage = lazyRoute('super-defi-page', () => import('./pages/SuperDefiPage').then((m) => ({ default: m.SuperDefiPage })));
 const TradePage = lazyRoute('trade-page', () => import('./pages/TradePage').then((m) => ({ default: m.TradePage })));
 const WalletPage = lazyRoute('wallet-page', () => import('./pages/WalletPage'));
+const AdminPage = lazyRoute('admin-page', () => import('./pages/AdminPage'));
 const SettingsPage = lazyRoute('settings-page', () => import('./pages/SettingsPage'));
 const NewsPage = lazyRoute('news-page', () => import('./pages/NewsPage'));
 const AgentMapPage = lazyRoute('agent-map-page', () => import('./pages/AgentMapPage').then((m) => ({ default: m.AgentMapPage })));
@@ -242,6 +243,10 @@ const router = createBrowserRouter([
       {
         path: 'wallet',
         element: withSuspense(<WalletPage />),
+      },
+      {
+        path: 'admin',
+        element: withSuspense(<AdminPage />),
       },
       {
         path: 'settings',

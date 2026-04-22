@@ -51,7 +51,7 @@
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import prisma from '../../db/prisma.js';
 import * as chatRepo from '../../repositories/chatRepository.js';
-import { normalizeSupportedChatModel } from '../../config/chatModels.js';
+import { inferSupportedChatReasoningLevel, normalizeSupportedChatModel, normalizeSupportedChatReasoningLevel } from '../../config/chatModels.js';
 import { buildSocialAgentSessionTitle } from '../socialAgentSessionTitle.js';
 import type { FarcasterChannel } from './types.js';
 
@@ -83,6 +83,7 @@ async function createConversationMapping(params: {
   rootCastHash?: string | null;
   parentCastHash?: string | null;
   preferredModel?: string | null;
+  preferredReasoningLevel?: string | null;
   initialMessageText?: string | null;
 }) {
   const session = await chatRepo.createSession(
@@ -92,6 +93,8 @@ async function createConversationMapping(params: {
       initialMessageText: params.initialMessageText,
     }),
     normalizeSupportedChatModel(params.preferredModel),
+    normalizeSupportedChatReasoningLevel(params.preferredReasoningLevel)
+      || inferSupportedChatReasoningLevel(params.preferredModel),
   );
 
   return prisma.farcasterConversationMapping.create({
@@ -116,6 +119,7 @@ export async function findOrCreateFarcasterConversation(params: {
   rootCastHash?: string | null;
   parentCastHash?: string | null;
   preferredModel?: string | null;
+  preferredReasoningLevel?: string | null;
   initialMessageText?: string | null;
 }) {
   const existing = await prisma.farcasterConversationMapping.findFirst({
@@ -196,13 +200,20 @@ export async function listFarcasterReplyContinuationTargets(params?: {
 export async function syncFarcasterConversationModel(params: {
   chatSessionId: string;
   preferredModel?: string | null;
+  preferredReasoningLevel?: string | null;
 }) {
   const preferredModel = normalizeSupportedChatModel(params.preferredModel);
+  const preferredReasoningLevel =
+    normalizeSupportedChatReasoningLevel(params.preferredReasoningLevel)
+    || inferSupportedChatReasoningLevel(preferredModel);
   const session = await chatRepo.getSession(params.chatSessionId);
-  if (!session || session.model === preferredModel) {
+  if (!session || (session.model === preferredModel && session.reasoningLevel === preferredReasoningLevel)) {
     return session;
   }
-  return chatRepo.updateSession(params.chatSessionId, { model: preferredModel });
+  return chatRepo.updateSession(params.chatSessionId, {
+    model: preferredModel,
+    reasoningLevel: preferredReasoningLevel,
+  });
 }
 
 export async function markFarcasterConversationInbound(params: {

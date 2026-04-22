@@ -3,12 +3,18 @@ import { acquireLock, releaseLock } from '../cache/cacheClient.js';
 import { env } from '../config/env.js';
 import {
     findGeneratedImageUsageRecord,
-    getActiveBillingConsent,
-    getDailyGeneratedImageReservationSummary,
     insertGeneratedImageUsageReservation,
     updateGeneratedImageUsageStatus,
 } from '../repositories/billingRepository.js';
 import { getUtcDateString } from './billing/billingService.js';
+import {
+    captureReservedImageCredits,
+    computeGeneratedImageCreditsCharge,
+    getCreditBalanceSummary,
+    getLifetimeImageFreeRequestsUsed,
+    releaseReservedImageCredits,
+    reserveImageCredits,
+} from './creditBillingService.js';
 
 // CONTEXT MEMORY
 // Updated: 2026-04-21
@@ -107,12 +113,8 @@ const GPT_IMAGE_1_MINI_MEDIUM_PRICE_USD_PER_OUTPUT = 0.011;
 const GPT_IMAGE_1_MINI_HIGH_PRICE_USD_PER_OUTPUT = 0.036;
 const GROK_IMAGE_PRICE_USD_PER_OUTPUT = 0.02;
 const GROK_IMAGE_PRO_PRICE_USD_PER_OUTPUT = 0.07;
-const GENERATED_IMAGE_FREE_QUOTA_MODEL_FAMILIES: GeneratedImageModelFamily[] = [
-    'gpt-image-1-mini',
-    'grok-imagine-image',
-];
-function getGeneratedImageFreeOutputsPerDay(): number {
-    return Math.max(0, Number(env.generatedImage.dailyFreeOutputs || 0));
+function getGeneratedImageLifetimeFreeRequestLimit(): number {
+    return Math.max(0, Number(env.credits.lifetimeImageFreeRequests || 0));
 }
 
 export type GeneratedImageProvider = 'openai' | 'xai';
@@ -123,7 +125,8 @@ export type GeneratedImageReservationStatus = 'reserved' | 'completed' | 'failed
 export type GeneratedImageDecisionReason =
     | 'MODEL_NOT_SUPPORTED'
     | 'MODEL_DISABLED'
-    | 'BILLING_CONSENT_REQUIRED';
+    | 'INSUFFICIENT_CREDITS'
+    | 'MODEL_PRICING_NOT_CONFIGURED';
 
 type NormalizedGeneratedImageRequest = {
     requestedModel: string;
@@ -146,6 +149,7 @@ export type GeneratedImageBillingDecision = {
     modelFamily: GeneratedImageModelFamily | null;
     quality: GeneratedImageQuality | null;
     imageCount: number;
+    freeRequestCount: number;
     freeOutputImageLimit: number;
     freeOutputImagesUsed: number;
     freeOutputImagesRemaining: number;
@@ -153,7 +157,9 @@ export type GeneratedImageBillingDecision = {
     billedImageCount: number;
     pricePerOutputImageUsd: number;
     usdCost: number;
-    requiresBillingConsent: boolean;
+    creditsCost: number;
+    availableCredits: number;
+    requiresCredits: boolean;
 };
 
 type GeneratedImageReservationBinding = {
@@ -179,7 +185,7 @@ type GeneratedImageBillingSnapshot = {
     quality?: string | null;
     imageCount: number;
     freeOutputImagesUsed: number;
-    hasBillingConsent: boolean;
+    availableCredits: number;
 };
 
 type ReserveGeneratedImageUsageParams = {
@@ -285,7 +291,7 @@ function normalizeGeneratedImageRequest(model: string, quality?: string | null):
             modelFamily: 'grok-imagine-image',
             quality: 'normal',
             enabled: true,
-            freeOutputImageLimit: getGeneratedImageFreeOutputsPerDay(),
+            freeOutputImageLimit: getGeneratedImageLifetimeFreeRequestLimit(),
             pricePerOutputImageUsd: GROK_IMAGE_PRICE_USD_PER_OUTPUT,
         };
     }
@@ -306,7 +312,7 @@ function normalizeGeneratedImageRequest(model: string, quality?: string | null):
             modelFamily: 'gpt-image-1-mini',
             quality: normalizedMiniQuality,
             enabled: true,
-            freeOutputImageLimit: getGeneratedImageFreeOutputsPerDay(),
+            freeOutputImageLimit: getGeneratedImageLifetimeFreeRequestLimit(),
             pricePerOutputImageUsd,
         };
     }
@@ -364,6 +370,7 @@ function buildDisabledDecision(
         modelFamily: normalized.modelFamily,
         quality: normalized.quality,
         imageCount,
+        freeRequestCount: 0,
         freeOutputImageLimit: normalized.freeOutputImageLimit,
         freeOutputImagesUsed: 0,
         freeOutputImagesRemaining: normalized.freeOutputImageLimit,
@@ -371,7 +378,9 @@ function buildDisabledDecision(
         billedImageCount: 0,
         pricePerOutputImageUsd: normalized.pricePerOutputImageUsd,
         usdCost: 0,
-        requiresBillingConsent: false,
+        creditsCost: 0,
+        availableCredits: 0,
+        requiresCredits: false,
     };
 }
 
@@ -389,21 +398,20 @@ export function buildGeneratedImageBillingDecision(snapshot: GeneratedImageBilli
     }
 
     const freeOutputImagesRemaining = Math.max(normalized.freeOutputImageLimit - freeOutputImagesUsed, 0);
-    const freeImageCount = Math.min(freeOutputImagesRemaining, imageCount);
-    const billedImageCount = Math.max(imageCount - freeImageCount, 0);
-    const requiresBillingConsent = billedImageCount > 0;
+    const freeRequestCount = freeOutputImagesRemaining > 0 ? 1 : 0;
+    const freeImageCount = freeRequestCount;
+    const billedImageCount = freeRequestCount > 0 ? 0 : imageCount;
+    const requiresCredits = billedImageCount > 0;
+    const creditsCost = computeGeneratedImageCreditsCharge({
+        model: normalized.providerModel || normalized.requestedModel,
+        quality: normalized.quality,
+        imageCount,
+    });
 
-    if (requiresBillingConsent && !snapshot.hasBillingConsent) {
+    if (requiresCredits && creditsCost === null) {
         return {
-            allowed: false,
-            reason: 'BILLING_CONSENT_REQUIRED',
-            dateUtc: snapshot.dateUtc,
-            requestedModel: normalized.requestedModel,
-            provider: normalized.provider,
-            providerModel: normalized.providerModel,
-            modelFamily: normalized.modelFamily,
-            quality: normalized.quality,
-            imageCount,
+            ...buildDisabledDecision(normalized, 'MODEL_PRICING_NOT_CONFIGURED', snapshot.dateUtc, imageCount),
+            freeRequestCount,
             freeOutputImageLimit: normalized.freeOutputImageLimit,
             freeOutputImagesUsed,
             freeOutputImagesRemaining,
@@ -411,7 +419,34 @@ export function buildGeneratedImageBillingDecision(snapshot: GeneratedImageBilli
             billedImageCount,
             pricePerOutputImageUsd: normalized.pricePerOutputImageUsd,
             usdCost: billedImageCount * normalized.pricePerOutputImageUsd,
-            requiresBillingConsent: true,
+            creditsCost: 0,
+            availableCredits: snapshot.availableCredits,
+            requiresCredits,
+        };
+    }
+
+    if (requiresCredits && snapshot.availableCredits < Number(creditsCost || 0)) {
+        return {
+            allowed: false,
+            reason: 'INSUFFICIENT_CREDITS',
+            dateUtc: snapshot.dateUtc,
+            requestedModel: normalized.requestedModel,
+            provider: normalized.provider,
+            providerModel: normalized.providerModel,
+            modelFamily: normalized.modelFamily,
+            quality: normalized.quality,
+            imageCount,
+            freeRequestCount,
+            freeOutputImageLimit: normalized.freeOutputImageLimit,
+            freeOutputImagesUsed,
+            freeOutputImagesRemaining,
+            freeImageCount,
+            billedImageCount,
+            pricePerOutputImageUsd: normalized.pricePerOutputImageUsd,
+            usdCost: billedImageCount * normalized.pricePerOutputImageUsd,
+            creditsCost: Number(creditsCost || 0),
+            availableCredits: snapshot.availableCredits,
+            requiresCredits,
         };
     }
 
@@ -424,6 +459,7 @@ export function buildGeneratedImageBillingDecision(snapshot: GeneratedImageBilli
         modelFamily: normalized.modelFamily,
         quality: normalized.quality,
         imageCount,
+        freeRequestCount,
         freeOutputImageLimit: normalized.freeOutputImageLimit,
         freeOutputImagesUsed,
         freeOutputImagesRemaining,
@@ -431,15 +467,10 @@ export function buildGeneratedImageBillingDecision(snapshot: GeneratedImageBilli
         billedImageCount,
         pricePerOutputImageUsd: normalized.pricePerOutputImageUsd,
         usdCost: billedImageCount * normalized.pricePerOutputImageUsd,
-        requiresBillingConsent,
+        creditsCost: Number(creditsCost || 0),
+        availableCredits: snapshot.availableCredits,
+        requiresCredits,
     };
-}
-
-function getGeneratedImageFreeQuotaModelFamilies(normalized: NormalizedGeneratedImageRequest): GeneratedImageModelFamily[] {
-    if (normalized.freeOutputImageLimit <= 0) {
-        return normalized.modelFamily ? [normalized.modelFamily] : [];
-    }
-    return GENERATED_IMAGE_FREE_QUOTA_MODEL_FAMILIES;
 }
 
 function toReservationLockKey(userId: string, dateUtc: string, quotaKey: string): string {
@@ -478,14 +509,21 @@ function toUsageReservation(record: Awaited<ReturnType<typeof findGeneratedImage
         modelFamily: normalized.modelFamily,
         quality: normalized.quality,
         imageCount: record.imageCount,
+        freeRequestCount: record.freeRequestCount,
         freeOutputImageLimit: normalized.freeOutputImageLimit,
-        freeOutputImagesUsed: record.freeImageCount,
-        freeOutputImagesRemaining: Math.max(normalized.freeOutputImageLimit - record.freeImageCount, 0),
+        freeOutputImagesUsed: record.freeRequestCount,
+        freeOutputImagesRemaining: Math.max(normalized.freeOutputImageLimit - record.freeRequestCount, 0),
         freeImageCount: record.freeImageCount,
         billedImageCount: record.billedImageCount,
         pricePerOutputImageUsd: normalized.pricePerOutputImageUsd,
         usdCost: record.usdCost,
-        requiresBillingConsent: record.billedImageCount > 0,
+        creditsCost: computeGeneratedImageCreditsCharge({
+            model: record.model,
+            quality: record.quality,
+            imageCount: record.imageCount,
+        }) || 0,
+        availableCredits: 0,
+        requiresCredits: record.billedImageCount > 0,
         requestId: record.requestId,
         contextType: record.contextType,
         contextId: record.contextId,
@@ -547,8 +585,7 @@ export async function reserveGeneratedImageUsage(
         };
     }
 
-    const quotaModelFamilies = getGeneratedImageFreeQuotaModelFamilies(normalized);
-    const quotaKey = normalized.freeOutputImageLimit > 0 ? 'free-pool' : normalized.modelFamily;
+    const quotaKey = 'credit-billing';
     const lockKey = toReservationLockKey(userId, dateUtc, quotaKey);
     const lockValue = randomUUID();
     const hasLock = await acquireLock(lockKey, GENERATED_IMAGE_RESERVATION_LOCK_TTL_SECONDS, lockValue);
@@ -568,23 +605,17 @@ export async function reserveGeneratedImageUsage(
         const lockedExisting = toUsageReservation(lockedExistingRecord);
         if (lockedExisting) return lockedExisting;
 
-        const summary = await getDailyGeneratedImageReservationSummary({
-            userId,
-            dateUtc,
-            modelFamily: quotaModelFamilies,
-        });
-        const remainingFreeOutputs = Math.max(normalized.freeOutputImageLimit - summary.freeImageCount, 0);
-        const needsBillingConsent = imageCount > remainingFreeOutputs;
-        const hasBillingConsent = needsBillingConsent
-            ? !!(await getActiveBillingConsent(userId, env.billing.chainId))
-            : false;
+        const [freeRequestsUsed, creditSummary] = await Promise.all([
+            getLifetimeImageFreeRequestsUsed(userId),
+            getCreditBalanceSummary(userId),
+        ]);
         const decision = buildGeneratedImageBillingDecision({
             dateUtc,
             model: normalized.providerModel,
             quality: normalized.quality,
             imageCount,
-            freeOutputImagesUsed: summary.freeImageCount,
-            hasBillingConsent,
+            freeOutputImagesUsed: freeRequestsUsed,
+            availableCredits: creditSummary.availableCredits,
         });
 
         if (!decision.allowed || !decision.provider || !decision.providerModel || !decision.modelFamily || !decision.quality) {
@@ -599,6 +630,16 @@ export async function reserveGeneratedImageUsage(
             };
         }
 
+        if (decision.requiresCredits) {
+            await reserveImageCredits({
+                userId,
+                requestId,
+                model: decision.providerModel,
+                quality: decision.quality,
+                imageCount: decision.imageCount,
+            });
+        }
+
         await insertGeneratedImageUsageReservation({
             requestId,
             userId,
@@ -607,6 +648,7 @@ export async function reserveGeneratedImageUsage(
             modelFamily: decision.modelFamily,
             quality: decision.quality,
             imageCount: decision.imageCount,
+            freeRequestCount: decision.freeRequestCount,
             freeImageCount: decision.freeImageCount,
             billedImageCount: decision.billedImageCount,
             usdCost: decision.usdCost,
@@ -638,6 +680,7 @@ export async function markGeneratedImageUsageCompleted(requestId: string): Promi
         status: 'completed',
         failureReason: null,
     });
+    await captureReservedImageCredits(normalizedRequestId);
 }
 
 export async function markGeneratedImageUsageFailed(requestId: string, failureReason?: string | null): Promise<void> {
@@ -648,6 +691,7 @@ export async function markGeneratedImageUsageFailed(requestId: string, failureRe
         status: 'failed',
         failureReason: failureReason || 'GENERATED_IMAGE_PROVIDER_FAILED',
     });
+    await releaseReservedImageCredits(normalizedRequestId, failureReason || 'GENERATED_IMAGE_PROVIDER_FAILED');
 }
 
 export async function markGeneratedImageUsageCancelled(requestId: string, failureReason?: string | null): Promise<void> {
@@ -658,4 +702,5 @@ export async function markGeneratedImageUsageCancelled(requestId: string, failur
         status: 'cancelled',
         failureReason: failureReason || 'GENERATED_IMAGE_REQUEST_CANCELLED',
     });
+    await releaseReservedImageCredits(normalizedRequestId, failureReason || 'GENERATED_IMAGE_REQUEST_CANCELLED');
 }

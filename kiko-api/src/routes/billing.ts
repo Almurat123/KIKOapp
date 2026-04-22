@@ -1,203 +1,238 @@
-import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { requireAuth } from '../middleware/auth.js';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { canManageRefunds, requireAuth } from '../middleware/auth.js';
 import { env } from '../config/env.js';
-import { SUPPORTED_CHAT_MODELS } from '../config/chatModels.js';
-import { getEmbeddedWalletAddress } from '../services/privyWallet.js';
 import {
-    getActiveBillingConsent,
-    createBillingBlock,
-    clearBillingBlock,
-    revokeBillingConsent,
-    upsertBillingConsent,
-    getDailyGeneratedImageReservationSummary,
-} from '../repositories/billingRepository.js';
-import {
-    getBillingCategory,
-    getUtcDateString,
-} from '../services/billing/billingService.js';
-import { getGeneratedImageDailyFreeLimit } from '../services/generatedImageBilling.js';
-import { getUsageCountForModel, getUsageCounts } from '../services/usageCounter.js';
-import { getUserUsageQuota } from '../services/usageLimitsService.js';
+    createRefundRequest,
+    getCreditBalanceSummary,
+    ingestCreditDeposit,
+    listCreditDeposits,
+    listCreditLedgerEntries,
+    listCreditRefundRequests,
+    rejectRefundRequest,
+    settleRefundRequest,
+} from '../services/creditBillingService.js';
+import { getUtcDateString } from '../services/billing/billingService.js';
 
-// CONTEXT MEMORY
-// Updated: 2026-04-21
-// Author: Rowan
-// Reason: the billing summary route used to expose Normal/Advanced quota
-//         buckets. After DeepSeek removal, the product has free GLM/Kimi
-//         traffic and one shared premium GPT/Grok quota, but the actual limits
-//         now come from the current user's holder tier whenever token gating is
-//         configured. Generated-image summary now also has to report the shared
-//         free image pool for GPT Image Mini and Grok normal, because GPT Image
-//         Mini is the default image model and must move the same sidebar free
-//         counter.
-// Goal: expose one honest quota summary envelope that reflects the current
-//       user's resolved free/premium limits without inventing client-side buckets.
-// Owns: authenticated billing summary/read APIs and consent endpoints.
-// Does Not Own: quota enforcement decisions, cache persistence, or sidebar render policy.
-// Design Language:
-// - Summary payloads must use `null` when the resolved free-model cap is disabled.
-// - Server-provided model rows are diagnostics; premium gating uses one shared counter.
-// - Consent reads and quota reads must stay in the same route family, but quota math lives elsewhere.
-// - Summary limits must come from the same holder-tier resolver as request-time gating.
-// - Generated-image free usage summary must include GPT Image Mini and Grok
-//   normal together so the sidebar counter matches the shared free pool.
-// Document Provenance:
-// - Source: /Users/almurat/KiKo/kiko-api/src/services/usageAccess.ts
-// - Kind: repo doc
-// - Retrieved: 2026-04-16
-// - Applied To: exposing free/premium summary shape
-// - Verification: verified in code
-// - Source: /Users/almurat/KiKo/kiko-api/src/services/usageLimitsService.ts
-// - Kind: repo doc
-// - Retrieved: 2026-04-16
-// - Applied To: user-specific holder-tier quota resolution for summary reads
-// - Verification: verified in code
-// - Source: /Users/almurat/KiKo/kiko-web/src/components/Layout/Sidebar.tsx
-// - Kind: repo doc
-// - Retrieved: 2026-04-16
-// - Applied To: preserving one summary shape the sidebar can render without guessing quota policy
-// - Verification: verified in code
-// - Source: operator correction on 2026-04-21
-// - Kind: product doc
-// - Retrieved: 2026-04-21
-// - Applied To: generated-image free summary counting GPT Image Mini as the
-//   default image model
-// - Verification: verified in code and targeted tests
-// See also:
-// - /Users/almurat/KiKo/system-journal/INDEX.md
-// - /Users/almurat/KiKo/system-journal/design-language/chat-usage-quota-policy.md
-// - /Users/almurat/KiKo/system-journal/owner-map/chat-usage-quota.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-free-premium-chat-usage-quota-rework.md
-// - /Users/almurat/KiKo/system-journal/conflicts.md
+function requireInternalSecret(request: FastifyRequest, reply: FastifyReply): boolean {
+    const expected = env.security.internalWebhookSecret || '';
+    const received = String(request.headers['x-internal-webhook-secret'] || request.headers['x-service-key'] || '').trim();
+    if (!expected || received !== expected) {
+        reply.code(401).send({ error: 'Unauthorized internal request' });
+        return false;
+    }
+    return true;
+}
 
-interface ConsentBody {
-    source?: string;
+async function resolveUserId(request: FastifyRequest, reply: FastifyReply): Promise<string | null> {
+    const userId = (request as any).user?.sub;
+    if (!userId) {
+        reply.code(401).send({ error: 'Unauthorized' });
+        return null;
+    }
+    return userId;
+}
+
+async function sendCreditSummary(request: FastifyRequest, reply: FastifyReply) {
+    const userId = await resolveUserId(request, reply);
+    if (!userId) return;
+
+    const [summary, isAdmin] = await Promise.all([
+        getCreditBalanceSummary(userId),
+        canManageRefunds(userId),
+    ]);
+    return reply.send({
+        dateUtc: getUtcDateString(),
+        credits: {
+            available: summary.availableCredits,
+            reserved: summary.reservedCredits,
+            perUsd: env.credits.creditsPerUsd,
+        },
+        premiumTextFree: {
+            used: summary.premiumTextFreeUsed,
+            limit: summary.premiumTextFreeLimit,
+            remaining: Math.max(summary.premiumTextFreeLimit - summary.premiumTextFreeUsed, 0),
+        },
+        generatedImageFree: {
+            used: summary.generatedImageFreeUsed,
+            limit: summary.generatedImageFreeLimit,
+            remaining: Math.max(summary.generatedImageFreeLimit - summary.generatedImageFreeUsed, 0),
+        },
+        topUp: {
+            mode: env.credits.topUpMode,
+            chainId: env.credits.chainId,
+            minimumUsd: env.credits.minimumTopUpUsd,
+            paymentAddress: env.credits.paymentAddress || null,
+            routerAddress: env.credits.topUpRouterAddress || null,
+            refundOperatorAddress: env.credits.refundOperatorAddress || null,
+            supportedAssets: env.credits.supportedAssets,
+        },
+        admin: {
+            canManageRefunds: isAdmin,
+        },
+    });
 }
 
 export async function billingRoutes(fastify: FastifyInstance) {
-    fastify.get(
-        '/consent',
-        { preHandler: requireAuth },
-        async (request: FastifyRequest, reply: FastifyReply) => {
-            const userId = (request as any).user?.sub;
-            if (!userId) {
-                return reply.code(401).send({ error: 'Unauthorized' });
-            }
+    fastify.get('/usage-summary', { preHandler: requireAuth }, sendCreditSummary);
+    fastify.get('/credits/summary', { preHandler: requireAuth }, sendCreditSummary);
 
-            const consent = await getActiveBillingConsent(userId, env.billing.chainId);
-            return reply.send({
-                active: !!consent,
-                termsVersion: env.billing.termsVersion,
-                consentId: consent?.id
-            });
+    fastify.get('/credits/ledger', { preHandler: requireAuth }, async (request, reply) => {
+        const userId = await resolveUserId(request, reply);
+        if (!userId) return;
+        return reply.send({
+            items: await listCreditLedgerEntries(userId),
+        });
+    });
+
+    fastify.get('/deposits', { preHandler: requireAuth }, async (request, reply) => {
+        const userId = await resolveUserId(request, reply);
+        if (!userId) return;
+        return reply.send({
+            items: await listCreditDeposits(userId),
+        });
+    });
+
+    fastify.get('/refunds', { preHandler: requireAuth }, async (request, reply) => {
+        const userId = await resolveUserId(request, reply);
+        if (!userId) return;
+        return reply.send({
+            items: await listCreditRefundRequests(userId),
+        });
+    });
+
+    fastify.post<{ Body: { depositId?: string } }>(
+        '/refunds',
+        { preHandler: requireAuth },
+        async (request, reply) => {
+            const userId = await resolveUserId(request, reply);
+            if (!userId) return;
+            const depositId = String(request.body?.depositId || '').trim();
+            if (!depositId) {
+                return reply.code(400).send({ error: 'depositId is required' });
+            }
+            try {
+                const refund = await createRefundRequest({ userId, depositId });
+                return reply.send({ success: true, refund });
+            } catch (error: any) {
+                const message = error?.message || 'Refund request failed';
+                const statusCode = (
+                    message === 'CREDIT_DEPOSIT_NOT_FOUND'
+                    || message === 'NO_REFUNDABLE_CREDITS'
+                ) ? 404 : (
+                    message === 'REFUND_ALREADY_REQUESTED'
+                    || message === 'REFUND_WINDOW_EXPIRED'
+                ) ? 409 : 400;
+                return reply.code(statusCode).send({ error: message });
+            }
         }
     );
 
-    fastify.post<{ Body: ConsentBody }>(
-        '/consent',
-        { preHandler: requireAuth },
-        async (request: FastifyRequest<{ Body: ConsentBody }>, reply: FastifyReply) => {
-            const userId = (request as any).user?.sub;
-            if (!userId) {
-                return reply.code(401).send({ error: 'Unauthorized' });
-            }
+    fastify.get('/consent', { preHandler: requireAuth }, async (_request, reply) => {
+        return reply.send({
+            active: false,
+            deprecated: true,
+            message: 'Billing consent is no longer required. Credits billing is active.',
+        });
+    });
 
-            const walletAddress = await getEmbeddedWalletAddress(userId);
-            if (!walletAddress) {
-                return reply.code(400).send({ error: 'No embedded wallet found' });
-            }
+    fastify.post('/consent', { preHandler: requireAuth }, async (_request, reply) => {
+        return reply.send({
+            success: false,
+            deprecated: true,
+            message: 'Billing consent is no longer required. Credits billing is active.',
+        });
+    });
 
-            await upsertBillingConsent({
-                userId,
-                walletAddress,
-                chainId: env.billing.chainId,
-                authKeyId: process.env.PRIVY_AUTHORIZATION_KEY_ID,
-                termsVersion: env.billing.termsVersion,
-                source: request.body?.source || 'unknown'
-            });
-            await clearBillingBlock(userId, getUtcDateString());
+    fastify.post('/consent/revoke', { preHandler: requireAuth }, async (_request, reply) => {
+        return reply.send({
+            success: false,
+            deprecated: true,
+            message: 'Billing consent is no longer required. Credits billing is active.',
+        });
+    });
 
-            return reply.send({ success: true, termsVersion: env.billing.termsVersion });
+    fastify.post<{
+        Body: {
+            userId?: string;
+            assetSymbol?: string;
+            txHash?: string;
+            logIndex?: number;
+            amountRaw?: string;
+            amountHuman?: string | number;
+            fromAddress?: string | null;
+            toAddress?: string | null;
+            tokenAddress?: string | null;
+            confirmations?: number;
+            requiredConfirmations?: number;
+            metadata?: Record<string, any>;
         }
-    );
-
-    fastify.post(
-        '/consent/revoke',
-        { preHandler: requireAuth },
-        async (request: FastifyRequest, reply: FastifyReply) => {
-            const userId = (request as any).user?.sub;
-            if (!userId) {
-                return reply.code(401).send({ error: 'Unauthorized' });
+    }>(
+        '/internal/deposits/ingest',
+        async (request, reply) => {
+            if (!requireInternalSecret(request, reply)) return;
+            const userId = String(request.body?.userId || '').trim();
+            const assetSymbol = String(request.body?.assetSymbol || '').trim();
+            const txHash = String(request.body?.txHash || '').trim();
+            const amountRaw = String(request.body?.amountRaw || '').trim();
+            const amountHuman = request.body?.amountHuman;
+            if (!userId || !assetSymbol || !txHash || !amountRaw || amountHuman === undefined || amountHuman === null) {
+                return reply.code(400).send({ error: 'userId, assetSymbol, txHash, amountRaw, and amountHuman are required' });
             }
-
-            await revokeBillingConsent(userId, env.billing.chainId);
-            await createBillingBlock(userId, getUtcDateString(), 'BILLING_CONSENT_REVOKED');
-            return reply.send({ success: true });
-        }
-    );
-
-    fastify.get(
-        '/usage-summary',
-        { preHandler: requireAuth },
-        async (request: FastifyRequest, reply: FastifyReply) => {
-            const userId = (request as any).user?.sub;
-            if (!userId) {
-                return reply.code(401).send({ error: 'Unauthorized' });
-            }
-
-            const dateUtc = getUtcDateString();
-            const generatedImageFreeModelFamilies = ['gpt-image-1-mini', 'grok-imagine-image'];
-            const imageFreeLimit = getGeneratedImageDailyFreeLimit('gpt-image-1-mini');
-            const [counts, quota, generatedImageSummary] = await Promise.all([
-                getUsageCounts({ userId, dateUtc }),
-                getUserUsageQuota({ userId }),
-                getDailyGeneratedImageReservationSummary({
+            try {
+                const result = await ingestCreditDeposit({
                     userId,
-                    dateUtc,
-                    modelFamily: generatedImageFreeModelFamilies,
-                }),
-            ]);
-            const freeLimit = quota.freeModelLimit > 0 ? quota.freeModelLimit : null;
-            const generatedImageFreeUsed = Math.min(generatedImageSummary.freeImageCount, imageFreeLimit);
-            const models = await Promise.all(
-                Array.from(SUPPORTED_CHAT_MODELS).map(async (model) => {
-                    const category = getBillingCategory(model);
-                    const limit = category === 'premium'
-                        ? quota.premiumLimit
-                        : category === 'free'
-                            ? quota.freeModelLimit
-                            : 0;
-                    return {
-                        model,
-                        used: await getUsageCountForModel({ userId, dateUtc, model }),
-                        limit: limit > 0 ? limit : null,
-                        category,
-                        limitSource: category === 'premium'
-                            ? 'premium_shared'
-                            : category === 'free'
-                                ? (freeLimit === null ? 'free_unlimited' : 'free_shared')
-                                : 'none',
-                    };
-                })
-            );
+                    assetSymbol,
+                    txHash,
+                    logIndex: request.body?.logIndex,
+                    amountRaw,
+                    amountHuman,
+                    fromAddress: request.body?.fromAddress,
+                    toAddress: request.body?.toAddress,
+                    tokenAddress: request.body?.tokenAddress,
+                    confirmations: request.body?.confirmations,
+                    requiredConfirmations: request.body?.requiredConfirmations,
+                    metadata: request.body?.metadata,
+                });
+                return reply.send({ success: true, result });
+            } catch (error: any) {
+                return reply.code(400).send({ error: error?.message || 'Deposit ingestion failed' });
+            }
+        }
+    );
 
-            return reply.send({
-                dateUtc,
-                total: { used: counts.total, limit: null },
-                free: { used: counts.free, limit: freeLimit },
-                premium: { used: counts.premium, limit: quota.premiumLimit },
-                generatedImage: {
-                    modelFamily: 'gpt-image-1-mini',
-                    modelFamilies: generatedImageFreeModelFamilies,
-                    free: {
-                        used: generatedImageFreeUsed,
-                        limit: imageFreeLimit,
-                        remaining: Math.max(imageFreeLimit - generatedImageFreeUsed, 0),
-                    },
-                },
-                models,
-                usesPremiumSharedLimit: true,
-            });
+    fastify.post<{ Params: { refundRequestId: string }; Body: { payoutTxHash?: string } }>(
+        '/internal/refunds/:refundRequestId/settle',
+        async (request, reply) => {
+            if (!requireInternalSecret(request, reply)) return;
+            const refundRequestId = String(request.params?.refundRequestId || '').trim();
+            const payoutTxHash = String(request.body?.payoutTxHash || '').trim();
+            if (!refundRequestId || !payoutTxHash) {
+                return reply.code(400).send({ error: 'refundRequestId and payoutTxHash are required' });
+            }
+            try {
+                await settleRefundRequest({ refundRequestId, payoutTxHash });
+                return reply.send({ success: true });
+            } catch (error: any) {
+                return reply.code(400).send({ error: error?.message || 'Refund settlement failed' });
+            }
+        }
+    );
+
+    fastify.post<{ Params: { refundRequestId: string }; Body: { failureReason?: string } }>(
+        '/internal/refunds/:refundRequestId/reject',
+        async (request, reply) => {
+            if (!requireInternalSecret(request, reply)) return;
+            const refundRequestId = String(request.params?.refundRequestId || '').trim();
+            const failureReason = String(request.body?.failureReason || '').trim() || 'REFUND_REJECTED';
+            if (!refundRequestId) {
+                return reply.code(400).send({ error: 'refundRequestId is required' });
+            }
+            try {
+                await rejectRefundRequest({ refundRequestId, failureReason });
+                return reply.send({ success: true });
+            } catch (error: any) {
+                return reply.code(400).send({ error: error?.message || 'Refund rejection failed' });
+            }
         }
     );
 }

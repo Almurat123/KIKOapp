@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-22
 // Author: Almurat
 // Reason: X ingress now owns only mention-driven interaction. Product direction
 //         changed after runtime/document evidence showed XChat webhook events do
@@ -19,15 +19,18 @@
 //         treats early feed misses as a retryable indexing lag instead of a
 //         final skip. X mention turns now also need hydrated thread text and
 //         attached media because the model must be able to see the real post
-//         context instead of only the current webhook text.
-// Goal: preserve deterministic mention handling while keeping X as a link-only
+//         context instead of only the current webhook text. Product direction on
+//         2026-04-22 disabled public X share/OGP link replies entirely, while
+//         generated-image replies may attach uploaded X media IDs.
+// Goal: preserve deterministic mention handling while keeping X as a plain-text
 //       public surface, aligning X reply model selection with persisted user
 //       preference, and handing real thread/media context to the model.
 // Owns: inbound X mention processing, session routing, dedupe, and reply dispatch.
 // Does Not Own: OAuth exchange, X webhook signature checks, or token persistence.
 // Design Language:
 // - Never process the same inbound event twice.
-// - Keep public replies short and move detail into a KIKO-owned share page.
+// - Keep public replies short and never send media URLs or OGP/share links.
+// - Generated-image replies must attach uploaded X media IDs, not image URLs.
 // - Use the shared conversation mapping as the source of truth.
 // - X DM/chat is not part of the mention reply path.
 // - Ignore inbound DM payloads even if the webhook receives them unexpectedly.
@@ -117,15 +120,15 @@ import { env } from '../../config/env.js';
 import { normalizeSupportedChatModel } from '../../config/chatModels.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
-import { buildXLinkUrl, getUserByXUserId } from './xIdentityService.js';
+import { getUserByXUserId } from './xIdentityService.js';
 import { findOrCreateXConversation, markXConversationInbound, syncXConversationModel } from './xConversationService.js';
 import { recordXQuotaMetric } from './xQuotaService.js';
-import { enqueueXAgentMessage, waitForTaskAssistantText } from './xChatBridge.js';
+import { enqueueXAgentMessage, waitForTaskAssistantReply } from './xChatBridge.js';
 import { xApiClient } from './xApiClient.js';
 import { xReplyService } from './xReplyService.js';
-import { createXReplyShare } from './xReplyShareService.js';
 import { getXBotUserId } from './xCredentialsService.js';
 import { dedupeSocialImages, type SocialAgentInput } from '../socialAgentInput.js';
+import { handleSocialSettingsCommand } from '../socialSettingsCommandService.js';
 import type { XMentionEvent, XTweetContext } from './types.js';
 
 const MENTION_CURSOR_KEY = 'x:ingress:mentions:since_id';
@@ -155,12 +158,11 @@ function sortByNumericId<T extends { id: string }>(items: T[]): T[] {
   });
 }
 
-function publicShareReplyText(shareUrl: string): string {
-  return `I replied in KIKO. View it here: ${shareUrl}`;
-}
-
 function publicBindText(username?: string | null): string {
-  return `Link your X account in KIKO first: ${buildXLinkUrl({ username })}`;
+  const handle = String(username || '').trim().replace(/^@/, '');
+  return handle
+    ? `@${handle} link your X account in KIKO first, then mention me again.`
+    : 'Link your X account in KIKO first, then mention me again.';
 }
 
 function formatXHandle(username?: string | null, authorId?: string | null): string {
@@ -555,6 +557,21 @@ export class XIngressWorker {
       return;
     }
 
+    const settingsCommand = await handleSocialSettingsCommand({
+      userId: user.privyDid,
+      text: mention.text,
+    });
+    if (settingsCommand.handled) {
+      await xReplyService.replyToMention({
+        userId: user.privyDid,
+        xUserId: mention.authorId,
+        tweetId: mention.id,
+        text: settingsCommand.replyText,
+        idempotencyKey: `x:reply:settings:${mention.id}`,
+      });
+      return;
+    }
+
     const messageQuota = await recordXQuotaMetric({ userId: user.privyDid, metric: 'messages' });
     const runQuota = await recordXQuotaMetric({ userId: user.privyDid, metric: 'agent_runs' });
     if (!messageQuota.allowed || !runQuota.allowed) {
@@ -569,6 +586,9 @@ export class XIngressWorker {
     }
 
     const preferredModel = normalizeSupportedChatModel(user.settings?.defaultChatModel);
+    const preferredReasoningLevel = String(user.settings?.defaultChatReasoningLevel || '').trim() || null;
+    const preferredGeneratedImageModel = String(user.settings?.defaultGeneratedImageModel || '').trim() || null;
+    const preferredGeneratedImageQuality = String(user.settings?.defaultGeneratedImageQuality || '').trim() || null;
     const mapping = await findOrCreateXConversation({
       userId: user.privyDid,
       xUserId: mention.authorId,
@@ -576,11 +596,13 @@ export class XIngressWorker {
       channel: 'mention',
       rootTweetId: mention.conversationId || mention.id,
       preferredModel,
+      preferredReasoningLevel,
       initialMessageText: mention.text,
     });
     await syncXConversationModel({
       chatSessionId: mapping.chatSessionId,
       preferredModel,
+      preferredReasoningLevel,
     });
     await markXConversationInbound({
       mappingId: mapping.id,
@@ -606,34 +628,28 @@ export class XIngressWorker {
       sessionId: mapping.chatSessionId,
       content: promptContent,
       socialInput,
+      preferredReasoningLevel,
+      preferredGeneratedImageModel,
+      preferredGeneratedImageQuality,
       channel: 'mention',
       xUserId: mention.authorId,
       xUsername: mention.authorUsername || user.xUsername || null,
       sourceMessageId: mention.id,
       rootTweetId: mention.conversationId || mention.id,
     });
-    const assistantText = queued.completedSynchronously
-      ? queued.assistantContent
-      : await waitForTaskAssistantText({
+    const assistantReply = queued.completedSynchronously
+      ? { text: queued.assistantContent || '', mediaUrls: [] as string[] }
+      : await waitForTaskAssistantReply({
           taskId: queued.task?.id,
           assistantMessageId: queued.assistantMessage.id,
         });
-    const share = await createXReplyShare({
-      userId: user.privyDid,
-      xUserId: mention.authorId,
-      conversationMappingId: mapping.id,
-      chatSessionId: mapping.chatSessionId,
-      sourceTweetId: mention.id,
-      promptText: socialInput.currentText || mention.text,
-      assistantText,
-    });
-
     await xReplyService.replyToMention({
       userId: user.privyDid,
       xUserId: mention.authorId,
       tweetId: mention.id,
       conversationMappingId: mapping.id,
-      text: publicShareReplyText(share.shareUrl),
+      text: assistantReply.text,
+      mediaUrls: assistantReply.mediaUrls,
       idempotencyKey: `x:reply:mention:${mention.id}`,
     });
   }

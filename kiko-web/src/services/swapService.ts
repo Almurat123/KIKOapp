@@ -25,7 +25,7 @@ type SwapHistoryTrade = {
 const RECENT_SWAP_LOOKBACK_MS = 3 * 60 * 1000;
 const SWAP_RECONCILE_TIMEOUT_MS = 12000;
 const SWAP_RECONCILE_POLL_MS = 1500;
-const SWAP_STATUS_POLL_TIMEOUT_MS = 30000;
+const SWAP_STATUS_POLL_TIMEOUT_MS = 120000;
 
 function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -195,12 +195,21 @@ async function reconcileRecentInstantSwap(params: {
     return null;
 }
 
-export async function waitForSwapTradeSettlement(tradeId: string): Promise<TradeExecutionResult> {
-    const deadline = Date.now() + SWAP_STATUS_POLL_TIMEOUT_MS;
+export async function waitForSwapTradeSettlement(
+    tradeId: string,
+    options: {
+        timeoutMs?: number;
+        onStatus?: (trade: SwapHistoryTrade) => void;
+    } = {}
+): Promise<TradeExecutionResult> {
+    const deadline = Date.now() + (options.timeoutMs ?? SWAP_STATUS_POLL_TIMEOUT_MS);
 
     while (Date.now() < deadline) {
         try {
             const trade = await fetchSwapStatus(tradeId);
+            if (trade) {
+                options.onStatus?.(trade);
+            }
             if (trade?.status === 'SUCCESS' && trade.txHash) {
                 return {
                     success: true,
@@ -251,6 +260,12 @@ function isValidAddress(address: string, chainId: number): boolean {
     // EVM chains (Ethereum, BSC, Base, etc.)
     // Must be 0x followed by 40 hex characters
     return /^0x[a-fA-F0-9]{40}$/.test(address);
+}
+
+function isNativeBalanceToken(tokenAddress: string): boolean {
+    const normalized = tokenAddress.toLowerCase();
+    return normalized === '0x0000000000000000000000000000000000000000'
+        || normalized === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 }
 
 /**
@@ -627,19 +642,19 @@ export async function getUserBalance(
 
                 const data = await response.json();
 
-                // If it's a native token, return ethBalance
-                // Note: Backend API returns native token balance in 'ethBalance' field regardless of chain
-                // Include wrapped native token addresses since swap UI uses these for native tokens
-                const WRAPPED_NATIVE_TOKENS: Record<string, boolean> = {
-                    '0x0000000000000000000000000000000000000000': true, // Zero address (native)
-                    '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': true, // Common native sentinel
-                    '0x4200000000000000000000000000000000000006': true, // WETH on Base/Optimism
-                    '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': true, // WETH on Ethereum
-                    '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c': true, // WBNB on BSC
-                    '0x82af49447d8a07e3bd95bd0d56f35241523fbab1': true, // WETH on Arbitrum
-                    '0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270': true, // WMATIC on Polygon
-                };
-                const isNativeToken = !tokenAddress || WRAPPED_NATIVE_TOKENS[tokenAddress.toLowerCase()];
+                // CONTEXT MEMORY
+                // Updated: 2026-04-22
+                // Status: verified
+                // Why: Swap execution distinguishes native ETH/BNB/POL from wrapped ERC-20 tokens. Treating WETH/WBNB/WMATIC as native here made the wallet card show native balance for an ERC-20 sell.
+                // Debug Goal: Balance displayed for tokenIn must match the exact asset that /api/swap/execute-instant will spend.
+                // Search Tags: swap card wrapped native balance WETH ERC20 token balance
+                // Invariants:
+                // - Zero address and 0xEeee sentinel read native chain balance.
+                // - Wrapped native contract addresses read ERC-20 balance.
+                // Failure Modes:
+                // - WETH input shows ETH balance and enables a swap with zero WETH.
+                // - Max on a wrapped token subtracts gas or spends the wrong asset.
+                const isNativeToken = !tokenAddress || isNativeBalanceToken(tokenAddress);
                 if (!isNativeToken && tokenAddress) {
                     // For user-imported/whitelisted tokens, query exact token balance endpoint first.
                     const tokenBalanceResponse = await fetch(

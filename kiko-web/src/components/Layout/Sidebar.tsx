@@ -515,22 +515,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {usageSummaryEnabled && (
             <div className={styles.usageSummary}>
               <div className={styles.usageRow}>
-                <span className={styles.usageLabel}>Free</span>
+                <span className={styles.usageLabel}>Credits</span>
                 <span className={styles.usageValue}>
-                  {usageSummary ? `${usageSummary.free.used}/${usageSummary.free.limit ?? '∞'}` : '--'}
+                  {usageSummary ? usageSummary.credits.available.toFixed(2) : '--'}
                 </span>
               </div>
               <div className={styles.usageRow}>
-                <span className={styles.usageLabel}>Premium</span>
+                <span className={styles.usageLabel}>Text Free</span>
                 <span className={styles.usageValue}>
-                  {usageSummary ? `${usageSummary.premium.used}/${usageSummary.premium.limit}` : '--'}
+                  {usageSummary ? `${usageSummary.premiumTextFree.used}/${usageSummary.premiumTextFree.limit}` : '--'}
                 </span>
               </div>
               <div className={styles.usageRow}>
                 <span className={styles.usageLabel}>Image Free</span>
                 <span className={styles.usageValue}>
-                  {usageSummary?.generatedImage
-                    ? `${usageSummary.generatedImage.free.used}/${usageSummary.generatedImage.free.limit}`
+                  {usageSummary
+                    ? `${usageSummary.generatedImageFree.used}/${usageSummary.generatedImageFree.limit}`
                     : '--'}
                 </span>
               </div>

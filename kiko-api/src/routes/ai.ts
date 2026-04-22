@@ -89,7 +89,7 @@ import { LogCode } from '../config/logRegistry.js';
 import { evaluateUsageAccess, isCurrentRequestFree } from '../services/usageAccess.js';
 import { insertUsageRecord } from '../repositories/billingRepository.js';
 import { computeTotalTokens, computeUsdCost, getBillingCategory, getUtcDateString } from '../services/billing/billingService.js';
-import { recordUsage } from '../services/usageCounter.js';
+import { settleChatUsageCharge } from '../services/creditBillingService.js';
 import { randomUUID } from 'crypto';
 import { buildDailyMarketContext } from '../services/ai/dailyMarketContext.js';
 import {
@@ -540,7 +540,7 @@ async function persistProxyUsage(params: {
     const dateUtc = getUtcDateString();
 
     try {
-        await insertUsageRecord({
+        const inserted = await insertUsageRecord({
             assistantMessageId,
             userId: params.userId,
             model: params.model,
@@ -553,12 +553,17 @@ async function persistProxyUsage(params: {
             dateUtc,
             isFree: params.isFree !== false,
         });
-        await recordUsage({
-            userId: params.userId,
-            dateUtc,
-            modelCategory,
-            model: params.model,
+        if (!inserted) return;
+        await settleChatUsageCharge({
             assistantMessageId,
+            userId: params.userId,
+            model: params.model,
+            promptTokens,
+            completionTokens,
+            totalTokens,
+            toolCallsCount,
+            modelCategory,
+            isFree: params.isFree !== false,
         });
     } catch (error: any) {
         logger.warn(LogCode.DB_TRANSACTION_FAILED, '[AI Routes] Usage ledger insert failed', {
@@ -619,7 +624,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
 
                 if (!usageDecision.allowed) {
                     return reply.code(429).send({
-                        error: 'Daily limit reached',
+                        error: 'Credits required',
                         reason: usageDecision.reason,
                         dateUtc: usageDecision.dateUtc,
                         totalUsed: usageDecision.totalUsed,

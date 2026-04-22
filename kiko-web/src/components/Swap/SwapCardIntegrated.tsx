@@ -11,7 +11,7 @@ import { usePrivy } from '@privy-io/react-auth';
 import { useSwap } from '@/hooks/useSwap';
 import { useSolanaSwap } from '@/hooks/useSolanaSwap';
 import type { Token } from '@/types/swap';
-import { findTokenOnAnyChain, getTokenData } from '@/services/tokenDataService';
+import { findTokenOnAnyChain, getTokenData, getCommonTokens, type TokenData } from '@/services/tokenDataService';
 import { MEVProtectionBadge } from './MEVProtectionBadge';
 import { executeSwapInstant, waitForSwapTradeSettlement } from '../../services/swapService';
 import {
@@ -69,6 +69,26 @@ interface SwapCardIntegratedProps {
   initialQuote?: any;
 }
 
+type SwapExecutionPhase =
+  | 'idle'
+  | 'submitting'
+  | 'broadcast'
+  | 'confirming'
+  | 'success'
+  | 'failed'
+  | 'indeterminate';
+
+interface SwapExecutionState {
+  phase: SwapExecutionPhase;
+  message: string | null;
+  txHash?: string;
+  tradeId?: string;
+  error?: string;
+}
+
+const isSwapExecutionBusy = (phase: SwapExecutionPhase) =>
+  phase === 'submitting' || phase === 'broadcast' || phase === 'confirming';
+
 export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   userAddress,
   chainId = 1,
@@ -86,6 +106,15 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   userHoldings = [],
   initialQuote,
 }) => {
+  const mapTokenDataToToken = React.useCallback((tokenData: TokenData): Token => ({
+    address: tokenData.address,
+    symbol: tokenData.symbol,
+    name: tokenData.name,
+    decimals: tokenData.decimals,
+    logoUrl: tokenData.logoURI,
+    chainId: tokenData.chainId,
+  }), []);
+
   // State for settings
   // State for settings
   // Load initial slippage from local storage
@@ -105,8 +134,10 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
 
   const [showSettings, setShowSettings] = useState(false);
   const [fastSwapMode, setFastSwapMode] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [executionState, setExecutionState] = useState<SwapExecutionState>({
+    phase: 'idle',
+    message: null,
+  });
 
   // Load Fast Swap setting
   useEffect(() => {
@@ -244,12 +275,37 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
     }
   }, [initialTokenIn, initialTokenOut, initialAmountIn, chainId, isSolana, hasAutoExecutedRef]); // Removed swap dependency to break loop
 
+  React.useEffect(() => {
+    if (initialTokenIn || initialTokenOut) return;
+
+    const chainDefaults = getCommonTokens(chainId);
+    if (!chainDefaults.length) return;
+
+    const defaultTokenIn = mapTokenDataToToken(chainDefaults[0]);
+    const defaultTokenOut = mapTokenDataToToken(chainDefaults[1] || chainDefaults[0]);
+
+    if (isSolana) {
+      if (!solanaSwapTyped) return;
+      solanaSwapTyped.setTokenIn(defaultTokenIn);
+      if (defaultTokenOut.address.toLowerCase() !== defaultTokenIn.address.toLowerCase()) {
+        solanaSwapTyped.setTokenOut(defaultTokenOut);
+      }
+      return;
+    }
+
+    if (!evmSwapTyped) return;
+    evmSwapTyped.setTokenIn(defaultTokenIn);
+    if (defaultTokenOut.address.toLowerCase() !== defaultTokenIn.address.toLowerCase()) {
+      evmSwapTyped.setTokenOut(defaultTokenOut);
+    }
+  }, [chainId, isSolana, initialTokenIn, initialTokenOut, evmSwapTyped, solanaSwapTyped, mapTokenDataToToken]);
+
   // Token selector state
   const [showTokenSelector, setShowTokenSelector] = useState<'in' | 'out' | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [importedTokens, setImportedTokens] = useState<Token[]>([]);
 
-  const { login, authenticated, getAccessToken } = usePrivy();
+  const { login, authenticated } = usePrivy();
   const getNativeGasBuffer = React.useCallback(() => {
     if (isSolana) return 0.01;
     // Keep frontend guard aligned with backend gasReserve.
@@ -257,6 +313,38 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
     if (chainId === 42161 || chainId === 10) return 0.002; // Arbitrum / Optimism
     return 0.001;
   }, [chainId, isSolana]);
+
+  // CONTEXT MEMORY
+  // Updated: 2026-04-22
+  // Status: mixed
+  // Why: The wallet swap card previously mixed quote loading, submit loading, and order settlement into booleans/messages, which left pending transactions without a durable terminal state.
+  // Debug Goal: After a user starts a swap, the card must move through submit/broadcast/confirming and then end in success, failed, or indeterminate.
+  // Search Tags: wallet swap execution state machine pending order confirmation
+  // Invariants:
+  // - Transaction submission disables edits through terminal settlement.
+  // - A backend tradeId must be polled until SUCCESS, FAILED, or timeout-indeterminate.
+  // Failure Modes:
+  // - Button stays on Getting Quote after a submitted order.
+  // - A pending order never surfaces success or failed state in the card.
+  useEffect(() => {
+    setExecutionState(prev => {
+      if (isSwapExecutionBusy(prev.phase)) return prev;
+      if (prev.phase === 'idle') return prev;
+
+      const amountNum = parseFloat(swapState?.amountIn || '0');
+      const terminal = prev.phase === 'success' || prev.phase === 'failed' || prev.phase === 'indeterminate';
+      if (terminal && (!Number.isFinite(amountNum) || amountNum <= 0)) {
+        return prev;
+      }
+
+      return { phase: 'idle', message: null };
+    });
+  }, [
+    chainId,
+    swapState?.tokenIn?.address,
+    swapState?.tokenOut?.address,
+    swapState?.amountIn,
+  ]);
 
   useEffect(() => {
     // Confirmation modal removed - no need to reset anything
@@ -267,136 +355,163 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
     swapState?.tokenIn?.address
   ]);
 
+  const markSwapSuccess = React.useCallback(async (txHash: string, tradeId?: string) => {
+    setExecutionState({
+      phase: 'success',
+      message: `Swap confirmed: ${txHash.slice(0, 10)}...`,
+      txHash,
+      tradeId,
+    });
+
+    if (isSolana && solanaSwapTyped) {
+      solanaSwapTyped.setAmountIn('');
+    } else if (evmSwapTyped) {
+      evmSwapTyped.setAmountIn('');
+      if (evmSwapTyped.refreshSwapState) {
+        await evmSwapTyped.refreshSwapState();
+      }
+    }
+
+    onSwapSuccess?.(txHash);
+  }, [evmSwapTyped, isSolana, onSwapSuccess, solanaSwapTyped]);
+
+  const markSwapFailure = React.useCallback((message: string, tradeId?: string, txHash?: string) => {
+    setExecutionState({
+      phase: 'failed',
+      message,
+      error: message,
+      tradeId,
+      txHash,
+    });
+    onSwapError?.(message);
+  }, [onSwapError]);
+
   const executeSwapNow = async () => {
-    setIsSubmitting(true);
-    setActionMessage(null);
+    // Always require auth for embedded wallet execution
+    if (!authenticated) {
+      login();
+      return;
+    }
+
+    if (isSwapExecutionBusy(executionState.phase)) return;
 
     try {
-      // Always require auth for embedded wallet execution
-      if (!authenticated) {
-        login();
-        return;
-      }
-
-      // ⚡ FAST SWAP MODE Check (Base Chain Only for now)
-      if (fastSwapMode && chainId === 8453 && !isSolana) {
-        if (import.meta.env.DEV) {
-          console.log('[SwapCard] ⚡ Fast Swap Mode Executing...');
-        }
-        try {
-          const token = await getAccessToken();
-          const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-          const res = await fetch(`${apiUrl}/api/zora/swap`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-              tokenAddress: swapState?.tokenOut?.address,
-              buyAmountEth: swapState?.amountIn,
-              maxSlippage: 0.5 // Default fast slippage
-            })
-          });
-
-          const data = await res.json();
-
-          if (data.success && data.txHash) {
-            setActionMessage(`Swap sent: ${data.txHash.slice(0, 10)}...`);
-            onSwapSuccess?.(data.txHash);
-            return;
-          } else if (import.meta.env.DEV) {
-            console.warn('[FastSwap] Failed, falling back to standard execution:', data.error);
-          }
-        } catch (_e) {
-          if (import.meta.env.DEV) {
-            console.error('[FastSwap] Error:', _e);
-          }
-        }
-      }
-
       if (serverExecutionEnabled) {
-        // Server-side Execution Mode
         if (!userAddress || !swapState?.tokenIn || !swapState?.tokenOut) {
-          onSwapError?.('Missing swap parameters');
+          markSwapFailure('Missing swap parameters');
           return;
         }
 
-        try {
-          setActionMessage('Submitting transaction...');
-          const result = await executeSwapInstant({
-            tokenIn: swapState.tokenIn.address,
-            tokenOut: swapState.tokenOut.address,
-            amountIn: swapState.amountIn,
-            chainId: chainId,
-            slippageBps: Math.round(slippage * 100),
-            userAddress,
+        setExecutionState({
+          phase: 'submitting',
+          message: 'Submitting swap to execution service...',
+        });
+
+        const result = await executeSwapInstant({
+          tokenIn: swapState.tokenIn.address,
+          tokenOut: swapState.tokenOut.address,
+          amountIn: swapState.amountIn,
+          chainId: chainId,
+          slippageBps: Math.round(slippage * 100),
+          userAddress,
+        });
+
+        if (result.success && result.txHash && result.status === 'SUCCESS') {
+          await markSwapSuccess(result.txHash, result.tradeId);
+          return;
+        }
+
+        if (result.success && result.txHash && result.status === 'PENDING' && result.tradeId) {
+          setExecutionState({
+            phase: 'broadcast',
+            message: `Transaction broadcast: ${result.txHash.slice(0, 10)}...`,
+            txHash: result.txHash,
+            tradeId: result.tradeId,
           });
 
-          if (result.success && result.txHash && result.status === 'PENDING' && result.tradeId) {
-            setActionMessage('Transaction submitted. Waiting for on-chain confirmation...');
-            const settled = await waitForSwapTradeSettlement(result.tradeId);
-            if (settled.success && settled.txHash) {
-              setActionMessage(`Swap sent: ${settled.txHash.slice(0, 10)}...`);
-              if (isSolana && solanaSwapTyped) {
-                solanaSwapTyped.setAmountIn('');
-              } else if (evmSwapTyped) {
-                evmSwapTyped.setAmountIn('');
-                if (evmSwapTyped.refreshSwapState) {
-                  await evmSwapTyped.refreshSwapState();
-                }
+          setExecutionState({
+            phase: 'confirming',
+            message: 'Waiting for on-chain confirmation...',
+            txHash: result.txHash,
+            tradeId: result.tradeId,
+          });
+
+          const settled = await waitForSwapTradeSettlement(result.tradeId, {
+            onStatus: (trade) => {
+              if (trade.status === 'PENDING') {
+                setExecutionState({
+                  phase: 'confirming',
+                  message: 'Transaction pending on-chain...',
+                  txHash: trade.txHash || result.txHash,
+                  tradeId: trade.id,
+                });
               }
-              onSwapSuccess?.(settled.txHash);
-            } else {
-              setActionMessage(settled.error || 'Swap submission is still syncing. Please check recent transactions shortly.');
-              onSwapError?.(settled.error || 'Swap submission is still syncing.');
-            }
-          } else if (result.success && result.txHash) {
-            setActionMessage(`Swap sent: ${result.txHash.slice(0, 10)}...`);
-            if (isSolana && solanaSwapTyped) {
-              solanaSwapTyped.setAmountIn('');
-            } else if (evmSwapTyped) {
-              evmSwapTyped.setAmountIn('');
-              if (evmSwapTyped.refreshSwapState) {
-                await evmSwapTyped.refreshSwapState();
-              }
-            }
-            onSwapSuccess?.(result.txHash);
-          } else if (result.ambiguous) {
-            if (result.tradeId) {
-              setActionMessage('Transaction submitted. Verifying on-chain status...');
-              const settled = await waitForSwapTradeSettlement(result.tradeId);
-              if (settled.success && settled.txHash) {
-                setActionMessage(`Swap sent: ${settled.txHash.slice(0, 10)}...`);
-                if (isSolana && solanaSwapTyped) {
-                  solanaSwapTyped.setAmountIn('');
-                } else if (evmSwapTyped) {
-                  evmSwapTyped.setAmountIn('');
-                  if (evmSwapTyped.refreshSwapState) {
-                    await evmSwapTyped.refreshSwapState();
-                  }
-                }
-                onSwapSuccess?.(settled.txHash);
-              } else {
-                setActionMessage(settled.error || 'Swap submission is still syncing. Please check recent transactions shortly.');
-                onSwapError?.(settled.error || 'Swap submission is still syncing.');
-              }
-            } else {
-              setActionMessage(result.error || 'Swap may still be processing. Please check recent transactions.');
-              onSwapError?.(result.error || 'Swap status is being reconciled.');
-            }
-          } else {
-            setActionMessage(null);
-            onSwapError?.(result.error || 'Server execution failed');
+            },
+          });
+
+          if (settled.success && settled.txHash) {
+            await markSwapSuccess(settled.txHash, settled.tradeId || result.tradeId);
+            return;
           }
-        } catch (e: any) {
-          setActionMessage(null);
-          onSwapError?.(e.message || 'Server execution error');
+
+          if (settled.status === 'FAILED') {
+            markSwapFailure(settled.error || 'Swap failed after submission.', settled.tradeId || result.tradeId, result.txHash);
+            return;
+          }
+
+          setExecutionState({
+            phase: 'indeterminate',
+            message: settled.error || 'Transaction is still pending. Check recent transactions shortly.',
+            txHash: result.txHash,
+            tradeId: result.tradeId,
+            error: settled.error,
+          });
+          onSwapError?.(settled.error || 'Swap status is still pending.');
+          return;
         }
+
+        if (result.success && result.txHash) {
+          await markSwapSuccess(result.txHash, result.tradeId);
+          return;
+        }
+
+        if (result.ambiguous && result.tradeId) {
+          setExecutionState({
+            phase: 'confirming',
+            message: 'Execution response was ambiguous. Verifying order status...',
+            tradeId: result.tradeId,
+            txHash: result.txHash,
+          });
+
+          const settled = await waitForSwapTradeSettlement(result.tradeId);
+          if (settled.success && settled.txHash) {
+            await markSwapSuccess(settled.txHash, settled.tradeId || result.tradeId);
+            return;
+          }
+          if (settled.status === 'FAILED') {
+            markSwapFailure(settled.error || 'Swap failed after submission.', settled.tradeId || result.tradeId, result.txHash);
+            return;
+          }
+          setExecutionState({
+            phase: 'indeterminate',
+            message: settled.error || 'Swap may still be processing. Check recent transactions.',
+            tradeId: result.tradeId,
+            txHash: result.txHash,
+            error: settled.error,
+          });
+          onSwapError?.(settled.error || 'Swap status is still pending.');
+          return;
+        }
+
+        markSwapFailure(result.error || 'Server execution failed', result.tradeId, result.txHash);
         return;
       }
 
-      // Client-side Execution Mode
+      setExecutionState({
+        phase: 'submitting',
+        message: 'Submitting swap...',
+      });
+
       const result = isSolana && solanaSwapTyped
         ? await solanaSwapTyped.executeSwap()
         : evmSwapTyped
@@ -404,24 +519,38 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
           : { success: false, error: 'Swap not available' };
 
       if (result?.success && result?.txHash) {
-        setActionMessage(`Swap sent: ${result.txHash.slice(0, 10)}...`);
-        if (isSolana && solanaSwapTyped) {
-          solanaSwapTyped.setAmountIn('');
-        } else if (evmSwapTyped?.refreshSwapState) {
-          evmSwapTyped.setAmountIn('');
-          await evmSwapTyped.refreshSwapState();
-        }
-        onSwapSuccess?.(result.txHash);
-      } else if (result?.error) {
-        setActionMessage(null);
-        onSwapError?.(result.error);
+        await markSwapSuccess(result.txHash);
+      } else {
+        markSwapFailure(result?.error || 'Swap execution failed');
       }
-    } finally {
-      setIsSubmitting(false);
+    } catch (e: any) {
+      markSwapFailure(e?.message || 'Swap execution error');
     }
   };
 
   const handleExecuteSwap = async () => {
+    if (executionState.phase === 'indeterminate' && executionState.tradeId) {
+      setExecutionState(prev => ({
+        ...prev,
+        phase: 'confirming',
+        message: 'Checking latest order status...',
+      }));
+      const settled = await waitForSwapTradeSettlement(executionState.tradeId);
+      if (settled.success && settled.txHash) {
+        await markSwapSuccess(settled.txHash, settled.tradeId || executionState.tradeId);
+      } else if (settled.status === 'FAILED') {
+        markSwapFailure(settled.error || 'Swap failed after submission.', settled.tradeId || executionState.tradeId, executionState.txHash);
+      } else {
+        setExecutionState(prev => ({
+          ...prev,
+          phase: 'indeterminate',
+          message: settled.error || 'Order is still pending. Check again shortly.',
+          error: settled.error,
+        }));
+      }
+      return;
+    }
+
     if (!authenticated) {
       await executeSwapNow();
       return;
@@ -457,7 +586,8 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   const amountOutUSD = displayInfo?.amountOutUSD || '0';
   const isLoading = swapState?.isLoading || displayInfo?.isLoading || false;
   const isExecuting = swapState?.isExecuting || displayInfo?.isExecuting || false;
-  const effectiveIsExecuting = isExecuting || isSubmitting;
+  const isExecutionBusy = isSwapExecutionBusy(executionState.phase);
+  const effectiveIsExecuting = isExecuting || isExecutionBusy;
   const error = swapState?.error || displayInfo?.error || null;
   const priceImpact = displayInfo?.priceImpact || 0;
   const dexName = displayInfo?.dexName || 'N/A';
@@ -478,7 +608,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
     !effectiveIsExecuting &&
     hasEnoughBalance &&
     !error;
-  const buttonDisabled = authenticated ? !canExecute : false;
+  const buttonDisabled = authenticated ? (!canExecute || isExecutionBusy) : false;
 
   // DEBUG: Diagnose why button is disabled
   if (!canExecute && !isLoading && !effectiveIsExecuting && amountIn.trim() !== '') {
@@ -496,9 +626,15 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   const needsApproval = displayInfo?.needsApproval || false;
 
   const actionButtonLabel = React.useMemo(() => {
+    if (executionState.phase === 'submitting') return 'Submitting...';
+    if (executionState.phase === 'broadcast') return 'Broadcasted';
+    if (executionState.phase === 'confirming') return 'Confirming...';
+    if (executionState.phase === 'success') return 'Swap Confirmed';
+    if (executionState.phase === 'failed') return 'Try Again';
+    if (executionState.phase === 'indeterminate') return 'Check Status';
     if (effectiveIsExecuting) return needsApproval ? 'Approving & Swapping...' : 'Swapping...';
     return displayInfo?.actionLabel || 'Swap';
-  }, [displayInfo?.actionLabel, effectiveIsExecuting, needsApproval]);
+  }, [displayInfo?.actionLabel, effectiveIsExecuting, executionState.phase, needsApproval]);
 
   // Auto-execution logic
   useEffect(() => {
@@ -987,10 +1123,11 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
                       // 1. For Native Tokens (ETH, SOL): Subtract gas buffer
                       // 2. For ERC20/SPL Tokens: Use EXACT balance string to avoid precision loss
 
+                      const tokenInAddress = swapState?.tokenIn?.address?.toLowerCase();
                       const isNative = isSolana
                         ? displayInfo.tokenInSymbol === 'SOL'
-                        : (swapState?.tokenIn?.address === '0x0000000000000000000000000000000000000000' ||
-                          swapState?.tokenIn?.address === '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE');
+                        : (tokenInAddress === '0x0000000000000000000000000000000000000000' ||
+                          tokenInAddress === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee');
 
                       let maxAmountStr = displayInfo.userBalance;
 
@@ -1024,6 +1161,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
               <input
                 type="text"
                 value={amountIn}
+                disabled={isExecutionBusy}
                 onChange={(e) => {
                   const value = e.target.value;
                   if (isSolana && solanaSwapTyped) {
@@ -1036,6 +1174,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
                 className={styles.swapAmountInput}
               />
               <button
+                disabled={isExecutionBusy}
                 onClick={(e) => {
                   e.stopPropagation();
                   setShowTokenSelector('in');
@@ -1063,6 +1202,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
           <div className={styles.swapArrow}>
             <div className={styles.arrowContainer}>
               <button
+                disabled={isExecutionBusy}
                 onClick={() => {
                   if (isSolana && solanaSwapTyped) {
                     solanaSwapTyped.swapTokens();
@@ -1093,6 +1233,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
                 {isLoading ? '...' : amountOut || '0.000000'}
               </span>
               <button
+                disabled={isExecutionBusy}
                 onClick={(e) => {
                   e.stopPropagation();
                   setShowTokenSelector('out');
@@ -1383,14 +1524,28 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
           document.body
         )}
 
-        {actionMessage && (
+        {executionState.message && (
           <div style={{
             marginTop: '10px',
             fontSize: '12px',
-            color: 'var(--text-secondary)',
+            color: executionState.phase === 'failed'
+              ? 'var(--error-color, #ef4444)'
+              : executionState.phase === 'success'
+                ? 'var(--success-color, #16a34a)'
+                : 'var(--text-secondary)',
             textAlign: 'center',
           }}>
-            {actionMessage}
+            {executionState.message}
+            {executionState.txHash && (
+              <div style={{ marginTop: '4px', color: 'var(--text-tertiary)' }}>
+                Tx: {executionState.txHash.slice(0, 10)}...{executionState.txHash.slice(-6)}
+              </div>
+            )}
+            {executionState.tradeId && (
+              <div style={{ marginTop: '2px', color: 'var(--text-tertiary)' }}>
+                Order: {executionState.tradeId.slice(0, 8)}...
+              </div>
+            )}
           </div>
         )}
       </div>

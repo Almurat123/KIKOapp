@@ -20,6 +20,7 @@ import {
     processAlchemyWebhookInboxEventById,
     startAlchemyWebhookInboxWorker
 } from '../services/alchemyWebhookInboxService.js';
+import { processCreditDepositWebhookPayload } from '../services/creditDepositWatcherService.js';
 import { persistSwapExecutionContext } from '../services/copytrade-v2/context/swapContextPersistence.js';
 import { getAdjudicatedSnapshot, reportReceiptSeen, reportWebhookSeen } from '../services/order-runtime/adjudicator/service.js';
 import { normalizeSolanaWebhookItem } from '../services/solana/webhookNormalizer.js';
@@ -1962,15 +1963,21 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         // Process asynchronously; prefer inbox row so failures get retried by worker.
         setImmediate(async () => {
             try {
+                const tasks: Array<Promise<unknown>> = [
+                    processCreditDepositWebhookPayload(payload, rawNetwork).catch((error) => {
+                        console.error('[Webhook] Error processing credit deposit webhook payload:', error);
+                    }),
+                ];
                 if (inboxEventId) {
-                    const accepted = await processAlchemyWebhookInboxEventById(inboxEventId, queueAlchemyWebhookBatch);
-                    if (!accepted) {
-                        // Already in progress/processed by another worker.
-                        return;
-                    }
-                    return;
+                    tasks.push(
+                        processAlchemyWebhookInboxEventById(inboxEventId, queueAlchemyWebhookBatch).then((accepted) => {
+                            if (!accepted) return;
+                        }),
+                    );
+                } else {
+                    tasks.push(queueAlchemyWebhookBatch(payload));
                 }
-                await queueAlchemyWebhookBatch(payload);
+                await Promise.allSettled(tasks);
             } catch (error) {
                 console.error(`[Webhook] Error processing Alchemy webhook:`, error);
             }

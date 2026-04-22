@@ -155,25 +155,8 @@ export async function recordUsage(params: {
     model?: string;
     assistantMessageId: string;
 }): Promise<void> {
-    const { userId, dateUtc, modelCategory, assistantMessageId } = params;
-    if (!userId || !assistantMessageId) return;
-
-    const ttlSeconds = secondsUntilUtcDayEnd(dateUtc);
-    if (ttlSeconds <= 0) return;
-
-    const isFirst = await setIfNotExists(messageDedupeKey(assistantMessageId), '1', MSG_DEDUPE_TTL_SECONDS);
-    if (!isFirst) return;
-
-    const category = modelCategory || 'other';
-    const totalKey = usageKey(userId, dateUtc, 'total');
-    const categoryKey = usageKey(userId, dateUtc, category);
-    const normalizedModel = normalizeModelForPricing(params.model || '');
-    const writes: Array<Promise<unknown>> = [
-        cacheIncrBy(totalKey, 1, ttlSeconds),
-        cacheIncrBy(categoryKey, 1, ttlSeconds),
-    ];
-    if (normalizedModel) {
-        writes.push(cacheIncrBy(usageModelKey(userId, dateUtc, normalizedModel), 1, ttlSeconds));
-    }
-    await Promise.allSettled(writes);
+    // Credits billing now settles usage after durable persistence instead of
+    // reserving daily quota counters up front. Keep this function as a no-op so
+    // older ingress paths do not consume free premium turns on failed requests.
+    void params;
 }

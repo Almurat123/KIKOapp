@@ -212,6 +212,25 @@ button:focus-visible {
   outline: none;
 }
 
+/* Lucide draws icons with currentColor. Keep SVG button icons visible across
+   Tailwind preflight, global button resets, and theme-specific CSS modules. */
+svg.lucide,
+button svg.lucide,
+[role="button"] svg.lucide {
+  display: inline-block;
+  flex-shrink: 0;
+  color: inherit;
+  stroke: currentColor;
+  fill: none;
+  overflow: visible;
+  vertical-align: middle;
+}
+
+button svg.lucide,
+[role="button"] svg.lucide {
+  pointer-events: none;
+}
+
 /* Dark Theme - Modern Zinc Logic */
 :root.dark,
 html.dark {

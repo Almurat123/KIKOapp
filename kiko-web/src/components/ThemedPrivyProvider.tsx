@@ -1,41 +1,23 @@
 import React from 'react';
 import { PrivyProvider } from '@privy-io/react-auth';
+import { arbitrum, base, baseSepolia, bsc, mainnet, optimism, polygon } from 'viem/chains';
 import { useTheme } from '../hooks/useTheme';
 
 const privyAppId = import.meta.env.VITE_PRIVY_APP_ID;
 const privyClientId = import.meta.env.VITE_PRIVY_CLIENT_ID;
 
 // CONTEXT MEMORY
-// Updated: 2026-04-12
-// Author: Codex
-// Reason: The Mini App auth path is social-login first, with Privy embedded
-//         wallets provisioned after login. External wallet linking is outside
-//         the current product scope and can trigger WalletConnect registry
-//         fetches that Farcaster's frame CSP blocks.
-// Goal: Keep Farcaster/social login and embedded wallet provisioning available
-//       without exposing external wallet connection options.
-// Owns: Privy social login appearance and embedded-wallet provisioning config.
-// Does Not Own: Farcaster manifest validation, app shell metadata, or on-chain
-//               transaction logic.
-// Design Language:
-// - Login methods must stay social-only unless product scope explicitly adds
-//   external wallet linking.
-// - Do not configure `walletList`, `wallet_connect`, or detected wallet entries
-//   for the Mini App shell.
-// - Keep embedded wallet creation enabled for both Ethereum and Solana.
-// Document Provenance:
-// - Source: Privy Docs - Configure wallet options
-// - Kind: official API doc
-// - Retrieved: 2026-04-12
-// - Applied To: Confirm that `walletList` is for external wallet options and
-//   should not be used for this Mini App auth scope.
-// - Verification: verified in code and docs; runtime effect to be rechecked
-//   after deploy
-// See also:
-// - /Users/almurat/KiKo/system-journal/INDEX.md
-// - /Users/almurat/KiKo/system-journal/owner-map/farcaster-miniapp-support.md
-// - /Users/almurat/KiKo/system-journal/design-language/farcaster-miniapp-shell.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-12-privy-walletconnect-csp-fix.md
+// Updated: 2026-04-22
+// Status: mixed
+// Why: Mini App auth stays social-login first with Privy embedded wallets, and credits top-up now needs those wallets to switch to Base/Base Sepolia for router deposits.
+// Debug Goal: Keep embedded EVM/Solana wallet creation available without exposing external wallet connection options, while allowing credit top-up chain switching.
+// Search Tags: privy embedded wallet base sepolia credit top up switchChain
+// Invariants:
+// - Login methods stay social-only unless product scope explicitly adds external wallet linking.
+// - Base Sepolia remains supported while testnet router deployments are used.
+// Failure Modes:
+// - Removing Base Sepolia makes router testnet top-up fail before the wallet confirmation.
+// - Adding external wallet lists can reintroduce WalletConnect CSP failures in Mini App contexts.
 // Privy Provider with theme support
 export const ThemedPrivyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { resolvedTheme } = useTheme();
@@ -57,6 +39,8 @@ export const ThemedPrivyProvider: React.FC<{ children: React.ReactNode }> = ({ c
           showWalletLoginFirst: false,
           logo: privyLogo,
         },
+        supportedChains: [base, baseSepolia, mainnet, bsc, arbitrum, optimism, polygon],
+        defaultChain: base,
         loginMethods: ['email', 'farcaster', 'google', 'twitter'],
         // Removed fundingMethodConfig temporarily to test if sandbox is causing the crash
         embeddedWallets: {

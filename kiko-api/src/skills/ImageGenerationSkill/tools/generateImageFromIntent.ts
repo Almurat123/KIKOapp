@@ -156,11 +156,14 @@ function resolveImageToolContext(context?: Record<string, any>) {
     };
 }
 
-function resolveGeneratedImageSource(context?: Record<string, any>, snapshot?: any): 'farcaster' | 'chat-v2-tool' {
+function resolveGeneratedImageSource(context?: Record<string, any>, snapshot?: any): 'farcaster' | 'x' | 'chat-v2-tool' {
     const currentPage = String(context?.currentPage || snapshot?.runtime?.currentPage || '').trim().toLowerCase();
     const pageContext = String(context?.pageContext || snapshot?.runtime?.pageContext || '').trim().toLowerCase();
     if (currentPage === 'farcaster' || pageContext === 'farcaster_agent') {
         return 'farcaster';
+    }
+    if (currentPage === 'x' || pageContext === 'x_agent') {
+        return 'x';
     }
     return 'chat-v2-tool';
 }

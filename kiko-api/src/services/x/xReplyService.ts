@@ -3,9 +3,154 @@ import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { markXConversationOutbound } from './xConversationService.js';
 import { xApiClient } from './xApiClient.js';
+import sharp from 'sharp';
 
 type DeliveryChannel = 'mention' | 'dm';
 type DeliveryType = 'reply' | 'dm' | 'notification';
+
+const MAX_PUBLIC_X_REPLY_CHARS = 260;
+const MAX_X_TWEET_IMAGE_COUNT = 4;
+const MAX_X_TWEET_IMAGE_BYTES = 5 * 1024 * 1024;
+const FALLBACK_PUBLIC_X_REPLY_TEXT = 'I processed this in KIKO, but the reply contained media or links that I cannot post on X.';
+const GENERATED_IMAGE_READY_REPLY_TEXT = 'Generated.';
+
+// CONTEXT MEMORY
+// Updated: 2026-04-22
+// Status: verified
+// Why: Public X mention replies must never send image URLs or KIKO share/OGP
+//      links. Generated-image replies may attach real X media IDs after server
+//      upload; text still goes through this final outbound guard.
+// Debug Goal: keep every automated X mention reply plain text even if upstream
+//             model output or bind/share copy contains URLs, while allowing
+//             generated image media upload by media_id.
+// Search Tags: x mention no ogp links, x public reply strip urls, x generated image media upload
+// Invariants:
+// - Mention replies sent through the X API must not contain URLs.
+// - Generated images attach as uploaded media IDs, never as public image URLs.
+// - The delivery payload persisted for mention replies must match sanitized text.
+// Failure Modes:
+// - Reintroducing KIKO share URLs creates OGP cards on X.
+// - Letting generated-image public URLs through exposes link-card replies instead of media attachments.
+export function sanitizePublicXReplyText(input: string): string {
+  const withoutMarkdownLinks = String(input || '').replace(/\[([^\]]+)\]\((?:https?:\/\/|www\.)[^)\s]+[^)]*\)/gi, '$1');
+  const withoutUrls = withoutMarkdownLinks
+    .replace(/https?:\/\/\S+/gi, ' ')
+    .replace(/\bwww\.\S+/gi, ' ')
+    .replace(/\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s]*)?/gi, ' ')
+    .replace(/\b\S+\.(?:png|jpe?g|gif|webp)(?:\?\S*)?/gi, ' ');
+  const withoutMarkdown = withoutUrls
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/^>\s+/gm, '')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/_([^_]+)_/g, '$1');
+  const normalized = withoutMarkdown
+    .split(/\n+/)
+    .map((line) => line.replace(/[ \t]+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n\n')
+    .trim();
+  const text = normalized || FALLBACK_PUBLIC_X_REPLY_TEXT;
+  if (text.length <= MAX_PUBLIC_X_REPLY_CHARS) return text;
+  return `${text.slice(0, MAX_PUBLIC_X_REPLY_CHARS - 3).trimEnd()}...`;
+}
+
+function normalizeXReplyMediaUrls(value: unknown): string[] {
+  const rawUrls = Array.isArray(value) ? value : [];
+  const deduped = new Set<string>();
+  for (const raw of rawUrls) {
+    const url = String(raw || '').trim();
+    if (!url) continue;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') continue;
+      deduped.add(parsed.toString());
+    } catch {
+      continue;
+    }
+  }
+  return Array.from(deduped).slice(0, MAX_X_TWEET_IMAGE_COUNT);
+}
+
+async function downloadImageForXUpload(url: string): Promise<{ buffer: Buffer; contentType: string }> {
+  const response = await fetch(url, {
+    headers: {
+      Accept: 'image/png,image/jpeg,image/webp;q=0.9,*/*;q=0.1',
+      'User-Agent': 'KiKo-X-Media-Uploader/1.0',
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Generated image fetch failed before X upload (${response.status})`);
+  }
+  const arrayBuffer = await response.arrayBuffer();
+  const input = Buffer.from(arrayBuffer);
+  const metadata = await sharp(input).metadata();
+  const format = String(metadata.format || '').toLowerCase();
+  if (!['png', 'jpeg', 'jpg', 'webp'].includes(format)) {
+    throw new Error(`Generated image has unsupported X upload format: ${format || 'unknown'}`);
+  }
+  const normalizedType = format === 'png'
+    ? 'image/png'
+    : (format === 'webp' ? 'image/webp' : 'image/jpeg');
+  if (input.length <= MAX_X_TWEET_IMAGE_BYTES) {
+    return { buffer: input, contentType: normalizedType };
+  }
+
+  const jpeg = await sharp(input)
+    .rotate()
+    .flatten({ background: '#ffffff' })
+    .jpeg({ quality: 88, mozjpeg: true })
+    .toBuffer();
+  if (jpeg.length <= MAX_X_TWEET_IMAGE_BYTES) {
+    return { buffer: jpeg, contentType: 'image/jpeg' };
+  }
+
+  const compact = await sharp(input)
+    .rotate()
+    .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
+    .flatten({ background: '#ffffff' })
+    .jpeg({ quality: 82, mozjpeg: true })
+    .toBuffer();
+  if (compact.length > MAX_X_TWEET_IMAGE_BYTES) {
+    throw new Error('Generated image remains larger than X tweet image limit after compression');
+  }
+  return { buffer: compact, contentType: 'image/jpeg' };
+}
+
+async function uploadXReplyMediaUrls(mediaUrls: string[]): Promise<string[]> {
+  const mediaIds: string[] = [];
+  const normalizedMediaUrls = normalizeXReplyMediaUrls(mediaUrls);
+  if (normalizedMediaUrls.length === 0) return mediaIds;
+  for (const mediaUrl of normalizedMediaUrls) {
+    try {
+      const image = await downloadImageForXUpload(mediaUrl);
+      const mediaId = await xApiClient.uploadTweetImage({
+        buffer: image.buffer,
+        contentType: image.contentType,
+        fileName: `kiko-generated-image.${image.contentType === 'image/png' ? 'png' : image.contentType === 'image/webp' ? 'webp' : 'jpg'}`,
+      });
+      mediaIds.push(mediaId);
+    } catch (error) {
+      logger.warn(LogCode.API_NOTIFY_FAILED, '[X] Failed to upload generated image for reply', {
+        error: String((error as any)?.message || error || 'unknown_error'),
+      });
+    }
+  }
+  return mediaIds;
+}
+
+function shouldRequireUploadedMedia(params: { originalText: string; mediaUrls: string[] }): boolean {
+  if (params.mediaUrls.length === 0) return false;
+  const normalizedText = sanitizePublicXReplyText(params.originalText).trim().toLowerCase();
+  return normalizedText === GENERATED_IMAGE_READY_REPLY_TEXT.toLowerCase();
+}
+
+export const __xReplyServiceTest = {
+  shouldRequireUploadedMedia,
+};
 
 async function createOrReuseDelivery(params: {
   userId?: string | null;
@@ -86,8 +231,11 @@ export class XReplyService {
     userId?: string | null;
     conversationMappingId?: string | null;
     idempotencyKey: string;
+    mediaUrls?: string[] | null;
   }): Promise<boolean> {
     if (!this.isConfigured()) return false;
+    const text = sanitizePublicXReplyText(params.text);
+    const mediaUrls = normalizeXReplyMediaUrls(params.mediaUrls);
     const { record, alreadySent } = await createOrReuseDelivery({
       userId: params.userId,
       xUserId: params.xUserId,
@@ -96,14 +244,19 @@ export class XReplyService {
       messageType: 'reply',
       sourceMessageId: params.tweetId,
       idempotencyKey: params.idempotencyKey,
-      payload: { tweetId: params.tweetId, text: params.text },
+      payload: { tweetId: params.tweetId, text, mediaUrls },
     });
     if (alreadySent) return true;
 
     try {
+      const mediaIds = await uploadXReplyMediaUrls(mediaUrls);
+      if (shouldRequireUploadedMedia({ originalText: params.text, mediaUrls }) && mediaIds.length === 0) {
+        throw new Error('x_generated_image_media_upload_failed');
+      }
       const sent = await xApiClient.replyToMention({
         tweetId: params.tweetId,
-        text: params.text,
+        text,
+        mediaIds,
       });
       await prisma.xMessageDelivery.update({
         where: { id: record.id },
