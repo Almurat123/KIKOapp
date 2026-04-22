@@ -1481,6 +1481,15 @@ test("assembleGenerationMessages prefers task route owner, chain, and time conte
   assert.match(content, /\[TASK_ROUTE\]/);
   assert.match(content, /owner: image/);
   assert.match(content, /phase: execute/);
+  assert.match(content, /\[CONTEXT_CONTRACT\]/);
+  assert.match(content, /mode: image/);
+  assert.match(content, /required_contexts: workflow_state, skill_prompts, user_context/);
+  assert.match(
+    content,
+    /required_context_tools: read_workflow_state, read_skill_prompts, read_user_context/,
+  );
+  assert.doesNotMatch(content, /required_context_tools: .*read_execution_plan/);
+  assert.doesNotMatch(content, /required_context_tools: .*read_user_settings/);
   assert.match(content, /time_context\.startTime: 2026-04-23T11:48:00\+08:00/);
   assert.match(content, /time_context\.endTime: 2026-04-23T11:48:59\+08:00/);
   assert.match(content, /requested_chain\.id: 8453/);

@@ -195,6 +195,48 @@ test('chat v2 smoke: execution turn exposes read_user_settings contract without 
     assert.doesNotMatch(String(systemMessage?.content || ''), /EXECUTION_MODE:/);
 });
 
+test('chat v2 smoke: image execution turns stay on the image green lane', () => {
+    const messages = assembleGenerationMessages(
+        makeSnapshot('用帖子里的参考图直接出一张新海报', {
+            runtime: {
+                currentPage: 'farcaster',
+                socialInput: {
+                    platform: 'farcaster',
+                    images: [
+                        {
+                            url: 'https://example.com/reference.png',
+                            sourceLabel: 'reference image',
+                        },
+                    ],
+                },
+            },
+        }),
+        [],
+        makeProviderInfo('openai'),
+        {
+            intentEnvelope: {
+                primary_intent: 'image_generation',
+                task_mode: 'execute',
+                search_mode: 'forbidden',
+                search_target: 'none',
+                domain: 'general',
+                execution_risk: 'read_only',
+                required_evidence: [],
+            },
+        },
+    );
+
+    const userMessage = messages.find((message) => message.role === 'user');
+    const content = typeof userMessage?.content === 'string'
+        ? userMessage.content
+        : JSON.stringify(userMessage?.content || '');
+    assert.match(content, /mode: image/);
+    assert.match(content, /required_contexts: workflow_state, skill_prompts, user_context/);
+    assert.match(content, /required_context_tools: read_workflow_state, read_skill_prompts, read_user_context/);
+    assert.doesNotMatch(content, /required_context_tools: .*read_execution_plan/);
+    assert.doesNotMatch(content, /required_context_tools: .*read_user_settings/);
+});
+
 test('chat v2 smoke: social image turn stays multimodal on the current user turn', () => {
     const messages = assembleGenerationMessages(
         makeSnapshot('这张图里是什么？', {

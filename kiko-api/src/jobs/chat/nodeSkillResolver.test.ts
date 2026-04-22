@@ -1086,6 +1086,13 @@ add a subtle Base ecosystem visual language, and output a finished launch poster
     assert.equal(resolution.intentEnvelope.primary_intent, 'image_generation');
     assert.equal(resolution.intentEnvelope.search_mode, 'forbidden');
     assert.equal(resolution.intentEnvelope.domain, 'general');
+    assert.equal(resolution.intentEnvelope.execution_risk, 'read_only');
+    assert.equal(resolution.contextContract.mode, 'image');
+    assert.ok(resolution.contextContract.requiredContexts.includes('workflow_state'));
+    assert.ok(resolution.contextContract.requiredContexts.includes('skill_prompts'));
+    assert.ok(resolution.contextContract.requiredContexts.includes('user_context'));
+    assert.ok(!resolution.contextContract.requiredContexts.includes('execution_plan'));
+    assert.ok(!resolution.contextContract.requiredContexts.includes('user_settings'));
     assert.equal(resolution.toolPackageSource, 'task_route');
 });
 

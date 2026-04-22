@@ -275,30 +275,63 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
     }
   }, [initialTokenIn, initialTokenOut, initialAmountIn, chainId, isSolana, hasAutoExecutedRef]); // Removed swap dependency to break loop
 
+  // CONTEXT MEMORY
+  // Updated: 2026-04-23
+  // Status: verified
+  // Why: The wallet swap card must only force chain default tokens on real chain-context changes. Running that reset on every render wipes a fresh quote back to 0.
+  // Debug Goal: After the user types an amount and the quote API returns, amountOut must stay populated until the user changes tokens, amount, or chain.
+  // Search Tags: swap quote resets to 0 after success default token effect rerender
+  // Invariants:
+  // - The card only reapplies default chain tokens when there are no AI-provided initial tokens and the active chain context actually changes.
+  // - A rerender with the same chain must not call setTokenIn/setTokenOut again.
+  // Failure Modes:
+  // - Quote briefly appears and then returns to 0.
+  // - Button oscillates between Getting Quote and Swap because token reset retriggers the quote effect.
+  const lastDefaultedChainRef = React.useRef<number | null>(null);
+
   React.useEffect(() => {
-    if (initialTokenIn || initialTokenOut) return;
+    if (initialTokenIn || initialTokenOut) {
+      lastDefaultedChainRef.current = null;
+      return;
+    }
+
+    if (lastDefaultedChainRef.current === chainId) return;
 
     const chainDefaults = getCommonTokens(chainId);
     if (!chainDefaults.length) return;
 
+    const currentSwap = swapRef.current;
+    const currentTokenIn = isSolana
+      ? (currentSwap as ReturnType<typeof useSolanaSwap>).state.tokenIn
+      : (currentSwap as ReturnType<typeof useSwap>).state.tokenIn;
+    const currentTokenOut = isSolana
+      ? (currentSwap as ReturnType<typeof useSolanaSwap>).state.tokenOut
+      : (currentSwap as ReturnType<typeof useSwap>).state.tokenOut;
+
     const defaultTokenIn = mapTokenDataToToken(chainDefaults[0]);
     const defaultTokenOut = mapTokenDataToToken(chainDefaults[1] || chainDefaults[0]);
 
-    if (isSolana) {
-      if (!solanaSwapTyped) return;
-      solanaSwapTyped.setTokenIn(defaultTokenIn);
-      if (defaultTokenOut.address.toLowerCase() !== defaultTokenIn.address.toLowerCase()) {
-        solanaSwapTyped.setTokenOut(defaultTokenOut);
+    const tokenInMatches = currentTokenIn?.address?.toLowerCase() === defaultTokenIn.address.toLowerCase();
+    const tokenOutMatches = currentTokenOut?.address?.toLowerCase() === defaultTokenOut.address.toLowerCase();
+
+    if (!tokenInMatches) {
+      if (isSolana) {
+        (currentSwap as ReturnType<typeof useSolanaSwap>).setTokenIn(defaultTokenIn);
+      } else {
+        (currentSwap as ReturnType<typeof useSwap>).setTokenIn(defaultTokenIn);
       }
-      return;
     }
 
-    if (!evmSwapTyped) return;
-    evmSwapTyped.setTokenIn(defaultTokenIn);
-    if (defaultTokenOut.address.toLowerCase() !== defaultTokenIn.address.toLowerCase()) {
-      evmSwapTyped.setTokenOut(defaultTokenOut);
+    if (!tokenOutMatches && defaultTokenOut.address.toLowerCase() !== defaultTokenIn.address.toLowerCase()) {
+      if (isSolana) {
+        (currentSwap as ReturnType<typeof useSolanaSwap>).setTokenOut(defaultTokenOut);
+      } else {
+        (currentSwap as ReturnType<typeof useSwap>).setTokenOut(defaultTokenOut);
+      }
     }
-  }, [chainId, isSolana, initialTokenIn, initialTokenOut, evmSwapTyped, solanaSwapTyped, mapTokenDataToToken]);
+
+    lastDefaultedChainRef.current = chainId;
+  }, [chainId, isSolana, initialTokenIn, initialTokenOut, mapTokenDataToToken]);
 
   // Token selector state
   const [showTokenSelector, setShowTokenSelector] = useState<'in' | 'out' | null>(null);

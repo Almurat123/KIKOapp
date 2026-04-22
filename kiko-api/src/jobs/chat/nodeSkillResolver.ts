@@ -1122,7 +1122,10 @@ function buildIntentEnvelope(params: {
             search_mode: buildSearchModeFromTaskRoute(snapshot),
             search_target: buildSearchTargetFromTaskRoute(snapshot),
             domain,
-            execution_risk: taskRoute.phase === 'execute' || taskRoute.phase === 'confirm' ? 'mutation' : 'read_only',
+            execution_risk: resolveExecutionRisk({
+                primaryIntent: primary,
+                taskMode: taskRoute.phase,
+            }),
             required_evidence: Array.from(new Set(resolveTaskRouteEvidenceRequirements(taskRoute))),
         };
     }
@@ -1189,7 +1192,11 @@ function buildIntentEnvelope(params: {
             search_mode: canonicalIntent.searchMode,
             search_target: canonicalIntent.searchTarget,
             domain: canonicalDomain,
-            execution_risk: canonicalIntent.taskMode === 'execute' || canonicalIntent.taskMode === 'confirm' ? 'mutation' : 'read_only',
+            execution_risk: resolveExecutionRisk({
+                primaryIntent: canonicalPrimary,
+                taskMode: canonicalIntent.taskMode,
+                canonicalIntentName: canonicalIntent.intent,
+            }),
             required_evidence: Array.from(new Set(canonicalIntent.evidenceRequirements)),
         };
     }
@@ -1205,6 +1212,30 @@ function buildIntentEnvelope(params: {
     };
 }
 
+function isImagePrimaryIntent(primaryIntent: IntentEnvelope['primary_intent']): boolean {
+    return primaryIntent === 'image_generation' || primaryIntent === 'image_prompting';
+}
+
+function resolveExecutionRisk(params: {
+    primaryIntent: IntentEnvelope['primary_intent'];
+    taskMode: string;
+    canonicalIntentName?: CanonicalIntent['intent'] | null;
+}): IntentEnvelope['execution_risk'] {
+    const { primaryIntent, taskMode, canonicalIntentName } = params;
+    if (canonicalIntentName === 'token_alerts' && (taskMode === 'execute' || taskMode === 'confirm')) {
+        return 'mutation';
+    }
+    switch (primaryIntent) {
+        case 'swap_execution':
+        case 'copytrade_execution':
+        case 'token_deploy':
+        case 'polymarket_order':
+            return 'mutation';
+        default:
+            return 'read_only';
+    }
+}
+
 function buildContextContract(params: {
     snapshot: ChatContextSnapshot;
     intentEnvelope: IntentEnvelope;
@@ -1216,16 +1247,22 @@ function buildContextContract(params: {
     const hasSocialInput = Boolean(snapshot.runtime?.socialInput);
     const hasSocialImages = Array.isArray(snapshot.runtime?.socialInput?.images) && snapshot.runtime.socialInput.images.length > 0;
     const needsImagePromptPlaybook = querySignals.imagePrompting || querySignals.imageGeneration;
+    const isImageIntent = isImagePrimaryIntent(intentEnvelope.primary_intent);
 
     const mode: ChatContextContract['mode'] = (() => {
         if (isLeanFallbackIntent(intentEnvelope.primary_intent) && !needsImagePromptPlaybook && !hasSocialInput) return 'lean';
         if (intentEnvelope.primary_intent === 'meta_debug') return 'debug';
+        if (isImageIntent) return 'image';
         if (intentEnvelope.execution_risk === 'mutation') return 'execution';
         if (intentEnvelope.domain === 'x' || intentEnvelope.domain === 'farcaster' || hasSocialInput) return 'social';
         return 'analysis';
     })();
 
-    if (mode === 'analysis' || mode === 'execution') {
+    if (mode === 'image') {
+        required.add('workflow_state');
+        required.add('skill_prompts');
+        required.add('user_context');
+    } else if (mode === 'analysis' || mode === 'execution') {
         required.add('workflow_state');
         required.add('skill_prompts');
         required.add('execution_plan');
@@ -1242,7 +1279,7 @@ function buildContextContract(params: {
         required.add('user_settings');
     }
 
-    if (needsImagePromptPlaybook) {
+    if (needsImagePromptPlaybook || isImageIntent) {
         required.add('skill_prompts');
     }
 
@@ -1285,6 +1322,7 @@ function buildContextContract(params: {
     const reason = (() => {
         if (mode === 'lean') return 'plain direct-answer turn';
         if (mode === 'debug') return 'assistant behavior explanation turn';
+        if (mode === 'image') return 'image green lane';
         if (mode === 'execution') return 'mutation workflow';
         if (mode === 'social') return 'social-thread aware turn';
         return 'specialist analysis turn';

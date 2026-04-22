@@ -729,6 +729,10 @@ function buildFallbackContextContract(
   const primaryIntent = intentEnvelope?.primary_intent || "general_answer";
   const domain = intentEnvelope?.domain || "general";
   const executionRisk = intentEnvelope?.execution_risk || "read_only";
+  const isImageIntent =
+    taskRouteOwner === "image" ||
+    primaryIntent === "image_generation" ||
+    primaryIntent === "image_prompting";
   const required = new Set<ChatContextBlockName>();
   const optional = new Set<ChatContextBlockName>();
 
@@ -741,13 +745,19 @@ function buildFallbackContextContract(
     mode = "lean";
   } else if (primaryIntent === "meta_debug") {
     mode = "debug";
+  } else if (isImageIntent) {
+    mode = "image";
   } else if (executionRisk === "mutation") {
     mode = "execution";
   } else if (domain === "x" || domain === "farcaster" || hasSocialInput) {
     mode = "social";
   }
 
-  if (mode !== "lean") {
+  if (mode === "image") {
+    required.add("workflow_state");
+    required.add("skill_prompts");
+    required.add("user_context");
+  } else if (mode !== "lean") {
     required.add("workflow_state");
     required.add("skill_prompts");
     required.add("execution_plan");
@@ -797,6 +807,7 @@ function buildFallbackContextContract(
   const reason = (() => {
     if (mode === "lean") return "plain direct-answer turn";
     if (mode === "debug") return "assistant behavior explanation turn";
+    if (mode === "image") return "image green lane";
     if (mode === "execution") return "mutation workflow";
     if (mode === "social") return "social-thread aware turn";
     return "specialist analysis turn";

@@ -345,7 +345,7 @@ export type ChatContextBlockName =
   | "skill_prompts";
 
 export interface ChatContextContract {
-  mode: "lean" | "analysis" | "execution" | "social" | "debug";
+  mode: "lean" | "analysis" | "image" | "execution" | "social" | "debug";
   source?: "runtime_contract" | "fallback_prompt_contract";
   requiredContexts: ChatContextBlockName[];
   optionalContexts: ChatContextBlockName[];
