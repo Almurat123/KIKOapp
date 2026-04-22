@@ -1,4 +1,5 @@
 import prisma from '../db/prisma.js';
+import cacheClient from '../cache/cacheClient.js';
 import {
   inferSupportedChatReasoningLevel,
   normalizeSupportedChatModel,
@@ -7,9 +8,37 @@ import {
 } from '../config/chatModels.js';
 import { normalizeGeneratedImagePreference } from './generatedImageBilling.js';
 
+// CONTEXT MEMORY
+// Updated: 2026-04-22
+// Status: mixed
+// Why: Social model/image menus now support follow-up replies with just a number.
+// Debug Goal: Keep X and Farcaster menu selection usable on mobile without forcing full command re-entry.
+// Search Tags: social model menu number reply social image menu number reply pending settings command
+// Invariants:
+// - `/model 2` and `/image 1` must still work directly.
+// - Bare numeric replies only resolve when a pending menu exists for the same user and social thread.
+// Failure Modes:
+// - Menu state leaks across threads and applies the wrong selection.
+// - Cache failure silently blocks bare-number replies but must not break explicit commands.
+
 type SocialSettingsCommandResult =
   | { handled: false }
   | { handled: true; replyText: string };
+
+type SocialSettingsMenuKind = 'model' | 'image';
+
+type PendingSocialSettingsMenu = {
+  userId: string;
+  kind: SocialSettingsMenuKind;
+};
+
+type SocialSettingsCommandDeps = {
+  getPendingMenu: (replyContextKey: string) => Promise<PendingSocialSettingsMenu | null>;
+  setPendingMenu: (replyContextKey: string, pending: PendingSocialSettingsMenu) => Promise<void>;
+  clearPendingMenu: (replyContextKey: string) => Promise<void>;
+  persistChatModelChoice: (userId: string, choice: ChatModelChoice) => Promise<void>;
+  persistImageModelChoice: (userId: string, choice: ImageModelChoice) => Promise<void>;
+};
 
 type ChatModelChoice = {
   label: string;
@@ -97,6 +126,8 @@ const IMAGE_MODEL_CHOICES: ImageModelChoice[] = [
   },
 ];
 
+const PENDING_SOCIAL_SETTINGS_MENU_TTL_SECONDS = 10 * 60;
+
 function normalizeCommandText(text: string): string {
   return String(text || '')
     .replace(/@\w+/g, ' ')
@@ -107,16 +138,31 @@ function normalizeCommandText(text: string): string {
 
 function buildModelMenu(): string {
   return [
-    'Reply with one model command:',
+    'Reply with one model command or just the number:',
     ...CHAT_MODEL_CHOICES.map((choice, index) => `${index + 1}. ${choice.command}`),
   ].join('\n');
 }
 
 function buildImageMenu(): string {
   return [
-    'Reply with one image command:',
+    'Reply with one image command or just the number:',
     ...IMAGE_MODEL_CHOICES.map((choice, index) => `${index + 1}. ${choice.command}`),
   ].join('\n');
+}
+
+function buildPendingMenuCacheKey(replyContextKey: string): string {
+  return `social-settings:pending-menu:${replyContextKey}`;
+}
+
+function normalizeReplyContextKey(replyContextKey: string | null | undefined): string | null {
+  const normalized = String(replyContextKey || '').trim().toLowerCase();
+  return normalized || null;
+}
+
+function extractBareNumberChoice(command: string): number | null {
+  if (!/^\d+$/.test(command)) return null;
+  const numbered = Number.parseInt(command, 10);
+  return Number.isInteger(numbered) && numbered >= 1 ? numbered : null;
 }
 
 function matchChatModelChoice(command: string): ChatModelChoice | null {
@@ -222,24 +268,101 @@ async function persistImageModelChoice(userId: string, choice: ImageModelChoice)
   });
 }
 
+const socialSettingsCommandDeps: SocialSettingsCommandDeps = {
+  async getPendingMenu(replyContextKey) {
+    return cacheClient.getJson<PendingSocialSettingsMenu>(buildPendingMenuCacheKey(replyContextKey));
+  },
+  async setPendingMenu(replyContextKey, pending) {
+    await cacheClient.setJson(
+      buildPendingMenuCacheKey(replyContextKey),
+      pending,
+      PENDING_SOCIAL_SETTINGS_MENU_TTL_SECONDS,
+    );
+  },
+  async clearPendingMenu(replyContextKey) {
+    await cacheClient.del(buildPendingMenuCacheKey(replyContextKey));
+  },
+  persistChatModelChoice,
+  persistImageModelChoice,
+};
+
+async function storePendingMenu(
+  replyContextKey: string | null,
+  userId: string,
+  kind: SocialSettingsMenuKind,
+  deps: SocialSettingsCommandDeps,
+): Promise<void> {
+  if (!replyContextKey) return;
+  await deps.setPendingMenu(replyContextKey, { userId, kind }).catch(() => undefined);
+}
+
+async function clearPendingMenu(replyContextKey: string | null, deps: SocialSettingsCommandDeps): Promise<void> {
+  if (!replyContextKey) return;
+  await deps.clearPendingMenu(replyContextKey).catch(() => undefined);
+}
+
+async function resolvePendingBareNumberChoice(
+  userId: string,
+  command: string,
+  replyContextKey: string | null,
+  deps: SocialSettingsCommandDeps,
+): Promise<{ kind: SocialSettingsMenuKind; choice: ChatModelChoice | ImageModelChoice } | null> {
+  const numbered = extractBareNumberChoice(command);
+  if (!numbered || !replyContextKey) return null;
+  const pending = await deps.getPendingMenu(replyContextKey).catch(() => null);
+  if (!pending || pending.userId !== userId) return null;
+  const choice =
+    pending.kind === 'model'
+      ? CHAT_MODEL_CHOICES[numbered - 1] || null
+      : IMAGE_MODEL_CHOICES[numbered - 1] || null;
+  if (!choice) return null;
+  return { kind: pending.kind, choice };
+}
+
 export async function handleSocialSettingsCommand(params: {
   userId: string;
   text: string;
+  replyContextKey?: string | null;
+  deps?: SocialSettingsCommandDeps;
 }): Promise<SocialSettingsCommandResult> {
+  const deps = params.deps || socialSettingsCommandDeps;
   const command = normalizeCommandText(params.text);
-  if (!command.startsWith('/model') && !command.startsWith('/image')) {
+  const replyContextKey = normalizeReplyContextKey(params.replyContextKey);
+  const pendingChoice = await resolvePendingBareNumberChoice(params.userId, command, replyContextKey, deps);
+  if (!command.startsWith('/model') && !command.startsWith('/image') && !pendingChoice) {
     return { handled: false };
   }
 
+  if (pendingChoice?.kind === 'model') {
+    await deps.persistChatModelChoice(params.userId, pendingChoice.choice as ChatModelChoice);
+    await clearPendingMenu(replyContextKey, deps);
+    return {
+      handled: true,
+      replyText: `Saved reply model: ${pendingChoice.choice.label}`,
+    };
+  }
+
+  if (pendingChoice?.kind === 'image') {
+    await deps.persistImageModelChoice(params.userId, pendingChoice.choice as ImageModelChoice);
+    await clearPendingMenu(replyContextKey, deps);
+    return {
+      handled: true,
+      replyText: `Saved image model: ${pendingChoice.choice.label}`,
+    };
+  }
+
   if (command === '/model') {
+    await storePendingMenu(replyContextKey, params.userId, 'model', deps);
     return { handled: true, replyText: buildModelMenu() };
   }
   if (command.startsWith('/model')) {
     const choice = matchChatModelChoice(command);
     if (!choice) {
-      return { handled: true, replyText: `${buildModelMenu()}\n\nReply with one exact command above.` };
+      await storePendingMenu(replyContextKey, params.userId, 'model', deps);
+      return { handled: true, replyText: `${buildModelMenu()}\n\nReply with one exact command above or just the number.` };
     }
-    await persistChatModelChoice(params.userId, choice);
+    await deps.persistChatModelChoice(params.userId, choice);
+    await clearPendingMenu(replyContextKey, deps);
     return {
       handled: true,
       replyText: `Saved reply model: ${choice.label}`,
@@ -247,14 +370,17 @@ export async function handleSocialSettingsCommand(params: {
   }
 
   if (command === '/image') {
+    await storePendingMenu(replyContextKey, params.userId, 'image', deps);
     return { handled: true, replyText: buildImageMenu() };
   }
 
   const choice = matchImageModelChoice(command);
   if (!choice) {
-    return { handled: true, replyText: `${buildImageMenu()}\n\nReply with one exact command above.` };
+    await storePendingMenu(replyContextKey, params.userId, 'image', deps);
+    return { handled: true, replyText: `${buildImageMenu()}\n\nReply with one exact command above or just the number.` };
   }
-  await persistImageModelChoice(params.userId, choice);
+  await deps.persistImageModelChoice(params.userId, choice);
+  await clearPendingMenu(replyContextKey, deps);
   return {
     handled: true,
     replyText: `Saved image model: ${choice.label}`,
@@ -264,6 +390,9 @@ export async function handleSocialSettingsCommand(params: {
 export const __socialSettingsCommandTest = {
   buildModelMenu,
   buildImageMenu,
+  extractBareNumberChoice,
+  normalizeReplyContextKey,
   matchChatModelChoice,
   matchImageModelChoice,
+  handleSocialSettingsCommand,
 };

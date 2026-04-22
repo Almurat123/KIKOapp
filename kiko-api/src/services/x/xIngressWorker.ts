@@ -560,6 +560,7 @@ export class XIngressWorker {
     const settingsCommand = await handleSocialSettingsCommand({
       userId: user.privyDid,
       text: mention.text,
+      replyContextKey: `x:${mention.conversationId || mention.id}`,
     });
     if (settingsCommand.handled) {
       await xReplyService.replyToMention({

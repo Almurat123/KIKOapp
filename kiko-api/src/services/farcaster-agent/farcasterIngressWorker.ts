@@ -737,6 +737,7 @@ export class FarcasterIngressWorker {
     const settingsCommand = await handleSocialSettingsCommand({
       userId: user.privyDid,
       text: mention.text,
+      replyContextKey: `farcaster:${mention.rootCastHash || mention.castHash}`,
     });
     if (settingsCommand.handled) {
       await farcasterReplyService.replyToMention({
