@@ -129,8 +129,8 @@ test('generated image tool falls back to GPT image when reference inputs are pre
     );
 });
 
-test('generated image tool passes implicit task images as provider reference inputs', () => {
-    const merged = __generateImageFromIntentTest.mergeImplicitTaskReferenceImages(
+test('generated image tool passes implicit task and social images as provider reference inputs', () => {
+    const merged = __generateImageFromIntentTest.mergeImplicitReferenceImages(
         [
             {
                 url: 'https://example.com/explicit.png',
@@ -142,6 +142,12 @@ test('generated image tool passes implicit task images as provider reference inp
             {
                 url: 'https://example.com/farcaster-upload.png',
                 sourceLabel: 'Farcaster attached image 1',
+                purpose: 'preserve subject identity and visual details from the uploaded image',
+            },
+            {
+                url: 'https://example.com/x-post-photo.png',
+                sourceLabel: 'current X post by @user',
+                purpose: 'preserve subject identity and visual details from the social post image',
             },
         ],
     );
@@ -157,6 +163,66 @@ test('generated image tool passes implicit task images as provider reference inp
                 url: 'https://example.com/farcaster-upload.png',
                 sourceLabel: 'Farcaster attached image 1 | preserve subject identity and visual details from the uploaded image',
             },
+            {
+                url: 'https://example.com/x-post-photo.png',
+                sourceLabel: 'current X post by @user | preserve subject identity and visual details from the social post image',
+            },
         ],
     );
+});
+
+test('generated image tool reads implicit social reference images from runtime social input', () => {
+    const socialImages = __generateImageFromIntentTest.readImplicitSocialReferenceImages({
+        __snapshot: {
+            runtime: {
+                socialInput: {
+                    images: [
+                        {
+                            url: 'https://example.com/source-post.png',
+                            sourceLabel: 'current Farcaster post by @kikoapp',
+                        },
+                        {
+                            url: 'not-a-url',
+                            sourceLabel: 'bad',
+                        },
+                    ],
+                },
+            },
+        },
+    });
+
+    assert.deepEqual(socialImages, [
+        {
+            url: 'https://example.com/source-post.png',
+            sourceLabel: 'current Farcaster post by @kikoapp',
+        },
+    ]);
+});
+
+test('generated image tool builds provider reference images from social runtime input', () => {
+    const built = __generateImageFromIntentTest.buildImplicitImageReferenceInputs({
+        explicitReferenceImages: [],
+        uploadedTaskImages: [],
+        context: {
+            __snapshot: {
+                runtime: {
+                    socialInput: {
+                        images: [
+                            {
+                                url: 'https://example.com/farcaster-post-image.png',
+                                sourceLabel: 'current Farcaster post by @kikoapp',
+                            },
+                        ],
+                    },
+                },
+            },
+        },
+    });
+
+    assert.deepEqual(built.providerReferenceImages, [
+        {
+            url: 'https://example.com/farcaster-post-image.png',
+            sourceLabel: 'current Farcaster post by @kikoapp | preserve subject identity and visual details from the social post image',
+        },
+    ]);
 });

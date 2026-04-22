@@ -20,6 +20,7 @@ import {
     supportsGeneratedImageReferenceInputModel,
     type GeneratedImageProviderInputImage,
 } from '../../../services/generatedImageProviders.js';
+import { normalizeSocialImageUrl } from '../../../services/socialAgentInput.js';
 
 // CONTEXT MEMORY
 // Updated: 2026-04-21
@@ -66,6 +67,10 @@ import {
 // - current task images are real reference/edit inputs, not just prompt
 //   decoration; when present they must be passed into generated-image execution
 //   so the OpenAI provider can use the edits endpoint with image references.
+// - inbound X/Farcaster social images are also real reference/edit inputs, not
+//   just analysis context for the text model. If the user asks to edit or
+//   generate from the post image, those exact image URLs must reach the image
+//   provider instead of relying on GPT-only textual restatement.
 // - after deterministic prompt compilation, an optional GPT refiner may rewrite
 //   the provider prompt into a final OpenAI image prompt. Refiner failure must
 //   fall back to the deterministic prompt so image execution still proceeds.
@@ -257,6 +262,90 @@ function buildProviderReferenceImages(
         .filter((item) => Boolean(item.url));
 }
 
+function readImplicitSocialReferenceImages(context?: Record<string, any>): Array<{ url: string; sourceLabel: string }> {
+    const snapshot = context?.__snapshot || null;
+    const socialImages = Array.isArray(snapshot?.runtime?.socialInput?.images)
+        ? snapshot.runtime.socialInput.images
+        : [];
+    return socialImages
+        .map((image: any, index: number) => {
+            const url = normalizeSocialImageUrl(image?.url);
+            if (!url) return null;
+            return {
+                url,
+                sourceLabel: String(image?.sourceLabel || `social image ${index + 1}`).trim(),
+            };
+        })
+        .filter((image: { url: string; sourceLabel: string } | null): image is { url: string; sourceLabel: string } => Boolean(image));
+}
+
+function mergeImplicitReferenceImages(
+    explicitReferenceImages: GeneratedImageIntentInput['reference_images'],
+    implicitImages: Array<{ url: string; sourceLabel: string; purpose: string }>,
+): NonNullable<GeneratedImageIntentInput['reference_images']> {
+    const explicit = Array.isArray(explicitReferenceImages)
+        ? explicitReferenceImages
+            .map((item) => ({
+                url: String(item?.url || '').trim() || null,
+                description: String(item?.description || '').trim() || null,
+                purpose: String(item?.purpose || '').trim() || null,
+            }))
+            .filter((item) => Boolean(item.url || item.description))
+        : [];
+    if (implicitImages.length === 0) {
+        return explicit;
+    }
+
+    const seenUrls = new Set(
+        explicit
+            .map((item) => String(item.url || '').trim())
+            .filter(Boolean),
+    );
+
+    const mergedImplicit = implicitImages.flatMap((image) => {
+        const url = String(image.url || '').trim();
+        if (!url || seenUrls.has(url)) return [];
+        seenUrls.add(url);
+        return [{
+            url,
+            description: image.sourceLabel || null,
+            purpose: image.purpose || null,
+        }];
+    });
+
+    return [...explicit, ...mergedImplicit];
+}
+
+function buildImplicitImageReferenceInputs(params: {
+    explicitReferenceImages: GeneratedImageIntentInput['reference_images'];
+    uploadedTaskImages: Array<{ url: string; sourceLabel: string }>;
+    context?: Record<string, any>;
+}): {
+    mergedReferenceImages: NonNullable<GeneratedImageIntentInput['reference_images']>;
+    providerReferenceImages: GeneratedImageProviderInputImage[];
+} {
+    const socialReferenceImages = readImplicitSocialReferenceImages(params.context);
+    const mergedReferenceImages = mergeImplicitReferenceImages(
+        params.explicitReferenceImages,
+        [
+            ...params.uploadedTaskImages.map((image) => ({
+                url: image.url,
+                sourceLabel: image.sourceLabel,
+                purpose: 'preserve subject identity and visual details from the uploaded image',
+            })),
+            ...socialReferenceImages.map((image) => ({
+                url: image.url,
+                sourceLabel: image.sourceLabel,
+                purpose: 'preserve subject identity and visual details from the social post image',
+            })),
+        ],
+    );
+    return {
+        mergedReferenceImages,
+        providerReferenceImages: buildProviderReferenceImages(mergedReferenceImages),
+    };
+}
+
 export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record<string, any>> = {
     definition: {
         name: 'generate_image_from_intent',
@@ -374,14 +463,14 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
         const uploadedTaskImages = await hasTaskChatImageInputs(taskId)
             ? await loadTaskChatImageInputs(taskId).catch(() => [])
             : [];
-        const mergedReferenceImages = mergeImplicitTaskReferenceImages(
-            args.reference_images,
-            uploadedTaskImages.map((image) => ({
+        const { mergedReferenceImages, providerReferenceImages } = buildImplicitImageReferenceInputs({
+            explicitReferenceImages: args.reference_images,
+            uploadedTaskImages: uploadedTaskImages.map((image) => ({
                 url: image.url,
                 sourceLabel: image.sourceLabel,
             })),
-        );
-        const providerReferenceImages = buildProviderReferenceImages(mergedReferenceImages);
+            context,
+        });
         const normalizedArgs = normalizeGeneratedImageIntentInput({
             ...args,
             reference_images: mergedReferenceImages,
@@ -507,6 +596,8 @@ export const __generateImageFromIntentTest = {
     pickDefaultGeneratedImageModel,
     resolveGeneratedImageToolPreference,
     resolveGeneratedImageToolPreferenceWithOptions,
-    mergeImplicitTaskReferenceImages,
+    buildImplicitImageReferenceInputs,
+    mergeImplicitReferenceImages,
+    readImplicitSocialReferenceImages,
     buildProviderReferenceImages,
 };

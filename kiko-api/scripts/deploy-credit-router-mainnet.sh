@@ -118,19 +118,24 @@ configure_token() {
   local symbol="$2"
   local token_address="$3"
   local refunds_enabled="$4"
+  local nonce
 
   if [[ -z "$token_address" ]]; then
     echo "skip token config for $symbol: address not set"
     return 0
   fi
 
+  nonce="$(cast nonce "$TOKEN_CONFIG_SIGNER_ADDRESS" --block pending --rpc-url "$BASE_MAINNET_RPC_URL")"
   echo "configure token: $symbol -> $token_address (refunds_enabled=$refunds_enabled)"
+  echo "using pending nonce: $nonce"
   cast send \
     "$router_address" \
     "setTokenConfig(address,bool,bool)" \
     "$token_address" \
     true \
     "$refunds_enabled" \
+    --nonce "$nonce" \
+    --confirmations 1 \
     --rpc-url "$BASE_MAINNET_RPC_URL" \
     --private-key "$TOKEN_CONFIG_SIGNER_PRIVATE_KEY"
 }
@@ -196,10 +201,12 @@ fi
 # - non-dry-run includes --broadcast so forge returns a real deployed contract address
 # - constructor args stay at the end of the command so option parsing does not swallow flags
 # - setTokenConfig must be signed by the owner address, not merely the deployer
+# - sequential token config calls use the pending nonce from the signer to avoid RPC nonce races
 # Failure Modes:
 # - forgetting --broadcast makes "real deploy" behave like a simulation
 # - placing flags after `--constructor-args` can make forge ignore them or parse unexpectedly
 # - using a deployer key for `setTokenConfig` reverts with OwnableUnauthorizedAccount
+# - relying on provider default nonce selection can fail with `nonce too low` on rapid sequential sends
 # - parsing forge output after a simulation yields an empty router address
 FORGE_CREATE_ARGS+=(
   --constructor-args
