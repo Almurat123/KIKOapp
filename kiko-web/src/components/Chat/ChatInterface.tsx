@@ -560,7 +560,7 @@ function createLocalGeneratedImagePreviewUrl(_label: string, accent: string): st
 function buildLocalGeneratedImageTestPayload(config: LocalGeneratedImageTestConfig) {
   const isOpenAi = config.provider === 'openai';
   const accent = isOpenAi ? '#3B82F6' : '#7C3AED';
-  const providerLabel = isOpenAi ? 'GPT Image 1.5' : 'Grok Imagine';
+  const providerLabel = isOpenAi ? 'GPT Image 2' : 'Grok Imagine';
   const aspectRatio = Number.isFinite(config.frameAspectRatio) ? config.frameAspectRatio : 1;
   const imageHeight = aspectRatio >= 1 ? 1024 : 1440;
   const imageWidth = Math.round(imageHeight * aspectRatio);
@@ -574,7 +574,7 @@ function buildLocalGeneratedImageTestPayload(config: LocalGeneratedImageTestConf
 
   const payload: Record<string, unknown> = {
     provider: isOpenAi ? 'openai' : 'xai',
-    providerModel: isOpenAi ? 'gpt-image-1.5' : 'grok-imagine-image',
+    providerModel: isOpenAi ? 'gpt-image-2' : 'grok-imagine-image',
     quality: isOpenAi ? 'high' : 'normal',
     supportsProgressiveReveal: isOpenAi,
     partialImageIndex: null,
@@ -605,7 +605,7 @@ function buildLocalGeneratedImageTestPayload(config: LocalGeneratedImageTestConf
       payload.partialImageIndex = 1;
       payload.partialImageCount = 2;
       payload.provider = 'openai';
-      payload.providerModel = 'gpt-image-1.5';
+      payload.providerModel = 'gpt-image-2';
       payload.quality = 'high';
       break;
     case 'finalizing':
@@ -663,7 +663,7 @@ function buildLocalGeneratedImageFlowPayload(
   };
   const payload: Record<string, unknown> = {
     provider: isOpenAi ? 'openai' : 'xai',
-    providerModel: isOpenAi ? 'gpt-image-1.5' : 'grok-imagine-image',
+    providerModel: isOpenAi ? 'gpt-image-2' : 'grok-imagine-image',
     quality: isOpenAi ? 'high' : 'normal',
     supportsProgressiveReveal: isOpenAi,
     partialImageIndex: null,

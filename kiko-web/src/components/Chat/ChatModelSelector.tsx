@@ -70,10 +70,10 @@ import { getStoredChatModelControlLevelForFamily } from './chatModelSelectionPer
 // - Retrieved: 2026-04-17
 // - Applied To: documenting the shared selector chrome and its owner boundary
 // - Verification: inferred
-// - Source: OpenAI GPT Image 1.5 model page and image generation guide
+// - Source: OpenAI GPT Image 2 model page and image generation guide
 // - Kind: official API doc
-// - Retrieved: 2026-04-18
-// - Applied To: displaying `gpt-image-1.5` with Low/Medium/High quality choices
+// - Retrieved: 2026-04-22
+// - Applied To: displaying `gpt-image-2` with Low/Medium/High quality choices
 // - Verification: verified in docs
 // - Source: xAI Grok Imagine Image and Grok Imagine Image Pro model pages
 // - Kind: official API doc
@@ -124,7 +124,7 @@ function getCompactFamilyLabel(
             return 'GPT-5.4';
         case 'grok-4-1-fast':
             return 'Grok-4.1';
-        case 'gpt-image-1.5':
+        case 'gpt-image-2':
             return 'GPT Img';
         case 'gpt-image-1-mini':
             return 'GPT Mini Img';

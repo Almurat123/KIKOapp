@@ -261,7 +261,7 @@ function resolveGeneratedImagePreviewBlurPx(params: {
 function resolveGeneratedImageModelLabel(payload: GeneratedImagePayload): string {
   const providerModel = String(payload.providerModel || '').trim().toLowerCase();
   if (providerModel === 'gpt-image-1-mini') return 'GPT Image 1 Mini';
-  if (providerModel === 'gpt-image-1.5') return 'GPT Image 1.5';
+  if (providerModel === 'gpt-image-2') return 'GPT Image 2';
   if (providerModel === 'grok-imagine-image-pro') return 'Grok Imagine Pro';
   if (providerModel === 'grok-imagine-image') return 'Grok Imagine';
   if (providerModel) {

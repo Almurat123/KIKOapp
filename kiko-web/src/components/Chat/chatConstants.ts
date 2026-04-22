@@ -1,12 +1,13 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-18
+// Updated: 2026-04-22
 // Author: Almurat
 // Reason: web chat, X mentions, and Farcaster mentions still share one canonical
 //         default model. The product default moved from GPT to the free Kimi
 //         2.5 Instant/Fast model, and the UI must expose the same canonical
 //         default that the backend now uses for new sessions and persisted
 //         defaults. The selectable normal-model family has also moved from
-//         DeepSeek ids to NVIDIA-hosted GLM/Kimi ids. The same catalog now also
+//         historical DeepSeek ids to the current Kimi/GPT/Grok catalog. The same
+//         catalog now also
 //         needs a first-party vision capability flag so image-upload turns do
 //         not silently route into text-only models. The chat composer now
 //         presents borderless model and thinking selectors side by side, so
@@ -15,17 +16,12 @@
 //         inventing a new backend field or a separate family-default table.
 //         GPT-5.4 mini now exposes only the product-visible Low/Medium subset
 //         of the documented reasoning-effort ladder while the NVIDIA/XAI
-//         families only expose the provider-documented choices. Official
-//         NVIDIA GLM-5 docs now verify thinking-mode support but do not define
-//         a Fast/Instant hosted mode, so the synthetic GLM Fast variant has to
-//         be removed from the selector. The selector also
+//         families only expose the provider-documented choices. The selector also
 //         has to expose image-generation models in a separate Image section, so
 //         the second inline control now represents either text reasoning or
-//         image quality depending on the selected model family. Product policy
-//         now further distinguishes visible image options from selectable ones:
-//         GPT image stays disabled until the runtime is wired, Grok normal is
-//         the only currently selectable image variant, and stale disabled image
-//         selections from local storage must coerce back to a selectable model.
+//         image quality depending on the selected model family. Product now
+//         uses GPT Image 2 as the current paid OpenAI image family while still
+//         exposing GPT Image 1 Mini as the lower-cost OpenAI option.
 // Goal: keep one stable frontend default model id that matches backend session
 //       creation and persisted per-user reply policy, while exposing whether a
 //       chat model can accept current-turn image input.
@@ -47,8 +43,6 @@
 //   documented effort ladder; do not synthesize Fast, High, or Extra High for GPT.
 // - GPT display labels must be derived from the active effort state, not a
 //   stale serialized `reasoningLabel` field.
-// - GLM-5 must not expose a synthetic Fast/Instant selector variant unless the
-//   official hosted docs define one.
 // - Text and image models must stay visibly separated in the selector.
 // - Image quality selection must not write a generated-image model into the
 //   persisted default chat-model setting.
@@ -60,10 +54,10 @@
 // - Retrieved: 2026-04-17
 // - Applied To: setting `kimi-k2-5-instant` as canonical frontend default
 // - Verification: verified in code
-// - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
+// - Source: NVIDIA NIM model page for moonshotai/kimi-k2-5
 // - Kind: official API doc
 // - Retrieved: 2026-04-16
-// - Applied To: frontend-visible GLM/Kimi model ids and mode labels
+// - Applied To: frontend-visible Kimi model ids and mode labels
 // - Verification: verified in code
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
 // - Kind: repo doc
@@ -82,37 +76,30 @@
 // - Applied To: using ChatGPT-facing Instant/Thinking terminology as the
 //   user-facing mental model for the selector
 // - Verification: verified in docs
-// - Source: NVIDIA NIM model page for z-ai/glm5
-// - Kind: official API doc
-// - Retrieved: 2026-04-18
-// - Applied To: removing the synthetic GLM Fast selector variant and keeping
-//   GLM as a single thinking-mode family option
-// - Verification: verified in docs and code
 // - Source: user request and screenshot reference for borderless model plus Reasoning selectors
 // - Kind: product doc
 // - Retrieved: 2026-04-17
 // - Applied To: grouping model ids into family and reasoning controls in the chat composer
 // - Verification: inferred
-// - Source: OpenAI GPT Image 1.5 model page and image generation guide
+// - Source: OpenAI GPT Image 2 model page and image generation guide
 // - Kind: official API doc
-// - Retrieved: 2026-04-18
-// - Applied To: exposing `gpt-image-1.5` with low/medium/high quality options
+// - Retrieved: 2026-04-22
+// - Applied To: exposing `gpt-image-2` with low/medium/high quality options
 // - Verification: verified in docs
 // - Source: xAI Grok Imagine Image and Grok Imagine Image Pro model pages
 // - Kind: official API doc
 // - Retrieved: 2026-04-18
 // - Applied To: exposing Grok image quality as Normal/Pro model variants
 // - Verification: verified in docs
-// - Source: operator requirement on 2026-04-18
+// - Source: operator requirement on 2026-04-22
 // - Kind: product doc
-// - Retrieved: 2026-04-18
-// - Applied To: disabling GPT image and Grok Pro while keeping Grok normal selectable
+// - Retrieved: 2026-04-22
+// - Applied To: enabling GPT Image 2 while keeping Grok Pro disabled
 // - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-default-chat-model-switch-to-gpt.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-model-thinking-label-correction.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-image-model-selector-sections.md
@@ -129,7 +116,7 @@ export type ChatModelFamilyId =
   | 'kimi-k2-5'
   | 'gpt-5.4-mini'
   | 'grok-4-1-fast'
-  | 'gpt-image-1.5'
+  | 'gpt-image-2'
   | 'gpt-image-1-mini'
   | 'grok-imagine-image';
 
@@ -168,7 +155,7 @@ const GPT_54_MINI_REASONING_OPTIONS: ChatModelFamilyControlOption[] = [
   { id: 'medium', label: 'Medium', effort: 'medium' },
 ];
 
-const GPT_IMAGE_15_QUALITY_OPTIONS: ChatModelFamilyControlOption[] = [
+const GPT_IMAGE_2_QUALITY_OPTIONS: ChatModelFamilyControlOption[] = [
   { id: 'low', label: 'Low', imageQuality: 'low' },
   { id: 'medium', label: 'Medium', imageQuality: 'medium' },
   { id: 'high', label: 'High', imageQuality: 'high' },
@@ -243,40 +230,34 @@ export const MODEL_OPTIONS: ChatModelOption[] = [
     reasoningLabel: 'Thinking',
   },
   {
-    id: 'gpt-image-1.5',
-    name: 'GPT Image 1.5',
+    id: 'gpt-image-2',
+    name: 'GPT Image 2',
     mode: 'image',
     kind: 'image',
-    familyId: 'gpt-image-1.5',
+    familyId: 'gpt-image-2',
     reasoningLevel: 'low',
     reasoningLabel: 'Low',
     imageQuality: 'low',
-    selectable: false,
-    disabledReason: IMAGE_UNAVAILABLE_REASON,
   },
   {
-    id: 'gpt-image-1.5',
-    name: 'GPT Image 1.5',
+    id: 'gpt-image-2',
+    name: 'GPT Image 2',
     mode: 'image',
     kind: 'image',
-    familyId: 'gpt-image-1.5',
+    familyId: 'gpt-image-2',
     reasoningLevel: 'medium',
     reasoningLabel: 'Medium',
     imageQuality: 'medium',
-    selectable: false,
-    disabledReason: IMAGE_UNAVAILABLE_REASON,
   },
   {
-    id: 'gpt-image-1.5',
-    name: 'GPT Image 1.5',
+    id: 'gpt-image-2',
+    name: 'GPT Image 2',
     mode: 'image',
     kind: 'image',
-    familyId: 'gpt-image-1.5',
+    familyId: 'gpt-image-2',
     reasoningLevel: 'high',
     reasoningLabel: 'High',
     imageQuality: 'high',
-    selectable: false,
-    disabledReason: IMAGE_UNAVAILABLE_REASON,
   },
   {
     id: 'gpt-image-1-mini',
@@ -349,7 +330,7 @@ const MODEL_FAMILY_ORDER: ChatModelFamilyId[] = [
   'kimi-k2-5',
   'gpt-5.4-mini',
   'grok-4-1-fast',
-  'gpt-image-1.5',
+  'gpt-image-2',
   'gpt-image-1-mini',
   'grok-imagine-image',
 ];
@@ -358,7 +339,7 @@ const FAMILY_REASONING_OPTIONS: Record<ChatModelFamilyId, ChatModelFamilyControl
   'kimi-k2-5': BINARY_REASONING_OPTIONS,
   'gpt-5.4-mini': GPT_54_MINI_REASONING_OPTIONS,
   'grok-4-1-fast': BINARY_REASONING_OPTIONS,
-  'gpt-image-1.5': GPT_IMAGE_15_QUALITY_OPTIONS,
+  'gpt-image-2': GPT_IMAGE_2_QUALITY_OPTIONS,
   'gpt-image-1-mini': GPT_IMAGE_1_MINI_QUALITY_OPTIONS,
   'grok-imagine-image': GROK_IMAGE_QUALITY_OPTIONS,
 };
@@ -367,7 +348,7 @@ const FAMILY_CONTROL_KIND: Record<ChatModelFamilyId, ChatModelControlKind> = {
   'kimi-k2-5': 'reasoning',
   'gpt-5.4-mini': 'reasoning',
   'grok-4-1-fast': 'reasoning',
-  'gpt-image-1.5': 'quality',
+  'gpt-image-2': 'quality',
   'gpt-image-1-mini': 'quality',
   'grok-imagine-image': 'quality',
 };
@@ -382,7 +363,7 @@ function normalizeModelFamilyId(modelId?: string | null): ChatModelFamilyId | un
   if (normalized.startsWith('grok-imagine-image-pro')) return 'grok-imagine-image';
   if (normalized.startsWith('grok-imagine-image')) return 'grok-imagine-image';
   if (normalized.startsWith('gpt-image-1-mini')) return 'gpt-image-1-mini';
-  if (normalized.startsWith('gpt-image-1.5')) return 'gpt-image-1.5';
+  if (normalized.startsWith('gpt-image-2')) return 'gpt-image-2';
   if (
     normalized.startsWith('kimi-k2-5') ||
     normalized.startsWith('moonshotai/kimi-k2-5') ||
@@ -616,7 +597,7 @@ export function supportsVisionChatModel(modelId?: string | null): boolean {
 // still rejecting Grok image families that do not support uploaded-image edits.
 // Search Tags: composer image drafts gpt image upload support grok image no edit
 // Invariants:
-// - GPT Image 1 Mini and GPT Image 1.5 accept composer uploads for image-edit flows.
+// - GPT Image 1 Mini and GPT Image 2 accept composer uploads for image-edit flows.
 // - Grok image families must not be treated as upload-edit capable.
 // Failure Modes:
 // - Reusing text-only vision gating hides GPT image edit support in the composer.
@@ -625,7 +606,7 @@ export function supportsGeneratedImageInputModel(modelId?: string | null): boole
   const normalized = String(modelId || '')
     .trim()
     .toLowerCase();
-  return normalized.startsWith('gpt-image-1-mini') || normalized.startsWith('gpt-image-1.5');
+  return normalized.startsWith('gpt-image-1-mini') || normalized.startsWith('gpt-image-2');
 }
 
 export const COMMON_TOKENS: Record<

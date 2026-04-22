@@ -54,3 +54,12 @@ kiko-python/chroma_db/
 **/renders/*.mp4
 **/renders/*.mov
 **/renders/*.webm
+
+# Video assets should stay out of git and out of deployable public bundles.
+*.mp4
+*.mov
+*.m4v
+*.webm
+*.avi
+*.mkv
+kiko-web/public/remotion-assets/video/

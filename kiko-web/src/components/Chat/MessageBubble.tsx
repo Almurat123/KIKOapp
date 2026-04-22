@@ -47,11 +47,11 @@ import { calculateCost, formatCost } from '../../utils/llmPricing';
 import styles from './Chat.module.css';
 import type { Message } from '../../hooks/useConversations';
 // CONTEXT MEMORY
-// Updated: 2026-04-18
+// Updated: 2026-04-22
 // Author: Rowan
 // Reason: runtime plan cards and assistant reasoning were previously rendered
 //         through the same surface, which caused live reasoning from NVIDIA
-//         Kimi/GLM turns to appear inside the plan card instead of the normal
+//         Kimi turns to appear inside the plan card instead of the normal
 //         reasoning area. A later streaming review also showed that the bubble
 //         was reparsing markdown on every incoming chunk, while the interim
 //         reveal style also changed the apparent chunk timing instead of only

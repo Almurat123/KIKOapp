@@ -7,7 +7,7 @@ import { type AIStreamChunk } from './aiTypes';
 // Reason: fallback frontend calls into the OpenAI-compatible backend proxy must
 //         use the same free Kimi 2.5 Instant/Fast default as the chat selector
 //         and backend session normalizer.
-// Goal: keep model-omitted frontend API calls from drifting to GPT, GLM, or
+// Goal: keep model-omitted frontend API calls from drifting to GPT, or
 //       historical DeepSeek defaults.
 // Owns: frontend proxy request fallback model and model-id passthrough helpers.
 // Does Not Own: backend provider credentials, billing categories, or chat UI
@@ -25,8 +25,6 @@ import { type AIStreamChunk } from './aiTypes';
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-lite-defaults.md
-
 /**
  * Model API Service
  * Handles communication with the backend chat proxy for OpenAI-compatible models.
@@ -233,7 +231,7 @@ export async function chatCompletion(
 /**
  * Stream chat completion from the backend model proxy
  * Now supports citations from web search tool calls
- * And reasoning_content for GLM/Kimi thinking mode
+ * And reasoning_content for Kimi thinking mode
  */
 export async function* streamChatCompletion(
   messages: DeepSeekMessage[],

@@ -8,7 +8,7 @@ import {
 
 test('GPT image models accept uploaded image inputs for edit flows', () => {
   assert.equal(supportsGeneratedImageInputModel('gpt-image-1-mini'), true);
-  assert.equal(supportsGeneratedImageInputModel('gpt-image-1.5'), true);
+  assert.equal(supportsGeneratedImageInputModel('gpt-image-2'), true);
   assert.equal(supportsGeneratedImageInputModel('grok-imagine-image'), false);
 });
 
