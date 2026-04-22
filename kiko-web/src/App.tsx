@@ -1,10 +1,11 @@
 import React, { Suspense, useEffect, useState } from 'react';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
-import icon from './assets/images/icon.png';
 import { RootLayout } from './layouts/RootLayout';
 import { ErrorPage } from './pages/ErrorPage';
 import { ChatInterface } from './components/Chat/ChatInterface';
 import { lazyRoute } from './utils/lazyRoute';
+
+const icon = '/icon.png';
 
 // CONTEXT MEMORY
 // Updated: 2026-04-12

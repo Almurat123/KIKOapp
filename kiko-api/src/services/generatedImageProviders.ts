@@ -1,19 +1,23 @@
 import { Buffer } from 'node:buffer';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-18
+// Updated: 2026-04-23
 // Author: Rowan
 // Reason: chat now needs one provider-facing owner for generated-image
-//         execution so OpenAI and xAI image APIs can be integrated without
-//         leaking request-shape differences into routes. OpenAI officially
-//         supports partial image streaming, while xAI explicitly documents that
-//         image-output models do not support streaming. The first integration
-//         only returned final assets, which made the frontend fake progress.
-//         This owner now also has to surface real OpenAI partial-image progress
-//         events without pretending that Grok exposes the same capability.
-// Goal: normalize OpenAI and xAI image-generation requests into one final-image
-//       result shape, while exposing only doc-backed provider progress signals
-//       that downstream chat code can safely translate into product UI.
+//         execution so OpenAI-compatible image APIs can be integrated without
+//         leaking request-shape differences into routes. GPT image models can
+//         now route through OpenRouter's chat/completions transport when the
+//         OpenRouter key is configured, while xAI image requests stay on their
+//         own provider path. OpenAI officially supports partial image streaming,
+//         while xAI explicitly documents that image-output models do not
+//         support streaming. The first integration only returned final assets,
+//         which made the frontend fake progress. This owner now also has to
+//         surface real provider progress events without pretending that Grok
+//         exposes the same capability.
+// Goal: normalize OpenAI-compatible image-generation requests into one
+//       final-image result shape, while exposing only doc-backed provider
+//       progress signals that downstream chat code can safely translate into
+//       product UI.
 // Owns: provider HTTP request assembly, timeout/error normalization, response
 //       decoding, and provider capability flags plus progress callbacks for
 //       generated-image execution.
@@ -21,10 +25,10 @@ import { Buffer } from 'node:buffer';
 //               websocket delivery, or frontend rendering.
 // Design Language:
 // - provider adapters return one final image buffer plus capability metadata
-// - OpenAI and xAI request-shape differences are contained inside this owner
+// - OpenAI/OpenRouter and xAI request-shape differences are contained inside this owner
 // - OpenAI capability metadata may advertise progressive reveal support, but
 //   downstream policy decides whether partial previews are shown to users
-// - only doc-backed OpenAI partial-image events may be emitted as progress
+// - only doc-backed OpenAI partial-image and OpenRouter delta-image events may be emitted as progress
 // - xAI image generation must remain a final-image-only path
 // - provider adapters should accept the product-selected quality control, not
 //   invent their own synthetic tiers
@@ -56,6 +60,13 @@ import { Buffer } from 'node:buffer';
 // - Kind: official API doc
 // - Retrieved: 2026-04-22
 // - Applied To: current default high-quality OpenAI image model support
+// - Verification: verified in docs
+// - Source: OpenRouter image generation and image-input docs
+// - Kind: official API doc
+// - Retrieved: 2026-04-23
+// - Applied To: routing GPT image requests through OpenRouter chat/completions
+//   when an OpenRouter key is configured, plus `image_url` input and streamed
+//   `choices[].delta.images` parsing
 // - Verification: verified in docs
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
@@ -104,8 +115,12 @@ export interface GeneratedImageProviderProgressEvent {
 const PROVIDER_TIMEOUT_MS = Math.max(15_000, Number(process.env.GENERATED_IMAGE_PROVIDER_TIMEOUT_MS || '120000'));
 const OPENAI_IMAGE_ENDPOINT = 'https://api.openai.com/v1/images/generations';
 const OPENAI_IMAGE_EDIT_ENDPOINT = 'https://api.openai.com/v1/images/edits';
+const OPENROUTER_IMAGE_ENDPOINT = String(process.env.OPENROUTER_API_URL || 'https://openrouter.ai/api/v1/chat/completions').trim();
+const OPENROUTER_GPT_IMAGE_1_MINI_MODEL = String(process.env.OPENROUTER_GPT_IMAGE_1_MINI_MODEL || 'openai/gpt-5-image-mini').trim();
+const OPENROUTER_GPT_IMAGE_2_MODEL = String(process.env.OPENROUTER_GPT_IMAGE_2_MODEL || 'openai/gpt-5.4-image-2').trim();
 const XAI_IMAGE_ENDPOINT = 'https://api.x.ai/v1/images/generations';
 const OPENAI_PARTIAL_IMAGE_COUNT = 2;
+const OPENROUTER_PARTIAL_IMAGE_COUNT = 1;
 
 function isOpenAiGeneratedImageModel(model?: string | null): model is 'gpt-image-2' | 'gpt-image-1-mini' {
     const normalized = String(model || '').trim().toLowerCase();
@@ -229,6 +244,231 @@ function parseSseBlock(rawBlock: string): { event: string; data: string } | null
     };
 }
 
+function readImageUrlFromGeneratedImageItem(image: any): string {
+    return String(
+        image?.image_url?.url
+        || image?.imageUrl?.url
+        || image?.url
+        || '',
+    ).trim();
+}
+
+function resolveOpenRouterHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {};
+    const referer = String(process.env.OPENROUTER_HTTP_REFERER || '').trim();
+    const title = String(process.env.OPENROUTER_TITLE || '').trim();
+    if (referer) {
+        headers['HTTP-Referer'] = referer;
+    }
+    if (title) {
+        headers['X-OpenRouter-Title'] = title;
+    }
+    return headers;
+}
+
+function resolveOpenRouterImageSize(quality: GeneratedImageProviderQuality): '1K' | '2K' | '4K' {
+    if (quality === 'low') return '1K';
+    if (quality === 'high') return '4K';
+    return '2K';
+}
+
+function buildOpenRouterImageContent(prompt: string, inputImages: GeneratedImageProviderInputImage[]): string | Array<{
+    type: 'text' | 'image_url';
+    text?: string;
+    image_url?: { url: string };
+}> {
+    if (inputImages.length === 0) {
+        return prompt;
+    }
+
+    return [
+        {
+            type: 'text',
+            text: prompt,
+        },
+        ...inputImages.map((image) => ({
+            type: 'image_url' as const,
+            image_url: {
+                url: image.url,
+            },
+        })),
+    ];
+}
+
+async function decodeGeneratedImageAsset(url: string): Promise<{ buffer: Buffer; contentType: string }> {
+    const normalized = String(url || '').trim();
+    if (!normalized) {
+        throw new GeneratedImageProviderError('Generated image asset URL is empty.');
+    }
+    if (normalized.startsWith('data:')) {
+        const commaIndex = normalized.indexOf(',');
+        if (commaIndex < 0) {
+            throw new GeneratedImageProviderError('Generated image asset data URL is invalid.');
+        }
+
+        const metadata = normalized.slice(5, commaIndex);
+        const content = normalized.slice(commaIndex + 1);
+        const contentType = metadata.split(';')[0]?.trim().toLowerCase() || 'image/png';
+        const isBase64 = metadata.includes(';base64');
+        const buffer = Buffer.from(isBase64 ? content : decodeURIComponent(content), isBase64 ? 'base64' : 'utf8');
+        return {
+            buffer,
+            contentType: contentType.startsWith('image/') ? contentType : 'image/png',
+        };
+    }
+
+    return fetchBinaryFromUrl(normalized);
+}
+
+async function generateOpenRouterImage(
+    model: 'gpt-image-2' | 'gpt-image-1-mini',
+    prompt: string,
+    quality: GeneratedImageProviderQuality,
+    inputImages?: GeneratedImageProviderInputImage[] | null,
+    onProgress?: ((event: GeneratedImageProviderProgressEvent) => Promise<void> | void) | null,
+): Promise<GeneratedImageProviderResult> {
+    const apiKey = String(process.env.OPENROUTER_API_KEY || '').trim();
+    if (!apiKey) {
+        throw new GeneratedImageProviderError('OpenRouter image generation is not configured on the server.', 'GENERATED_IMAGE_PROVIDER_NOT_CONFIGURED', 503);
+    }
+
+    const routerModel = model === 'gpt-image-2' ? OPENROUTER_GPT_IMAGE_2_MODEL : OPENROUTER_GPT_IMAGE_1_MINI_MODEL;
+    const normalizedInputImages = normalizeProviderInputImages(inputImages);
+    const controller = createAbortController(PROVIDER_TIMEOUT_MS);
+    const response = await fetch(OPENROUTER_IMAGE_ENDPOINT, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+            ...resolveOpenRouterHeaders(),
+        },
+        body: JSON.stringify({
+            model: routerModel,
+            messages: [
+                {
+                    role: 'user',
+                    content: buildOpenRouterImageContent(prompt, normalizedInputImages),
+                },
+            ],
+            modalities: ['image', 'text'],
+            stream: Boolean(onProgress),
+            image_config: {
+                aspect_ratio: '1:1',
+                image_size: resolveOpenRouterImageSize(quality),
+            },
+        }),
+        signal: controller.signal,
+    });
+
+    const normalizedQuality = quality === 'low' || quality === 'high' ? quality : 'medium';
+    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+    if (!response.ok) {
+        const payload = await parseJsonSafely(response);
+        throw new GeneratedImageProviderError(
+            extractProviderErrorMessage(response, payload, 'OpenRouter image generation'),
+        );
+    }
+
+    if (onProgress && contentType.includes('text/event-stream')) {
+        if (!response.body) {
+            throw new GeneratedImageProviderError('OpenRouter image generation returned an empty event stream.');
+        }
+
+        let latestImageUrl: string | null = null;
+        let emittedProgress = false;
+
+        for await (const chunk of iterateSseBlocks(response.body)) {
+            if (chunk.data === '[DONE]') {
+                continue;
+            }
+
+            let eventPayload: any = null;
+            try {
+                eventPayload = JSON.parse(chunk.data);
+            } catch {
+                continue;
+            }
+
+            const choices = Array.isArray(eventPayload?.choices) ? eventPayload.choices : [];
+            for (const choice of choices) {
+                const deltaImages = Array.isArray(choice?.delta?.images) ? choice.delta.images : [];
+                for (const image of deltaImages) {
+                    const imageUrl = readImageUrlFromGeneratedImageItem(image);
+                    if (!imageUrl) continue;
+                    latestImageUrl = imageUrl;
+                    if (!emittedProgress) {
+                        emittedProgress = true;
+                        await onProgress({
+                            type: 'partial_image',
+                            provider: 'openai',
+                            model,
+                            quality: normalizedQuality,
+                            partialImageIndex: 0,
+                            partialImageCount: OPENROUTER_PARTIAL_IMAGE_COUNT,
+                        });
+                    }
+                }
+
+                const messageImages = Array.isArray(choice?.message?.images) ? choice.message.images : [];
+                for (const image of messageImages) {
+                    const imageUrl = readImageUrlFromGeneratedImageItem(image);
+                    if (imageUrl) {
+                        latestImageUrl = imageUrl;
+                    }
+                }
+            }
+        }
+
+        if (!latestImageUrl) {
+            throw new GeneratedImageProviderError('OpenRouter image generation stream completed without a final image payload.');
+        }
+
+        const downloaded = await decodeGeneratedImageAsset(latestImageUrl);
+        return {
+            provider: 'openai',
+            model,
+            quality: normalizedQuality,
+            imageBuffer: downloaded.buffer,
+            contentType: downloaded.contentType,
+            revisedPrompt: null,
+            supportsProgressiveReveal: true,
+        };
+    }
+
+    const payload = await parseJsonSafely(response);
+    const item = Array.isArray(payload?.choices) ? payload.choices[0]?.message?.images?.[0] : null;
+    const url = readImageUrlFromGeneratedImageItem(item);
+    if (!url) {
+        throw new GeneratedImageProviderError('OpenRouter image generation returned no image payload.');
+    }
+
+    const downloaded = await decodeGeneratedImageAsset(url);
+    return {
+        provider: 'openai',
+        model,
+        quality: normalizedQuality,
+        imageBuffer: downloaded.buffer,
+        contentType: downloaded.contentType,
+        revisedPrompt: null,
+        supportsProgressiveReveal: Boolean(onProgress),
+    };
+}
+
+// CONTEXT MEMORY
+// Updated: 2026-04-23
+// Status: inferred
+// Why: GPT image models can now be routed through OpenRouter's OpenAI-compatible
+//      chat/completions transport when the OpenRouter key is configured, while
+//      preserving the legacy OpenAI images endpoint as a fallback.
+// Debug Goal: keep GPT image requests on OpenRouter chat/completions with
+//             `image_url` message parts and data URL decoding.
+// Search Tags: openrouter gpt image chat completions image_url data url
+// Invariants:
+// - OpenRouter transport is only used when `OPENROUTER_API_KEY` is present.
+// - OpenAI images endpoints remain the fallback when OpenRouter is not configured.
+// Failure Modes:
+// - Sending GPT image requests to `/images/generations` on OpenRouter breaks the call.
+// - Returning OpenRouter data URLs without decoding leaves the transcript with empty images.
 async function* iterateSseBlocks(stream: ReadableStream<Uint8Array>): AsyncGenerator<{ event: string; data: string }> {
     const reader = stream.getReader();
     const decoder = new TextDecoder();
@@ -500,6 +740,16 @@ export async function generateImageWithProvider(params: GeneratedImageProviderRe
     const inputImages = normalizeProviderInputImages(params.inputImages);
 
     if (params.provider === 'openai' || isOpenAiGeneratedImageModel(params.model)) {
+        const useOpenRouter = Boolean(String(process.env.OPENROUTER_API_KEY || '').trim());
+        if (useOpenRouter) {
+            return generateOpenRouterImage(
+                isOpenAiGeneratedImageModel(params.model) ? params.model : 'gpt-image-1-mini',
+                prompt,
+                params.quality === 'low' || params.quality === 'high' ? params.quality : 'medium',
+                inputImages,
+                params.onProgress,
+            );
+        }
         return generateOpenAiImage(
             isOpenAiGeneratedImageModel(params.model) ? params.model : 'gpt-image-1-mini',
             prompt,

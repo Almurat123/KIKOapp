@@ -5,7 +5,6 @@ import { usePrivy } from '@privy-io/react-auth';
 import type { WalletWithMetadata } from '@privy-io/react-auth';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import clsx from 'clsx';
-import icon from '../../assets/images/icon.png';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import { ThemeToggle } from '../ThemeToggle/ThemeToggle';
 import { getUserInfo } from '../../utils/privyUtils';
@@ -13,6 +12,8 @@ import { getUsageSummary, type UsageSummary } from '../../services/billingApi';
 import { agentAttrs } from '../../agent/attrs';
 import styles from './Sidebar.module.css';
 import type { Conversation } from '../../hooks/useConversations';
+
+const icon = '/icon.png';
 
 // CONTEXT MEMORY
 // Updated: 2026-04-17

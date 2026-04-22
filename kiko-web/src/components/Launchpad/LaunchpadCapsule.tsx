@@ -1,8 +1,8 @@
 import React, { useMemo } from 'react';
 import { getLaunchpadDisplayName, LAUNCHPAD_LOGOS, normalizeLaunchpadTag } from '../../utils/launchpadLogos';
 import styles from './LaunchpadCapsule.module.css';
-import icon from '../../assets/images/icon.png';
 
+const icon = '/icon.png';
 
 interface LaunchpadCapsuleProps {
     address: string;
