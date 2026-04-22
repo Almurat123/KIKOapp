@@ -8,6 +8,9 @@ from __future__ import annotations
 #         allowed tool; dropping those calls creates avoidable routing noise,
 #         and the service now threads skill-resolution guidance into prompt
 #         assembly so Python stays aligned with the model-led tool rollout.
+#         NVIDIA live skill evals on 2026-04-22 showed hosted models can split
+#         one logical tool call across an id-bearing first chunk and index-only
+#         later chunks, so orchestration must merge by index before id.
 # Goal: keep orchestration rounds stable by repairing empty tool names whenever
 #       the allowed tool schema makes the match deterministic and by preserving
 #       the same model-led guidance surface as the Node path.
@@ -18,6 +21,8 @@ from __future__ import annotations
 # - tool-call repair should be deterministic and schema-based
 # - unresolved empty names must stay visible in logs instead of being guessed
 # - orchestration should preserve the same repair behavior as generation SSE
+# - streaming tool-call merge must key by index first; provider ids are mutable
+#   attributes, not stable accumulator keys
 # Document Provenance:
 # - Source: production/runtime log showing an empty-name wallet PnL tool call
 # - Kind: runtime observation
@@ -41,24 +46,31 @@ from .prompt_assembler import assemble_messages
 from .provider_router import resolve_provider
 from .schemas import ChatContextSnapshotModel, OrchestrationEvent, ToolResultModel
 from .skill_resolver import resolve_skills
-from generation.tool_call_repair import infer_tool_name_from_arguments
+from generation.tool_call_repair import infer_tool_name_from_arguments, normalize_tool_argument_delta
+from generation.tool_result_repair import (
+    build_empty_tool_result_final_answer_repair_message,
+    build_visible_tool_result_fallback,
+    should_retry_empty_tool_result_final_answer,
+)
 
 logger = logging.getLogger(__name__)
 
 def _merge_tool_call_deltas(acc: dict[str, dict[str, Any]], deltas: list[dict[str, Any]]):
     for i, tc in enumerate(deltas):
         idx = tc.get("index")
-        key = str(tc.get("id") or (f"idx:{idx}" if idx is not None else f"idx:{i}"))
+        key = f"idx:{idx}" if idx is not None else str(tc.get("id") or f"idx:{i}")
         current = acc.get(key)
         if not current:
             current = {"id": tc.get("id") or key, "function": {"name": "", "arguments": ""}}
             acc[key] = current
+        elif tc.get("id"):
+            current["id"] = tc.get("id")
         fn = tc.get("function") or {}
         name = fn.get("name")
         if isinstance(name, str) and name:
             current["function"]["name"] = name
-        args = fn.get("arguments")
-        if isinstance(args, str) and args:
+        args = normalize_tool_argument_delta(fn.get("arguments"))
+        if args:
             existing = current["function"]["arguments"]
             if not existing:
                 current["function"]["arguments"] = args
@@ -216,7 +228,7 @@ class OrchestrationService:
     async def _run(self, state: RunState):
         try:
             snapshot = state.snapshot.model_dump()
-            provider_info = resolve_provider(snapshot.get("model") or "glm-5")
+            provider_info = resolve_provider(snapshot.get("model") or "kimi-k2-5-instant")
             trading_intent = None
             skill_resolution = resolve_skills(snapshot, trading_intent)
             logger.info(
@@ -251,6 +263,7 @@ class OrchestrationService:
                 sorted(allowed_tool_names),
             )
 
+            empty_tool_result_answer_repair_attempted = False
             for _round in range(8):
                 round_index = _round + 1
                 tool_deltas: dict[str, dict[str, Any]] = {}
@@ -309,6 +322,36 @@ class OrchestrationService:
                         return
 
                 if not tool_deltas:
+                    assistant_visible_content = "".join(assistant_text_parts)
+                    assistant_reasoning_content = "".join(assistant_reasoning_parts)
+                    if should_retry_empty_tool_result_final_answer(
+                        messages,
+                        assistant_visible_content,
+                        assistant_reasoning_content,
+                        already_attempted=empty_tool_result_answer_repair_attempted,
+                    ):
+                        empty_tool_result_answer_repair_attempted = True
+                        messages.append(build_empty_tool_result_final_answer_repair_message())
+                        logger.warning(
+                            "orchestration.empty_tool_result_visible_answer_retry run_id=%s round=%s reasoning_len=%s",
+                            state.run_id,
+                            round_index,
+                            len(assistant_reasoning_content),
+                        )
+                        continue
+                    if not assistant_visible_content.strip() and assistant_reasoning_content.strip():
+                        fallback = build_visible_tool_result_fallback(messages)
+                        if fallback:
+                            assistant_text_parts.append(fallback)
+                            await state.events.put(
+                                OrchestrationEvent(type="assistant_delta", payload={"text": fallback}).model_dump()
+                            )
+                            logger.warning(
+                                "orchestration.empty_tool_result_visible_answer_fallback run_id=%s round=%s fallback_len=%s",
+                                state.run_id,
+                                round_index,
+                                len(fallback),
+                            )
                     if provider_info.get("supportsPreviousResponse") and latest_provider_request_id:
                         await state.events.put(
                             OrchestrationEvent(type="conversation_state", payload={"previous_response_id": latest_provider_request_id}).model_dump()

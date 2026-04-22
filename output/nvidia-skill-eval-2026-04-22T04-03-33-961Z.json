@@ -1,0 +1,35 @@
+{
+  "ok": true,
+  "models": [
+    "kimi-k2-5-instant"
+  ],
+  "scenarioCount": 16,
+  "executed": 1,
+  "passed": 1,
+  "blocked": 0,
+  "failed": 0,
+  "concurrency": 1,
+  "requestTimeoutMs": 45000,
+  "results": [
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "copy_trade",
+      "targetTool": "list_copy_trade_configs",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "list_copy_trade_configs",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-ad48373c80fd00df",
+        "chatcmpl-863ec9933ce76564"
+      ],
+      "errors": [],
+      "finalExcerpt": "Your current copy-trade configurations have been retrieved successfully. **Marker:** `TOOL_RESULT_OK_copy_trade_kimi_k2_5_instant` The skill returned successfully (`ok: true`). In a live environment, this would display all your active copy-trade setups includi",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    }
+  ],
+  "failures": [],
+  "blockedByRateLimit": []
+}

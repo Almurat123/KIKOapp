@@ -7,6 +7,9 @@
 #         generation trace showed some providers can also emit malformed
 #         argument fragments such as a leading-comma JSON body without braces,
 #         which prevented both argument recovery and empty-name repair.
+#         NVIDIA NIM can also return function.arguments as an object instead of
+#         the OpenAI-compatible JSON string shape, so stream mergers must
+#         normalize argument deltas before concatenation.
 # Goal: recover empty tool-call names deterministically from the declared tool
 #       schema so generation and orchestration can keep the round stable and log
 #       an explicit repair instead of silently dropping a valid call. Recover
@@ -20,6 +23,8 @@
 # - repair malformed tool-call arguments only when the fragment can be turned
 #   into valid structured JSON without guessing semantic values
 # - leave unresolved calls empty rather than guessing loosely
+# - tool-call argument deltas should be stored as strings even when providers
+#   send parsed objects
 # Document Provenance:
 # - Source: runtime generation log showing an empty-name tool call carrying
 #   address/chain/days arguments for a wallet PnL query
@@ -65,6 +70,19 @@ def parse_tool_arguments(raw_args: Any) -> dict[str, Any]:
         if isinstance(parsed, dict):
             return parsed
     return {}
+
+
+def normalize_tool_argument_delta(raw_args: Any) -> str:
+    if raw_args in (None, ""):
+        return ""
+    if isinstance(raw_args, str):
+        return raw_args
+    if isinstance(raw_args, (dict, list)):
+        try:
+            return json.dumps(raw_args, ensure_ascii=False)
+        except Exception:
+            return str(raw_args)
+    return str(raw_args)
 
 
 def infer_tool_name_from_arguments(tools: list[dict[str, Any]], args: dict[str, Any]) -> str | None:

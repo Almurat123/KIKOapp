@@ -509,7 +509,7 @@ function validateEnv(): EnvConfig {
     }
     const freeModels = (
         process.env.BILLING_FREE_MODELS ||
-        'glm-5,kimi-k2-5-reasoning,kimi-k2-5-instant'
+        'kimi-k2-5-reasoning,kimi-k2-5-instant'
     )
         .split(',')
         .map(v => v.trim().toLowerCase())
@@ -529,7 +529,6 @@ function validateEnv(): EnvConfig {
         'grok-4-1-fast-non-reasoning': { promptUsdPer1M: 0.20, completionUsdPer1M: 0.50 },
         // NVIDIA trial-hosted models are typically rate-limited rather than token-billed.
         // Override via BILLING_MODEL_PRICING_JSON when production pricing is known.
-        'glm-5': { promptUsdPer1M: 0, completionUsdPer1M: 0 },
         'kimi-k2-5-reasoning': { promptUsdPer1M: 0, completionUsdPer1M: 0 },
         'kimi-k2-5-instant': { promptUsdPer1M: 0, completionUsdPer1M: 0 },
         'gpt-4.1': { promptUsdPer1M: 2.00, cachedPromptUsdPer1M: 0.50, completionUsdPer1M: 8.00 },

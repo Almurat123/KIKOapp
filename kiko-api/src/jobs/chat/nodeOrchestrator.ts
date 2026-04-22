@@ -211,11 +211,6 @@ export type NodeOrchestrationResult = {
 function supportsStoredReasoning(model: string): boolean {
     const normalized = String(model || '').trim().toLowerCase();
     return normalized === 'deepseek-reasoner'
-        || normalized === 'glm-5'
-        || normalized === 'glm-5-reasoning'
-        || normalized === 'glm5'
-        || normalized === 'z-ai/glm5'
-        || normalized === 'z-ai/glm-5'
         || normalized === 'kimi-k2.5'
         || normalized === 'kimi-k2.5-reasoning'
         || normalized === 'kimi-k2.5-thinking'

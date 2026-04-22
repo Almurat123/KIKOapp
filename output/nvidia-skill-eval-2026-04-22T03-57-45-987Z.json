@@ -1,0 +1,116 @@
+{
+  "ok": false,
+  "models": [
+    "kimi-k2-5-instant"
+  ],
+  "scenarioCount": 16,
+  "executed": 4,
+  "passed": 1,
+  "blocked": 2,
+  "failed": 1,
+  "concurrency": 1,
+  "requestTimeoutMs": 45000,
+  "results": [
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "copy_trade",
+      "targetTool": "list_copy_trade_configs",
+      "status": "FAIL",
+      "errorCategory": "model_or_tool",
+      "selectedTool": "list_copy_trade_configs",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-a53915da504bd5bd",
+        "chatcmpl-b4bffca63ab07f98"
+      ],
+      "errors": [
+        "final_answer_empty_after_tool_result",
+        "tool_result_marker_in_reasoning_only marker=TOOL_RESULT_OK_copy_trade_kimi_k2_5_instant"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "cross_chain_swap",
+      "targetTool": "get_cross_chain_quote",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "get_cross_chain_quote",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-b2238bf7ab183813",
+        "chatcmpl-a035ded4b7565fbf"
+      ],
+      "errors": [],
+      "finalExcerpt": "Here is your cross-chain quote for bridging 10 USDC from Base to Polygon USDC: **Quote Details:** - **From:** Base (USDC) - **To:** Polygon (USDC) - **Amount:** 10 USDC - **Route:** Base → Polygon via cross-chain bridge The quote has been successfully generate"
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "polymarket_prediction",
+      "targetTool": "get_polymarket_market_overview",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": "get_polymarket_market_overview",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": null,
+      "providerRequestIds": [
+        "chatcmpl-83c93548ca68b96a"
+      ],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "token_analysis",
+      "targetTool": "get_token_info",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    }
+  ],
+  "failures": [
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "copy_trade",
+      "targetTool": "list_copy_trade_configs",
+      "selectedTool": "list_copy_trade_configs",
+      "errorCategory": "model_or_tool",
+      "errors": [
+        "final_answer_empty_after_tool_result",
+        "tool_result_marker_in_reasoning_only marker=TOOL_RESULT_OK_copy_trade_kimi_k2_5_instant"
+      ],
+      "finalExcerpt": ""
+    }
+  ],
+  "blockedByRateLimit": [
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "polymarket_prediction",
+      "targetTool": "get_polymarket_market_overview",
+      "selectedTool": "get_polymarket_market_overview",
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "token_analysis",
+      "targetTool": "get_token_info",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    }
+  ]
+}

@@ -17,9 +17,7 @@ test('getBillingCategory classifies OpenAI GPT variants as premium quota bucket'
     assert.equal(getBillingCategory('gpt-5.4-mini-2026-03-17'), 'premium');
 });
 
-test('getBillingCategory classifies NVIDIA GLM/Kimi variants as free quota bucket', () => {
-    assert.equal(getBillingCategory('glm-5'), 'free');
-    assert.equal(getBillingCategory('glm-5-reasoning'), 'free');
+test('getBillingCategory classifies NVIDIA Kimi variants as free quota bucket', () => {
     assert.equal(getBillingCategory('kimi-k2-5-reasoning'), 'free');
     assert.equal(getBillingCategory('kimi-k2-5-instant'), 'free');
 });
@@ -68,14 +66,14 @@ test('computeUsdCost applies OpenAI cached input pricing and does not double-cou
     assert.equal(usdCost, 9.48);
 });
 
-test('computeUsdCost defaults NVIDIA trial-hosted models to zero until pricing is pinned', () => {
+test('computeUsdCost defaults NVIDIA Kimi trial-hosted models to zero until pricing is pinned', () => {
     const usdCost = computeUsdCost(
         {
             prompt_tokens: 1_000_000,
             completion_tokens: 2_000_000,
             completion_tokens_details: { reasoning_tokens: 500_000 },
         },
-        'glm-5',
+        'kimi-k2-5-instant',
         [],
     );
 
@@ -98,9 +96,8 @@ test('getDailyFreeQuotaForModel returns shared free and premium model quota knob
     const original = env.billing.dailyFreeModelLimit;
     env.billing.dailyFreeModelLimit = 20;
     try {
-        assert.equal(getDailyFreeQuotaForModel('glm-5'), 20);
-        assert.equal(getDailyFreeQuotaForModel('glm-5-reasoning'), 20);
         assert.equal(getDailyFreeQuotaForModel('kimi-k2-5-reasoning'), 20);
+        assert.equal(getDailyFreeQuotaForModel('kimi-k2-5-instant'), 20);
     } finally {
         env.billing.dailyFreeModelLimit = original;
     }

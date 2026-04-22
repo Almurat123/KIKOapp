@@ -20,6 +20,12 @@ from .intent import parse_intent
 from .prompt_orchestrator import prompt_orchestrator, skill_prompt_registry
 from .settings import settings
 from .ws import ws_manager
+from generation.tool_call_repair import normalize_tool_argument_delta
+from generation.tool_result_repair import (
+    build_empty_tool_result_final_answer_repair_message,
+    build_visible_tool_result_fallback,
+    should_retry_empty_tool_result_final_answer,
+)
 
 
 # CONTEXT MEMORY
@@ -148,8 +154,10 @@ class ChatWorker:
         for i, tc in enumerate(deltas):
             # Never use len(acc) as fallback key; that creates new keys per chunk and
             # explodes one logical tool call into many duplicates.
+            # NVIDIA hosted models may send an id on the first chunk and only
+            # index on later chunks, so index is the stable logical call key.
             idx = tc.get("index")
-            key = str(tc.get("id") or (f"idx:{idx}" if idx is not None else f"idx:{i}"))
+            key = f"idx:{idx}" if idx is not None else str(tc.get("id") or f"idx:{i}")
             cur = acc.get(key)
             if not cur:
                 cur = {
@@ -158,6 +166,8 @@ class ChatWorker:
                     "function": {"name": "", "arguments": ""},
                 }
                 acc[key] = cur
+            elif tc.get("id"):
+                cur["id"] = tc.get("id")
             fn = tc.get("function") or {}
             name = fn.get("name")
             if isinstance(name, str) and name:
@@ -165,8 +175,8 @@ class ChatWorker:
                     cur["function"]["name"] = name
                 elif cur["function"]["name"] != name:
                     cur["function"]["name"] = name
-            args = fn.get("arguments")
-            if isinstance(args, str) and args:
+            args = normalize_tool_argument_delta(fn.get("arguments"))
+            if args:
                 existing = cur["function"]["arguments"]
                 # Provider may stream either deltas or repeated snapshots.
                 if not existing:
@@ -1412,6 +1422,7 @@ class ChatWorker:
                 )
 
                 completed = False
+                empty_tool_result_answer_repair_attempted = False
                 for round_idx in range(settings.MAX_TOOL_ROUNDS):
                     self.logger.info(
                         "llm round start task_id=%s round=%s/%s tool_trace_calls=%s",
@@ -1770,6 +1781,42 @@ class ChatWorker:
                         continue
 
                     # no tool calls this round: finalize
+                    if should_retry_empty_tool_result_final_answer(
+                        llm_messages,
+                        round_assistant_content,
+                        round_assistant_reasoning,
+                        already_attempted=empty_tool_result_answer_repair_attempted,
+                    ):
+                        empty_tool_result_answer_repair_attempted = True
+                        tool_trace_state["stopReasons"].append("empty_tool_result_visible_answer_retry")
+                        llm_messages.append(build_empty_tool_result_final_answer_repair_message())
+                        self.logger.warning(
+                            "empty tool-result visible answer retry task_id=%s round=%s reasoning_len=%s",
+                            task_id,
+                            round_idx + 1,
+                            len(round_assistant_reasoning),
+                        )
+                        continue
+                    if not round_assistant_content.strip() and round_assistant_reasoning.strip():
+                        fallback = build_visible_tool_result_fallback(llm_messages)
+                        if fallback:
+                            content += fallback
+                            round_assistant_content = fallback
+                            pending_content += fallback
+                            tool_trace_state["stopReasons"].append("empty_tool_result_visible_answer_fallback")
+                            self.logger.warning(
+                                "empty tool-result visible answer fallback task_id=%s round=%s fallback_len=%s",
+                                task_id,
+                                round_idx + 1,
+                                len(fallback),
+                            )
+                            await ws_manager.broadcast_event(
+                                payload.user_id,
+                                "delta_text",
+                                session_id,
+                                assistant_message_id,
+                                {"text": fallback},
+                            )
                     if round_had_done:
                         completed = True
                         break

@@ -17,10 +17,10 @@ function withGeneratedImageFreeOutputs<T>(value: number, fn: () => T): T {
     }
 }
 
-test('GPT image stays disabled even though pricing is known', () => {
+test('GPT Image 2 requires billing consent when no free allowance is available', () => {
     const decision = buildGeneratedImageBillingDecision({
-        dateUtc: '2026-04-18',
-        model: 'gpt-image-1.5',
+        dateUtc: '2026-04-22',
+        model: 'gpt-image-2',
         quality: 'medium',
         imageCount: 1,
         freeOutputImagesUsed: 0,
@@ -28,28 +28,30 @@ test('GPT image stays disabled even though pricing is known', () => {
     });
 
     assert.equal(decision.allowed, false);
-    assert.equal(decision.reason, 'MODEL_DISABLED');
+    assert.equal(decision.reason, 'BILLING_CONSENT_REQUIRED');
     assert.equal(decision.freeOutputImageLimit, 0);
-    assert.equal(decision.providerModel, 'gpt-image-1.5');
-    assert.equal(decision.billedImageCount, 0);
-    assert.equal(decision.pricePerOutputImageUsd, 0.034);
-    assert.equal(decision.usdCost, 0);
+    assert.equal(decision.providerModel, 'gpt-image-2');
+    assert.equal(decision.billedImageCount, 1);
+    assert.equal(decision.pricePerOutputImageUsd, 0.053);
+    assert.equal(decision.usdCost, 0.053);
 });
 
-test('GPT image high quality keeps the documented future price while disabled', () => {
+test('GPT Image 2 high quality is billable when billing consent is active', () => {
     const decision = buildGeneratedImageBillingDecision({
-        dateUtc: '2026-04-18',
-        model: 'gpt-image-1.5',
+        dateUtc: '2026-04-22',
+        model: 'gpt-image-2',
         quality: 'high',
         imageCount: 1,
         freeOutputImagesUsed: 0,
         hasBillingConsent: true,
     });
 
-    assert.equal(decision.allowed, false);
-    assert.equal(decision.reason, 'MODEL_DISABLED');
-    assert.equal(decision.pricePerOutputImageUsd, 0.133);
-    assert.equal(decision.usdCost, 0);
+    assert.equal(decision.allowed, true);
+    assert.equal(decision.reason, undefined);
+    assert.equal(decision.freeImageCount, 0);
+    assert.equal(decision.billedImageCount, 1);
+    assert.equal(decision.pricePerOutputImageUsd, 0.211);
+    assert.equal(decision.usdCost, 0.211);
 });
 
 test('GPT Image 1 Mini uses generated-image free allowance before billing', () => {
@@ -189,10 +191,10 @@ test('Grok pro remains disabled even though pricing is known', () => {
 
 test('generated image preference normalization rejects disabled models', () => {
     assert.deepEqual(
-        normalizeGeneratedImagePreference('gpt-image-1.5', 'high'),
+        normalizeGeneratedImagePreference('gpt-image-2', 'high'),
         {
-            model: null,
-            quality: null,
+            model: 'gpt-image-2',
+            quality: 'high',
         },
     );
     assert.deepEqual(
@@ -214,13 +216,13 @@ test('generated image preference normalization rejects disabled models', () => {
 test('available generated image preference falls through disabled candidates to the first enabled model', () => {
     assert.deepEqual(
         resolveAvailableGeneratedImagePreference([
-            { model: 'gpt-image-1.5', quality: 'high' },
+            { model: 'gpt-image-2', quality: 'high' },
             { model: 'gpt-image-1-mini', quality: 'high' },
             { model: 'grok-imagine-image-pro', quality: 'pro' },
             { model: 'grok-imagine-image', quality: 'normal' },
         ]),
         {
-            model: 'gpt-image-1-mini',
+            model: 'gpt-image-2',
             quality: 'high',
         },
     );

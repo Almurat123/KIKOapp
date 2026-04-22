@@ -60,26 +60,14 @@ export function getUtcDateString(date: Date = new Date()): string {
 
 export function normalizeModelForPricing(model: string): string {
     if (!model) return '';
-    const lower = model.toLowerCase();
-    if (
-        lower === 'glm-5-reasoning'
-        || lower === 'glm5-reasoning'
-        || lower === 'z-ai/glm5-reasoning'
-        || lower === 'z-ai/glm-5-reasoning'
-        || lower === 'glm5'
-        || lower === 'z-ai/glm5'
-        || lower === 'z-ai/glm-5'
-    ) {
-        return 'glm-5';
-    }
-    return lower;
+    return model.toLowerCase();
 }
 
 export function getBillingCategory(model: string): BillingCategory {
     const normalized = normalizeModelForPricing(model);
 
     if (env.billing.freeModels.includes(normalized)) return 'free';
-    if (normalized.includes('kimi') || normalized.includes('glm') || normalized.includes('moonshotai/') || normalized.includes('z-ai/')) return 'free';
+    if (normalized.includes('kimi') || normalized.includes('moonshotai/')) return 'free';
     if (env.billing.premiumModels.includes(normalized)) return 'premium';
     if (normalized.includes('grok')) return 'premium';
     if (normalized.startsWith('gpt') || normalized.startsWith('o1') || normalized.startsWith('o3') || normalized.startsWith('o4')) return 'premium';

@@ -42,6 +42,14 @@
 //         image skill package is absent from the runtime skill registry; when
 //         the actual image tool exists in the tool registry, it must remain
 //         visible after the main model selects image_generation.
+//         NVIDIA free-model professional intent matrix on 2026-04-22 showed
+//         specialist intents such as Zora, market macro, and token alerts must
+//         not collapse into a general_answer envelope after the model selects
+//         them, or context-read tools can be under-exposed.
+//         Operator correction on 2026-04-22 clarified that reference/edit
+//         wording is itself an image-generation scenario in KiKo when the user
+//         wants an output image; the model should not demote those turns to
+//         prompt-only text just because exact pixel editing may be unavailable.
 // Goal: keep skill resolution aligned with the actual user task so Clanker
 //       launch requests surface the deploy skill, while onboarding/meta turns
 //       still stay lean.
@@ -79,6 +87,10 @@
 // - A model-selected image_generation turn must expose generate_image_from_intent
 //   whenever that tool is present in the runtime tool registry, even if the
 //   optional image skill prompt package failed to load.
+// - Model-selected specialist intents must keep a specialist primary intent
+//   envelope so context reads do not accidentally use the lean general-answer path.
+// - Reference/edit/restyle requests should be framed to the model as generated
+//   image execution requests when the user wants an output image.
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/test.txt
 // - Kind: runtime observation
@@ -141,7 +153,7 @@
 // - Retrieved: 2026-04-20
 // - Applied To: restoring intent-package tool exposure after model-selected task routing
 // - Verification: verified in runtime and targeted tests
-// - Source: OpenAI GPT-image-1.5 Prompting Guide
+// - Source: OpenAI GPT Image Generation Models Prompting Guide
 // - Kind: official API doc
 // - Retrieved: 2026-04-19
 // - Applied To: ordering a dedicated prompt-guidance skill alongside the execution skill for image work
@@ -166,6 +178,12 @@
 // - Retrieved: 2026-04-20
 // - Applied To: swap strategy notes and template-first execution guidance
 // - Verification: inferred from prompt design and targeted tests
+// - Source: operator correction on 2026-04-22 that reference/edit scenarios are
+//   image-generation scenarios
+// - Kind: product instruction
+// - Retrieved: 2026-04-22
+// - Applied To: image-generation strategy notes for reference/edit/restyle wording
+// - Verification: inferred from targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/image-prompt-guidance.md
@@ -416,7 +434,8 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const hasRequestedToken = querySignals.hasRequestedToken;
     const requiresSocialChainEvidence = querySignals.socialChainEvidence;
     if (normalizedIntent?.intent === 'image_generation') {
-        strategyNotes.push('This turn has image-generation signals. Decide from the latest user wording whether they want an image generated now or only prompt/advice text; call generate_image_from_intent only when the visual execution request is clear enough.');
+        strategyNotes.push('The model-selected package exposes image-generation tools. Decide from the latest user wording and media context whether they want an image generated now or only prompt/advice text; call generate_image_from_intent only when the visual execution request is clear enough.');
+        strategyNotes.push('Reference-image, edit, restyle, redraw, replace, put/place, and remix wording still means image generation when the user wants an output image. If source-image context is available, use it through the image tool; if exact pixel editing is unavailable, summarize the reference/edit direction into a new generated-image request instead of answering with prompt-only text.');
         strategyNotes.push('If generating, do not ask for a second confirmation. If a truly critical visual field is missing, ask one precise clarification instead of calling the tool.');
         strategyNotes.push('If prompt structure is still weak before generation, call read_skill_prompts first so the request follows the OpenAI-aligned image prompting playbook.');
         strategyNotes.push('When generate_image_from_intent is visible and the user is asking to generate or edit an image now, do not answer with a packaged prompt draft in assistant text. Call the tool and let it package the optimized prompt for the image model.');
@@ -881,6 +900,11 @@ function buildIntentEnvelope(params: {
                     return canonicalIntent.domain === 'x' || canonicalIntent.domain === 'farcaster'
                         ? 'social_discovery' as const
                         : 'search_discovery' as const;
+                case 'zora_discovery':
+                case 'market_macro':
+                    return 'search_discovery' as const;
+                case 'token_alerts':
+                    return 'token_analysis' as const;
                 default:
                     return 'general_answer' as const;
             }

@@ -1,0 +1,51 @@
+{
+  "ok": false,
+  "models": [
+    "kimi-k2-5-instant"
+  ],
+  "scenarioCount": 16,
+  "executed": 1,
+  "passed": 0,
+  "blocked": 0,
+  "failed": 1,
+  "concurrency": 1,
+  "requestTimeoutMs": 45000,
+  "results": [
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "copy_trade",
+      "targetTool": "list_copy_trade_configs",
+      "status": "FAIL",
+      "errorCategory": "model_or_tool",
+      "selectedTool": "list_copy_trade_configs",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop->repair:stop",
+      "providerRequestIds": [
+        "chatcmpl-9cc15165e3bb6023",
+        "chatcmpl-9cbde7ec7f15ed49",
+        "chatcmpl-98f70a5a53996e0e"
+      ],
+      "errors": [
+        "final_answer_empty_after_tool_result",
+        "tool_result_marker_in_reasoning_only marker=TOOL_RESULT_OK_copy_trade_kimi_k2_5_instant"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": true
+    }
+  ],
+  "failures": [
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "copy_trade",
+      "targetTool": "list_copy_trade_configs",
+      "selectedTool": "list_copy_trade_configs",
+      "errorCategory": "model_or_tool",
+      "errors": [
+        "final_answer_empty_after_tool_result",
+        "tool_result_marker_in_reasoning_only marker=TOOL_RESULT_OK_copy_trade_kimi_k2_5_instant"
+      ],
+      "finalExcerpt": ""
+    }
+  ],
+  "blockedByRateLimit": []
+}

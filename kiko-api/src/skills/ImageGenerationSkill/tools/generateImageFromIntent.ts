@@ -14,6 +14,7 @@ import {
     optimizeGeneratedImagePrompt,
     type GeneratedImageIntentInput,
 } from '../../../services/generatedImagePromptOptimizer.js';
+import { refineGeneratedImagePromptWithOpenAi } from '../../../services/generatedImagePromptRefiner.js';
 import { resolveAvailableGeneratedImagePreference } from '../../../services/generatedImageBilling.js';
 import {
     supportsGeneratedImageReferenceInputModel,
@@ -62,6 +63,12 @@ import {
 //   selecting a disabled provider. Farcaster ingress is model-led again: it may
 //   carry saved image-model preferences in tool context, but the text model
 //   still decides whether this tool is called.
+// - current task images are real reference/edit inputs, not just prompt
+//   decoration; when present they must be passed into generated-image execution
+//   so the OpenAI provider can use the edits endpoint with image references.
+// - after deterministic prompt compilation, an optional GPT refiner may rewrite
+//   the provider prompt into a final OpenAI image prompt. Refiner failure must
+//   fall back to the deterministic prompt so image execution still proceeds.
 // Document Provenance:
 // - Source: operator requirement on 2026-04-18 for model-owned image generation inside main chat
 // - Kind: product doc
@@ -105,6 +112,17 @@ import {
 // - Applied To: reading generatedImagePreference from tool context before
 //   falling back to GPT Image 1 Mini
 // - Verification: verified in targeted tests
+// - Source: OpenAI Image generation guide and openai-imagegen-demo
+// - Kind: official API doc and official demo
+// - Retrieved: 2026-04-22
+// - Applied To: treating attached/reference images as image edit/reference
+//   inputs for generated-image execution, not as prompt-only text context
+// - Verification: verified in targeted tests
+// - Source: operator request on 2026-04-22 for a GPT second-pass image prompt optimizer
+// - Kind: product instruction
+// - Retrieved: 2026-04-22
+// - Applied To: optional GPT prompt-refinement pass before image provider execution
+// - Verification: verified in targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/generated-image-safety.md
@@ -147,13 +165,13 @@ function resolveGeneratedImageSource(context?: Record<string, any>, snapshot?: a
     return 'chat-v2-tool';
 }
 
-function pickDefaultGeneratedImageModel(_taskModel?: string | null): 'gpt-image-1-mini' | 'grok-imagine-image' {
+function pickDefaultGeneratedImageModel(_taskModel?: string | null): 'gpt-image-1-mini' | 'gpt-image-2' | 'grok-imagine-image' {
     const resolved = resolveAvailableGeneratedImagePreference([
         { model: 'gpt-image-1-mini' },
         { model: 'grok-imagine-image' },
-        { model: 'gpt-image-1.5' },
+        { model: 'gpt-image-2' },
     ]);
-    return (resolved.model || 'gpt-image-1-mini') as 'gpt-image-1-mini' | 'grok-imagine-image';
+    return (resolved.model || 'gpt-image-1-mini') as 'gpt-image-1-mini' | 'gpt-image-2' | 'grok-imagine-image';
 }
 
 function resolveGeneratedImageToolPreference(context?: Record<string, any>, taskModel?: string | null): {
@@ -187,7 +205,7 @@ function resolveGeneratedImageToolPreferenceWithOptions(
                 quality: generatedImagePreference.quality,
             },
             { model: 'gpt-image-1-mini' },
-            ...(hasReferenceInputs ? [{ model: 'gpt-image-1.5' }] : [{ model: 'grok-imagine-image' }, { model: 'gpt-image-1.5' }]),
+            ...(hasReferenceInputs ? [{ model: 'gpt-image-2' }] : [{ model: 'grok-imagine-image' }, { model: 'gpt-image-2' }]),
         ],
     );
     return {
@@ -222,16 +240,34 @@ function mergeImplicitTaskReferenceImages(
     ];
 }
 
+function buildProviderReferenceImages(
+    referenceImages: NonNullable<GeneratedImageIntentInput['reference_images']>,
+): GeneratedImageProviderInputImage[] {
+    return referenceImages
+        .map((item) => ({
+            url: String(item?.url || '').trim(),
+            sourceLabel: [
+                String(item?.description || '').trim(),
+                String(item?.purpose || '').trim(),
+            ].filter(Boolean).join(' | ') || null,
+        }))
+        .filter((item) => Boolean(item.url));
+}
+
 export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record<string, any>> = {
     definition: {
         name: 'generate_image_from_intent',
-        description: 'Generate a new image inside the current chat turn when the user is explicitly asking for an image, poster, cover, illustration, concept frame, or visual asset. First rewrite the idea into structured image direction, then call this tool directly. Do not use it for abstract prompt-writing advice or ordinary text discussion. If the request is still missing critical visual constraints, ask one precise clarification instead of calling the tool.',
+        description: 'Generate or edit an image inside the current chat turn when the user is explicitly asking for an image, poster, cover, illustration, concept frame, visual asset, reference-image generation, or image edit. First rewrite the idea into structured image direction, then call this tool directly. Do not use it for abstract prompt-writing advice or ordinary text discussion. If the request is still missing critical visual constraints, ask one precise clarification instead of calling the tool.',
         parameters: {
             type: 'object',
             properties: {
                 user_intent: {
                     type: 'string',
                     description: 'The user-visible goal for the image in plain language.',
+                },
+                artifact_type: {
+                    type: 'string',
+                    description: 'OpenAI-style deliverable or use case, such as ad creative, UI mockup, infographic, product photo, poster, logo, comic panel, or image edit.',
                 },
                 style_hint: {
                     type: 'string',
@@ -243,7 +279,7 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
                 },
                 reference_images: {
                     type: 'array',
-                    description: 'Optional future-facing reference list. Do not rely on this for true image editing yet.',
+                    description: 'Optional reference images for edit/reference workflows. Current task uploads are automatically included when available; pass explicit URLs only when the user provided extra references.',
                     items: {
                         type: 'object',
                         properties: {
@@ -260,7 +296,7 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
                 },
                 edit_or_generate: {
                     type: 'string',
-                    description: 'Use generate for new images. Keep edit reserved for future flows.',
+                    description: 'Use edit when source/reference images should guide the output; use generate when creating without source images.',
                     enum: ['generate', 'edit'],
                 },
                 subject: {
@@ -270,6 +306,10 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
                 scene: {
                     type: 'string',
                     description: 'Optimized environment or scene description.',
+                },
+                key_details: {
+                    type: 'string',
+                    description: 'Concrete materials, textures, objects, identity details, brand details, or real-world cues that materially improve the image.',
                 },
                 composition: {
                     type: 'string',
@@ -286,6 +326,27 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
                 camera: {
                     type: 'string',
                     description: 'Optimized camera or framing direction.',
+                },
+                change_request: {
+                    type: 'string',
+                    description: 'For edits/reference workflows, the exact thing to change or create from the source images.',
+                },
+                preserve_elements: {
+                    type: 'array',
+                    description: 'For edits/reference workflows, explicit invariants to preserve such as identity, pose, layout, background, geometry, lighting, camera angle, label text, or brand elements.',
+                    items: { type: 'string' },
+                },
+                exact_text: {
+                    type: 'string',
+                    description: 'Exact text that must appear in the image, quoted verbatim in the provider prompt.',
+                },
+                text_placement: {
+                    type: 'string',
+                    description: 'Where exact text should appear and how often it should appear.',
+                },
+                typography: {
+                    type: 'string',
+                    description: 'Typography direction for exact in-image text, such as bold sans-serif, centered, high contrast, clean kerning.',
                 },
                 constraints: {
                     type: 'array',
@@ -317,23 +378,18 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
                 sourceLabel: image.sourceLabel,
             })),
         );
-        const explicitProviderReferenceImages: GeneratedImageProviderInputImage[] = Array.isArray(args.reference_images)
-            ? args.reference_images
-                .map((item) => ({
-                    url: String(item?.url || '').trim(),
-                    sourceLabel: [
-                        String(item?.description || '').trim(),
-                        String(item?.purpose || '').trim(),
-                    ].filter(Boolean).join(' | ') || null,
-                }))
-                .filter((item) => Boolean(item.url))
-            : [];
+        const providerReferenceImages = buildProviderReferenceImages(mergedReferenceImages);
         const normalizedArgs = normalizeGeneratedImageIntentInput({
             ...args,
             reference_images: mergedReferenceImages,
         });
-        const hasReferenceInputs = mergedReferenceImages.length > 0;
+        const hasReferenceInputs = providerReferenceImages.length > 0;
         const optimized = optimizeGeneratedImagePrompt(normalizedArgs);
+        const refinedPrompt = await refineGeneratedImagePromptWithOpenAi({
+            userIntent: String(normalizedArgs.user_intent || '').trim(),
+            draftProviderPrompt: optimized.providerPrompt,
+            spec: optimized.spec,
+        });
         const imagePreference = resolveGeneratedImageToolPreferenceWithOptions(context, taskModel, {
             hasReferenceInputs,
         });
@@ -342,7 +398,7 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
         const pendingGeneratedImage = buildGeneratedImagePendingData({
             requestedModel,
             quality: requestedQuality,
-            prompt: optimized.providerPrompt,
+            prompt: refinedPrompt.prompt,
         });
 
         const existingTask = await chatRepo.getTask(taskId);
@@ -354,14 +410,26 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
                 userIntent: String(normalizedArgs.user_intent || '').trim(),
                 referenceImageCount: mergedReferenceImages.length,
                 optimizedPromptSummary: optimized.optimizedPromptSummary,
+                promptRefiner: {
+                    model: refinedPrompt.model,
+                    usedRefiner: refinedPrompt.usedRefiner,
+                    errorMessage: refinedPrompt.errorMessage || null,
+                },
                 promptOptimizer: {
+                    artifactType: optimized.spec.artifactType,
                     aspectRatio: optimized.spec.aspectRatio,
                     subject: optimized.spec.subject,
                     scene: optimized.spec.scene,
+                    keyDetails: optimized.spec.keyDetails,
                     composition: optimized.spec.composition,
                     style: optimized.spec.style,
                     lighting: optimized.spec.lighting,
                     camera: optimized.spec.camera,
+                    changeRequest: optimized.spec.changeRequest,
+                    preserveElements: optimized.spec.preserveElements,
+                    exactText: optimized.spec.exactText,
+                    textPlacement: optimized.spec.textPlacement,
+                    typography: optimized.spec.typography,
                     safetyLevel: optimized.spec.safetyLevel,
                 },
             },
@@ -407,8 +475,8 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
             assistantMessageId,
             requestedModel,
             quality: requestedQuality,
-            prompt: optimized.providerPrompt,
-            referenceImages: explicitProviderReferenceImages,
+            prompt: refinedPrompt.prompt,
+            referenceImages: providerReferenceImages,
             source,
         });
 
@@ -417,6 +485,11 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
             assistantMessageId,
             taskId,
             optimizedPromptSummary: optimized.optimizedPromptSummary,
+            promptRefiner: {
+                usedRefiner: refinedPrompt.usedRefiner,
+                model: refinedPrompt.model,
+                errorMessage: refinedPrompt.errorMessage || null,
+            },
             images: execution.images,
             errorMessage: execution.errorMessage || null,
             handled_response: true,
@@ -431,4 +504,6 @@ export const __generateImageFromIntentTest = {
     pickDefaultGeneratedImageModel,
     resolveGeneratedImageToolPreference,
     resolveGeneratedImageToolPreferenceWithOptions,
+    mergeImplicitTaskReferenceImages,
+    buildProviderReferenceImages,
 };

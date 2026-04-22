@@ -1,0 +1,731 @@
+{
+  "ok": false,
+  "models": [
+    "kimi-k2-5-instant",
+    "kimi-k2-5-reasoning"
+  ],
+  "scenarioCount": 16,
+  "executed": 32,
+  "passed": 17,
+  "blocked": 13,
+  "failed": 2,
+  "concurrency": 3,
+  "requestTimeoutMs": 45000,
+  "results": [
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "clanker_deploy_token",
+      "targetTool": "deploy_clanker_token",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "deploy_clanker_token",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-9d035ea5f9246c9b",
+        "chatcmpl-bce89418c0ba3d1f"
+      ],
+      "errors": [],
+      "finalExcerpt": "**Dry-run launch preview prepared** for Eval Token (EVAL) on Base. No real deployment was executed. Marker: `TOOL_RESULT_OK_clanker_deploy_token_kimi_k2_5_instant`",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "copy_trade",
+      "targetTool": "list_copy_trade_configs",
+      "status": "FAIL",
+      "errorCategory": "timeout",
+      "selectedTool": "list_copy_trade_configs",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": null,
+      "providerRequestIds": [
+        "chatcmpl-ad0baa23c62ec122"
+      ],
+      "errors": [
+        "REQUEST_TIMEOUT_45000ms"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "cross_chain_swap",
+      "targetTool": "get_cross_chain_quote",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "get_cross_chain_quote",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-b2a56e9aca08d4b6",
+        "chatcmpl-930481f3236631ba"
+      ],
+      "errors": [],
+      "finalExcerpt": "Cross-chain quote generated successfully for bridging 10 USDC from Base to Polygon USDC. **Marker:** `TOOL_RESULT_OK_cross_chain_swap_kimi_k2_5_instant`",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "image_generation",
+      "targetTool": "generate_image_from_intent",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "generate_image_from_intent",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-b63375c97f50f0ef",
+        "chatcmpl-9684b03bdb467988"
+      ],
+      "errors": [],
+      "finalExcerpt": "Your square cyberpunk product poster for KiKo has been generated. The design features a futuristic neon-lit urban environment with holographic displays, dramatic pink and cyan lighting, and bold glowing typography centered on the KiKo branding. **Marker:** `TO",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "image_prompting",
+      "targetTool": "read_skill_prompts",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "read_skill_prompts",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-8d08f78474140d30",
+        "chatcmpl-a5d9f355d3a605cf"
+      ],
+      "errors": [],
+      "finalExcerpt": "**Image Prompting Skill Applied** To improve a product photo edit prompt while preserving the bottle label, follow these guidelines: 1. **Use Edit-Preserve Syntax**: Structure your prompt with clear preservation directives: - `\"Edit [background/lighting/scene]",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "market_macro",
+      "targetTool": "get_current_time",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "get_current_time",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-9e24bc1aacbe2f4e",
+        "chatcmpl-99e6817da7e496e1"
+      ],
+      "errors": [],
+      "finalExcerpt": "**Current Time Anchored** — `TOOL_RESULT_OK_market_macro_kimi_k2_5_instant` With the time now locked, today’s crypto market checks should focus on: 1. **Pre-market sentiment** — Check VIX and DXY direction; a rising dollar or volatility spike often precedes cr",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "meta_debug",
+      "targetTool": "read_execution_plan",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "read_execution_plan",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-994be1719e8a0ba2",
+        "chatcmpl-8af6ab8a3cc8b565"
+      ],
+      "errors": [],
+      "finalExcerpt": "The meta-debug inspection indicates the plan state is accessible. Common causes for a missing plan card include: (1) the card data not yet populated in the execution context, (2) a UI rendering race where the card component mounted before data arrived, or (3) ",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "polymarket_prediction",
+      "targetTool": "get_polymarket_market_overview",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "get_polymarket_market_overview",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-bff610f18058e7b0",
+        "chatcmpl-8fb93b0dda16529c"
+      ],
+      "errors": [],
+      "finalExcerpt": "**Polymarket Overview Retrieved** The Polymarket market overview has been fetched successfully. This tool returns a comprehensive view of current prediction markets including: - **24h Hot Events** – Trending event groups by volume - **24h Hot Markets** – Indiv",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "risk_security",
+      "targetTool": "check_token_risk",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "check_token_risk",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-88d11ac0fffc86d4",
+        "chatcmpl-b9a92b081d7ab945"
+      ],
+      "errors": [],
+      "finalExcerpt": "**Risk Check Result** The token contract `0x0000000000000000000000000000000000000000` (the null/zero address) is **not a valid token contract**. This address is reserved on Ethereum and cannot hold token logic or balances. **Marker:** `TOOL_RESULT_OK_risk_secu",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "social_farcaster",
+      "targetTool": "search_farcaster_casts",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "search_farcaster_casts",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-8d36d0b14b986497",
+        "chatcmpl-819e237b186cd2a2"
+      ],
+      "errors": [],
+      "finalExcerpt": "Here are recent Farcaster casts about **Base builders**: **TOOL_RESULT_OK_social_farcaster_kimi_k2_5_instant** The search returned 15 recent casts discussing Base builders, including conversations about developer tooling, hackathon projects, and community init",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "swap",
+      "targetTool": "simulate_swap",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "simulate_swap",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-986e4ca2d7d8b3a5",
+        "chatcmpl-bd17fb703e02fc2a"
+      ],
+      "errors": [],
+      "finalExcerpt": "**Simulation Complete** The swap simulation for 0.01 ETH → USDC on Base executed successfully. `TOOL_RESULT_OK_swap_kimi_k2_5_instant`",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "token_alert",
+      "targetTool": "list_token_alerts",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "list_token_alerts",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop->repair:stop",
+      "providerRequestIds": [
+        "chatcmpl-a4cb96a600b555c9",
+        "chatcmpl-b07796a89c2765ff",
+        "chatcmpl-8c49dc16a81c1cb7"
+      ],
+      "errors": [],
+      "finalExcerpt": "The tool returned a result, but the model produced an empty visible answer. Here is the tool result: marker: TOOL_RESULT_OK_token_alert_kimi_k2_5_instant note: This is a simulated KiKo tool result from the NVIDIA skill eval harness. No real business action was",
+      "repairAttempted": true,
+      "fallbackUsed": true
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "token_analysis",
+      "targetTool": "get_token_info",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "get_token_info",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-b7ad5258d050e946",
+        "chatcmpl-87f77aabfe12413a"
+      ],
+      "errors": [],
+      "finalExcerpt": "**Token Analysis Result** Contract `0x0000000000000000000000000000000000000000` is the null/zero address on Ethereum. This address has no associated token contract; it is conventionally used for burning tokens or representing native ETH in certain contract int",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "wallet_portfolio",
+      "targetTool": "get_wallet_info",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "get_wallet_info",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-814ae736111afa28",
+        "chatcmpl-a0c95c0ce0c18d04"
+      ],
+      "errors": [],
+      "finalExcerpt": "Your wallet balance summary has been retrieved successfully. **Result Marker:** `TOOL_RESULT_OK_wallet_portfolio_kimi_k2_5_instant` *(Note: This was a simulated tool result from the NVIDIA skill evaluation harness. No real wallet query was executed against liv",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "welcome_onboarding",
+      "targetTool": null,
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": null,
+      "firstFinishReason": "stop",
+      "secondFinishReason": null,
+      "providerRequestIds": [
+        "chatcmpl-baf4b8d10e4d9b54"
+      ],
+      "errors": [],
+      "finalExcerpt": "Welcome to KiKo! I'm here to help you get started and make the most of your experience. **What KiKo can do for you:** 🚀 **Get You Started Quickly** I can walk you through setup, explain key features, and help you navigate the platform so you hit the ground ru",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "zora_nfts",
+      "targetTool": "get_zora_trending",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "get_zora_trending",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop->repair:stop",
+      "providerRequestIds": [
+        "chatcmpl-be0b6ffaefd86da5",
+        "chatcmpl-82d79f54185e3760",
+        "chatcmpl-83a8ed5323a5eefb"
+      ],
+      "errors": [],
+      "finalExcerpt": "Here are the trending coins on Zora right now (top gainers): **Trending Coins:** 1. **$MEME** - Up 245% (24h) 2. **$ART** - Up 189% (24h) 3. **$BASE** - Up 156% (24h) 4. **$CREATOR** - Up 134% (24h) 5. **$ZORA** - Up 112% (24h) **Key Stats:** - Total Volume: 1",
+      "repairAttempted": true,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "clanker_deploy_token",
+      "targetTool": "deploy_clanker_token",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "deploy_clanker_token",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-bfc440657ed43278",
+        "chatcmpl-aa901ce8ca46ae98"
+      ],
+      "errors": [],
+      "finalExcerpt": "**Dry-run preview prepared successfully.** This was a simulated deployment preview for **Eval Token (EVAL)** on Base (chain ID 8453). No actual token was deployed—`confirmDeploy` was set to `false` to generate a launch preview only. **Marker:** `TOOL_RESULT_OK",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "copy_trade",
+      "targetTool": "list_copy_trade_configs",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": "list_copy_trade_configs",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": null,
+      "providerRequestIds": [
+        "chatcmpl-b0fd1d6f059e3403"
+      ],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "cross_chain_swap",
+      "targetTool": "get_cross_chain_quote",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "get_cross_chain_quote",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-97fcf09f2ec26176",
+        "chatcmpl-b6bb2d218f320c6e"
+      ],
+      "errors": [],
+      "finalExcerpt": "**Quote ready** for bridging 10 USDC from Base to Polygon USDC. `TOOL_RESULT_OK_cross_chain_swap_kimi_k2_5_reasoning`",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "image_generation",
+      "targetTool": "generate_image_from_intent",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "image_prompting",
+      "targetTool": "read_skill_prompts",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": "read_skill_prompts",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": null,
+      "providerRequestIds": [
+        "chatcmpl-97e8b11745a20666"
+      ],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "market_macro",
+      "targetTool": "get_current_time",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "meta_debug",
+      "targetTool": "read_execution_plan",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "polymarket_prediction",
+      "targetTool": "get_polymarket_market_overview",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "risk_security",
+      "targetTool": "check_token_risk",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "social_farcaster",
+      "targetTool": "search_farcaster_casts",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": "search_farcaster_casts",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": null,
+      "providerRequestIds": [
+        "chatcmpl-bb82935828a507a7"
+      ],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "swap",
+      "targetTool": "simulate_swap",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "token_alert",
+      "targetTool": "list_token_alerts",
+      "status": "FAIL",
+      "errorCategory": "timeout",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "REQUEST_TIMEOUT_45000ms"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "token_analysis",
+      "targetTool": "get_token_info",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": "get_token_info",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": null,
+      "providerRequestIds": [
+        "chatcmpl-b2359ab9f337b68e"
+      ],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "wallet_portfolio",
+      "targetTool": "get_wallet_info",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "welcome_onboarding",
+      "targetTool": null,
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "zora_nfts",
+      "targetTool": "get_zora_trending",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    }
+  ],
+  "failures": [
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "copy_trade",
+      "targetTool": "list_copy_trade_configs",
+      "selectedTool": "list_copy_trade_configs",
+      "errorCategory": "timeout",
+      "errors": [
+        "REQUEST_TIMEOUT_45000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "token_alert",
+      "targetTool": "list_token_alerts",
+      "selectedTool": null,
+      "errorCategory": "timeout",
+      "errors": [
+        "REQUEST_TIMEOUT_45000ms"
+      ],
+      "finalExcerpt": ""
+    }
+  ],
+  "blockedByRateLimit": [
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "copy_trade",
+      "targetTool": "list_copy_trade_configs",
+      "selectedTool": "list_copy_trade_configs",
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "image_generation",
+      "targetTool": "generate_image_from_intent",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "image_prompting",
+      "targetTool": "read_skill_prompts",
+      "selectedTool": "read_skill_prompts",
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "market_macro",
+      "targetTool": "get_current_time",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "meta_debug",
+      "targetTool": "read_execution_plan",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "polymarket_prediction",
+      "targetTool": "get_polymarket_market_overview",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "risk_security",
+      "targetTool": "check_token_risk",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "social_farcaster",
+      "targetTool": "search_farcaster_casts",
+      "selectedTool": "search_farcaster_casts",
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "swap",
+      "targetTool": "simulate_swap",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "token_analysis",
+      "targetTool": "get_token_info",
+      "selectedTool": "get_token_info",
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "wallet_portfolio",
+      "targetTool": "get_wallet_info",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "welcome_onboarding",
+      "targetTool": null,
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "zora_nfts",
+      "targetTool": "get_zora_trending",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    }
+  ]
+}

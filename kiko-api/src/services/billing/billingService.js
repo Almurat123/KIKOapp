@@ -22,23 +22,13 @@ function getUtcDateString(date) {
 function normalizeModelForPricing(model) {
     if (!model)
         return '';
-    var lower = model.toLowerCase();
-    if (lower === 'glm-5-reasoning'
-        || lower === 'glm5-reasoning'
-        || lower === 'z-ai/glm5-reasoning'
-        || lower === 'z-ai/glm-5-reasoning'
-        || lower === 'glm5'
-        || lower === 'z-ai/glm5'
-        || lower === 'z-ai/glm-5') {
-        return 'glm-5';
-    }
-    return lower;
+    return model.toLowerCase();
 }
 function getBillingCategory(model) {
     var normalized = normalizeModelForPricing(model);
     if (env_js_1.env.billing.freeModels.includes(normalized))
         return 'free';
-    if (normalized.includes('kimi') || normalized.includes('glm') || normalized.includes('moonshotai/') || normalized.includes('z-ai/'))
+    if (normalized.includes('kimi') || normalized.includes('moonshotai/'))
         return 'free';
     if (env_js_1.env.billing.premiumModels.includes(normalized))
         return 'premium';

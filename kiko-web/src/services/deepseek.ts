@@ -99,7 +99,6 @@ const RETRY_DELAY = 1000; // 1 second
  * Map frontend model ID to model name
  * 
  * Current mapping:
- * - glm-5: NVIDIA-hosted GLM reasoning model
  * - kimi-k2-5-reasoning/kimi-k2-5-instant: NVIDIA-hosted Kimi modes
  * - gpt-5.4-mini-2026-03-17: OpenAI GPT-5.4-mini
  * 
@@ -109,7 +108,7 @@ const RETRY_DELAY = 1000; // 1 second
  */
 export function getModelName(modelId?: string, mode?: string): string {
   if (modelId) return modelId;
-  if (mode === 'thinking') return 'glm-5';
+  if (mode === 'thinking') return 'kimi-k2-5-reasoning';
   return DEFAULT_MODEL;
 }
 
@@ -117,7 +116,7 @@ export function getModelName(modelId?: string, mode?: string): string {
  * Get recommended max_tokens based on model type
  */
 export function getRecommendedMaxTokens(modelName: string): number {
-  if (modelName === 'glm-5' || modelName === 'kimi-k2-5-reasoning') {
+  if (modelName === 'kimi-k2-5-reasoning') {
     return 32000;
   }
   if (modelName === 'kimi-k2-5-instant') {

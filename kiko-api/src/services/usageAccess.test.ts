@@ -13,7 +13,7 @@ function makeDecision(overrides: Partial<UsageDecision>): UsageDecision {
         premiumUsed: 0,
         premiumLimit: 8,
         modelCategory: 'free',
-        requestedModel: 'glm-5',
+        requestedModel: 'kimi-k2-5-instant',
         modelLimitSource: 'free_unlimited',
         ...overrides,
     };
@@ -69,10 +69,10 @@ test('isCurrentRequestFree returns false after premium shared quota is consumed'
     );
 });
 
-test('buildUsageDecision does not block GLM/Kimi free-model traffic when resolved free cap is disabled', () => {
+test('buildUsageDecision does not block Kimi free-model traffic when resolved free cap is disabled', () => {
     const decision = buildUsageDecision({
         usageLimitsEnabled: true,
-        model: 'glm-5',
+        model: 'kimi-k2-5-instant',
         dateUtc: '2026-04-16',
         counts: {
             total: 10_000,
@@ -91,7 +91,7 @@ test('buildUsageDecision does not block GLM/Kimi free-model traffic when resolve
     assert.equal(decision.modelLimitSource, 'free_unlimited');
 });
 
-test('buildUsageDecision enforces one shared free quota across GLM and Kimi when the holder tier sets a free cap', () => {
+test('buildUsageDecision enforces one shared free quota across Kimi modes when the holder tier sets a free cap', () => {
     const decision = buildUsageDecision({
         usageLimitsEnabled: true,
         model: 'kimi-k2-5-reasoning',
@@ -165,7 +165,7 @@ test('getUsageLimitMessage describes the shared premium quota', () => {
         premiumLimit: 8,
     }));
 
-    assert.equal(message, 'You have reached your daily premium model limit (8 messages). Please use GLM/Kimi or check back tomorrow.');
+    assert.equal(message, 'You have reached your daily premium model limit (8 messages). Please use Kimi or check back tomorrow.');
 });
 
 test('getUsageLimitMessage describes the shared free-model quota', () => {

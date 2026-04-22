@@ -69,6 +69,8 @@ from __future__ import annotations
 #   not log prompt text, image URLs, secrets, or full tool schemas.
 # - GPT-5.4 chat/completions with function tools must not include
 #   `reasoning_effort`; Responses API is the future path for tool+reasoning.
+# - Removed model ids should normalize to a surviving product model at the
+#   gateway boundary.
 # Document Provenance:
 # - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
 # - Kind: official API doc
@@ -195,7 +197,16 @@ OPENAI_TOOL_DESCRIPTION_WARN_LIMIT = 1024
 OPENAI_TOOL_LOG_SAMPLE_LIMIT = 12
 NVIDIA_KIMI_REASONING_TEMPERATURE = 0.6
 NVIDIA_KIMI_INSTANT_TEMPERATURE = 0.4
-NVIDIA_GLM_TEMPERATURE = 0.6
+REMOVED_NVIDIA_MODEL_ALIASES = {
+    "glm-5",
+    "glm5",
+    "z-ai/glm5",
+    "z-ai/glm-5",
+    "glm-5-reasoning",
+    "glm5-reasoning",
+    "z-ai/glm5-reasoning",
+    "z-ai/glm-5-reasoning",
+}
 STREAM_CONNECT_TIMEOUT_SEC = max(1.0, float(os.getenv("LLM_GATEWAY_STREAM_CONNECT_TIMEOUT_SEC", "8")))
 STREAM_READ_TIMEOUT_SEC = max(30.0, float(os.getenv("LLM_GATEWAY_STREAM_READ_TIMEOUT_SEC", "180")))
 STREAM_WRITE_TIMEOUT_SEC = max(5.0, float(os.getenv("LLM_GATEWAY_STREAM_WRITE_TIMEOUT_SEC", "20")))
@@ -307,13 +318,6 @@ def _summarize_openai_request_shape(body: dict[str, Any]) -> dict[str, Any]:
 
 def _resolve_nvidia_request_profile(model: str) -> tuple[str, float | None, dict[str, Any] | None]:
     normalized = _normalized_model(model)
-    glm_preserved_thinking = {
-        "chat_template_kwargs": {
-            "enable_thinking": True,
-            "clear_thinking": False,
-        }
-    }
-
     kimi_reasoning_aliases = {
         "kimi-k2-5",
         "kimi-k2-5-reasoning",
@@ -338,23 +342,12 @@ def _resolve_nvidia_request_profile(model: str) -> tuple[str, float | None, dict
         "moonshotai/kimi-k2.5-fast",
         "moonshotai/kimi-k2.5-instant",
     }
-    glm_aliases = {
-        "glm-5",
-        "glm5",
-        "z-ai/glm5",
-        "z-ai/glm-5",
-        "glm-5-reasoning",
-        "glm5-reasoning",
-        "z-ai/glm5-reasoning",
-        "z-ai/glm-5-reasoning",
-    }
-
     if normalized in kimi_reasoning_aliases:
         return "moonshotai/kimi-k2.5", NVIDIA_KIMI_REASONING_TEMPERATURE, None
     if normalized in kimi_instant_aliases:
         return "moonshotai/kimi-k2.5", NVIDIA_KIMI_INSTANT_TEMPERATURE, {"thinking": {"type": "disabled"}}
-    if normalized in glm_aliases:
-        return "z-ai/glm5", NVIDIA_GLM_TEMPERATURE, glm_preserved_thinking
+    if normalized in REMOVED_NVIDIA_MODEL_ALIASES:
+        raise ValueError(f"Removed NVIDIA model alias: {model}")
     return model, None, None
 
 
@@ -371,6 +364,7 @@ def _merge_extra_body_into_request_body(body: dict[str, Any], extra_body: dict[s
 
 def _build_nvidia_request_body(req: GenerateRequest) -> dict[str, Any]:
     resolved_model, resolved_temperature, extra_body = _resolve_nvidia_request_profile(req.model)
+    tools = req.tools or []
     body: dict[str, Any] = {
         "model": resolved_model,
         "messages": [m.model_dump(exclude_none=True) for m in req.messages],
@@ -378,8 +372,8 @@ def _build_nvidia_request_body(req: GenerateRequest) -> dict[str, Any]:
     }
     if resolved_temperature is not None:
         body["temperature"] = resolved_temperature
-    if req.tools:
-        body["tools"] = req.tools
+    if tools:
+        body["tools"] = tools
         body["tool_choice"] = "auto"
     _merge_extra_body_into_request_body(body, extra_body)
     return body
@@ -539,7 +533,15 @@ async def _stream_nvidia(req: GenerateRequest, provider: str):
         yield GatewayEvent(event_type="error", provider="nvidia", payload={"message": "NVIDIA_API_KEY missing"})
         return
 
-    body = _build_nvidia_request_body(req)
+    try:
+        body = _build_nvidia_request_body(req)
+    except ValueError as exc:
+        yield GatewayEvent(
+            event_type="error",
+            provider="nvidia",
+            payload={"message": str(exc), "code": "MODEL_REMOVED"},
+        )
+        return
 
     async for ev in _stream_sse(
         provider=provider,

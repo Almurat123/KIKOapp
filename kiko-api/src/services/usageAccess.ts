@@ -154,7 +154,7 @@ export function getUsageLimitMessage(decision: Pick<UsageDecision, 'reason' | 'f
         return `You have reached your daily free model limit (${decision.freeLimit} messages). Please use a premium model or check back tomorrow.`;
     }
     if (decision.reason === 'DAILY_PREMIUM_LIMIT_REACHED') {
-        return `You have reached your daily premium model limit (${decision.premiumLimit} messages). Please use GLM/Kimi or check back tomorrow.`;
+        return `You have reached your daily premium model limit (${decision.premiumLimit} messages). Please use Kimi or check back tomorrow.`;
     }
     return 'Daily premium model limit reached.';
 }

@@ -145,7 +145,8 @@ test("assembleGenerationMessages exposes context tools instead of pre-injecting 
   const content = String(userMessage?.content || "");
   const systemContent = String(systemMessage?.content || "");
   assert.match(systemContent, /\[MODEL_LED_TOOL_ORCHESTRATION\]/);
-  assert.match(systemContent, /Use the current intent and tool package to decide whether to answer directly or call tools/);
+  assert.match(systemContent, /You are the decision-maker for the current turn/);
+  assert.match(systemContent, /provisional intent\/tool package/);
   assert.doesNotMatch(systemContent, /\[WORKER_STATE_MACHINE\]/);
   assert.doesNotMatch(systemContent, /\[CONTEXT_TRIGGER_POLICY\]/);
   assert.match(systemContent, /\[ANSWER_QUALITY_CONTRACT\]/);
@@ -437,7 +438,8 @@ test("assembleGenerationMessages uses model-led tool orchestration prompt by def
     const userContent = String(messages.find((message) => message.role === "user")?.content || "");
 
     assert.match(systemContent, /\[MODEL_LED_TOOL_ORCHESTRATION\]/);
-    assert.match(systemContent, /Use the current intent and tool package to decide whether to answer directly or call tools/);
+    assert.match(systemContent, /You are the decision-maker for the current turn/);
+    assert.match(systemContent, /provisional intent\/tool package/);
     assert.match(systemContent, /call generate_image_from_intent directly/);
     assert.match(systemContent, /do not reply with a standalone optimized prompt draft/i);
     assert.doesNotMatch(systemContent, /\[WORKER_STATE_MACHINE\]/);
@@ -750,6 +752,14 @@ test("assembleGenerationMessages injects Farcaster agent mode prompt for public 
   assert.match(String(systemMessage?.content || ""), /FARCASTER_AGENT_MODE:/);
   assert.match(
     String(systemMessage?.content || ""),
+    /Farcaster @mention is only a transport trigger/i,
+  );
+  assert.match(
+    String(systemMessage?.content || ""),
+    /Infer the user's actual intent/i,
+  );
+  assert.match(
+    String(systemMessage?.content || ""),
     /short, direct, conversational answer/i,
   );
   assert.match(
@@ -906,11 +916,11 @@ test("assembleGenerationMessages emits multimodal current-turn content for Grok 
   assert.equal(content[1]?.image_url?.url, "https://example.com/x-image.png");
 });
 
-test("assembleGenerationMessages falls back to image URLs on NVIDIA GLM social-agent inputs", () => {
+test("assembleGenerationMessages emits multimodal current-turn content for NVIDIA reasoning social-agent inputs", () => {
   const snapshot: ChatContextSnapshot = {
     sessionId: "session-social-glm",
     taskId: "task-social-glm",
-    model: "glm-5",
+    model: "kimi-k2-5-reasoning",
     history: [],
     lastUserMessage: "what is happening in this cast",
     runtime: {
@@ -945,12 +955,11 @@ test("assembleGenerationMessages falls back to image URLs on NVIDIA GLM social-a
   const messages = assembleGenerationMessages(snapshot, [], providerInfo);
   const userMessage = messages.find((message) => message.role === "user");
 
-  assert.equal(typeof userMessage?.content, "string");
-  assert.match(String(userMessage?.content || ""), /\[SOCIAL_IMAGE_URLS\]/);
-  assert.match(
-    String(userMessage?.content || ""),
-    /https:\/\/example\.com\/cast-image\.png/,
-  );
+  const content = userMessage?.content as any[];
+  assert.ok(Array.isArray(content));
+  assert.equal(content[0]?.type, "text");
+  assert.equal(content[1]?.type, "image_url");
+  assert.equal(content[1]?.image_url?.url, "https://example.com/cast-image.png");
 });
 
 test("assembleGenerationMessages exposes requested address classifications through read_user_context instead of inline prompt text", () => {
@@ -1192,7 +1201,7 @@ test("assembleGenerationMessages tells non-native-search providers to use local 
   const snapshot: ChatContextSnapshot = {
     sessionId: "session-4",
     taskId: "task-4",
-    model: "glm-5",
+    model: "kimi-k2-5-reasoning",
     history: [],
     lastUserMessage:
       "Search X for 0x1111111111111111111111111111111111111111 around yesterday's announcement",
@@ -1254,7 +1263,7 @@ test("assembleGenerationMessages carries early-buyer evidence requirements throu
   const snapshot: ChatContextSnapshot = {
     sessionId: "session-5",
     taskId: "task-5",
-    model: "glm-5",
+    model: "kimi-k2-5-reasoning",
     history: [],
     lastUserMessage:
       "Find early buyers around 2026-03-10 12:00 UTC for 0xeCCBb861c0dda7eFd964010085488B69317e4444",
@@ -1552,7 +1561,7 @@ test("assembleGenerationMessages replays stored reasoning_content back to NVIDIA
   const snapshot: ChatContextSnapshot = {
     sessionId: "session-2",
     taskId: "task-2",
-    model: "glm-5",
+    model: "kimi-k2-5-reasoning",
     history: [
       {
         role: "assistant",
@@ -1596,7 +1605,7 @@ test("assembleGenerationMessages marks strategy notes and required context label
   const snapshot: ChatContextSnapshot = {
     sessionId: "session-internal-only",
     taskId: "task-internal-only",
-    model: "glm-5",
+    model: "kimi-k2-5-reasoning",
     history: [],
     lastUserMessage: "Deploy a Clanker token named TG with symbol TG",
     runtime: {

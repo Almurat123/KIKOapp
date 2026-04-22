@@ -15,9 +15,9 @@ import { getUtcDateString } from './billing/billingService.js';
 // Author: Rowan
 // Reason: generated-image billing must not reuse chat quota logic. Image
 //         generation has stricter anti-abuse requirements: the free allowance
-//         is per authenticated user per UTC day, GPT Image 1.5 remains
-//         temporarily disabled even though pricing is already known, unavailable
-//         variants must fail closed, and generated-image reservations must stay
+//         is per authenticated user per UTC day, GPT Image 2 now owns the
+//         paid high-quality OpenAI image tier,
+//         unavailable variants must fail closed, and generated-image reservations must stay
 //         bound to one server-owned request context so frontend state cannot mint
 //         free runs or replay a reservation across contexts. GPT Image Mini is
 //         now the default generated-image model and must share the same
@@ -57,21 +57,21 @@ import { getUtcDateString } from './billing/billingService.js';
 // - Retrieved: 2026-04-18
 // - Applied To: pro-mode price of `$n700000000` ticks per output image and temporary disable state
 // - Verification: verified in docs
-// - Source: OpenAI GPT Image 1.5 model page
+// - Source: OpenAI GPT Image 2 model page
 // - Kind: official API doc
-// - Retrieved: 2026-04-18
-// - Applied To: recognizing `gpt-image-1.5` as a paid image model with low / medium / high quality tiers
+// - Retrieved: 2026-04-22
+// - Applied To: recognizing `gpt-image-2` as the paid OpenAI image model with low / medium / high quality tiers
 // - Verification: verified in docs
 // - Source: OpenAI Image generation guide
 // - Kind: official API doc
-// - Retrieved: 2026-04-18
-// - Applied To: fixed 1024x1024 per-image pricing for GPT Image low / medium / high quality in current product UI
+// - Retrieved: 2026-04-22
+// - Applied To: fixed 1024x1024 per-image pricing for GPT Image 2 and GPT Image Mini in current product UI
 // - Verification: verified in docs
-// - Source: operator requirement on 2026-04-18
+// - Source: operator requirement on 2026-04-22
 // - Kind: product doc
-// - Retrieved: 2026-04-18
-// - Applied To: GPT Image 1.5 disabled, Grok normal daily free allowance,
-//   Grok Pro disabled, and consent-required paid fallback
+// - Retrieved: 2026-04-22
+// - Applied To: GPT Image 2 enabled as the paid OpenAI image tier, Grok normal
+//   daily free allowance, Grok Pro disabled, and consent-required paid fallback
 // - Verification: verified in code
 // - Source: operator correction on 2026-04-21
 // - Kind: product doc
@@ -99,9 +99,9 @@ import { getUtcDateString } from './billing/billingService.js';
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 const GENERATED_IMAGE_RESERVATION_LOCK_TTL_SECONDS = 8;
-const GPT_IMAGE_15_LOW_PRICE_USD_PER_OUTPUT = 0.009;
-const GPT_IMAGE_15_MEDIUM_PRICE_USD_PER_OUTPUT = 0.034;
-const GPT_IMAGE_15_HIGH_PRICE_USD_PER_OUTPUT = 0.133;
+const GPT_IMAGE_2_LOW_PRICE_USD_PER_OUTPUT = 0.006;
+const GPT_IMAGE_2_MEDIUM_PRICE_USD_PER_OUTPUT = 0.053;
+const GPT_IMAGE_2_HIGH_PRICE_USD_PER_OUTPUT = 0.211;
 const GPT_IMAGE_1_MINI_LOW_PRICE_USD_PER_OUTPUT = 0.005;
 const GPT_IMAGE_1_MINI_MEDIUM_PRICE_USD_PER_OUTPUT = 0.011;
 const GPT_IMAGE_1_MINI_HIGH_PRICE_USD_PER_OUTPUT = 0.036;
@@ -116,8 +116,8 @@ function getGeneratedImageFreeOutputsPerDay(): number {
 }
 
 export type GeneratedImageProvider = 'openai' | 'xai';
-export type GeneratedImageModelFamily = 'gpt-image-1.5' | 'gpt-image-1-mini' | 'grok-imagine-image';
-export type GeneratedImageProviderModel = 'gpt-image-1.5' | 'gpt-image-1-mini' | 'grok-imagine-image' | 'grok-imagine-image-pro';
+export type GeneratedImageModelFamily = 'gpt-image-2' | 'gpt-image-1-mini' | 'grok-imagine-image';
+export type GeneratedImageProviderModel = 'gpt-image-2' | 'gpt-image-1-mini' | 'grok-imagine-image' | 'grok-imagine-image-pro';
 export type GeneratedImageQuality = 'low' | 'medium' | 'high' | 'normal' | 'pro';
 export type GeneratedImageReservationStatus = 'reserved' | 'completed' | 'failed' | 'cancelled';
 export type GeneratedImageDecisionReason =
@@ -311,22 +311,22 @@ function normalizeGeneratedImageRequest(model: string, quality?: string | null):
         };
     }
 
-    if (requestedModel.startsWith('gpt-image-1.5')) {
+    if (requestedModel.startsWith('gpt-image-2')) {
         const normalizedGptQuality = normalizedQuality === 'low' || normalizedQuality === 'high'
             ? normalizedQuality
             : 'medium';
         const pricePerOutputImageUsd = normalizedGptQuality === 'low'
-            ? GPT_IMAGE_15_LOW_PRICE_USD_PER_OUTPUT
+            ? GPT_IMAGE_2_LOW_PRICE_USD_PER_OUTPUT
             : normalizedGptQuality === 'high'
-                ? GPT_IMAGE_15_HIGH_PRICE_USD_PER_OUTPUT
-                : GPT_IMAGE_15_MEDIUM_PRICE_USD_PER_OUTPUT;
+                ? GPT_IMAGE_2_HIGH_PRICE_USD_PER_OUTPUT
+                : GPT_IMAGE_2_MEDIUM_PRICE_USD_PER_OUTPUT;
         return {
             requestedModel,
             provider: 'openai',
-            providerModel: 'gpt-image-1.5',
-            modelFamily: 'gpt-image-1.5',
+            providerModel: 'gpt-image-2',
+            modelFamily: 'gpt-image-2',
             quality: normalizedGptQuality,
-            enabled: false,
+            enabled: true,
             freeOutputImageLimit: 0,
             pricePerOutputImageUsd,
         };

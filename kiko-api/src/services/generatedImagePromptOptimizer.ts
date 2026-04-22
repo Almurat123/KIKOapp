@@ -29,6 +29,9 @@
 // - structured image fields may recover a missing user_intent, but the server
 //   must synthesize it deterministically from provided fields instead of
 //   inventing new creative direction
+// - OpenAI image prompting should preserve the official method shape:
+//   deliverable/use case, scene, subject, key details, composition, style,
+//   lighting/camera, exact text, change, preserve, constraints, and avoid list
 // - forbidden local patch pattern: letting provider-specific prompt strings leak directly into visible assistant history
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
@@ -53,6 +56,13 @@
 // - Applied To: synthesizing user_intent from structured image fields when
 //   NVIDIA/GLM tool calls omit the required intent string
 // - Verification: verified in runtime log and targeted tests
+// - Source: OpenAI GPT Image Generation Models Prompting Guide
+// - Kind: official OpenAI cookbook
+// - Retrieved: 2026-04-22
+// - Applied To: provider prompt order, edit preserve/change rules,
+//   multi-image reference roles, exact text handling, and single-purpose
+//   constraints for production image workflows
+// - Verification: verified in targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/generated-image-safety.md
@@ -72,6 +82,7 @@ export interface GeneratedImageReferenceImage {
 
 export interface GeneratedImageIntentInput {
     user_intent: string;
+    artifact_type?: string | null;
     style_hint?: string | null;
     aspect_ratio?: string | null;
     reference_images?: GeneratedImageReferenceImage[] | null;
@@ -79,22 +90,35 @@ export interface GeneratedImageIntentInput {
     edit_or_generate?: GeneratedImageIntentMode | string | null;
     subject?: string | null;
     scene?: string | null;
+    key_details?: string | null;
     composition?: string | null;
     style?: string | null;
     lighting?: string | null;
     camera?: string | null;
+    change_request?: string | null;
+    preserve_elements?: string[] | null;
+    exact_text?: string | null;
+    text_placement?: string | null;
+    typography?: string | null;
     constraints?: string[] | null;
     negative_constraints?: string[] | null;
 }
 
 export interface OptimizedGeneratedImagePromptSpec {
     editOrGenerate: GeneratedImageIntentMode;
+    artifactType: string;
     subject: string;
     scene: string;
+    keyDetails: string;
     composition: string;
     style: string;
     lighting: string;
     camera: string;
+    changeRequest: string;
+    preserveElements: string[];
+    exactText: string;
+    textPlacement: string;
+    typography: string;
     aspectRatio: string;
     safetyLevel: 'standard' | 'strict';
     constraints: string[];
@@ -114,6 +138,8 @@ const DEFAULT_LIGHTING = 'clean, intentional lighting';
 const DEFAULT_CAMERA = 'framing that matches the requested composition';
 const DEFAULT_COMPOSITION = 'single clear focal point with balanced composition';
 const DEFAULT_SCENE = 'a visually coherent scene that matches the request';
+const DEFAULT_ARTIFACT_TYPE = 'image';
+const DEFAULT_KEY_DETAILS = 'concrete visual details that materially support the request';
 
 function normalizeText(value: unknown): string {
     return String(value || '').trim().replace(/\s+/g, ' ');
@@ -147,14 +173,17 @@ function inferIntentMode(params: GeneratedImageIntentInput): GeneratedImageInten
 
 function synthesizeUserIntent(params: GeneratedImageIntentInput): string {
     const parts = [
+        normalizeText(params.artifact_type) ? `Deliverable: ${normalizeText(params.artifact_type)}` : '',
         normalizeText(params.subject) ? `Subject: ${normalizeText(params.subject)}` : '',
         normalizeText(params.scene) ? `Scene: ${normalizeText(params.scene)}` : '',
+        normalizeText(params.key_details) ? `Key details: ${normalizeText(params.key_details)}` : '',
         normalizeText(params.style) || normalizeText(params.style_hint)
             ? `Style: ${normalizeText(params.style) || normalizeText(params.style_hint)}`
             : '',
         normalizeText(params.composition) ? `Composition: ${normalizeText(params.composition)}` : '',
         normalizeText(params.lighting) ? `Lighting: ${normalizeText(params.lighting)}` : '',
         normalizeText(params.camera) ? `Camera: ${normalizeText(params.camera)}` : '',
+        normalizeText(params.change_request) ? `Change: ${normalizeText(params.change_request)}` : '',
         normalizeText(params.aspect_ratio) ? `Aspect ratio: ${normalizeText(params.aspect_ratio)}` : '',
     ].filter(Boolean);
     return parts.join('. ');
@@ -171,8 +200,16 @@ function inferSubject(params: GeneratedImageIntentInput): string {
     return normalizeText(params.subject) || normalizeText(params.user_intent);
 }
 
+function inferArtifactType(params: GeneratedImageIntentInput): string {
+    return normalizeText(params.artifact_type) || DEFAULT_ARTIFACT_TYPE;
+}
+
 function inferScene(params: GeneratedImageIntentInput): string {
     return normalizeText(params.scene) || DEFAULT_SCENE;
+}
+
+function inferKeyDetails(params: GeneratedImageIntentInput): string {
+    return normalizeText(params.key_details) || DEFAULT_KEY_DETAILS;
 }
 
 function inferComposition(params: GeneratedImageIntentInput): string {
@@ -189,6 +226,22 @@ function inferLighting(params: GeneratedImageIntentInput): string {
 
 function inferCamera(params: GeneratedImageIntentInput): string {
     return normalizeText(params.camera) || DEFAULT_CAMERA;
+}
+
+function inferChangeRequest(params: GeneratedImageIntentInput): string {
+    return normalizeText(params.change_request);
+}
+
+function inferExactText(params: GeneratedImageIntentInput): string {
+    return normalizeText(params.exact_text);
+}
+
+function inferTextPlacement(params: GeneratedImageIntentInput): string {
+    return normalizeText(params.text_placement);
+}
+
+function inferTypography(params: GeneratedImageIntentInput): string {
+    return normalizeText(params.typography);
 }
 
 function normalizeReferenceImages(value: unknown): GeneratedImageReferenceImage[] {
@@ -212,14 +265,19 @@ function normalizeReferenceImages(value: unknown): GeneratedImageReferenceImage[
 function buildDefaultConstraints(spec: {
     aspectRatio: string;
     safetyLevel: 'standard' | 'strict';
+    exactText?: string | null;
 }): string[] {
     const base = [
         `target aspect ratio ${spec.aspectRatio}`,
         'clear primary subject and readable silhouette',
         'strong composition with natural depth and consistent perspective',
         'high detail, polished finish, and coherent color palette',
-        'include text only if the user explicitly asked for text in the image',
     ];
+    if (normalizeText(spec.exactText)) {
+        base.push('render requested text verbatim, once, with no extra characters');
+    } else {
+        base.push('include text only if the user explicitly asked for text in the image');
+    }
     if (spec.safetyLevel === 'strict') {
         base.push('stay within a conservative brand-safe visual range');
     }
@@ -245,16 +303,14 @@ function buildDefaultNegativeConstraints(safetyLevel: 'standard' | 'strict'): st
 
 function buildProviderPrompt(spec: OptimizedGeneratedImagePromptSpec): string {
     const lines = [
-        `Create an original ${spec.editOrGenerate === 'edit' ? 'image revision' : 'image'} from this direction.`,
+        `Create an original ${spec.editOrGenerate === 'edit' ? 'image revision' : spec.artifactType} for this use case.`,
+        `Scene/background: ${spec.scene}`,
         `Subject: ${spec.subject}`,
-        `Scene: ${spec.scene}`,
+        `Key details: ${spec.keyDetails}`,
         `Composition: ${spec.composition}`,
         `Style: ${spec.style}`,
         `Lighting: ${spec.lighting}`,
         `Camera framing: ${spec.camera}`,
-        `Aspect ratio target: ${spec.aspectRatio}`,
-        `Hard constraints: ${spec.constraints.join('; ')}`,
-        `Avoid: ${spec.negativeConstraints.join('; ')}`,
     ];
     if (spec.referenceImages.length > 0) {
         const referenceSummary = spec.referenceImages
@@ -266,8 +322,26 @@ function buildProviderPrompt(spec: OptimizedGeneratedImagePromptSpec): string {
                 return `reference ${index + 1}${parts.length > 0 ? ` (${parts.join(', ')})` : ''}`;
             })
             .join('; ');
-        lines.push(`Reference guidance: ${referenceSummary}`);
+        lines.push(`Input image roles: ${referenceSummary}`);
     }
+    if (spec.changeRequest) {
+        lines.push(`Change: ${spec.changeRequest}`);
+    }
+    if (spec.preserveElements.length > 0) {
+        lines.push(`Preserve: ${spec.preserveElements.join('; ')}`);
+    }
+    if (spec.exactText) {
+        const textRules = [
+            `"${spec.exactText}"`,
+            'rendered verbatim',
+            spec.textPlacement ? `placement: ${spec.textPlacement}` : '',
+            spec.typography ? `typography: ${spec.typography}` : '',
+        ].filter(Boolean);
+        lines.push(`Text: ${textRules.join('; ')}`);
+    }
+    lines.push(`Hard constraints: ${spec.constraints.join('; ')}`);
+    lines.push(`Avoid: ${spec.negativeConstraints.join('; ')}`);
+    lines.push(`Output surface: ${spec.aspectRatio}`);
     lines.push('Keep the image visually clean, intentional, and faithful to the requested subject.');
     return lines.join('\n');
 }
@@ -292,18 +366,26 @@ export function optimizeGeneratedImagePrompt(input: GeneratedImageIntentInput): 
     const safetyLevel = normalizeSafetyLevel(normalizedInput.safety_level);
     const spec: OptimizedGeneratedImagePromptSpec = {
         editOrGenerate: inferIntentMode(normalizedInput),
+        artifactType: inferArtifactType(normalizedInput),
         subject: inferSubject(normalizedInput),
         scene: inferScene(normalizedInput),
+        keyDetails: inferKeyDetails(normalizedInput),
         composition: inferComposition(normalizedInput),
         style: inferStyle(normalizedInput),
         lighting: inferLighting(normalizedInput),
         camera: inferCamera(normalizedInput),
+        changeRequest: inferChangeRequest(normalizedInput),
+        preserveElements: normalizeList(normalizedInput.preserve_elements),
+        exactText: inferExactText(normalizedInput),
+        textPlacement: inferTextPlacement(normalizedInput),
+        typography: inferTypography(normalizedInput),
         aspectRatio: normalizeText(normalizedInput.aspect_ratio) || DEFAULT_ASPECT_RATIO,
         safetyLevel,
         constraints: dedupe([
             ...buildDefaultConstraints({
                 aspectRatio: normalizeText(normalizedInput.aspect_ratio) || DEFAULT_ASPECT_RATIO,
                 safetyLevel,
+                exactText: normalizedInput.exact_text,
             }),
             ...normalizeList(normalizedInput.constraints),
         ]),

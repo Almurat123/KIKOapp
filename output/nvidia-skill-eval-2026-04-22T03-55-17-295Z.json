@@ -1,0 +1,235 @@
+{
+  "ok": false,
+  "models": [
+    "kimi-k2-5-instant"
+  ],
+  "scenarioCount": 16,
+  "executed": 10,
+  "passed": 3,
+  "failed": 7,
+  "concurrency": 2,
+  "requestTimeoutMs": 30000,
+  "results": [
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "clanker_deploy_token",
+      "targetTool": "deploy_clanker_token",
+      "status": "PASS",
+      "selectedTool": "deploy_clanker_token",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-8828c453b74cfcaa",
+        "chatcmpl-846820af40ec846a"
+      ],
+      "errors": [],
+      "finalExcerpt": "**Dry-run preview prepared** - Token name: Eval Token - Symbol: EVAL - Chain: Base mainnet (default) - Status: Simulation only — no real deployment executed `TOOL_RESULT_OK_clanker_deploy_token_kimi_k2_5_instant`"
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "copy_trade",
+      "targetTool": "list_copy_trade_configs",
+      "status": "FAIL",
+      "selectedTool": "list_copy_trade_configs",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": null,
+      "providerRequestIds": [
+        "chatcmpl-acc971b386aec9d5"
+      ],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "cross_chain_swap",
+      "targetTool": "get_cross_chain_quote",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "polymarket_prediction",
+      "targetTool": "get_polymarket_market_overview",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "risk_security",
+      "targetTool": "check_token_risk",
+      "status": "PASS",
+      "selectedTool": "check_token_risk",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-a37fe0a06fb0018d",
+        "chatcmpl-88db0472e923cb5b"
+      ],
+      "errors": [],
+      "finalExcerpt": "**Token Risk Check Complete** The risk analysis for contract `0x0000000000000000000000000000000000000000` (Ethereum) has been completed using the security scanner. This was a simulated check - no real on-chain analysis was executed. **Marker:** `TOOL_RESULT_OK"
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "social_farcaster",
+      "targetTool": "search_farcaster_casts",
+      "status": "PASS",
+      "selectedTool": "search_farcaster_casts",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-a92e02b6d7a754af",
+        "chatcmpl-924db6c445c3e8aa"
+      ],
+      "errors": [],
+      "finalExcerpt": "Here are recent Farcaster casts about Base builders: **TOOL_RESULT_OK_social_farcaster_kimi_k2_5_instant** The search returned 15 recent casts discussing Base builders on Farcaster. These posts likely cover topics like Base ecosystem development, builder grant"
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "swap",
+      "targetTool": "simulate_swap",
+      "status": "FAIL",
+      "selectedTool": "simulate_swap",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": null,
+      "providerRequestIds": [
+        "chatcmpl-ae8c851e34db14be"
+      ],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "token_analysis",
+      "targetTool": "get_token_info",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "REQUEST_TIMEOUT_30000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "wallet_portfolio",
+      "targetTool": "get_wallet_info",
+      "status": "FAIL",
+      "selectedTool": "get_wallet_info",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": null,
+      "providerRequestIds": [
+        "chatcmpl-bc632261c694e91d"
+      ],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "zora_nfts",
+      "targetTool": "get_zora_trending",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    }
+  ],
+  "failures": [
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "copy_trade",
+      "targetTool": "list_copy_trade_configs",
+      "selectedTool": "list_copy_trade_configs",
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "cross_chain_swap",
+      "targetTool": "get_cross_chain_quote",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "polymarket_prediction",
+      "targetTool": "get_polymarket_market_overview",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "swap",
+      "targetTool": "simulate_swap",
+      "selectedTool": "simulate_swap",
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "token_analysis",
+      "targetTool": "get_token_info",
+      "selectedTool": null,
+      "errors": [
+        "REQUEST_TIMEOUT_30000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "wallet_portfolio",
+      "targetTool": "get_wallet_info",
+      "selectedTool": "get_wallet_info",
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "zora_nfts",
+      "targetTool": "get_zora_trending",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    }
+  ]
+}

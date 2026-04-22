@@ -1,0 +1,50 @@
+{
+  "ok": false,
+  "models": [
+    "glm-5"
+  ],
+  "scenarioCount": 16,
+  "executed": 1,
+  "passed": 0,
+  "blocked": 0,
+  "failed": 1,
+  "concurrency": 1,
+  "requestTimeoutMs": 30000,
+  "results": [
+    {
+      "model": "glm-5",
+      "skillId": "market_macro",
+      "targetTool": "get_current_time",
+      "status": "FAIL",
+      "errorCategory": "timeout",
+      "selectedTool": null,
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": null,
+      "providerRequestIds": [
+        "chatcmpl-9ad6dc21cdf63012"
+      ],
+      "errors": [
+        "wrong_tool selected=(none) expected=get_current_time",
+        "REQUEST_TIMEOUT_30000ms"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    }
+  ],
+  "failures": [
+    {
+      "model": "glm-5",
+      "skillId": "market_macro",
+      "targetTool": "get_current_time",
+      "selectedTool": null,
+      "errorCategory": "timeout",
+      "errors": [
+        "wrong_tool selected=(none) expected=get_current_time",
+        "REQUEST_TIMEOUT_30000ms"
+      ],
+      "finalExcerpt": ""
+    }
+  ],
+  "blockedByRateLimit": []
+}

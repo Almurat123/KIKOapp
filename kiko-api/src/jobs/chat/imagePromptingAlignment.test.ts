@@ -16,7 +16,7 @@
 // - prompt-coaching turns must explicitly load `read_skill_prompts`
 // - OpenAI-first prompt coaching should not volunteer non-OpenAI variants by default
 // Document Provenance:
-// - Source: OpenAI GPT-image-1.5 Prompting Guide
+// - Source: OpenAI GPT Image Generation Models Prompting Guide
 //   - Kind: official API doc
 //   - Retrieved: 2026-04-19
 //   - Applied To: OpenAI-first prompt coaching expectations
@@ -134,4 +134,77 @@ test('prompt assembly adds a system rule to load skill prompts before prompt-coa
         systemContent,
         /call read_skill_prompts before drafting the answer/i,
     );
+});
+
+test('prompt assembly tells the model reference edit requests are image generation', () => {
+    const snapshot = makeSnapshot('Put KIKO on the horse and restyle it as pixel art.', {
+        runtime: {
+            contextBlocks: {},
+            userSettings: {},
+            toolContext: {
+                generatedImagePreference: {
+                    model: 'gpt-image-1-mini',
+                },
+            },
+            prefetchedToolResults: {},
+            currentPage: 'farcaster',
+            socialInput: {
+                text: 'Current @almurat cast',
+                images: [{ url: 'https://example.com/horse.png', sourceLabel: 'horse' }],
+            },
+        } as any,
+    });
+    const resolution = resolveNodeSkills(snapshot, null, {
+        domain: 'general',
+        intent: 'image_generation',
+        taskMode: 'execute',
+        outputMode: 'narrative',
+        searchMode: 'forbidden',
+        searchTarget: 'none',
+        confidence: 0.98,
+        explanation: 'Reference edit request should generate an output image.',
+        entities: {
+            tokenAddresses: [],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+        },
+        requestedChain: null,
+        timeContext: null,
+        evidenceRequirements: [],
+        requiresRealtime: false,
+        requiresOnchainEvidence: false,
+        executionCandidate: true,
+        rowCount: null,
+        locale: 'en',
+        needsClarification: false,
+        clarificationQuestion: null,
+        source: 'llm',
+    });
+    const messages = assembleGenerationMessages(
+        snapshot,
+        resolution.skillPrompts,
+        {
+            provider: 'openai',
+            model: snapshot.model,
+            supportsNativeSearch: false,
+            supportsPreviousResponse: true,
+        },
+        {
+            preferredTools: resolution.preferredTools,
+            strategyNotes: resolution.strategyNotes,
+            allowAllTools: resolution.allowAllTools,
+            rankedMatches: resolution.rankedMatches,
+            searchMode: resolution.searchMode,
+            searchReason: resolution.searchReason,
+            toolPhase: resolution.currentPhase,
+            intentEnvelope: resolution.intentEnvelope,
+            contextContract: resolution.contextContract,
+        },
+    );
+
+    const systemContent = String(messages.find((message) => message.role === 'system')?.content || '');
+    assert.match(systemContent, /Reference-image, edit, restyle/);
+    assert.match(systemContent, /use the reference\/edit direction as generation context/i);
+    assert.ok(resolution.allowedTools.includes('generate_image_from_intent'));
 });

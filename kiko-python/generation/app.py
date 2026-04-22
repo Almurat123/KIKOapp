@@ -16,6 +16,10 @@ from __future__ import annotations
 #         excerpt for production debugging.
 #         failures, so this owner now also has to repair malformed tool-call
 #         argument fragments before empty-name inference runs.
+#         NVIDIA live skill evals on 2026-04-22 showed hosted models can stream
+#         one logical tool call as an initial id-bearing delta followed by
+#         index-only deltas. Keying by id split the call and produced empty
+#         names or lost arguments, so merge now keys by index first.
 # Goal: preserve a clean generation stream contract that can repair strongly
 #       identifiable empty-name tool calls and malformed JSON argument
 #       fragments before emitting final SSE events.
@@ -27,6 +31,8 @@ from __future__ import annotations
 # - unresolved empty tool calls may be dropped, but only after explicit logging
 # - upstream stream failures must become structured SSE error events, not abrupt disconnects
 # - provider 4xx/5xx logs must keep one truncated raw error excerpt so request-shape failures are diagnosable from production logs
+# - streaming tool-call merge must treat index as the stable logical call id
+#   and provider id as an attribute that may arrive later
 # Document Provenance:
 # - Source: production/runtime log showing an empty-name wallet PnL tool call
 # - Kind: runtime observation
@@ -68,7 +74,7 @@ from fastapi.responses import StreamingResponse
 
 from service_auth import require_internal_service
 from orchestration.llm_client import stream_llm_with_options
-from generation.tool_call_repair import infer_tool_name_from_arguments, parse_tool_arguments
+from generation.tool_call_repair import infer_tool_name_from_arguments, normalize_tool_argument_delta, parse_tool_arguments
 
 from .schemas import GenerationRequest
 
@@ -276,17 +282,19 @@ def classify_generation_stream_exception(exc: Exception) -> tuple[str, str]:
 def merge_tool_call_deltas(acc: dict[str, dict[str, Any]], deltas: list[dict[str, Any]]):
     for i, tc in enumerate(deltas):
         idx = tc.get("index")
-        key = str(tc.get("id") or (f"idx:{idx}" if idx is not None else f"idx:{i}"))
+        key = f"idx:{idx}" if idx is not None else str(tc.get("id") or f"idx:{i}")
         current = acc.get(key)
         if not current:
             current = {"id": tc.get("id") or key, "function": {"name": "", "arguments": ""}}
             acc[key] = current
+        elif tc.get("id"):
+            current["id"] = tc.get("id")
         fn = tc.get("function") or {}
         name = fn.get("name")
         if isinstance(name, str) and name:
             current["function"]["name"] = name
-        args = fn.get("arguments")
-        if isinstance(args, str) and args:
+        args = normalize_tool_argument_delta(fn.get("arguments"))
+        if args:
             existing = current["function"]["arguments"]
             if not existing:
                 current["function"]["arguments"] = args

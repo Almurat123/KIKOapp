@@ -66,7 +66,7 @@
 // - Retrieved: 2026-04-18
 // - Applied To: image-generation query signal and skill routing
 // - Verification: verified in code
-// - Source: OpenAI GPT-image-1.5 Prompting Guide
+// - Source: OpenAI GPT Image Generation Models Prompting Guide
 // - Kind: official API doc
 // - Retrieved: 2026-04-19
 // - Applied To: adding a prompt-guidance skill alongside image-generation routing

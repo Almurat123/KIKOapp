@@ -14,7 +14,7 @@ class ModelLedToolVisibilityTests(unittest.TestCase):
     def test_image_prompt_guidance_routes_without_auto_generation_only_prompt_help(self):
         snapshot = {
             "lastUserMessage": "告诉我怎么写一个图片提示词",
-            "model": "glm-5",
+            "model": "kimi-k2-5-reasoning",
             "runtime": {},
             "toolDefinitions": [],
         }
@@ -27,7 +27,7 @@ class ModelLedToolVisibilityTests(unittest.TestCase):
     def test_image_generation_query_loads_prompt_guidance_and_generation_skill(self):
         snapshot = {
             "lastUserMessage": "帮我做一张赛博朋克风的产品海报",
-            "model": "glm-5",
+            "model": "kimi-k2-5-reasoning",
             "runtime": {},
             "toolDefinitions": [],
         }
@@ -40,7 +40,7 @@ class ModelLedToolVisibilityTests(unittest.TestCase):
     def test_skill_resolver_exposes_full_registry_when_model_led_enabled(self):
         snapshot = {
             "lastUserMessage": "请分析我的钱包资产结构",
-            "model": "glm-5",
+            "model": "kimi-k2-5-reasoning",
             "runtime": {},
             "toolDefinitions": [
                 {"name": "tool_a"},

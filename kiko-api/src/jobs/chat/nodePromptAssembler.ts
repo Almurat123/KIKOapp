@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-20
+// Updated: 2026-04-22
 // Author: Rowan
 // Reason: Farcaster agent replies need a surface-specific system prompt so the
 //         model recognizes the conversation as a social-agent mode instead of a
@@ -115,6 +115,10 @@
 //   load read_skill_prompts before drafting the answer
 // - provider replay must drop orphan tool messages unless they immediately
 //   answer a preceding assistant message with matching tool_calls
+// - in platform @mention mode, transport metadata, images, and prior intent
+//   packages are context; the current GPT turn must still infer whether the
+//   user wants text, prompt advice, image generation/editing, context reads, or
+//   one clarification
 // Document Provenance:
 // - Source: Neynar/Farcaster cast writing docs and runtime screenshots of
 //           report-style public replies
@@ -329,11 +333,13 @@ const WORKER_PROTOCOL_PROMPT = [
 
 const MODEL_LED_TOOL_ORCHESTRATION_PROMPT = [
   "[MODEL_LED_TOOL_ORCHESTRATION]",
-  "- A canonical intent has already been selected for this round. Use the current intent and tool package to decide whether to answer directly or call tools.",
-  "- Visible tools belong to the current canonical-intent package. Backend policy, quota, safety, and confirmation gates still decide whether side effects can execute.",
+  "- A prior pass by the active model selected a provisional intent/tool package for this round. Treat it as routing context, not as a final decision or answer path.",
+  "- You are the decision-maker for the current turn. Read the latest user message, visible media/thread context, and available tools, then decide whether to answer in text, read context, generate/edit an image, provide prompt advice, execute a tool, or ask one clarification.",
+  "- Visible tools belong to the current model-selected tool package. Backend policy, quota, safety, and confirmation gates still decide whether side effects can execute.",
   "- Use tools when the user asks for live/current facts, private wallet/runtime state, execution preparation, image generation/editing, or another action that cannot be honestly completed from conversation alone.",
   "- Do not call tools for ordinary explanation, brainstorming, prompt-writing advice, translation, or casual chat unless the user explicitly asks for runtime evidence or an action.",
   "- For image creation or editing requests, call generate_image_from_intent directly when the visual request is clear enough. The image tool owns prompt optimization and generated-image task execution.",
+  "- Reference-image, edit, restyle, redraw, replace, put/place, and remix wording is still an image-generation request when the user wants an output image. If source-image context is available, use it through the image tool; if exact pixel editing is unavailable, use the reference/edit direction as generation context instead of returning prompt-only text.",
   "- If the user is clearly asking to generate or edit an image now and generate_image_from_intent is visible, do not reply with a standalone optimized prompt draft. Send the packaged prompt through the image tool instead. Only return prompt text when the user explicitly asks for prompt/advice/template help.",
   "- If a tool request is ambiguous, ask one precise clarification. Do not add a confirmation step before generation or read-only tool use unless the missing field is truly necessary.",
   "- For mutation tools, prepare or execute only within returned tool contracts and explicit user confirmation. Never bypass backend policy by describing an action as completed.",
@@ -384,6 +390,8 @@ const ANSWER_QUALITY_CONTRACT_PROMPT = [
 const FARCASTER_AGENT_MODE_PROMPT = [
   "FARCASTER_AGENT_MODE:",
   "This turn is running inside KiKo social-agent mode for a public Farcaster reply.",
+  "A Farcaster @mention is only a transport trigger. Infer the user's actual intent from the cast text, attached images, and thread context.",
+  "Do not assume every mention needs the same behavior: ordinary questions get concise text, prompt-help requests get prompt guidance, and image creation/edit requests should call the image tool when clear enough.",
   "Default to a short, direct, conversational answer, like replying to a friend in-thread.",
   "Unless the user explicitly asks for detail, keep the answer brief and high-signal.",
   "Do not write like a webpage assistant, report, memo, or customer-support macro.",
@@ -1165,7 +1173,7 @@ function buildToolGuidanceBlock(guidance?: {
       );
     } else {
       lines.push(
-        "- Only the current canonical-intent tool package and explicit context-read tools are available on this turn.",
+        "- Only the current model-selected tool package and explicit context-read tools are available on this turn.",
       );
     }
     lines.push(
@@ -1939,11 +1947,6 @@ function replaysStoredReasoningHistory(model: string): boolean {
     .toLowerCase();
   return (
     normalized === "deepseek-reasoner" ||
-    normalized === "glm-5" ||
-    normalized === "glm-5-reasoning" ||
-    normalized === "glm5" ||
-    normalized === "z-ai/glm5" ||
-    normalized === "z-ai/glm-5" ||
     normalized === "kimi-k2.5" ||
     normalized === "kimi-k2.5-reasoning" ||
     normalized === "kimi-k2.5-thinking" ||

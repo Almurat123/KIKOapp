@@ -19,6 +19,7 @@ import assert from 'node:assert/strict';
 
 import {
   inferSupportedChatReasoningLevel,
+  normalizeSupportedChatModel,
   normalizeSupportedChatReasoningLevel,
 } from './chatModels.js';
 
@@ -32,4 +33,9 @@ test('inferSupportedChatReasoningLevel preserves GPT-5.4 mini low effort', () =>
 
 test('inferSupportedChatReasoningLevel preserves Kimi reasoning mode', () => {
   assert.equal(inferSupportedChatReasoningLevel('kimi-k2-5-reasoning'), 'thinking');
+});
+
+test('normalizeSupportedChatModel keeps only active allowlisted models', () => {
+  assert.equal(normalizeSupportedChatModel('kimi-k2-5-instant'), 'kimi-k2-5-instant');
+  assert.equal(normalizeSupportedChatModel('not-a-real-model'), 'kimi-k2-5-instant');
 });

@@ -19,8 +19,9 @@
 //         tuning also required colder, lighter NVIDIA defaults so routine KiKo
 //         agent turns do not inherit provider showcase temperatures or long
 //         reasoning by default. Official NVIDIA doc verification later showed
-//         GLM-5 does not expose a documented Fast/Instant hosted mode, so this
-//         route must stop treating plain `glm-5` as a no-thinking fast alias.
+//         GLM-5 later proved unreliable for tool-using KiKo turns, so the
+//         direct route now removes GLM from active normalization and maps old
+//         GLM ids onto Kimi Instant for compatibility.
 // Goal: keep the fallback/direct AI route aligned with the same NVIDIA hosted
 //       API contract used by the main generation gateway so local tests behave
 //       the same across both paths.
@@ -34,7 +35,7 @@
 // - Plain assistant content must never be mirrored into reasoning output.
 // - Usage-limit errors expose free/premium quota state, not legacy token-tier caps.
 // - Direct-route NVIDIA defaults must stay colder and lighter for routine agent turns.
-// - GLM hosted modes must match the current official NVIDIA docs, not stale synthetic aliases.
+// - Removed models must normalize to a surviving product model at the route boundary.
 // Document Provenance:
 // - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
 // - Kind: official API doc
@@ -135,22 +136,24 @@ const NVIDIA_API_URL = process.env.NVIDIA_API_URL || 'https://integrate.api.nvid
 const OPENAI_API_URL = process.env.OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions';
 const NVIDIA_KIMI_REASONING_TEMPERATURE = 0.6;
 const NVIDIA_KIMI_INSTANT_TEMPERATURE = 0.4;
-const NVIDIA_GLM_TEMPERATURE = 0.6;
+const REMOVED_MODEL_ALIASES = new Set([
+    'glm-5',
+    'glm-5-reasoning',
+    'glm5',
+    'glm5-reasoning',
+    'z-ai/glm5',
+    'z-ai/glm-5',
+    'z-ai/glm5-reasoning',
+    'z-ai/glm-5-reasoning',
+]);
+
+function isRemovedModel(model?: string): boolean {
+    return REMOVED_MODEL_ALIASES.has((model || '').toLowerCase().trim());
+}
 
 function normalizeModel(model?: string): string {
     const normalized = (model || '').toLowerCase().trim();
-    if (!normalized) return 'glm-5';
-    if (
-        normalized === 'glm5'
-        || normalized === 'z-ai/glm5'
-        || normalized === 'z-ai/glm-5'
-        || normalized === 'glm-5-reasoning'
-        || normalized === 'glm5-reasoning'
-        || normalized === 'z-ai/glm5-reasoning'
-        || normalized === 'z-ai/glm-5-reasoning'
-    ) {
-        return 'glm-5';
-    }
+    if (!normalized) return 'kimi-k2-5-instant';
     return normalized;
 }
 
@@ -178,18 +181,6 @@ function resolveNvidiaUpstreamModel(model: string): {
             model: 'moonshotai/kimi-k2.5',
             extraBody: { thinking: { type: 'disabled' } },
             defaultTemperature: NVIDIA_KIMI_INSTANT_TEMPERATURE,
-        };
-    }
-    if (normalized === 'glm-5' || normalized === 'glm5' || normalized === 'z-ai/glm5' || normalized === 'z-ai/glm-5') {
-        return {
-            model: 'z-ai/glm5',
-            extraBody: {
-                chat_template_kwargs: {
-                    enable_thinking: true,
-                    clear_thinking: false,
-                },
-            },
-            defaultTemperature: NVIDIA_GLM_TEMPERATURE,
         };
     }
     return { model: normalized };
@@ -496,7 +487,7 @@ async function processStreamResponse(
                 id: 'sanitized-tail',
                 object: 'chat.completion.chunk',
                 created: Math.floor(Date.now() / 1000),
-                model: streamModel || 'glm-5',
+                model: streamModel || 'kimi-k2-5-instant',
                 choices: [{
                     index: 0,
                     delta: { content: trailingVisibleContent },
@@ -584,7 +575,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
             try {
                 const {
                     messages,
-                    model = 'glm-5',
+                    model = 'kimi-k2-5-instant',
                     temperature: requestedTemperature,
                     max_tokens,
                     stream = false,
@@ -602,6 +593,14 @@ export async function aiRoutes(fastify: FastifyInstance) {
 
                 if (!userId) {
                     return reply.code(401).send({ error: 'Unauthorized' });
+                }
+
+                if (isRemovedModel(model)) {
+                    return reply.code(400).send({
+                        error: 'Unsupported model',
+                        reason: 'MODEL_REMOVED',
+                        model: String(model || '').trim(),
+                    });
                 }
 
                 let usageDecision: Awaited<ReturnType<typeof evaluateUsageAccess>>;

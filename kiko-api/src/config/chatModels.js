@@ -42,12 +42,13 @@
 // - Retrieved: 2026-04-16
 // - Applied To: backend-supported model ids for NVIDIA Kimi/GLM
 // - Verification: verified in code
-// - Source: NVIDIA NIM model page for z-ai/glm5
-// - Kind: official API doc
-// - Retrieved: 2026-04-18
-// - Applied To: removing `glm-5-reasoning` from the active allowlist while
-//   keeping a compatibility normalization to `glm-5`
-// - Verification: verified in docs and code
+// - Source: operator decision on 2026-04-22 to remove GLM-5 from the active
+//   product model catalog after repeated NVIDIA hosted tool-call failures
+// - Kind: product doc
+// - Retrieved: 2026-04-22
+// - Applied To: removing GLM from the active allowlist and treating old GLM
+//   ids as unsupported product input
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
@@ -61,7 +62,6 @@ exports.SUPPORTED_CHAT_MODELS = exports.DEFAULT_CHAT_MODEL = void 0;
 exports.normalizeSupportedChatModel = normalizeSupportedChatModel;
 exports.DEFAULT_CHAT_MODEL = 'kimi-k2-5-instant';
 exports.SUPPORTED_CHAT_MODELS = new Set([
-    'glm-5',
     'kimi-k2-5-reasoning',
     'kimi-k2-5-instant',
     'gpt-5.4-mini-2026-03-17',
@@ -72,14 +72,5 @@ function normalizeSupportedChatModel(model) {
     var normalized = String(model || '').trim().toLowerCase();
     if (!normalized)
         return exports.DEFAULT_CHAT_MODEL;
-    if (normalized === 'glm-5-reasoning' ||
-        normalized === 'glm5-reasoning' ||
-        normalized === 'z-ai/glm5-reasoning' ||
-        normalized === 'z-ai/glm-5-reasoning' ||
-        normalized === 'glm5' ||
-        normalized === 'z-ai/glm5' ||
-        normalized === 'z-ai/glm-5') {
-        return 'glm-5';
-    }
     return exports.SUPPORTED_CHAT_MODELS.has(normalized) ? normalized : exports.DEFAULT_CHAT_MODEL;
 }

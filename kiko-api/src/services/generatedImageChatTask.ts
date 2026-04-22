@@ -189,7 +189,7 @@ export type ExecuteGeneratedImageChatTaskResult = {
 function inferProvider(requestedModel: string): 'openai' | 'xai' | null {
     const normalized = String(requestedModel || '').trim().toLowerCase();
     if (normalized.startsWith('gpt-image-1-mini')) return 'openai';
-    if (normalized.startsWith('gpt-image-1.5')) return 'openai';
+    if (normalized.startsWith('gpt-image-2')) return 'openai';
     if (normalized.startsWith('grok-imagine-image')) return 'xai';
     return null;
 }
@@ -197,7 +197,7 @@ function inferProvider(requestedModel: string): 'openai' | 'xai' | null {
 function inferProviderModel(requestedModel: string): string | null {
     const normalized = String(requestedModel || '').trim().toLowerCase();
     if (normalized.startsWith('gpt-image-1-mini')) return 'gpt-image-1-mini';
-    if (normalized.startsWith('gpt-image-1.5')) return 'gpt-image-1.5';
+    if (normalized.startsWith('gpt-image-2')) return 'gpt-image-2';
     if (normalized.startsWith('grok-imagine-image-pro')) return 'grok-imagine-image-pro';
     if (normalized.startsWith('grok-imagine-image')) return 'grok-imagine-image';
     return null;
@@ -210,7 +210,7 @@ function normalizeQuality(requestedModel: string, quality?: string | null): stri
         if (normalizedQuality === 'low' || normalizedQuality === 'high') return normalizedQuality;
         return 'medium';
     }
-    if (normalizedModel.startsWith('gpt-image-1.5')) {
+    if (normalizedModel.startsWith('gpt-image-2')) {
         if (normalizedQuality === 'low' || normalizedQuality === 'high') return normalizedQuality;
         return 'medium';
     }
@@ -257,8 +257,8 @@ function buildFailureMessage(params: {
         if (requestedModel.startsWith('gpt-image-1-mini')) {
             return 'GPT Image 1 Mini is unavailable right now.';
         }
-        if (requestedModel.startsWith('gpt-image-1.5')) {
-            return 'GPT Image 1.5 is unavailable right now.';
+        if (requestedModel.startsWith('gpt-image-2')) {
+            return 'GPT Image 2 is unavailable right now.';
         }
         if (requestedModel.startsWith('grok-imagine-image-pro')) {
             return 'Grok Imagine Pro is unavailable right now.';
@@ -564,7 +564,7 @@ async function runGeneratedImageChatTask(params: StartGeneratedImageChatTaskPara
 
         const providerResult = await generateImageWithProvider({
             provider: reservation.provider,
-            model: reservation.providerModel as 'gpt-image-1.5' | 'gpt-image-1-mini' | 'grok-imagine-image',
+            model: reservation.providerModel as 'gpt-image-2' | 'gpt-image-1-mini' | 'grok-imagine-image',
             prompt: params.prompt,
             quality: reservation.quality as 'low' | 'medium' | 'high' | 'normal',
             inputImages: providerInputImages,

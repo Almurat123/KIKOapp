@@ -264,6 +264,7 @@ test('routes reference-image edit phrasing to the generated-image skill when cur
     }), null, canonicalIntent);
     assert.ok(resolution.selectedSkills.includes('image_generation'));
     assert.ok(resolution.allowedTools.includes('generate_image_from_intent'));
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('Reference-image, edit, restyle')));
 });
 
 test('model-selected image turns expose only the matched image tool package', () => {
@@ -383,6 +384,416 @@ test('routes wallet pnl queries to wallet skill and keeps pnl tools', () => {
     assert.ok(resolution.allowedTools.includes('analyze_wallet_pnl_batch'));
     assert.equal(resolution.allowAllTools, false);
     assert.ok(!resolution.allowedTools.includes('deploy_clanker_token'));
+});
+
+type ProfessionalToolRoutingCase = {
+    name: string;
+    message: string;
+    canonicalIntent: CanonicalIntent;
+    expectedSkills: string[];
+    expectedAllowedTools: string[];
+    expectedPreferredTools?: string[];
+    forbiddenAllowedTools?: string[];
+    tradingIntent?: any;
+    snapshotOverrides?: Partial<ChatContextSnapshot>;
+};
+
+const NVIDIA_FREE_MODEL_IDS = [
+    'kimi-k2-5-instant',
+    'kimi-k2-5-reasoning',
+];
+
+const PROFESSIONAL_TOOL_ROUTING_CASES: ProfessionalToolRoutingCase[] = [
+    {
+        name: 'image generation',
+        message: 'Generate a square launch poster for KIKO.',
+        canonicalIntent: makeCanonicalIntent({
+            domain: 'general',
+            intent: 'image_generation',
+        }),
+        expectedSkills: ['image_generation', 'image_prompting'],
+        expectedAllowedTools: ['generate_image_from_intent', 'read_skill_prompts'],
+        expectedPreferredTools: ['generate_image_from_intent', 'read_skill_prompts'],
+    },
+    {
+        name: 'image prompt coaching',
+        message: 'Improve this product-image prompt before generation.',
+        canonicalIntent: makeCanonicalIntent({
+            domain: 'general',
+            intent: 'image_prompting',
+        }),
+        expectedSkills: ['image_prompting'],
+        expectedAllowedTools: ['read_skill_prompts'],
+        expectedPreferredTools: ['read_skill_prompts'],
+        forbiddenAllowedTools: ['generate_image_from_intent'],
+    },
+    {
+        name: 'token analysis',
+        message: 'Analyze PEPE token fundamentals and current market data.',
+        canonicalIntent: makeCanonicalIntent({
+            domain: 'token',
+            intent: 'token_analysis',
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: ['PEPE'],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+        }),
+        expectedSkills: ['token_analysis'],
+        expectedAllowedTools: ['get_token_info', 'get_trending_tokens', 'read_skill_prompts'],
+        expectedPreferredTools: ['get_token_info'],
+        snapshotOverrides: {
+            requestedTokenSymbols: ['PEPE'],
+        },
+    },
+    {
+        name: 'early buyers',
+        message: 'Show the first 30 early buyers for this token.',
+        canonicalIntent: makeCanonicalIntent({
+            domain: 'token',
+            intent: 'early_buyers',
+            outputMode: 'full_table',
+            entities: {
+                tokenAddresses: ['0xeccbb861c0dda7efd964010085488b69317e4444'],
+                tokenSymbols: [],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+            evidenceRequirements: ['onchain_token_evidence'],
+            requiresOnchainEvidence: true,
+            rowCount: 30,
+        }),
+        expectedSkills: ['token_analysis'],
+        expectedAllowedTools: ['get_early_buyers', 'get_token_info', 'read_skill_prompts'],
+        expectedPreferredTools: ['get_early_buyers', 'get_token_info'],
+        forbiddenAllowedTools: ['analyze_wallet_pnl_batch'],
+        snapshotOverrides: {
+            requestedTokenAddresses: ['0xeccbb861c0dda7efd964010085488b69317e4444'],
+        },
+    },
+    {
+        name: 'creator analysis',
+        message: 'Analyze whether this token creator has a clean history.',
+        canonicalIntent: makeCanonicalIntent({
+            domain: 'token',
+            intent: 'creator_analysis',
+            entities: {
+                tokenAddresses: ['0x1111111111111111111111111111111111111111'],
+                tokenSymbols: [],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+        }),
+        expectedSkills: ['token_analysis'],
+        expectedAllowedTools: ['analyze_creator', 'get_token_info', 'read_skill_prompts'],
+        expectedPreferredTools: ['analyze_creator', 'get_token_info'],
+        snapshotOverrides: {
+            requestedTokenAddresses: ['0x1111111111111111111111111111111111111111'],
+        },
+    },
+    {
+        name: 'token risk',
+        message: 'Check whether this token contract is risky or a honeypot.',
+        canonicalIntent: makeCanonicalIntent({
+            domain: 'token',
+            intent: 'token_risk',
+            entities: {
+                tokenAddresses: ['0x2222222222222222222222222222222222222222'],
+                tokenSymbols: [],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+            evidenceRequirements: ['onchain_token_evidence'],
+            requiresOnchainEvidence: true,
+        }),
+        expectedSkills: ['risk_security', 'token_analysis'],
+        expectedAllowedTools: ['check_token_risk', 'get_token_info', 'read_skill_prompts'],
+        expectedPreferredTools: ['get_token_info'],
+        snapshotOverrides: {
+            requestedTokenAddresses: ['0x2222222222222222222222222222222222222222'],
+        },
+    },
+    {
+        name: 'wallet analysis',
+        message: 'Show my wallet balances and portfolio state.',
+        canonicalIntent: makeCanonicalIntent({
+            domain: 'wallet',
+            intent: 'wallet_analysis',
+            evidenceRequirements: ['onchain_wallet_evidence'],
+            requiresOnchainEvidence: true,
+        }),
+        expectedSkills: ['wallet_portfolio'],
+        expectedAllowedTools: ['get_wallet_info', 'analyze_wallet_pnl', 'read_skill_prompts'],
+        expectedPreferredTools: ['read_wallet_state'],
+        snapshotOverrides: {
+            runtime: {
+                walletAddress: '0x3333333333333333333333333333333333333333',
+            },
+        },
+    },
+    {
+        name: 'wallet pnl',
+        message: 'Compare 30d PnL for these wallets.',
+        canonicalIntent: makeCanonicalIntent({
+            domain: 'wallet',
+            intent: 'wallet_pnl',
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: [],
+                walletAddresses: ['0x4444444444444444444444444444444444444444'],
+                marketIdentifiers: [],
+            },
+            evidenceRequirements: ['onchain_wallet_evidence'],
+            requiresOnchainEvidence: true,
+        }),
+        expectedSkills: ['wallet_portfolio'],
+        expectedAllowedTools: ['analyze_wallet_pnl_batch', 'analyze_wallet_pnl', 'read_skill_prompts'],
+        expectedPreferredTools: ['analyze_wallet_pnl_batch', 'read_wallet_state'],
+    },
+    {
+        name: 'swap execution',
+        message: 'Swap 0.1 ETH to USDC on Base.',
+        canonicalIntent: makeCanonicalIntent({
+            domain: 'token',
+            intent: 'swap',
+            taskMode: 'execute',
+            outputMode: 'execution_ready',
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: ['ETH', 'USDC'],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+            executionCandidate: true,
+        }),
+        expectedSkills: ['swap', 'wallet_portfolio'],
+        expectedAllowedTools: ['prepare_swap_transaction', 'simulate_swap', 'get_wallet_info', 'read_user_settings'],
+        expectedPreferredTools: ['get_wallet_info', 'simulate_swap', 'prepare_swap_transaction'],
+        tradingIntent: {
+            kind: 'trading',
+            type: 'swap',
+        },
+        snapshotOverrides: {
+            runtime: {
+                walletAddress: '0x5555555555555555555555555555555555555555',
+                chainId: 8453,
+                chainName: 'Base',
+            },
+        },
+    },
+    {
+        name: 'cross-chain swap',
+        message: 'Bridge 100 USDC from Base to Solana.',
+        canonicalIntent: makeCanonicalIntent({
+            domain: 'token',
+            intent: 'cross_chain_swap',
+            taskMode: 'execute',
+            outputMode: 'execution_ready',
+            executionCandidate: true,
+        }),
+        expectedSkills: ['cross_chain_swap', 'wallet_portfolio'],
+        expectedAllowedTools: ['get_cross_chain_quote', 'prepare_cross_chain_tx', 'get_wallet_info', 'read_user_settings'],
+        expectedPreferredTools: ['get_cross_chain_quote', 'prepare_cross_chain_tx'],
+        tradingIntent: {
+            kind: 'trading',
+            type: 'cross_chain_trade',
+        },
+    },
+    {
+        name: 'copy trade',
+        message: 'Copy trade this wallet after checking its PnL.',
+        canonicalIntent: makeCanonicalIntent({
+            domain: 'wallet',
+            intent: 'copy_trade',
+            taskMode: 'execute',
+            outputMode: 'execution_ready',
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: [],
+                walletAddresses: ['0x6666666666666666666666666666666666666666'],
+                marketIdentifiers: [],
+            },
+            executionCandidate: true,
+        }),
+        expectedSkills: ['copy_trade', 'wallet_portfolio'],
+        expectedAllowedTools: ['create_copy_trade_config', 'list_copy_trade_configs', 'analyze_wallet_pnl', 'read_user_settings'],
+        expectedPreferredTools: ['create_copy_trade_config'],
+        tradingIntent: {
+            kind: 'trading',
+            type: 'copy_trade',
+        },
+    },
+    {
+        name: 'Clanker deploy',
+        message: 'Deploy a Clanker token on Base named Kiko Test.',
+        canonicalIntent: makeCanonicalIntent({
+            domain: 'token',
+            intent: 'clanker_deploy',
+            taskMode: 'execute',
+            outputMode: 'execution_ready',
+            requestedChain: {
+                chainId: 8453,
+                chainName: 'Base',
+                source: 'llm',
+            },
+            executionCandidate: true,
+        }),
+        expectedSkills: ['clanker_deploy_token'],
+        expectedAllowedTools: ['deploy_clanker_token', 'get_clanker_tokens_by_admin', 'read_user_settings'],
+        expectedPreferredTools: ['deploy_clanker_token'],
+    },
+    {
+        name: 'Polymarket discovery',
+        message: 'What are the best active Polymarket opportunities right now?',
+        canonicalIntent: makeCanonicalIntent({
+            domain: 'polymarket',
+            intent: 'polymarket_discovery',
+            requiresRealtime: true,
+        }),
+        expectedSkills: ['polymarket_prediction'],
+        expectedAllowedTools: ['get_polymarket_market_overview', 'get_polymarket_trending', 'search_polymarket', 'read_skill_prompts'],
+        expectedPreferredTools: ['get_polymarket_market_overview'],
+    },
+    {
+        name: 'Polymarket short-window',
+        message: 'Give me the 5-minute SOL Up or Down market.',
+        canonicalIntent: makeCanonicalIntent({
+            domain: 'polymarket',
+            intent: 'polymarket_short_window',
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: ['SOL'],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+            requiresRealtime: true,
+        }),
+        expectedSkills: ['polymarket_prediction'],
+        expectedAllowedTools: ['get_polymarket_coin_updown_markets', 'get_polymarket_market_overview', 'read_skill_prompts'],
+        expectedPreferredTools: ['get_polymarket_coin_updown_markets'],
+        snapshotOverrides: {
+            requestedTokenSymbols: ['SOL'],
+        },
+    },
+    {
+        name: 'Polymarket order',
+        message: 'Place $1 on Down for this Polymarket BTC short-window market.',
+        canonicalIntent: makeCanonicalIntent({
+            domain: 'polymarket',
+            intent: 'polymarket_order',
+            taskMode: 'execute',
+            outputMode: 'execution_ready',
+            evidenceRequirements: ['verified_polymarket_token_id'],
+            executionCandidate: true,
+        }),
+        expectedSkills: ['polymarket_prediction'],
+        expectedAllowedTools: ['prepare_polymarket_bet', 'check_polymarket_readiness', 'place_polymarket_order', 'read_user_settings'],
+        expectedPreferredTools: ['prepare_polymarket_bet'],
+    },
+    {
+        name: 'Zora discovery',
+        message: 'Show trending Zora mints right now.',
+        canonicalIntent: makeCanonicalIntent({
+            domain: 'zora',
+            intent: 'zora_discovery',
+            requiresRealtime: true,
+        }),
+        expectedSkills: ['zora_nfts'],
+        expectedAllowedTools: ['get_zora_trending', 'get_zora_profile', 'read_skill_prompts'],
+        expectedPreferredTools: ['get_zora_trending'],
+    },
+    {
+        name: 'token alerts',
+        message: 'Notify me when KIKO reaches a 1M market cap.',
+        canonicalIntent: makeCanonicalIntent({
+            domain: 'token',
+            intent: 'token_alerts',
+            taskMode: 'execute',
+            outputMode: 'execution_ready',
+            executionCandidate: true,
+        }),
+        expectedSkills: ['token_alert'],
+        expectedAllowedTools: ['set_token_alert', 'list_token_alerts', 'remove_token_alert', 'read_user_settings'],
+        expectedPreferredTools: ['set_token_alert'],
+    },
+    {
+        name: 'market macro',
+        message: 'Give me the current crypto market overview and gas setup.',
+        canonicalIntent: makeCanonicalIntent({
+            domain: 'market',
+            intent: 'market_macro',
+            searchMode: 'fallback',
+            searchTarget: 'web',
+            requiresRealtime: true,
+        }),
+        expectedSkills: ['market_macro'],
+        expectedAllowedTools: ['get_market_overview', 'get_gas_price', 'get_economic_calendar', 'read_skill_prompts'],
+        expectedPreferredTools: ['get_market_overview'],
+    },
+    {
+        name: 'Farcaster social discovery',
+        message: 'What is trending on Farcaster today?',
+        canonicalIntent: makeCanonicalIntent({
+            domain: 'farcaster',
+            intent: 'social_discovery',
+            searchMode: 'required',
+            searchTarget: 'none',
+            requiresRealtime: true,
+        }),
+        expectedSkills: ['social_farcaster'],
+        expectedAllowedTools: ['get_trending_casts', 'search_farcaster_casts', 'get_farcaster_user', 'read_workflow_state'],
+        expectedPreferredTools: ['read_workflow_state'],
+    },
+];
+
+test('NVIDIA free models expose matching tools after model-selected professional intents', () => {
+    for (const model of NVIDIA_FREE_MODEL_IDS) {
+        assert.equal(resolveProviderInfo(model).provider, 'nvidia');
+
+        for (const item of PROFESSIONAL_TOOL_ROUTING_CASES) {
+            const resolution = resolveNodeSkills(makeSnapshot(item.message, {
+                model,
+                normalizedIntent: item.canonicalIntent,
+                ...item.snapshotOverrides,
+            }), item.tradingIntent || null, item.canonicalIntent);
+
+            for (const skillId of item.expectedSkills) {
+                assert.ok(
+                    resolution.selectedSkills.includes(skillId),
+                    `${model} / ${item.name}: missing selected skill ${skillId}; got ${resolution.selectedSkills.join(', ')}`,
+                );
+            }
+            for (const toolName of item.expectedAllowedTools) {
+                assert.ok(
+                    resolution.allowedTools.includes(toolName),
+                    `${model} / ${item.name}: missing allowed tool ${toolName}; got ${resolution.allowedTools.join(', ')}`,
+                );
+            }
+            for (const toolName of item.expectedPreferredTools || []) {
+                assert.ok(
+                    resolution.preferredTools.includes(toolName),
+                    `${model} / ${item.name}: missing preferred tool ${toolName}; got ${resolution.preferredTools.join(', ')}`,
+                );
+            }
+            for (const toolName of item.forbiddenAllowedTools || []) {
+                assert.ok(
+                    !resolution.allowedTools.includes(toolName),
+                    `${model} / ${item.name}: forbidden tool ${toolName} was exposed; got ${resolution.allowedTools.join(', ')}`,
+                );
+            }
+            assert.equal(
+                resolution.allowAllTools,
+                false,
+                `${model} / ${item.name}: should stay package-scoped instead of exposing all tools`,
+            );
+            assert.equal(
+                resolution.toolPackageSource,
+                'canonical_intent',
+                `${model} / ${item.name}: expected model-selected canonical intent as tool package source`,
+            );
+        }
+    }
 });
 
 test('explicit X search keeps native search required while preserving local token skill', () => {

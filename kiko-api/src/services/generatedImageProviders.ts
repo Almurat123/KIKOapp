@@ -33,7 +33,7 @@ import { Buffer } from 'node:buffer';
 // - Source: OpenAI Image generation guide
 // - Kind: official API doc
 // - Retrieved: 2026-04-18
-// - Applied To: `gpt-image-1.5` Image API request shape, fixed output options,
+// - Applied To: `gpt-image-2` Image API request shape, fixed output options,
 //   and the fact that OpenAI supports `partial_images`
 // - Verification: verified in docs
 // - Source: xAI Image Generation guide
@@ -52,11 +52,10 @@ import { Buffer } from 'node:buffer';
 // - Applied To: `text/event-stream` response support and
 //   `image_generation.partial_image` / `image_generation.completed` event types
 // - Verification: verified in docs
-// - Source: OpenAI `gpt-image-1.5` model page
+// - Source: OpenAI `gpt-image-2` model page
 // - Kind: official API doc
-// - Retrieved: 2026-04-18
-// - Applied To: recording the current model-page conflict that says
-//   `Streaming: Not supported` despite the Images API spec documenting SSE
+// - Retrieved: 2026-04-22
+// - Applied To: current default high-quality OpenAI image model support
 // - Verification: verified in docs
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
@@ -66,7 +65,7 @@ import { Buffer } from 'node:buffer';
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 export type GeneratedImageProviderName = 'openai' | 'xai';
-export type GeneratedImageProviderModel = 'gpt-image-1.5' | 'gpt-image-1-mini' | 'grok-imagine-image';
+export type GeneratedImageProviderModel = 'gpt-image-2' | 'gpt-image-1-mini' | 'grok-imagine-image';
 export type GeneratedImageProviderQuality = 'low' | 'medium' | 'high' | 'normal';
 
 export interface GeneratedImageProviderInputImage {
@@ -96,7 +95,7 @@ export interface GeneratedImageProviderResult {
 export interface GeneratedImageProviderProgressEvent {
     type: 'partial_image';
     provider: 'openai';
-    model: 'gpt-image-1.5' | 'gpt-image-1-mini';
+    model: 'gpt-image-2' | 'gpt-image-1-mini';
     quality: 'low' | 'medium' | 'high';
     partialImageIndex: number;
     partialImageCount: number;
@@ -108,12 +107,12 @@ const OPENAI_IMAGE_EDIT_ENDPOINT = 'https://api.openai.com/v1/images/edits';
 const XAI_IMAGE_ENDPOINT = 'https://api.x.ai/v1/images/generations';
 const OPENAI_PARTIAL_IMAGE_COUNT = 2;
 
-function isOpenAiGeneratedImageModel(model?: string | null): model is 'gpt-image-1.5' | 'gpt-image-1-mini' {
+function isOpenAiGeneratedImageModel(model?: string | null): model is 'gpt-image-2' | 'gpt-image-1-mini' {
     const normalized = String(model || '').trim().toLowerCase();
-    return normalized === 'gpt-image-1.5' || normalized === 'gpt-image-1-mini';
+    return normalized === 'gpt-image-2' || normalized === 'gpt-image-1-mini';
 }
 
-export function supportsGeneratedImageReferenceInputModel(model?: string | null): model is 'gpt-image-1.5' | 'gpt-image-1-mini' {
+export function supportsGeneratedImageReferenceInputModel(model?: string | null): model is 'gpt-image-2' | 'gpt-image-1-mini' {
     return isOpenAiGeneratedImageModel(model);
 }
 
@@ -270,7 +269,7 @@ async function* iterateSseBlocks(stream: ReadableStream<Uint8Array>): AsyncGener
 }
 
 async function generateOpenAiImage(
-    model: 'gpt-image-1.5' | 'gpt-image-1-mini',
+    model: 'gpt-image-2' | 'gpt-image-1-mini',
     prompt: string,
     quality: GeneratedImageProviderQuality,
     inputImages?: GeneratedImageProviderInputImage[] | null,
@@ -282,22 +281,21 @@ async function generateOpenAiImage(
     }
 
     // CONTEXT MEMORY
-    // Updated: 2026-04-21
+    // Updated: 2026-04-22
     // Status: verified
-    // Why: GPT Image uploaded-image support now uses OpenAI's JSON
-    // `/v1/images/edits` request shape with signed `image_url` references
-    // instead of multipart uploads because chat uploads already live behind
-    // short-lived signed read URLs in our storage boundary.
-    // Debug Goal: GPT image requests with uploaded task images must hit the
-    // edits endpoint, preserve upload order, and still decode both JSON and
-    // SSE edit responses.
-    // Search Tags: gpt image edits image_url signed read urls uploaded task images
+    // Why: OpenAI image edits now run on `gpt-image-2` by default, and the
+    // official guide says `input_fidelity` must be omitted for that model
+    // because high-fidelity image inputs are automatic.
+    // Debug Goal: uploaded-image turns must use `/images/edits`, preserve
+    // image order, and omit `input_fidelity` for `gpt-image-2` while keeping
+    // legacy-compatible behavior for `gpt-image-1-mini`.
+    // Search Tags: gpt-image-2 omit input_fidelity images edits uploaded task images
     // Invariants:
     // - OpenAI generations without input images must stay on /images/generations.
     // - OpenAI edits with input images must stay on /images/edits and use JSON `images`.
     // Failure Modes:
+    // - Sending `input_fidelity` with `gpt-image-2` causes avoidable provider errors.
     // - Sending uploaded-image turns to /images/generations drops the edit context entirely.
-    // - Parsing only image_generation.* SSE events breaks streamed edit responses.
     const normalizedInputImages = normalizeProviderInputImages(inputImages);
     const useEditEndpoint = normalizedInputImages.length > 0;
     const controller = createAbortController(PROVIDER_TIMEOUT_MS);
@@ -319,7 +317,9 @@ async function generateOpenAiImage(
                 images: normalizedInputImages.map((image) => ({
                     image_url: image.url,
                 })),
-                input_fidelity: 'high',
+                ...(model === 'gpt-image-2' ? {} : {
+                    input_fidelity: 'high',
+                }),
             } : {}),
             ...(onProgress ? {
                 stream: true,

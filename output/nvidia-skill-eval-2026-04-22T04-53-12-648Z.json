@@ -1,0 +1,356 @@
+{
+  "ok": false,
+  "models": [
+    "kimi-k2-5-reasoning"
+  ],
+  "scenarioCount": 16,
+  "executed": 14,
+  "passed": 4,
+  "blocked": 10,
+  "failed": 0,
+  "concurrency": 1,
+  "requestTimeoutMs": 60000,
+  "results": [
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "copy_trade",
+      "targetTool": "list_copy_trade_configs",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "image_generation",
+      "targetTool": "generate_image_from_intent",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "generate_image_from_intent",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-9570c2493c0d6648",
+        "chatcmpl-8155baa311e789eb"
+      ],
+      "errors": [],
+      "finalExcerpt": "Your cyberpunk KiKo product poster has been generated successfully. **Result marker:** `TOOL_RESULT_OK_image_generation_kimi_k2_5_reasoning`",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "image_prompting",
+      "targetTool": "read_skill_prompts",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "market_macro",
+      "targetTool": "get_current_time",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "get_current_time",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-8f6cf471a2ed8861",
+        "chatcmpl-95fd904946c5aee3"
+      ],
+      "errors": [],
+      "finalExcerpt": "**Current Time Anchored** — Crypto markets are 24/7/365, but timing still matters for today's checks: **Why Today Matters:** - **Macro Crossover Hours**: Traditional markets (equities, forex) are opening/closing in major zones (NY, London, Asia) — expect volat",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "meta_debug",
+      "targetTool": "read_execution_plan",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "polymarket_prediction",
+      "targetTool": "get_polymarket_market_overview",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": "get_polymarket_market_overview",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": null,
+      "providerRequestIds": [
+        "chatcmpl-957f6a5e06f67845"
+      ],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "risk_security",
+      "targetTool": "check_token_risk",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": "check_token_risk",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": null,
+      "providerRequestIds": [
+        "chatcmpl-af6157176145fe0d"
+      ],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "social_farcaster",
+      "targetTool": "search_farcaster_casts",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": "search_farcaster_casts",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": null,
+      "providerRequestIds": [
+        "chatcmpl-986fbd72e766442c"
+      ],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "swap",
+      "targetTool": "simulate_swap",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "token_alert",
+      "targetTool": "list_token_alerts",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "list_token_alerts",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-a05a78759e7ada36",
+        "chatcmpl-87d902f80390c1db"
+      ],
+      "errors": [],
+      "finalExcerpt": "**Active Token Alerts** You currently have no active token alerts set. Use the token alert skill to create new price or market cap alerts for tokens you're tracking. `TOOL_RESULT_OK_token_alert_kimi_k2_5_reasoning`",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "token_analysis",
+      "targetTool": "get_token_info",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "wallet_portfolio",
+      "targetTool": "get_wallet_info",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "get_wallet_info",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-9fe8fc7995fc998c",
+        "chatcmpl-87d6140147d123f6"
+      ],
+      "errors": [],
+      "finalExcerpt": "**Wallet Balance Summary** Your wallet balance information has been retrieved successfully. **Marker:** `TOOL_RESULT_OK_wallet_portfolio_kimi_k2_5_reasoning` *Note: This is a simulated result from the KiKo NVIDIA skill evaluation harness. No real business acti",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "welcome_onboarding",
+      "targetTool": null,
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "zora_nfts",
+      "targetTool": "get_zora_trending",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    }
+  ],
+  "failures": [],
+  "blockedByRateLimit": [
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "copy_trade",
+      "targetTool": "list_copy_trade_configs",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "image_prompting",
+      "targetTool": "read_skill_prompts",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "meta_debug",
+      "targetTool": "read_execution_plan",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "polymarket_prediction",
+      "targetTool": "get_polymarket_market_overview",
+      "selectedTool": "get_polymarket_market_overview",
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "risk_security",
+      "targetTool": "check_token_risk",
+      "selectedTool": "check_token_risk",
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "social_farcaster",
+      "targetTool": "search_farcaster_casts",
+      "selectedTool": "search_farcaster_casts",
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "swap",
+      "targetTool": "simulate_swap",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "token_analysis",
+      "targetTool": "get_token_info",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "welcome_onboarding",
+      "targetTool": null,
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "zora_nfts",
+      "targetTool": "get_zora_trending",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    }
+  ]
+}

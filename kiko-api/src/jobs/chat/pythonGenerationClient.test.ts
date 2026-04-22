@@ -270,7 +270,7 @@ test("suppresses reasoning that arrives after content from the same provider tur
     const result = await client.generate({
       sessionId: "session-same-turn-fence",
       taskId: "task-same-turn-fence",
-      model: "glm-5",
+      model: "kimi-k2-5-reasoning",
       messages: [],
       tools: [],
       providerOptions: {},

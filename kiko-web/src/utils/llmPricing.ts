@@ -48,7 +48,6 @@ const PRICING: Record<string, { input: number; output: number; currency: Currenc
     'grok-4-1-fast-reasoning': { input: 0.20, output: 0.50, currency: 'USD' },
     'grok-4-1-fast-non-reasoning': { input: 0.20, output: 0.50, currency: 'USD' },
     // NVIDIA trial-hosted models default to zero here until production pricing is pinned.
-    'glm-5': { input: 0, output: 0, currency: 'USD' },
     'kimi-k2-5-reasoning': { input: 0, output: 0, currency: 'USD' },
     'kimi-k2-5-instant': { input: 0, output: 0, currency: 'USD' },
     // GPT (USD)
@@ -78,19 +77,7 @@ const DEFAULT_GPT_PRICING = { input: 0.15, output: 0.60, currency: 'USD' as cons
 const DEFAULT_GROK_PRICING = { input: 0.20, output: 0.50, currency: 'USD' as const };
 
 function normalizePricingModelId(model?: string): string {
-    const normalized = String(model || '').trim().toLowerCase();
-    if (
-        normalized === 'glm-5-reasoning'
-        || normalized === 'glm5-reasoning'
-        || normalized === 'z-ai/glm5-reasoning'
-        || normalized === 'z-ai/glm-5-reasoning'
-        || normalized === 'glm5'
-        || normalized === 'z-ai/glm5'
-        || normalized === 'z-ai/glm-5'
-    ) {
-        return 'glm-5';
-    }
-    return normalized;
+    return String(model || '').trim().toLowerCase();
 }
 
 /**

@@ -1,7 +1,7 @@
 {
     "id": "image_prompting",
     "name": "Image Prompting",
-    "description": "Teach the model how to turn loose image requests into strong prompts and how to coach users on prompt writing without auto-generating an image.",
+    "description": "Teach the model how to turn loose image requests into OpenAI-style image prompts and how to coach users on prompt writing without auto-generating an image.",
     "intents": [
         "TRADING"
     ],

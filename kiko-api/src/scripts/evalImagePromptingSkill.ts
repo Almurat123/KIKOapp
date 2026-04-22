@@ -18,7 +18,7 @@
 // - OpenAI-first prompt coaching should stay copy-ready and avoid unsolicited non-OpenAI variants
 // - each scenario should test one OpenAI prompting pattern clearly
 // Document Provenance:
-// - Source: OpenAI GPT-image-1.5 Prompting Guide
+// - Source: OpenAI GPT Image Generation Models Prompting Guide
 //   - Kind: official API doc
 //   - Retrieved: 2026-04-19
 //   - Applied To: eval rubric for structure, edit-preserve phrasing,

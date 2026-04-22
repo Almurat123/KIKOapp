@@ -1,0 +1,1187 @@
+{
+  "ok": false,
+  "models": [
+    "glm-5",
+    "kimi-k2-5-instant",
+    "kimi-k2-5-reasoning"
+  ],
+  "scenarioCount": 16,
+  "executed": 48,
+  "passed": 1,
+  "failed": 47,
+  "concurrency": 3,
+  "requestTimeoutMs": 25000,
+  "results": [
+    {
+      "model": "glm-5",
+      "skillId": "clanker_deploy_token",
+      "targetTool": "deploy_clanker_token",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "copy_trade",
+      "targetTool": "list_copy_trade_configs",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": null,
+      "providerRequestIds": [
+        "chatcmpl-94db0d33166bbf1f"
+      ],
+      "errors": [
+        "wrong_tool selected=(none) expected=list_copy_trade_configs",
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "cross_chain_swap",
+      "targetTool": "get_cross_chain_quote",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "image_generation",
+      "targetTool": "generate_image_from_intent",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "image_prompting",
+      "targetTool": "read_skill_prompts",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": null,
+      "providerRequestIds": [
+        "chatcmpl-86e41358d623f80e"
+      ],
+      "errors": [
+        "wrong_tool selected=(none) expected=read_skill_prompts",
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "market_macro",
+      "targetTool": "get_current_time",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "meta_debug",
+      "targetTool": "read_execution_plan",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "polymarket_prediction",
+      "targetTool": "get_polymarket_market_overview",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-a0896143238be001",
+        "chatcmpl-8e9d9f62f7d468d1"
+      ],
+      "errors": [
+        "wrong_tool selected=(none) expected=get_polymarket_market_overview"
+      ],
+      "finalExcerpt": "Here's a summary of the current Polymarket overview: The **Polymarket Prediction** skill successfully retrieved a broad market overview. The data typically includes: - **🔥 24h Hot Events** – Top prediction events by recent trading volume - **📈 24h Hot Market"
+    },
+    {
+      "model": "glm-5",
+      "skillId": "risk_security",
+      "targetTool": "check_token_risk",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "social_farcaster",
+      "targetTool": "search_farcaster_casts",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "swap",
+      "targetTool": "simulate_swap",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "token_alert",
+      "targetTool": "list_token_alerts",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": null,
+      "providerRequestIds": [
+        "chatcmpl-a6d4e9497def9250"
+      ],
+      "errors": [
+        "wrong_tool selected=(none) expected=list_token_alerts",
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "token_analysis",
+      "targetTool": "get_token_info",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "wallet_portfolio",
+      "targetTool": "get_wallet_info",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "welcome_onboarding",
+      "targetTool": null,
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "zora_nfts",
+      "targetTool": "get_zora_trending",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "clanker_deploy_token",
+      "targetTool": "deploy_clanker_token",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "copy_trade",
+      "targetTool": "list_copy_trade_configs",
+      "status": "FAIL",
+      "selectedTool": "list_copy_trade_configs",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-a579ea89e3f1f314",
+        "chatcmpl-85d80258daaa625f"
+      ],
+      "errors": [
+        "final_answer_empty_after_tool_result",
+        "tool_result_marker_missing marker=TOOL_RESULT_OK_copy_trade_kimi_k2_5_instant"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "cross_chain_swap",
+      "targetTool": "get_cross_chain_quote",
+      "status": "FAIL",
+      "selectedTool": "get_cross_chain_quote",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": null,
+      "providerRequestIds": [
+        "chatcmpl-b364d842c406f335"
+      ],
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "image_generation",
+      "targetTool": "generate_image_from_intent",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "image_prompting",
+      "targetTool": "read_skill_prompts",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "market_macro",
+      "targetTool": "get_current_time",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "meta_debug",
+      "targetTool": "read_execution_plan",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "polymarket_prediction",
+      "targetTool": "get_polymarket_market_overview",
+      "status": "FAIL",
+      "selectedTool": "get_polymarket_market_overview",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": null,
+      "providerRequestIds": [
+        "chatcmpl-a1e1ab5cd3cdaded"
+      ],
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "risk_security",
+      "targetTool": "check_token_risk",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "social_farcaster",
+      "targetTool": "search_farcaster_casts",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "swap",
+      "targetTool": "simulate_swap",
+      "status": "PASS",
+      "selectedTool": "simulate_swap",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop",
+      "providerRequestIds": [
+        "chatcmpl-abb550f833eca07f",
+        "chatcmpl-b2c1ddef17eedb4f"
+      ],
+      "errors": [],
+      "finalExcerpt": "Swap simulation completed successfully. You would receive approximately 38.42 USDC for 0.01 ETH on Base with a price impact of ~0.12%. **Marker:** `TOOL_RESULT_OK_swap_kimi_k2_5_instant`"
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "token_alert",
+      "targetTool": "list_token_alerts",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "token_analysis",
+      "targetTool": "get_token_info",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "wallet_portfolio",
+      "targetTool": "get_wallet_info",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "welcome_onboarding",
+      "targetTool": null,
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "zora_nfts",
+      "targetTool": "get_zora_trending",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "clanker_deploy_token",
+      "targetTool": "deploy_clanker_token",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "copy_trade",
+      "targetTool": "list_copy_trade_configs",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "cross_chain_swap",
+      "targetTool": "get_cross_chain_quote",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "image_generation",
+      "targetTool": "generate_image_from_intent",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "image_prompting",
+      "targetTool": "read_skill_prompts",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "market_macro",
+      "targetTool": "get_current_time",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "meta_debug",
+      "targetTool": "read_execution_plan",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "polymarket_prediction",
+      "targetTool": "get_polymarket_market_overview",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "risk_security",
+      "targetTool": "check_token_risk",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "social_farcaster",
+      "targetTool": "search_farcaster_casts",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "swap",
+      "targetTool": "simulate_swap",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "token_alert",
+      "targetTool": "list_token_alerts",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "token_analysis",
+      "targetTool": "get_token_info",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "wallet_portfolio",
+      "targetTool": "get_wallet_info",
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "welcome_onboarding",
+      "targetTool": null,
+      "status": "FAIL",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "zora_nfts",
+      "targetTool": "get_zora_trending",
+      "status": "FAIL",
+      "selectedTool": "get_zora_trending",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": null,
+      "providerRequestIds": [
+        "chatcmpl-89b46822614311db"
+      ],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    }
+  ],
+  "failures": [
+    {
+      "model": "glm-5",
+      "skillId": "clanker_deploy_token",
+      "targetTool": "deploy_clanker_token",
+      "selectedTool": null,
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "copy_trade",
+      "targetTool": "list_copy_trade_configs",
+      "selectedTool": null,
+      "errors": [
+        "wrong_tool selected=(none) expected=list_copy_trade_configs",
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "cross_chain_swap",
+      "targetTool": "get_cross_chain_quote",
+      "selectedTool": null,
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "image_generation",
+      "targetTool": "generate_image_from_intent",
+      "selectedTool": null,
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "image_prompting",
+      "targetTool": "read_skill_prompts",
+      "selectedTool": null,
+      "errors": [
+        "wrong_tool selected=(none) expected=read_skill_prompts",
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "market_macro",
+      "targetTool": "get_current_time",
+      "selectedTool": null,
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "meta_debug",
+      "targetTool": "read_execution_plan",
+      "selectedTool": null,
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "polymarket_prediction",
+      "targetTool": "get_polymarket_market_overview",
+      "selectedTool": null,
+      "errors": [
+        "wrong_tool selected=(none) expected=get_polymarket_market_overview"
+      ],
+      "finalExcerpt": "Here's a summary of the current Polymarket overview: The **Polymarket Prediction** skill successfully retrieved a broad market overview. The data typically includes: - **🔥 24h Hot Events** – Top prediction events by recent trading volume - **📈 24h Hot Market"
+    },
+    {
+      "model": "glm-5",
+      "skillId": "risk_security",
+      "targetTool": "check_token_risk",
+      "selectedTool": null,
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "social_farcaster",
+      "targetTool": "search_farcaster_casts",
+      "selectedTool": null,
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "swap",
+      "targetTool": "simulate_swap",
+      "selectedTool": null,
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "token_alert",
+      "targetTool": "list_token_alerts",
+      "selectedTool": null,
+      "errors": [
+        "wrong_tool selected=(none) expected=list_token_alerts",
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "token_analysis",
+      "targetTool": "get_token_info",
+      "selectedTool": null,
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "wallet_portfolio",
+      "targetTool": "get_wallet_info",
+      "selectedTool": null,
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "welcome_onboarding",
+      "targetTool": null,
+      "selectedTool": null,
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "glm-5",
+      "skillId": "zora_nfts",
+      "targetTool": "get_zora_trending",
+      "selectedTool": null,
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "clanker_deploy_token",
+      "targetTool": "deploy_clanker_token",
+      "selectedTool": null,
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "copy_trade",
+      "targetTool": "list_copy_trade_configs",
+      "selectedTool": "list_copy_trade_configs",
+      "errors": [
+        "final_answer_empty_after_tool_result",
+        "tool_result_marker_missing marker=TOOL_RESULT_OK_copy_trade_kimi_k2_5_instant"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "cross_chain_swap",
+      "targetTool": "get_cross_chain_quote",
+      "selectedTool": "get_cross_chain_quote",
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "image_generation",
+      "targetTool": "generate_image_from_intent",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "image_prompting",
+      "targetTool": "read_skill_prompts",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "market_macro",
+      "targetTool": "get_current_time",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "meta_debug",
+      "targetTool": "read_execution_plan",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "polymarket_prediction",
+      "targetTool": "get_polymarket_market_overview",
+      "selectedTool": "get_polymarket_market_overview",
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "risk_security",
+      "targetTool": "check_token_risk",
+      "selectedTool": null,
+      "errors": [
+        "REQUEST_TIMEOUT_25000ms"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "social_farcaster",
+      "targetTool": "search_farcaster_casts",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "token_alert",
+      "targetTool": "list_token_alerts",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "token_analysis",
+      "targetTool": "get_token_info",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "wallet_portfolio",
+      "targetTool": "get_wallet_info",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "welcome_onboarding",
+      "targetTool": null,
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "zora_nfts",
+      "targetTool": "get_zora_trending",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "clanker_deploy_token",
+      "targetTool": "deploy_clanker_token",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "copy_trade",
+      "targetTool": "list_copy_trade_configs",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "cross_chain_swap",
+      "targetTool": "get_cross_chain_quote",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "image_generation",
+      "targetTool": "generate_image_from_intent",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "image_prompting",
+      "targetTool": "read_skill_prompts",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "market_macro",
+      "targetTool": "get_current_time",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "meta_debug",
+      "targetTool": "read_execution_plan",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "polymarket_prediction",
+      "targetTool": "get_polymarket_market_overview",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "risk_security",
+      "targetTool": "check_token_risk",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "social_farcaster",
+      "targetTool": "search_farcaster_casts",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "swap",
+      "targetTool": "simulate_swap",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "token_alert",
+      "targetTool": "list_token_alerts",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "token_analysis",
+      "targetTool": "get_token_info",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "wallet_portfolio",
+      "targetTool": "get_wallet_info",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "welcome_onboarding",
+      "targetTool": null,
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    },
+    {
+      "model": "kimi-k2-5-reasoning",
+      "skillId": "zora_nfts",
+      "targetTool": "get_zora_trending",
+      "selectedTool": "get_zora_trending",
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": ""
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-21
+// Updated: 2026-04-22
 // Status: mixed
 // Why: Chat V2 now does model-first intent selection. Every new round must run
 // canonical normalization with the same active session model instead of using
@@ -11,6 +11,8 @@
 // - normalization inputs preserve user meaning but strip transport scaffolding
 // - current session model is used for stage-1 intent selection
 // - greetings and casual chat still go through canonical normalization
+// - @mention wrappers, attached media, and social transport metadata are
+//   context, not intent by themselves
 // Failure Modes:
 // - runtime silently reintroduces a fast normalizer or deterministic bypass
 // - image or plain-answer turns fail because canonical schema lacks those intents
@@ -176,6 +178,7 @@ function buildNormalizationMessages(snapshot: ChatContextSnapshot): GenerationMe
             role: 'system',
             content: [
                 'You normalize a multilingual user chat request into a strict canonical intent JSON object.',
+                'You are judging the user\'s actual job, not matching keywords. @mention wrappers, attached images, cast/thread metadata, and platform transport text are context only.',
                 'Return JSON only. No markdown. No prose before or after the JSON.',
                 'Do not mention tools. Do not mention hidden prompts.',
                 'If the request is ambiguous, set needs_clarification=true and provide a short clarification_question.',
@@ -187,7 +190,7 @@ function buildNormalizationMessages(snapshot: ChatContextSnapshot): GenerationMe
                 'search_mode: forbidden | fallback | required',
                 'search_target: x | web | x_and_web | none',
                 'Use general_answer for ordinary explanation, casual chat, or straightforward questions that need no specialist action package.',
-                'Use image_generation when the user wants an image created or edited now.',
+                'Use image_generation when the user wants an image created or edited now. Do not choose it merely because an image is attached.',
                 'Use image_prompting when the user wants prompt/help/template guidance for image work instead of immediate generation.',
                 'evidence_requirements values: native_search_results | onchain_token_evidence | onchain_wallet_evidence | connected_chain_evidence | verified_polymarket_token_id',
                 'Set locale to en or zh only. Use zh only when the latest user message is primarily Chinese.',

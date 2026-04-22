@@ -36,16 +36,16 @@ async function withOpenAiImageFetchMock(
 
 test('reference-image support is limited to GPT image models', () => {
     assert.equal(supportsGeneratedImageReferenceInputModel('gpt-image-1-mini'), true);
-    assert.equal(supportsGeneratedImageReferenceInputModel('gpt-image-1.5'), true);
+    assert.equal(supportsGeneratedImageReferenceInputModel('gpt-image-2'), true);
     assert.equal(supportsGeneratedImageReferenceInputModel('grok-imagine-image'), false);
 });
 
-test('OpenAI uploaded-image requests use the edits endpoint with JSON image_url references', async () => {
+test('OpenAI gpt-image-2 uploaded-image requests use the edits endpoint with JSON image_url references', async () => {
     await withOpenAiImageFetchMock(
         async (calls) => {
             const result = await generateImageWithProvider({
                 provider: 'openai',
-                model: 'gpt-image-1-mini',
+                model: 'gpt-image-2',
                 prompt: 'Place the uploaded subject into a moonlit forest scene.',
                 quality: 'medium',
                 inputImages: [
@@ -55,8 +55,8 @@ test('OpenAI uploaded-image requests use the edits endpoint with JSON image_url 
 
             assert.equal(calls.length, 1);
             assert.equal(calls[0].url, 'https://api.openai.com/v1/images/edits');
-            assert.equal(calls[0].body.model, 'gpt-image-1-mini');
-            assert.equal(calls[0].body.input_fidelity, 'high');
+            assert.equal(calls[0].body.model, 'gpt-image-2');
+            assert.equal(Object.hasOwn(calls[0].body, 'input_fidelity'), false);
             assert.deepEqual(calls[0].body.images, [
                 { image_url: 'https://example.com/source-image.png' },
             ]);
@@ -82,11 +82,11 @@ test('OpenAI uploaded-image requests use the edits endpoint with JSON image_url 
 test('OpenAI streamed image edits parse image_edit SSE events', async () => {
     const encoder = new TextEncoder();
     await withOpenAiImageFetchMock(
-        async () => {
+        async (calls) => {
             const progressEvents: number[] = [];
             const result = await generateImageWithProvider({
                 provider: 'openai',
-                model: 'gpt-image-1.5',
+                model: 'gpt-image-2',
                 prompt: 'Turn the uploaded product photo into a clean studio ad.',
                 quality: 'high',
                 inputImages: [
@@ -98,6 +98,8 @@ test('OpenAI streamed image edits parse image_edit SSE events', async () => {
             });
 
             assert.deepEqual(progressEvents, [0]);
+            assert.equal(calls[0].body.model, 'gpt-image-2');
+            assert.equal(Object.hasOwn(calls[0].body, 'input_fidelity'), false);
             assert.equal(result.imageBuffer.toString('utf8'), 'streamed-edit-image');
             assert.equal(result.supportsProgressiveReveal, true);
         },

@@ -126,7 +126,6 @@ export type ChatModelControlLevel = ChatReasoningLevel | ChatImageQualityLevel;
 export type ChatModelControlKind = 'reasoning' | 'quality';
 
 export type ChatModelFamilyId =
-  | 'glm-5'
   | 'kimi-k2-5'
   | 'gpt-5.4-mini'
   | 'grok-4-1-fast'
@@ -164,10 +163,6 @@ const BINARY_REASONING_OPTIONS: ChatModelFamilyControlOption[] = [
   { id: 'thinking', label: 'Thinking' },
 ];
 
-const GLM_REASONING_OPTIONS: ChatModelFamilyControlOption[] = [
-  { id: 'thinking', label: 'Thinking' },
-];
-
 const GPT_54_MINI_REASONING_OPTIONS: ChatModelFamilyControlOption[] = [
   { id: 'low', label: 'Low', effort: 'low' },
   { id: 'medium', label: 'Medium', effort: 'medium' },
@@ -201,15 +196,6 @@ function normalizeGpt54ReasoningLevel(level?: string | null): ChatReasoningEffor
 }
 
 export const MODEL_OPTIONS: ChatModelOption[] = [
-  {
-    id: 'glm-5',
-    name: 'GLM-5',
-    mode: 'thinking',
-    kind: 'text',
-    familyId: 'glm-5',
-    reasoningLevel: 'thinking',
-    reasoningLabel: 'Thinking',
-  },
   {
     id: 'kimi-k2-5-instant',
     name: 'Kimi-K2.5',
@@ -360,7 +346,6 @@ export function getDefaultChatModelOption(): ChatModelOption {
 }
 
 const MODEL_FAMILY_ORDER: ChatModelFamilyId[] = [
-  'glm-5',
   'kimi-k2-5',
   'gpt-5.4-mini',
   'grok-4-1-fast',
@@ -370,7 +355,6 @@ const MODEL_FAMILY_ORDER: ChatModelFamilyId[] = [
 ];
 
 const FAMILY_REASONING_OPTIONS: Record<ChatModelFamilyId, ChatModelFamilyControlOption[]> = {
-  'glm-5': GLM_REASONING_OPTIONS,
   'kimi-k2-5': BINARY_REASONING_OPTIONS,
   'gpt-5.4-mini': GPT_54_MINI_REASONING_OPTIONS,
   'grok-4-1-fast': BINARY_REASONING_OPTIONS,
@@ -380,7 +364,6 @@ const FAMILY_REASONING_OPTIONS: Record<ChatModelFamilyId, ChatModelFamilyControl
 };
 
 const FAMILY_CONTROL_KIND: Record<ChatModelFamilyId, ChatModelControlKind> = {
-  'glm-5': 'reasoning',
   'kimi-k2-5': 'reasoning',
   'gpt-5.4-mini': 'reasoning',
   'grok-4-1-fast': 'reasoning',
@@ -409,13 +392,6 @@ function normalizeModelFamilyId(modelId?: string | null): ChatModelFamilyId | un
     return 'kimi-k2-5';
   if (normalized.startsWith('grok-4-1-fast')) return 'grok-4-1-fast';
   if (normalized.startsWith('gpt-5.4-mini')) return 'gpt-5.4-mini';
-  if (
-    normalized.startsWith('glm-5') ||
-    normalized.startsWith('glm5') ||
-    normalized.startsWith('z-ai/glm5') ||
-    normalized.startsWith('z-ai/glm-5')
-  )
-    return 'glm-5';
   return undefined;
 }
 

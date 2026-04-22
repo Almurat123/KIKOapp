@@ -82,7 +82,22 @@ test('generated image tool honors saved image model preferences from tool contex
     );
 });
 
-test('generated image tool falls back when saved image preference is disabled', () => {
+test('generated image tool honors saved GPT Image 2 preference from tool context', () => {
+    assert.deepEqual(
+        __generateImageFromIntentTest.resolveGeneratedImageToolPreference({
+            generatedImagePreference: {
+                model: 'gpt-image-2',
+                quality: 'high',
+            },
+        }, 'gpt-5.4-mini-2026-03-17'),
+        {
+            requestedModel: 'gpt-image-2',
+            quality: 'high',
+        },
+    );
+});
+
+test('generated image tool falls back when saved image preference is unsupported', () => {
     assert.deepEqual(
         __generateImageFromIntentTest.resolveGeneratedImageToolPreference({
             generatedImagePreference: {
@@ -111,5 +126,37 @@ test('generated image tool falls back to GPT image when reference inputs are pre
             requestedModel: 'gpt-image-1-mini',
             quality: 'medium',
         },
+    );
+});
+
+test('generated image tool passes implicit task images as provider reference inputs', () => {
+    const merged = __generateImageFromIntentTest.mergeImplicitTaskReferenceImages(
+        [
+            {
+                url: 'https://example.com/explicit.png',
+                description: 'explicit reference',
+                purpose: 'match color palette',
+            },
+        ],
+        [
+            {
+                url: 'https://example.com/farcaster-upload.png',
+                sourceLabel: 'Farcaster attached image 1',
+            },
+        ],
+    );
+
+    assert.deepEqual(
+        __generateImageFromIntentTest.buildProviderReferenceImages(merged),
+        [
+            {
+                url: 'https://example.com/explicit.png',
+                sourceLabel: 'explicit reference | match color palette',
+            },
+            {
+                url: 'https://example.com/farcaster-upload.png',
+                sourceLabel: 'Farcaster attached image 1 | preserve subject identity and visual details from the uploaded image',
+            },
+        ],
     );
 });

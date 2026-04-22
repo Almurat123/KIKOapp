@@ -1,0 +1,82 @@
+{
+  "ok": false,
+  "models": [
+    "kimi-k2-5-instant"
+  ],
+  "scenarioCount": 16,
+  "executed": 3,
+  "passed": 2,
+  "blocked": 1,
+  "failed": 0,
+  "concurrency": 1,
+  "requestTimeoutMs": 60000,
+  "results": [
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "copy_trade",
+      "targetTool": "list_copy_trade_configs",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "list_copy_trade_configs",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop->repair:stop",
+      "providerRequestIds": [
+        "chatcmpl-ad6e706ca00dcf56",
+        "chatcmpl-972cb954eb5366e3",
+        "chatcmpl-ad31f7b0bd9505d5"
+      ],
+      "errors": [],
+      "finalExcerpt": "The tool returned a result, but the model produced an empty visible answer. Here is the tool result: marker: TOOL_RESULT_OK_copy_trade_kimi_k2_5_instant note: This is a simulated KiKo tool result from the NVIDIA skill eval harness. No real business action was ",
+      "repairAttempted": true,
+      "fallbackUsed": true
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "token_alert",
+      "targetTool": "list_token_alerts",
+      "status": "BLOCKED",
+      "errorCategory": "rate_limit",
+      "selectedTool": null,
+      "firstFinishReason": null,
+      "secondFinishReason": null,
+      "providerRequestIds": [],
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ],
+      "finalExcerpt": "",
+      "repairAttempted": false,
+      "fallbackUsed": false
+    },
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "zora_nfts",
+      "targetTool": "get_zora_trending",
+      "status": "PASS",
+      "errorCategory": "none",
+      "selectedTool": "get_zora_trending",
+      "firstFinishReason": "tool_calls",
+      "secondFinishReason": "stop->repair:stop",
+      "providerRequestIds": [
+        "chatcmpl-bd16a5d7a8da1eef",
+        "chatcmpl-9ea33d1110723ca1",
+        "chatcmpl-9154f7de21d1812c"
+      ],
+      "errors": [],
+      "finalExcerpt": "Here are the top trending coins on Zora right now (by gainers): 1. **$ZORA** - Zora's native token, up 15% today 2. **$BASE** - Base ecosystem coin, strong volume 3. **$DEGEN** - Community token with active trading 4. **$ENJOY** - New creator coin gaining trac",
+      "repairAttempted": true,
+      "fallbackUsed": false
+    }
+  ],
+  "failures": [],
+  "blockedByRateLimit": [
+    {
+      "model": "kimi-k2-5-instant",
+      "skillId": "token_alert",
+      "targetTool": "list_token_alerts",
+      "selectedTool": null,
+      "errors": [
+        "HTTP_429: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+    }
+  ]
+}
