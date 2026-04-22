@@ -2,11 +2,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENV_FILE="${1:-$ROOT_DIR/contracts.env}"
+ENV_FILE="${1:-}"
+DEFAULT_ENV_FILE="$ROOT_DIR/contracts.env"
 
-if [[ ! -f "$ENV_FILE" ]]; then
-  echo "Missing env file: $ENV_FILE"
-  echo "Copy $ROOT_DIR/contracts.env.example to $ROOT_DIR/contracts.env and fill it first."
+if [[ -n "$ENV_FILE" && ! -f "$ENV_FILE" ]]; then
+  echo "Env file was provided but does not exist: $ENV_FILE"
   exit 1
 fi
 
@@ -20,10 +20,20 @@ if ! command -v cast >/dev/null 2>&1; then
   exit 1
 fi
 
-set -a
-# shellcheck disable=SC1090
-source "$ENV_FILE"
-set +a
+if [[ -n "$ENV_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+elif [[ -f "$DEFAULT_ENV_FILE" ]]; then
+  ENV_FILE="$DEFAULT_ENV_FILE"
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+else
+  ENV_FILE="<process environment>"
+fi
 
 require_env() {
   local name="$1"
@@ -54,7 +64,7 @@ PRINT_RUNTIME_ENV="${CREDIT_ROUTER_PRINT_RUNTIME_ENV:-true}"
 DEPLOYER_ADDRESS="$(cast wallet address --private-key "$CREDIT_ROUTER_DEPLOYER_PRIVATE_KEY")"
 
 echo "== CreditTopUpRouter Base Mainnet Deploy =="
-echo "env file: $ENV_FILE"
+echo "env source: $ENV_FILE"
 echo "chain id: $CHAIN_ID"
 echo "deployer: $DEPLOYER_ADDRESS"
 echo "owner: $CREDIT_ROUTER_OWNER_ADDRESS"
