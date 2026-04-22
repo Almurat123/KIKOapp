@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${1:-}"
 DEFAULT_ENV_FILE="$ROOT_DIR/contracts.env"
+APP_ENV_FILE="$ROOT_DIR/.env"
 
 if [[ -n "$ENV_FILE" && ! -f "$ENV_FILE" ]]; then
   echo "Env file was provided but does not exist: $ENV_FILE"
@@ -31,6 +32,12 @@ elif [[ -f "$DEFAULT_ENV_FILE" ]]; then
   # shellcheck disable=SC1090
   source "$ENV_FILE"
   set +a
+elif [[ -f "$APP_ENV_FILE" ]]; then
+  ENV_FILE="$APP_ENV_FILE"
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
 else
   ENV_FILE="<process environment>"
 fi
@@ -47,6 +54,23 @@ normalize_bool() {
   local value="${1:-false}"
   value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
   [[ "$value" == "1" || "$value" == "true" || "$value" == "yes" ]]
+}
+
+print_redacted_command() {
+  local redact_next=false
+  local arg
+  for arg in "$@"; do
+    if [[ "$redact_next" == "true" ]]; then
+      printf ' %q' "<redacted-private-key>"
+      redact_next=false
+      continue
+    fi
+    printf ' %q' "$arg"
+    if [[ "$arg" == "--private-key" ]]; then
+      redact_next=true
+    fi
+  done
+  echo
 }
 
 require_env BASE_MAINNET_RPC_URL
@@ -135,8 +159,7 @@ fi
 
 if normalize_bool "$DRY_RUN_ENABLED"; then
   echo "[dry-run] forge create command:"
-  printf ' %q' "${FORGE_CREATE_ARGS[@]}"
-  echo
+  print_redacted_command "${FORGE_CREATE_ARGS[@]}"
   echo
   echo "[dry-run] token config actions:"
   [[ -n "${CREDIT_ROUTER_USDC_ADDRESS:-}" ]] && echo " USDC -> ${CREDIT_ROUTER_USDC_ADDRESS} refunds=${CREDIT_ROUTER_USDC_REFUNDS_ENABLED:-true}"
@@ -147,6 +170,21 @@ if normalize_bool "$DRY_RUN_ENABLED"; then
   fi
   exit 0
 fi
+
+# CONTEXT MEMORY
+# Updated: 2026-04-22
+# Status: verified
+# Why: forge create simulates by default; mainnet deployment must explicitly broadcast or
+# the script will only print a simulated transaction and fail to parse a router address.
+# Debug Goal: dry-run must never attempt deployment parsing; non-dry-run must create a real contract.
+# Search Tags: forge create broadcast missing deploy script parse router address
+# Invariants:
+# - dry-run exits before any deploy or token config transaction is sent
+# - non-dry-run includes --broadcast so forge returns a real deployed contract address
+# Failure Modes:
+# - forgetting --broadcast makes "real deploy" behave like a simulation
+# - parsing forge output after a simulation yields an empty router address
+FORGE_CREATE_ARGS+=(--broadcast)
 
 DEPLOY_OUTPUT="$("${FORGE_CREATE_ARGS[@]}")"
 printf '%s\n' "$DEPLOY_OUTPUT"

@@ -12,6 +12,8 @@
     "contracts:test": "forge test",
     "contracts:deploy:base-mainnet": "bash scripts/deploy-credit-router-mainnet.sh",
     "contracts:deploy:base-mainnet:dry-run": "CREDIT_ROUTER_DRY_RUN=true bash scripts/deploy-credit-router-mainnet.sh",
+    "contracts:deploy:base-mainnet:railway": "railway run --no-local -- bash scripts/deploy-credit-router-mainnet.sh",
+    "contracts:deploy:base-mainnet:railway:dry-run": "railway run --no-local -- bash -lc 'CREDIT_ROUTER_DRY_RUN=true bash scripts/deploy-credit-router-mainnet.sh'",
     "postinstall": "test -f prisma/schema.prisma && prisma generate || echo 'Skipping prisma generate (schema not found)'",
     "start": "node dist/index.js",
     "test": "tsx --test",
