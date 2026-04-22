@@ -84,14 +84,30 @@ REFUND_WINDOW_SECONDS="${CREDIT_ROUTER_REFUND_WINDOW_SECONDS:-86400}"
 VERIFY_ENABLED="${CREDIT_ROUTER_VERIFY:-false}"
 DRY_RUN_ENABLED="${CREDIT_ROUTER_DRY_RUN:-false}"
 PRINT_RUNTIME_ENV="${CREDIT_ROUTER_PRINT_RUNTIME_ENV:-true}"
+TOKEN_CONFIG_SIGNER_PRIVATE_KEY="${CREDIT_ROUTER_OWNER_PRIVATE_KEY:-$CREDIT_ROUTER_DEPLOYER_PRIVATE_KEY}"
 
 DEPLOYER_ADDRESS="$(cast wallet address --private-key "$CREDIT_ROUTER_DEPLOYER_PRIVATE_KEY")"
+TOKEN_CONFIG_SIGNER_ADDRESS="$(cast wallet address --private-key "$TOKEN_CONFIG_SIGNER_PRIVATE_KEY")"
+
+TOKENS_REQUIRE_CONFIG=false
+if [[ -n "${CREDIT_ROUTER_USDC_ADDRESS:-}" || -n "${CREDIT_ROUTER_USDT_ADDRESS:-}" || -n "${CREDIT_ROUTER_KIKO_ADDRESS:-}" ]]; then
+  TOKENS_REQUIRE_CONFIG=true
+fi
+
+if [[ "$TOKENS_REQUIRE_CONFIG" == "true" && "$TOKEN_CONFIG_SIGNER_ADDRESS" != "$CREDIT_ROUTER_OWNER_ADDRESS" ]]; then
+  echo "Token config signer does not match owner."
+  echo "owner: $CREDIT_ROUTER_OWNER_ADDRESS"
+  echo "token config signer: $TOKEN_CONFIG_SIGNER_ADDRESS"
+  echo "Set CREDIT_ROUTER_OWNER_PRIVATE_KEY to the private key for the owner address, or leave token addresses blank and configure them manually later."
+  exit 1
+fi
 
 echo "== CreditTopUpRouter Base Mainnet Deploy =="
 echo "env source: $ENV_FILE"
 echo "chain id: $CHAIN_ID"
 echo "deployer: $DEPLOYER_ADDRESS"
 echo "owner: $CREDIT_ROUTER_OWNER_ADDRESS"
+echo "token config signer: $TOKEN_CONFIG_SIGNER_ADDRESS"
 echo "treasury: $CREDIT_ROUTER_TREASURY_ADDRESS"
 echo "refund authority: $REFUND_AUTHORITY_ADDRESS"
 echo "refund window seconds: $REFUND_WINDOW_SECONDS"
@@ -116,7 +132,7 @@ configure_token() {
     true \
     "$refunds_enabled" \
     --rpc-url "$BASE_MAINNET_RPC_URL" \
-    --private-key "$CREDIT_ROUTER_DEPLOYER_PRIVATE_KEY"
+    --private-key "$TOKEN_CONFIG_SIGNER_PRIVATE_KEY"
 }
 
 print_runtime_env_block() {
@@ -138,14 +154,10 @@ EOF
 
 FORGE_CREATE_ARGS=(
   forge create
+  --broadcast
   contracts/credits/CreditTopUpRouter.sol:CreditTopUpRouter
   --rpc-url "$BASE_MAINNET_RPC_URL"
   --private-key "$CREDIT_ROUTER_DEPLOYER_PRIVATE_KEY"
-  --constructor-args
-  "$CREDIT_ROUTER_OWNER_ADDRESS"
-  "$CREDIT_ROUTER_TREASURY_ADDRESS"
-  "$REFUND_AUTHORITY_ADDRESS"
-  "$REFUND_WINDOW_SECONDS"
 )
 
 if normalize_bool "$VERIFY_ENABLED"; then
@@ -174,17 +186,32 @@ fi
 # CONTEXT MEMORY
 # Updated: 2026-04-22
 # Status: verified
-# Why: forge create simulates by default; mainnet deployment must explicitly broadcast or
-# the script will only print a simulated transaction and fail to parse a router address.
+# Why: forge create simulates by default; mainnet deployment must explicitly broadcast and
+# keep constructor args last because `--constructor-args <ARGS>...` is variadic. Post-deploy
+# token configuration is owner-gated and may need a different private key from the deployer.
 # Debug Goal: dry-run must never attempt deployment parsing; non-dry-run must create a real contract.
-# Search Tags: forge create broadcast missing deploy script parse router address
+# Search Tags: forge create broadcast missing deploy script constructor args order parse router address owner private key token config
 # Invariants:
 # - dry-run exits before any deploy or token config transaction is sent
 # - non-dry-run includes --broadcast so forge returns a real deployed contract address
+# - constructor args stay at the end of the command so option parsing does not swallow flags
+# - setTokenConfig must be signed by the owner address, not merely the deployer
 # Failure Modes:
 # - forgetting --broadcast makes "real deploy" behave like a simulation
+# - placing flags after `--constructor-args` can make forge ignore them or parse unexpectedly
+# - using a deployer key for `setTokenConfig` reverts with OwnableUnauthorizedAccount
 # - parsing forge output after a simulation yields an empty router address
-FORGE_CREATE_ARGS+=(--broadcast)
+FORGE_CREATE_ARGS+=(
+  --constructor-args
+  "$CREDIT_ROUTER_OWNER_ADDRESS"
+  "$CREDIT_ROUTER_TREASURY_ADDRESS"
+  "$REFUND_AUTHORITY_ADDRESS"
+  "$REFUND_WINDOW_SECONDS"
+)
+
+echo "[deploy] forge create command:"
+print_redacted_command "${FORGE_CREATE_ARGS[@]}"
+echo
 
 DEPLOY_OUTPUT="$("${FORGE_CREATE_ARGS[@]}")"
 printf '%s\n' "$DEPLOY_OUTPUT"

@@ -242,7 +242,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 
   useEffect(() => {
     if (!authenticated) return;
-    if (readStoredChatModelSelection()) return;
     let cancelled = false;
     const loadSavedModel = async () => {
       try {
@@ -255,8 +254,16 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             reasoningLevel: settings?.defaultChatReasoningLevel,
           }) ||
           findChatModelOption(settings?.defaultChatModel);
-        if (!cancelled && found && found.id !== selectedModel.id) {
-          setSelectedModel((current) => isTextChatModelOption(current) ? found : current);
+        if (!cancelled && found) {
+          setSelectedModel((current) => {
+            if (!isTextChatModelOption(current)) return current;
+            const sameSelection =
+              current.id === found.id &&
+              current.reasoningLevel === found.reasoningLevel &&
+              current.kind === found.kind &&
+              current.imageQuality === found.imageQuality;
+            return sameSelection ? current : found;
+          });
         }
       } catch (error) {
         logger.warn('Failed to load saved default chat model:', error);

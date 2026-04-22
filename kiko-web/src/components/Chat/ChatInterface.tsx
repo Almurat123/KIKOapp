@@ -1653,7 +1653,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   useEffect(() => {
     if (!ready || !authenticated) return;
-    if (readStoredChatModelSelection()) return;
     let cancelled = false;
     const loadSavedModel = async () => {
       try {
@@ -1671,7 +1670,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             if (!isTextChatModelOption(current)) {
               return current;
             }
-            if (current.id === found.id) {
+            const sameSelection =
+              current.id === found.id &&
+              current.reasoningLevel === found.reasoningLevel &&
+              current.kind === found.kind &&
+              current.imageQuality === found.imageQuality;
+            if (sameSelection) {
               return current;
             }
             return found;
