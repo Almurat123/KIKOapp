@@ -47,6 +47,33 @@ class OpenAIRequestDiagnosticsTests(unittest.TestCase):
         self.assertEqual(body["reasoning_effort"], "medium")
         self.assertNotIn("tools", body)
 
+    def test_keeps_forced_tool_choice_for_image_execution_mode(self):
+        tool_choice = {
+            "type": "function",
+            "function": {"name": "generate_image_from_intent"},
+        }
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "generate_image_from_intent",
+                    "description": "Generate an image.",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+        req = GenerateRequest(
+            model="gpt-5.4-mini-2026-03-17",
+            messages=[{"role": "user", "content": "make an image"}],
+            tools=tools,
+            tool_choice=tool_choice,
+        )
+
+        body, omitted = _build_openai_request_body(req)
+
+        self.assertIsNone(omitted)
+        self.assertEqual(body["tool_choice"], tool_choice)
+
     def test_summarizes_tool_shape_without_prompt_content(self):
         body = {
             "model": "gpt-5.4-mini-2026-03-17",

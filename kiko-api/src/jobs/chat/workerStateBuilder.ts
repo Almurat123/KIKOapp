@@ -1172,7 +1172,7 @@ function tokenEntityMentionedInQuery(
 }
 
 function looksLikeContinuationTurn(query: string): boolean {
-  return /(^|\b)(this|that|it|them|those|continue|yes|ok|okay|confirm|go ahead|same one|sell it|buy it)(\b|$)|这个|那个|它|他们|这些|继续|确认|同意|可以|就这个|卖它|买它/i.test(
+  return /(^|\b)(this|that|it|them|those|same one|sell it|buy it)(\b|$)|这个|那个|它|他们|这些|就这个|卖它|买它/i.test(
     query,
   );
 }

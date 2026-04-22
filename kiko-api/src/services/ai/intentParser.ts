@@ -196,14 +196,6 @@ function hasTradeKeywords(text: string): boolean {
         || /(兑换|交易|买|购买|卖|卖出)/i.test(text);
 }
 
-function hasConfirmationKeywords(text: string): boolean {
-    const cleanText = text.trim().toLowerCase();
-    if (/^(proceed|confirm|yes|go ahead|execute|do it|approve|submit|ok|okay|sure|确认|确定|执行|好的|继续)$/i.test(cleanText)) {
-        return true;
-    }
-    return /\b(confirm transaction|execute swap|proceed with trade|proceed with swap|continue with trade|confirm trade)\b/i.test(text);
-}
-
 function clampConfidence(value: unknown, fallback: number): number {
     const n = Number(value);
     if (!Number.isFinite(n)) return fallback;
@@ -394,12 +386,10 @@ function parseIntentWithRules(message: string, userContext?: UserContext): Parse
         decision.labels = [{ label: 'COPY_TRADING', confidence: 0.95 }];
         decision.routing.reason = reason;
         decision.hardRule = { label: 'COPY_TRADING', reason };
-    } else if (hasConfirmationKeywords(message) || hasTradeKeywords(message) || hasCrossChainKeywords(message)) {
-        highLevel = { type: 'TRADING', confidence: hasConfirmationKeywords(message) ? 0.98 : 0.9 };
+    } else if (hasTradeKeywords(message) || hasCrossChainKeywords(message)) {
+        highLevel = { type: 'TRADING', confidence: 0.9 };
         action = hasCrossChainKeywords(message) ? 'cross_chain_trade' : 'swap';
-        reason = hasConfirmationKeywords(message)
-            ? 'trade_confirmation_keyword'
-            : (hasCrossChainKeywords(message) ? 'cross_chain_keyword' : 'trade_keyword');
+        reason = hasCrossChainKeywords(message) ? 'cross_chain_keyword' : 'trade_keyword';
         decision.primary = 'TRADING';
         decision.confidence = highLevel.confidence;
         decision.labels = [{ label: 'TRADING', confidence: highLevel.confidence }];

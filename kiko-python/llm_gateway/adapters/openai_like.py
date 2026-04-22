@@ -255,7 +255,7 @@ def _build_openai_request_body(req: GenerateRequest) -> tuple[dict[str, Any], st
     # Keep gateway behavior stable and avoid provider-specific failures.
     if tools:
         body["tools"] = tools
-        body["tool_choice"] = "auto"
+        body["tool_choice"] = req.tool_choice or "auto"
     return body, reasoning_effort if omit_reasoning_effort else None
 
 
@@ -305,6 +305,7 @@ def _summarize_openai_request_shape(body: dict[str, Any]) -> dict[str, Any]:
         "reasoning_effort": body.get("reasoning_effort"),
         "has_reasoning_object": isinstance(body.get("reasoning"), dict),
         "stream": body.get("stream"),
+        "tool_choice": body.get("tool_choice"),
         "stream_options_keys": sorted((body.get("stream_options") or {}).keys()) if isinstance(body.get("stream_options"), dict) else [],
         "total_tool_schema_bytes": total_tool_schema_bytes,
         "invalid_tool_names": invalid_names[:OPENAI_TOOL_LOG_SAMPLE_LIMIT],

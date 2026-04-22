@@ -86,6 +86,7 @@ export interface ProviderOptions {
         x_search?: Record<string, any>;
     };
     previous_response_id?: string;
+    tool_choice?: Record<string, any> | string;
 }
 
 const OPENAI_REASONING_EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']);

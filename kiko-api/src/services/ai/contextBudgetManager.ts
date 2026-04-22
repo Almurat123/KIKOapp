@@ -70,7 +70,7 @@ function summarizeHistory(messages: BudgetMessage[]): string {
     for (const m of assistantMsgs) {
         const t = String(m.content || '').trim();
         if (!t) continue;
-        if (/\b(confirm|confirmation|需要确认|请确认|pending|awaiting)\b/i.test(t)) {
+        if (/\b(pending|awaiting)\b/i.test(t)) {
             openLoops.push(t.slice(0, 180));
         }
         if (/\btool|swap|transaction|simulate|quote|risk|launchpad\b/i.test(t)) {

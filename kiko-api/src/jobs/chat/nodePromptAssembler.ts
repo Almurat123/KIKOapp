@@ -1191,9 +1191,13 @@ function buildToolGuidanceBlock(guidance?: {
         .filter(
           (toolName): toolName is string =>
             typeof toolName === "string" && toolName.trim().length > 0,
-        ),
+      ),
     ),
   );
+  const isImageExecutionWorkMode =
+    guidance?.intentEnvelope?.primary_intent === "image_generation" &&
+    guidance.intentEnvelope.task_mode === "execute" &&
+    (guidance?.preferredTools || []).includes("generate_image_from_intent");
   if (guidance?.allowAllTools !== undefined || guidance?.searchMode) {
     lines.push("[TOOL_CONTEXT]");
     if (guidance?.allowAllTools) {
@@ -1219,6 +1223,21 @@ function buildToolGuidanceBlock(guidance?: {
     if (guidance.intentEnvelope?.required_evidence?.length) {
       lines.push(
         `- Evidence guardrail before final answer/conclusion: ${guidance.intentEnvelope.required_evidence.join(", ")}.`,
+      );
+    }
+    if (isImageExecutionWorkMode) {
+      lines.push("[IMAGE_EXECUTION_WORK_MODE]");
+      lines.push(
+        "- primary_intent=image_generation and task_mode=execute: this turn is image production/editing work, not prompt coaching or a free-form chat answer.",
+      );
+      lines.push(
+        "- Use generate_image_from_intent as the business action once any strictly required context reads are complete. The image tool owns prompt optimization and generated-image task execution.",
+      );
+      lines.push(
+        "- Do not ask what the user wants to do when the latest user message already contains visual direction. Ask for clarification only when the actual image subject/action is missing.",
+      );
+      lines.push(
+        "- Do not return a standalone optimized prompt or readiness text; package the user's intent and any current social/reference images into generate_image_from_intent.",
       );
     }
     if (requiredContextTools.length > 0) {

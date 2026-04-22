@@ -169,7 +169,7 @@ import { containsPseudoToolCallOutput, stripPseudoToolCallOutput } from '../../s
 import type { ChatContextContract, ChatContextSnapshot, ChatHistoryMessage, OrchestratorToolResult, ProviderNativeEvidenceSnapshot } from './contracts.js';
 import { CONTEXT_READ_TOOL_BY_BLOCK } from './contextReadTools.js';
 import { buildProviderOptions, normalizeOpenAIReasoningEffort, resolveProviderInfo } from './providerPolicyBuilder.js';
-import { resolveNodeSkills, type ToolPhase } from './nodeSkillResolver.js';
+import { resolveNodeSkills, type SkillResolution, type ToolPhase } from './nodeSkillResolver.js';
 import { assembleGenerationMessages, buildRoundToolPolicySystemMessage, sanitizeProviderHistory, type GenerationMessage } from './nodePromptAssembler.js';
 import { parseTradingIntent } from './tradingIntentResolver.js';
 import { buildControlPolicySnapshot, checkToolAgainstPolicy, isProviderNativeTool, resolvePolicyToolBudget } from './controlPolicy.js';
@@ -203,6 +203,7 @@ const CHAIN_EVIDENCE_TOOLS = new Set([
     'get_early_buyers',
     'analyze_creator',
 ]);
+const IMAGE_GENERATION_TOOL_NAME = 'generate_image_from_intent';
 
 export type NodeOrchestrationResult = {
     terminal: boolean;
@@ -687,6 +688,12 @@ export async function runNodeOrchestration(params: {
                 providerInfo.provider,
                 effectivePhase,
             );
+        const imageExecutionWorkMode =
+            !forceAnswerFromEvidence
+            && providerInfo.provider === 'openai'
+            && isImageExecutionWorkMode(params.snapshot, skillResolution)
+            && roundAllowedTools.includes(IMAGE_GENERATION_TOOL_NAME)
+            && roundTools.some((tool: any) => tool?.function?.name === IMAGE_GENERATION_TOOL_NAME);
         chatAiTrace.recordRoundStart({
             round,
             phase: effectivePhase,
@@ -715,6 +722,14 @@ export async function runNodeOrchestration(params: {
                     previousResponseId,
                 },
             );
+        if (imageExecutionWorkMode) {
+            (roundProviderOptions as any).tool_choice = {
+                type: 'function',
+                function: {
+                    name: IMAGE_GENERATION_TOOL_NAME,
+                },
+            };
+        }
         if (!forceAnswerFromEvidence && mustReadRequiredContextFirst) {
             (roundProviderOptions as any).buffer_visible_output = true;
         }
@@ -1522,6 +1537,35 @@ function shouldBackendPrefetchRequiredContextReads(contextContract: ChatContextC
     const contract = contextContract || null;
     if (!contract) return false;
     return contract.mode === 'execution' && shouldEnforceRequiredContextReads(contract);
+}
+
+function isImageExecutionWorkMode(
+    snapshot: ChatContextSnapshot,
+    skillResolution: SkillResolution,
+): boolean {
+    const taskRoute = snapshot.taskRoute || null;
+    const intentEnvelope = skillResolution.intentEnvelope;
+    const normalizedIntent = snapshot.normalizedIntent || null;
+    // CONTEXT MEMORY
+    // Updated: 2026-04-23
+    // Status: mixed
+    // Why: Farcaster image traces showed GPT selected image_generation execute
+    // but stayed in chat-answer mode when image tools were merely optional.
+    // Debug Goal: image execution turns must enter tool work mode before the
+    // first provider call, so clear image requests call the image business tool.
+    // Search Tags: image execution work mode generate_image_from_intent tool_choice
+    // Invariants:
+    // - Prompt-only image advice must not be forced into generation.
+    // - Only OpenAI calls that can see generate_image_from_intent receive forced tool_choice upstream.
+    // Failure Modes:
+    // - Long image prompts end in a public "what should I do" reply.
+    // - Prompt-coaching requests accidentally generate images.
+    return intentEnvelope.primary_intent === 'image_generation'
+        && (
+            intentEnvelope.task_mode === 'execute'
+            || taskRoute?.phase === 'execute'
+            || normalizedIntent?.executionCandidate === true
+        );
 }
 
 function buildRequiredContextReadInstruction(missingToolNames: string[], locale: 'en' | 'zh'): string {

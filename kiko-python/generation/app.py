@@ -133,6 +133,7 @@ async def stream_generation(body: GenerationRequest):
                 tool_config=body.provider_options.get("tool_config"),
                 previous_response_id=body.provider_options.get("previous_response_id"),
                 enable_search=body.provider_options.get("enable_search"),
+                tool_choice=body.provider_options.get("tool_choice"),
             ):
                 event_type = event.get("event_type")
                 payload = event.get("payload") or {}

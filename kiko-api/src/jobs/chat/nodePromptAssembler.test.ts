@@ -1496,6 +1496,37 @@ test("assembleGenerationMessages prefers task route owner, chain, and time conte
   assert.match(content, /requested_chain\.name: Base/);
   assert.doesNotMatch(content, /requested_chain\.name: BNB Chain/);
   assert.doesNotMatch(content, /2026-04-22T00:00:00Z/);
+
+  const guidedMessages = assembleGenerationMessages(snapshot, [], providerInfo, {
+    allowAllTools: false,
+    preferredTools: ["generate_image_from_intent"],
+    strategyNotes: [],
+    searchMode: "forbidden",
+    intentEnvelope: {
+      primary_intent: "image_generation",
+      task_mode: "execute",
+      search_mode: "forbidden",
+      search_target: "none",
+      domain: "general",
+      execution_risk: "read_only",
+      required_evidence: [],
+    },
+    contextContract: {
+      mode: "image",
+      requiredContexts: ["workflow_state", "skill_prompts", "user_context"],
+      optionalContexts: ["social_images", "social_thread_context"],
+      reason: "image green lane",
+    },
+  });
+  const guidedUserMessage = guidedMessages.find((message) => message.role === "user");
+  const guidedContent =
+    typeof guidedUserMessage?.content === "string"
+      ? guidedUserMessage.content
+      : JSON.stringify(guidedUserMessage?.content || "");
+
+  assert.match(guidedContent, /\[IMAGE_EXECUTION_WORK_MODE\]/);
+  assert.match(guidedContent, /this turn is image production\/editing work/i);
+  assert.match(guidedContent, /package the user's intent .* into generate_image_from_intent/i);
 });
 
 test("assembleGenerationMessages uses compact execution mode guidance for swap execution flows", () => {

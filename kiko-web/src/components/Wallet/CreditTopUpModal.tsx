@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertCircle, Check, ChevronDown, ChevronUp, Loader2, X } from 'lucide-react';
 import { encodeFunctionData, isAddress, keccak256, parseUnits, toBytes } from 'viem';
-import { useWallets } from '@privy-io/react-auth';
+import { getEmbeddedConnectedWallet, useSendTransaction, useWallets } from '@privy-io/react-auth';
+import type { ConnectedWallet } from '@privy-io/react-auth';
 import type { UsageSummary } from '../../services/billingApi';
 import { creditTopUpRouterAbi } from '../../contracts/creditTopUpRouterAbi';
 import styles from './CreditTopUpModal.module.css';
@@ -78,11 +79,11 @@ export const CreditTopUpModal: React.FC<CreditTopUpModalProps> = ({
   isOpen,
   onClose,
   summary,
-  walletAddress,
   holdings = [],
   onSuccess,
 }) => {
-  const { wallets } = useWallets();
+  const { wallets, ready: walletsReady } = useWallets();
+  const { sendTransaction } = useSendTransaction();
   const [amount, setAmount] = useState('');
   const [selectedSymbol, setSelectedSymbol] = useState('');
   const [showAssets, setShowAssets] = useState(false);
@@ -168,17 +169,17 @@ export const CreditTopUpModal: React.FC<CreditTopUpModalProps> = ({
   };
 
   // CONTEXT MEMORY
-  // Updated: 2026-04-22
+  // Updated: 2026-04-23
   // Status: verified
-  // Why: Credits top-up now uses the router contract instead of copying a treasury address.
-  // Debug Goal: User selects token and amount, Privy shows ERC20 approval and router deposit confirmations, and the event watcher can credit from DepositReceived.
-  // Search Tags: credit top up router deposit privy approve wallet popup
+  // Why: Credits top-up must use the user's Privy embedded EVM wallet, not an external wallet-connect flow.
+  // Debug Goal: User selects token and amount, Privy embedded wallet prompts approval and router deposit, and the event watcher credits the sender.
+  // Search Tags: credit top up router deposit privy embedded wallet approval
   // Invariants:
   // - Frontend must never expose or use a platform private key.
-  // - Deposit beneficiary and refund address stay bound to the connected wallet.
+  // - Deposit beneficiary and refund address stay bound to the embedded EVM wallet that signs the transaction.
   // Failure Modes:
-  // - Missing tokenAddress/routerAddress silently falls back to copy-address flow.
-  // - Wallet sends deposit on the wrong chain because chainId is not server-owned.
+  // - Requiring wallet.sendTransaction breaks Privy embedded wallets because the supported path is useSendTransaction/provider.
+  // - Using a Solana/current-page wallet address as beneficiary prevents the Base sender from matching the credited user.
   const handleTopUp = async () => {
     setError(null);
     if (summary?.topUp.mode !== 'router_contract') {
@@ -202,23 +203,26 @@ export const CreditTopUpModal: React.FC<CreditTopUpModalProps> = ({
       return;
     }
 
-    const evmWallet = (wallets.find((wallet: any) => {
-      const walletChain = String(wallet?.chainId || '');
-      const isEvm = walletChain.includes('eip155') || wallet?.walletClientType !== 'solana';
-      const matchesAddress = walletAddress
-        ? String(wallet?.address || '').toLowerCase() === walletAddress.toLowerCase()
-        : true;
-      return isEvm && matchesAddress;
-    }) || wallets.find((wallet: any) => String(wallet?.chainId || '').includes('eip155'))) as any;
-
-    if (!evmWallet?.address || typeof evmWallet.sendTransaction !== 'function') {
-      setError('Connect an EVM wallet first.');
+    if (!walletsReady) {
+      setError('Embedded wallet is still loading. Try again in a moment.');
       return;
     }
 
-    const beneficiary = walletAddress || evmWallet.address;
+    const embeddedWallet = getEmbeddedConnectedWallet(wallets);
+    const evmWallet = (
+      embeddedWallet
+      || wallets.find((wallet: ConnectedWallet) => wallet.type === 'ethereum' && wallet.walletClientType === 'privy')
+      || wallets.find((wallet: ConnectedWallet) => wallet.type === 'ethereum')
+    ) as ConnectedWallet | null;
+
+    if (!evmWallet?.address) {
+      setError('Privy embedded EVM wallet is not ready for this account.');
+      return;
+    }
+
+    const beneficiary = evmWallet.address;
     if (!isAddress(beneficiary)) {
-      setError('Connected wallet address is invalid.');
+      setError('Embedded wallet address is invalid.');
       return;
     }
 
@@ -236,11 +240,13 @@ export const CreditTopUpModal: React.FC<CreditTopUpModalProps> = ({
         functionName: 'approve',
         args: [routerAddress as `0x${string}`, amountRaw],
       });
-      await evmWallet.sendTransaction({
+      await sendTransaction({
+        chainId: topUpChainId,
+        from: beneficiary,
         to: selectedAsset.tokenAddress as `0x${string}`,
         data: approveData,
-        value: '0',
-      });
+        value: 0,
+      }, { address: beneficiary });
 
       setStep('depositing');
       const depositData = encodeFunctionData({
@@ -255,11 +261,13 @@ export const CreditTopUpModal: React.FC<CreditTopUpModalProps> = ({
           ZERO_HASH,
         ],
       });
-      const depositResult = await evmWallet.sendTransaction({
+      const depositResult = await sendTransaction({
+        chainId: topUpChainId,
+        from: beneficiary,
         to: routerAddress as `0x${string}`,
         data: depositData,
-        value: '0',
-      });
+        value: 0,
+      }, { address: beneficiary });
       setTxHash(readTxHash(depositResult));
       setStep('success');
       onSuccess?.();

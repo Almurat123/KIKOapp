@@ -210,6 +210,131 @@ test('runChatV2Turn reuses a pre-routed snapshot without route-selection or norm
     assert.match(broker.getContent(), /generate an image/);
 });
 
+test('runChatV2Turn puts image execute turns into forced image tool work mode', async () => {
+    const seenRounds: Array<{ tools: string[]; toolChoice: any; content: string }> = [];
+    const generationClient = {
+        async generate(params: {
+            taskId: string;
+            messages?: Array<{ role: string; content: any }>;
+            tools?: Array<{ function?: { name?: string } }>;
+            providerOptions?: Record<string, any>;
+        }) {
+            if (params.taskId.endsWith(':route_selection') || params.taskId.endsWith(':normalize')) {
+                throw new Error(`unexpected intent stage call: ${params.taskId}`);
+            }
+            seenRounds.push({
+                tools: (params.tools || []).map((tool) => String(tool.function?.name || '')).filter(Boolean),
+                toolChoice: params.providerOptions?.tool_choice,
+                content: (params.messages || [])
+                    .map((message) => typeof message.content === 'string' ? message.content : JSON.stringify(message.content || ''))
+                    .join('\n'),
+            });
+            return {
+                toolCalls: [
+                    {
+                        id: 'call-image',
+                        name: 'generate_image_from_intent',
+                        arguments: {
+                            user_intent: 'Create a cleaner poster from the attached reference image.',
+                        },
+                    },
+                ],
+                text: '',
+                reasoning: '',
+                citations: [],
+            };
+        },
+    } as any;
+    const broker = makeBroker();
+    const executedTools: string[] = [];
+    const snapshot = applyTaskRouteToSnapshot(
+        makeSnapshot('Use the attached image and make a cleaner poster version', {
+            toolDefinitions: [
+                { name: 'generate_image_from_intent', description: 'Generate an image from user intent.', parameters: {} },
+                { name: 'prepare_swap_transaction', description: 'Prepare a swap transaction.', parameters: {} },
+            ] as any,
+            runtime: {
+                socialInput: {
+                    platform: 'farcaster',
+                    images: [{ url: 'https://example.com/reference.png' }],
+                },
+            },
+        }),
+        {
+            owner: 'image',
+            phase: 'execute',
+            facets: ['reference_image', 'social_images'],
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: [],
+                walletAddresses: [],
+                marketIdentifiers: [],
+                imageRefs: ['https://example.com/reference.png'],
+            },
+            requestedChain: null,
+            timeContext: null,
+            rowCount: null,
+            inheritEntitiesFromContext: true,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            explanation: 'Reference-image generation request.',
+            confidence: 0.99,
+            source: 'llm',
+        },
+    );
+
+    const result = await runChatV2Turn({
+        snapshot,
+        task: {
+            id: 'task-runner',
+            sessionId: 'session-runner',
+            assistantMessageId: 'assistant-runner',
+            model: 'gpt-5.4-mini',
+            toolContext: {},
+        },
+        userId: 'user-runner',
+        broker: broker as any,
+        generationClient,
+        toolExecutionEngine: {
+            async execute(call: { name: string }) {
+                executedTools.push(call.name);
+                return {
+                    id: 'call-image',
+                    name: call.name,
+                    arguments: {},
+                    ok: true,
+                    result: {
+                        handled_response: true,
+                        response_channel: 'generated-image',
+                    },
+                    metadata: { source: 'tool_runtime' },
+                    continuation: {
+                        next_action: 'complete_with_side_effect',
+                        can_answer_now: true,
+                        reason: 'Generated image response is owned by the image task pipeline.',
+                        reusable_for_next_turn: false,
+                    },
+                };
+            },
+        } as any,
+    });
+
+    assert.equal(result.terminal, true);
+    assert.equal(result.terminalOwner, 'external');
+    assert.deepEqual(executedTools, ['generate_image_from_intent']);
+    assert.equal(seenRounds.length, 1);
+    assert.ok(seenRounds[0]!.tools.includes('generate_image_from_intent'));
+    assert.ok(!seenRounds[0]!.tools.includes('prepare_swap_transaction'));
+    assert.deepEqual(seenRounds[0]!.toolChoice, {
+        type: 'function',
+        function: {
+            name: 'generate_image_from_intent',
+        },
+    });
+    assert.match(seenRounds[0]!.content, /\[IMAGE_EXECUTION_WORK_MODE\]/);
+});
+
 test('runChatV2Turn normalizes unnormalized turns with the same session model before orchestration', async () => {
     const taskIds: string[] = [];
     const userContents: string[] = [];

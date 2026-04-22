@@ -340,33 +340,6 @@ export class ChatWorker {
         return normalized.length > 0 && GROK_PROVIDER_MANAGED_SEARCH_TOOL_NAMES.has(normalized);
     }
 
-    private isConfirmationMessage(message: string): boolean {
-        const normalized = message.trim().toLowerCase();
-        if (!normalized) return false;
-        const compact = normalized.replace(/[\s._-]+/g, '');
-        const keywords = [
-            'confirm', 'confirmed', 'proceed', 'yes', 'y', 'ok', 'okay',
-            '继续', '确认', '执行', '下单', '成交', '好的', '可以'
-        ];
-        return keywords.some(k => compact === k || compact.includes(k) || normalized === k || normalized.includes(k));
-    }
-
-    private isSetupProceedMessage(message: string): boolean {
-        const text = String(message || '').trim().toLowerCase();
-        if (!text) return false;
-        const patterns = [
-            /\bjust\s+create\b/,
-            /\bcreate\s+it\b/,
-            /\bgo\s+ahead\b/,
-            /\buse\s+default\b/,
-            /直接创建/,
-            /就创建/,
-            /按默认/,
-            /不用了.*创建/,
-        ];
-        return patterns.some((p) => p.test(text)) || this.isConfirmationMessage(text);
-    }
-
     private parseCopyTradeRequestFromText(text: string): {
         target_wallet?: string;
         buy_amount_usd?: number;
@@ -849,179 +822,8 @@ export class ChatWorker {
         userId: string | null;
         providerLabel: 'DeepSeek' | 'Grok';
     }): Promise<boolean> {
-        const lastUserMessage = params.sessionMessages.filter(m => m.role === 'user').pop()?.content || '';
-        if (!this.isConfirmationMessage(lastUserMessage)) return false;
-
-        const confirmedSwap = this.findRecentSimulateSwap(params.sessionMessages, 2 * 60 * 1000);
-        if (!confirmedSwap || confirmedSwap.isCrossChain) return false;
-
-        const chainMatches = !params.task.toolContext?.chainId || params.task.toolContext.chainId === confirmedSwap.chain_id;
-        if (!chainMatches) return false;
-
-        const tokenIn = this.canonicalizeSwapTokenForCache(confirmedSwap.token_in, Number(confirmedSwap.chain_id)) || confirmedSwap.token_in;
-        const tokenOut = this.canonicalizeSwapTokenForCache(confirmedSwap.token_out, Number(confirmedSwap.chain_id)) || confirmedSwap.token_out;
-        const amountIn = this.canonicalizeSwapAmountForCache(confirmedSwap.amount_in) || String(confirmedSwap.amount_in);
-        const chainId = Number(confirmedSwap.chain_id);
-
-        this.broadcastTaskStatus(params.userId, params.task, {
-            status: 'running',
-            message: 'Executing confirmed swap (LLM bypass)',
-            taskType: 'card',
-        });
-
-        const quoteExpired = this.isSimulateQuoteExpired(confirmedSwap.simulatedAtMs);
-        if (quoteExpired) {
-            this.broadcastTaskStatus(params.userId, params.task, {
-                status: 'running',
-                message: 'Quote expired, refreshing and comparing providers',
-                taskType: 'card',
-            });
-            await this.refreshQuoteComparisonForConfirmedSwap({
-                task: params.task,
-                userId: params.userId,
-                tokenIn,
-                tokenOut,
-                amountIn,
-                chainId,
-            });
-        }
-
-        const execArgs = {
-            token_in: tokenIn,
-            token_out: tokenOut,
-            amount_in: amountIn,
-            chain_id: chainId,
-            slippage: params.task.toolContext?.toolConfig?.customSlippage
-                ? Number(params.task.toolContext.toolConfig.customSlippage)
-                : 1.0,
-            execute: true,
-        };
-
-        let result: any = null;
-        try {
-            result = await toolRegistry.execute('prepare_swap_transaction', execArgs, {
-                ...(params.task.toolContext || {}),
-                sessionId: params.task.sessionId,
-                messageId: params.assistantMessageId,
-                userId: params.userId,
-            });
-        } catch (error: any) {
-            result = { error: error?.message || String(error) };
-        }
-
-        if (result?.__client_action && params.userId) {
-            this.ws.broadcastToUser(params.userId, {
-                type: 'client_action',
-                sessionId: params.task.sessionId,
-                data: {
-                    message_id: params.assistantMessageId,
-                    targetMessageId: params.assistantMessageId,
-                    action: result.__client_action,
-                }
-            });
-        }
-
-        // Fallback broadcast: prepare_swap_transaction often returns a persisted transaction messageId.
-        // Re-broadcast card state from DB to guarantee immediate UI rendering even if tool-internal WS misses.
-        const txMessageId = result?.messageId;
-        if (txMessageId && params.userId) {
-            try {
-                const txMessage = await this.repo.getMessage(txMessageId);
-                const txData = txMessage?.data || {};
-                this.ws.broadcastToUser(params.userId, {
-                    type: 'client_action',
-                    sessionId: params.task.sessionId,
-                    data: {
-                        message_id: params.assistantMessageId,
-                        targetMessageId: txMessageId,
-                        action: {
-                            type: 'show_transaction_status_card',
-                            data: txData,
-                        }
-                    }
-                });
-                logger.info(LogCode.WS_MESSAGE_SENT, 'ChatWorker: bypass rebroadcasted transaction card from DB', {
-                    taskId: params.task.id,
-                    txMessageId,
-                    status: txData?.status || null,
-                });
-            } catch (err: any) {
-                logger.warn(LogCode.WS_ERROR, 'ChatWorker: bypass transaction card rebroadcast failed', {
-                    taskId: params.task.id,
-                    txMessageId,
-                    error: err?.message || String(err),
-                });
-            }
-        }
-
-        const errorMessage = !result?.success ? (result?.error || result?.message) : null;
-        if (errorMessage && params.userId) {
-            // Patch the existing tx card (by txMessageId) with failure only; do NOT send tokenInSymbol/tokenOutSymbol
-            // from addresses (tokenIn/tokenOut) or we overwrite good display data with raw addresses after refresh.
-            const failurePayload = {
-                status: 'failed',
-                errorMessage: String(errorMessage),
-                isLoading: false,
-            };
-            this.ws.broadcastToUser(params.userId, {
-                type: 'client_action',
-                sessionId: params.task.sessionId,
-                data: {
-                    message_id: params.assistantMessageId,
-                    targetMessageId: txMessageId ?? params.assistantMessageId,
-                    action: {
-                        type: 'show_transaction_status_card',
-                        data: txMessageId ? failurePayload : {
-                            ...failurePayload,
-                            tokenIn: tokenIn,
-                            tokenOut: tokenOut,
-                            amountIn,
-                            chainId,
-                        }
-                    }
-                }
-            });
-        }
-
-        // When a dedicated transaction card exists, the card already shows success/failure status,
-        // token symbols, amounts, and error messages. Persisting a redundant text message to the
-        // assistant message would display duplicate information above the card.
-        // Only persist text when there is NO dedicated card (fallback for edge cases).
-        // txMessageId already declared above from result?.messageId
-        const finalText = txMessageId
-            ? '' // Card handles all display; keep assistant message empty so it stays invisible
-            : (result?.summary
-                || (result?.success
-                    ? `Proceed confirmed. Executed ${amountIn} ${tokenIn} -> ${tokenOut}.`
-                    : `Proceed confirmed, but execution failed: ${String(errorMessage || 'unknown error')}`));
-
-        await this.persistAssistantMessageSafe({
-            assistantMessageId: params.assistantMessageId,
-            patch: {
-                content: finalText,
-                status: 'complete',
-            },
-            logLabel: `${params.providerLabel} bypass final update`,
-        });
-
-        this.broadcastAssistantMessageComplete(params.userId, params.task.sessionId, params.assistantMessageId, {
-            status: result?.success ? 'success' : 'error',
-            totalIterations: 1,
-        });
-
-        logger.info(LogCode.AI_ORCHESTRATOR, 'ChatWorker: confirmed swap executed via LLM bypass', {
-            taskId: params.task.id,
-            provider: params.providerLabel,
-            chainId,
-            tokenIn,
-            tokenOut,
-            amountIn,
-            quoteExpired,
-            success: !!result?.success,
-            hasError: !!result?.error,
-        });
-
-        return true;
+        void params;
+        return false;
     }
 
     private getInitialContextStatusMessage(task: AITask): string {
@@ -1124,7 +926,7 @@ export class ChatWorker {
                         `- Expected receive: ${expected}`,
                         impact ? `- Price impact: ${impact}` : undefined,
                         parsed.warning ? `- Warning: ${parsed.warning}` : undefined,
-                        'Reply "confirm" to proceed.'
+                        'Review the quote and tell me if you want to execute it.'
                     ].filter(Boolean) as string[];
                     return lines.join('\n');
                 }
@@ -2437,64 +2239,6 @@ Do NOT estimate or guess USD values.`;
                     isWalletConnected: !!task.toolContext?.walletAddress,
                 });
 
-            const confirmedSwap = this.isConfirmationMessage(lastUserMessage)
-                ? this.findRecentSimulateSwap(sessionMessages, 2 * 60 * 1000)
-                : null;
-            if (confirmedSwap) {
-                const chainMatches = !task.toolContext?.chainId || task.toolContext.chainId === confirmedSwap.chain_id;
-                if (chainMatches) {
-                    parsedIntent.highLevel.type = 'TRADING';
-                    parsedIntent.highLevel.confidence = 1;
-                    parsedIntent.detailed.action = 'swap';
-                    parsedIntent.detailed.token_in = confirmedSwap.token_in;
-                    parsedIntent.detailed.token_out = confirmedSwap.token_out;
-                    parsedIntent.detailed.amount = confirmedSwap.amount_in;
-                    parsedIntent.detailed.chain_id = confirmedSwap.chain_id;
-                    parsedIntent.decision = {
-                        primary: 'TRADING',
-                        confidence: 1,
-                        labels: [{ label: 'TRADING', confidence: 1 }],
-                        evidence: [],
-                        routing: { stage: 'rule', reason: 'confirmation_followup' },
-                        hardRule: { label: 'TRADING', reason: 'user_confirmation_after_simulation' },
-                        signals: { hasAction: true, hasAmount: true, hasAsset: true } as any,
-                        slots: { action: true, amount: true, asset: true, target: true, complete: true } as any,
-                    };
-
-
-                    if (confirmedSwap.isCrossChain) {
-                        (task as any).systemInjection = `CONFIRMED_CROSS_CHAIN_SWAP: User confirmed cross-chain swap. You MUST call prepare_cross_chain_tx now with: fromToken=${confirmedSwap.token_in}, toToken=${confirmedSwap.token_out}, fromAmount=${confirmedSwap.amount_in}, fromChain=${confirmedSwap.chain_id}, toChain=${confirmedSwap.toChain}. Do NOT call get_cross_chain_quote again.`;
-                    } else {
-                        (task as any).systemInjection = `CONFIRMED_SWAP: User confirmed swap after simulation. You MUST call prepare_swap_transaction now with: token_in=${confirmedSwap.token_in}, token_out=${confirmedSwap.token_out}, amount_in=${confirmedSwap.amount_in}, chain_id=${confirmedSwap.chain_id}. Do NOT call simulate_swap again or use web search.`;
-                    }
-                }
-            }
-            if (!confirmedSwap && this.isSetupProceedMessage(lastUserMessage)) {
-                const recentCopySetup = this.findRecentCopyTradeSetup(sessionMessages);
-                if (recentCopySetup?.target_wallet && Number.isFinite(recentCopySetup.buy_amount_usd || NaN)) {
-                    parsedIntent.highLevel.type = 'COPY_TRADING';
-                    parsedIntent.highLevel.confidence = 1;
-                    parsedIntent.decision = {
-                        primary: 'COPY_TRADING',
-                        confidence: 1,
-                        labels: [{ label: 'COPY_TRADING', confidence: 1 }],
-                        evidence: [],
-                        routing: { stage: 'rule', reason: 'copy_trade_followup_confirmation' },
-                        hardRule: { label: 'COPY_TRADING', reason: 'user_confirmation_after_copy_trade_setup' },
-                        signals: { hasAction: true, hasAmount: true, hasAsset: true } as any,
-                        slots: { action: true, amount: true, asset: true, target: true, complete: true } as any,
-                    };
-                    (task as any).systemInjection =
-                        `CONFIRMED_COPY_TRADE_SETUP: User confirmed to proceed with copy trade setup. ` +
-                        `You MUST call create_copy_trade_config now with target_wallet=${recentCopySetup.target_wallet}, ` +
-                        `buy_amount_usd=${recentCopySetup.buy_amount_usd}` +
-                        `${recentCopySetup.chain_id ? `, chain_id=${recentCopySetup.chain_id}` : ''}` +
-                        `${typeof recentCopySetup.mirror_sell === 'boolean' ? `, mirror_sell=${recentCopySetup.mirror_sell}` : ''}` +
-                        `${Number.isFinite(recentCopySetup.take_profit_pct as any) ? `, take_profit_pct=${recentCopySetup.take_profit_pct}` : ''}` +
-                        `${Number.isFinite(recentCopySetup.stop_loss_pct as any) ? `, stop_loss_pct=${recentCopySetup.stop_loss_pct}` : ''}` +
-                        `. Do NOT switch to Polymarket flow. Do NOT ask for optional risk filters; use tool defaults when missing.`;
-                }
-            }
             if (iteration === 1) {
                 await this.recordIntentTrace(task, sessionMessages, parsedIntent, lastUserMessage);
             }
@@ -4972,59 +4716,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 `CHAIN_CONTEXT_ANSWER_REQUIRED: User asks current chain. Authoritative chain context is chainId=${chainId}, chainName=${chainName}, wallet=${wallet || 'unknown'}. ` +
                 `You MUST answer directly from this context. Do NOT use web_search or any tool. Do NOT say you cannot access wallet/chain context.`;
         }
-        const confirmedSwap = this.isConfirmationMessage(lastUserMessage)
-            ? this.findRecentSimulateSwap(sessionMessages, 2 * 60 * 1000)
-            : null;
-        if (confirmedSwap) {
-            const chainMatches = !task.toolContext?.chainId || task.toolContext.chainId === confirmedSwap.chain_id;
-            if (chainMatches) {
-                parsedIntent.highLevel.type = 'TRADING';
-                parsedIntent.highLevel.confidence = 1;
-                parsedIntent.detailed.action = 'swap';
-                parsedIntent.detailed.token_in = confirmedSwap.token_in;
-                parsedIntent.detailed.token_out = confirmedSwap.token_out;
-                parsedIntent.detailed.amount = confirmedSwap.amount_in;
-                parsedIntent.detailed.chain_id = confirmedSwap.chain_id;
-                parsedIntent.decision = {
-                    primary: 'TRADING',
-                    confidence: 1,
-                    labels: [{ label: 'TRADING', confidence: 1 }],
-                    evidence: [],
-                    routing: { stage: 'rule', reason: 'confirmation_followup' },
-                    hardRule: { label: 'TRADING', reason: 'user_confirmation_after_simulation' },
-                    signals: { hasAction: true, hasAmount: true, hasAsset: true } as any,
-                    slots: { action: true, amount: true, asset: true, target: true, complete: true } as any,
-                };
-                (task as any).systemInjection = confirmedSwap.isCrossChain
-                    ? `CONFIRMED_CROSS_CHAIN_SWAP: User confirmed cross-chain swap. You MUST call prepare_cross_chain_tx now with: fromToken=${confirmedSwap.token_in}, toToken=${confirmedSwap.token_out}, fromAmount=${confirmedSwap.amount_in}, fromChain=${confirmedSwap.chain_id}, toChain=${confirmedSwap.toChain}. Do NOT call get_cross_chain_quote again.`
-                    : `CONFIRMED_SWAP: User confirmed swap after simulation. You MUST call prepare_swap_transaction now with: token_in=${confirmedSwap.token_in}, token_out=${confirmedSwap.token_out}, amount_in=${confirmedSwap.amount_in}, chain_id=${confirmedSwap.chain_id}, execute=true. Do NOT call simulate_swap again or use web search.`;
-            }
-        } else if (this.isSetupProceedMessage(lastUserMessage)) {
-            const recentCopySetup = this.findRecentCopyTradeSetup(sessionMessages);
-            if (recentCopySetup?.target_wallet && Number.isFinite(recentCopySetup.buy_amount_usd || NaN)) {
-                parsedIntent.highLevel.type = 'COPY_TRADING';
-                parsedIntent.highLevel.confidence = 1;
-                parsedIntent.decision = {
-                    primary: 'COPY_TRADING',
-                    confidence: 1,
-                    labels: [{ label: 'COPY_TRADING', confidence: 1 }],
-                    evidence: [],
-                    routing: { stage: 'rule', reason: 'copy_trade_followup_confirmation' },
-                    hardRule: { label: 'COPY_TRADING', reason: 'user_confirmation_after_copy_trade_setup' },
-                    signals: { hasAction: true, hasAmount: true, hasAsset: true } as any,
-                    slots: { action: true, amount: true, asset: true, target: true, complete: true } as any,
-                };
-                (task as any).systemInjection =
-                    `CONFIRMED_COPY_TRADE_SETUP: User confirmed to proceed with copy trade setup. ` +
-                    `You MUST call create_copy_trade_config now with target_wallet=${recentCopySetup.target_wallet}, ` +
-                    `buy_amount_usd=${recentCopySetup.buy_amount_usd}` +
-                    `${recentCopySetup.chain_id ? `, chain_id=${recentCopySetup.chain_id}` : ''}` +
-                    `${typeof recentCopySetup.mirror_sell === 'boolean' ? `, mirror_sell=${recentCopySetup.mirror_sell}` : ''}` +
-                    `${Number.isFinite(recentCopySetup.take_profit_pct as any) ? `, take_profit_pct=${recentCopySetup.take_profit_pct}` : ''}` +
-                    `${Number.isFinite(recentCopySetup.stop_loss_pct as any) ? `, stop_loss_pct=${recentCopySetup.stop_loss_pct}` : ''}` +
-                    `. Do NOT switch to Polymarket flow. Do NOT ask for optional risk filters; use tool defaults when missing.`;
-            }
-        } else if (parsedIntent?.detailed?.action === 'swap') {
+        if (parsedIntent?.detailed?.action === 'swap') {
             let tokenIn = String(parsedIntent?.detailed?.token_in || '').toUpperCase();
             const tokenOut = String(parsedIntent?.detailed?.token_out || '').toUpperCase();
             const amount = String(parsedIntent?.detailed?.amount || '').trim();

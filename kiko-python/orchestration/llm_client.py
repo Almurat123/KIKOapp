@@ -101,6 +101,7 @@ async def stream_llm_with_options(
     tool_config: dict[str, Any] | None = None,
     previous_response_id: str | None = None,
     enable_search: bool | None = None,
+    tool_choice: Any | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     body: dict[str, Any] = {
         "model": model,
@@ -120,6 +121,8 @@ async def stream_llm_with_options(
         body["previous_response_id"] = previous_response_id
     if enable_search is not None:
         body["enable_search"] = enable_search
+    if tool_choice is not None:
+        body["tool_choice"] = tool_choice
     async with httpx.AsyncClient(timeout=_stream_timeout()) as client:
         async with client.stream("POST", f"{LLM_GATEWAY_URL.rstrip('/')}/internal/v1/generate", headers=_headers(), json=body) as resp:
             resp.raise_for_status()

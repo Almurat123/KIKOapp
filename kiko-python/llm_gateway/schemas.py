@@ -57,6 +57,7 @@ class GenerateRequest(BaseModel):
     previous_response_id: str | None = None
     tool_policy: dict[str, Any] | None = None
     tool_config: dict[str, Any] | None = None
+    tool_choice: Any | None = None
 
 
 class GatewayEvent(BaseModel):
