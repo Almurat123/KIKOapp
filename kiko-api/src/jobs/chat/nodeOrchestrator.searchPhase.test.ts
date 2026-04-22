@@ -589,6 +589,57 @@ test('explicit structured swap requests use the fast swap lane without generatio
     assert.match(broker.getContent(), /BENJI/);
 });
 
+test('route-selected clarification stops before canonical normalization or main generation', async () => {
+    const snapshot = makeSnapshot('Use the reference image to make a new poster');
+    const broker = makeBroker();
+    const taskIds: string[] = [];
+    const generationClient = {
+        async generate(params: { taskId: string }) {
+            taskIds.push(params.taskId);
+            if (params.taskId.endsWith(':route')) {
+                return {
+                    toolCalls: [],
+                    text: JSON.stringify({
+                        owner: 'image',
+                        phase: 'execute',
+                        facets: ['reference_image'],
+                        entities: {
+                            token_addresses: [],
+                            token_symbols: [],
+                            wallet_addresses: [],
+                            market_identifiers: [],
+                            image_refs: [],
+                        },
+                        requested_chain: null,
+                        requested_time_window: null,
+                        row_count: null,
+                        inherit_entities_from_context: true,
+                        locale: 'en',
+                        needs_clarification: true,
+                        clarification_question: 'Which visual style should I use?',
+                        explanation: 'Image request requires a style choice.',
+                        confidence: 0.97,
+                    }),
+                    reasoning: '',
+                    citations: [],
+                };
+            }
+            throw new Error(`unexpected generation call ${params.taskId}`);
+        },
+    };
+
+    await runNodeOrchestration({
+        snapshot,
+        generationClient: generationClient as any,
+        toolExecutionEngine: { async execute() { throw new Error('no tools expected'); } } as any,
+        broker: broker as any,
+        toolContext: {},
+    });
+
+    assert.deepEqual(taskIds, ['task-search:route']);
+    assert.equal(broker.getContent(), 'Which visual style should I use?');
+});
+
 test('duplicate-only read-only rounds force a no-tool final answer from cached evidence', async () => {
     const snapshot = makeSnapshot("What's the trending token ?", {
         normalizedIntent: makeCanonicalIntent({
@@ -1167,4 +1218,50 @@ test('applyCanonicalIntentOverridesToToolCall forces literal canonical early-buy
 
     assert.equal(overridden.arguments.start_time, '2026-04-03T11:48:00+08:00');
     assert.equal(overridden.arguments.end_time, '2026-04-03T11:48:59+08:00');
+});
+
+test('applyCanonicalIntentOverridesToToolCall prefers task-route time bounds when canonical is absent', () => {
+    const overridden = applyCanonicalIntentOverridesToToolCall({
+        id: 'buyers-window-route',
+        name: 'get_early_buyers',
+        arguments: {
+            address: '0xabc',
+            chain: 'base',
+            start_time: '2026-04-23T03:48:00Z',
+            end_time: '2026-04-23T03:48:59Z',
+        },
+    }, null, {
+        owner: 'token',
+        phase: 'analyze',
+        facets: ['early_buyers', 'short_window'],
+        entities: {
+            tokenAddresses: ['0xabc'],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+            imageRefs: [],
+        },
+        requestedChain: {
+            chainId: 8453,
+            chainName: 'Base',
+            source: 'query',
+        },
+        timeContext: {
+            isTimeBound: true,
+            description: 'today 11:48 in user timezone',
+            startTime: '2026-04-23T11:48:00+08:00',
+            endTime: '2026-04-23T11:48:59+08:00',
+        },
+        rowCount: null,
+        inheritEntitiesFromContext: false,
+        locale: 'zh',
+        needsClarification: false,
+        clarificationQuestion: null,
+        explanation: 'Literal time-bound early buyer query.',
+        confidence: 0.98,
+        source: 'llm',
+    } as any);
+
+    assert.equal(overridden.arguments.start_time, '2026-04-23T11:48:00+08:00');
+    assert.equal(overridden.arguments.end_time, '2026-04-23T11:48:59+08:00');
 });

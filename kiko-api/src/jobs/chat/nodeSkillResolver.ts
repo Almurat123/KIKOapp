@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-22
+// Updated: 2026-04-23
 // Author: Renata
 // Reason: Clanker launch turns now need a first-class skill note so the model
 //         sees the deploy prompt, collects missing launch fields, and keeps
@@ -91,6 +91,9 @@
 //   envelope so context reads do not accidentally use the lean general-answer path.
 // - Reference/edit/restyle requests should be framed to the model as generated
 //   image execution requests when the user wants an output image.
+// - Once TaskRoute exists, stale canonical sub-intents must not reopen sibling
+//   skill branches such as early_buyers, polymarket short-window, or
+//   cross-domain image/prompt modes.
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/test.txt
 // - Kind: runtime observation
@@ -213,10 +216,12 @@ import { CONTEXT_READ_TOOL_BY_BLOCK } from './contextReadTools.js';
 import type { CanonicalIntent } from './canonicalIntent.js';
 import {
     detectQuerySignals,
+    matchSkillsForQuery,
     type QuerySignals,
     type SearchMode,
     type SkillMatch,
 } from './skillIntentMatcher.js';
+import { hasTaskRouteFacet, isTaskRouteAssistantMetaDebug, resolveTaskRouteEvidenceRequirements, taskRouteNeedsCreatorEvidence, taskRouteNeedsRealtime } from './taskRoute.js';
 import type { TradingIntent } from './tradingIntentResolver.js';
 
 export type IntentPrimaryIntent =
@@ -274,7 +279,7 @@ export interface SkillResolution {
     contextContract: ChatContextContract;
     toolPhasePolicy: ToolPhasePolicy;
     currentPhase: ToolPhase;
-    toolPackageSource: 'canonical_intent' | 'none';
+    toolPackageSource: 'task_route' | 'canonical_intent' | 'none';
 }
 
 const GROK_BLOCKED_FARCASTER_TOOLS = new Set([
@@ -381,20 +386,136 @@ function mapCanonicalIntentToSkillIds(canonicalIntent: CanonicalIntent, querySig
     return selected;
 }
 
+function detectRouteSocialDomain(snapshot: ChatContextSnapshot): 'x' | 'farcaster' | 'market' {
+    const currentPage = String(snapshot.runtime?.currentPage || '').trim().toLowerCase();
+    const pageContext = String(snapshot.runtime?.pageContext || '').trim().toLowerCase();
+    if (currentPage === 'x' || pageContext.includes('x_')) return 'x';
+    if (currentPage === 'farcaster' || pageContext.includes('farcaster')) return 'farcaster';
+    const socialPlatform = String(snapshot.runtime?.socialInput?.platform || '').trim().toLowerCase();
+    if (socialPlatform === 'x') return 'x';
+    if (socialPlatform === 'farcaster') return 'farcaster';
+    return 'market';
+}
+
+function buildSearchModeFromTaskRoute(snapshot: ChatContextSnapshot): SearchMode {
+    const taskRoute = snapshot.taskRoute || null;
+    if (!taskRoute) return 'forbidden';
+    if (taskRoute.owner === 'social') return taskRouteNeedsRealtime(taskRoute) ? 'required' : 'fallback';
+    if (taskRoute.owner === 'market' || taskRoute.owner === 'zora') return 'fallback';
+    if (taskRoute.owner === 'token' && hasTaskRouteFacet(taskRoute, 'realtime')) return 'fallback';
+    if (taskRoute.owner === 'wallet' && hasTaskRouteFacet(taskRoute, 'realtime')) return 'fallback';
+    if (taskRoute.owner === 'polymarket' && taskRoute.phase === 'analyze') return taskRouteNeedsRealtime(taskRoute) ? 'required' : 'fallback';
+    return 'forbidden';
+}
+
+function buildSearchTargetFromTaskRoute(snapshot: ChatContextSnapshot): IntentSearchTarget {
+    const taskRoute = snapshot.taskRoute || null;
+    if (!taskRoute) return 'none';
+    if (taskRoute.owner === 'social') {
+        const domain = detectRouteSocialDomain(snapshot);
+        if (domain === 'x') return 'x';
+        if (domain === 'farcaster') return 'x_and_web';
+        return 'x_and_web';
+    }
+    if (taskRoute.owner === 'market' || taskRoute.owner === 'zora') return 'web';
+    if ((taskRoute.owner === 'token' || taskRoute.owner === 'wallet' || taskRoute.owner === 'polymarket') && hasTaskRouteFacet(taskRoute, 'realtime')) return 'web';
+    return 'none';
+}
+
+function mapTaskRouteToSkillIds(snapshot: ChatContextSnapshot, querySignals: QuerySignals): string[] {
+    const taskRoute = snapshot.taskRoute || null;
+    if (!taskRoute) return [];
+    const selected: string[] = [];
+    const push = (skillId: string) => {
+        if (!selected.includes(skillId)) selected.push(skillId);
+    };
+
+    switch (taskRoute.owner) {
+        case 'assistant_meta':
+            if (isTaskRouteAssistantMetaDebug(taskRoute)) {
+                push('meta_debug');
+            } else if (querySignals.welcome || hasTaskRouteFacet(taskRoute, 'capabilities')) {
+                push('welcome_onboarding');
+            }
+            break;
+        case 'image':
+            if (hasTaskRouteFacet(taskRoute, 'prompt_only')) {
+                push('image_prompting');
+            } else {
+                push('image_generation');
+                push('image_prompting');
+            }
+            break;
+        case 'swap':
+            push(hasTaskRouteFacet(taskRoute, 'cross_chain') ? 'cross_chain_swap' : 'swap');
+            push('wallet_portfolio');
+            break;
+        case 'copy_trade':
+            push('copy_trade');
+            push('wallet_portfolio');
+            break;
+        case 'token':
+            if (hasTaskRouteFacet(taskRoute, 'risk_review')) push('risk_security');
+            push('token_analysis');
+            break;
+        case 'wallet':
+            push('wallet_portfolio');
+            break;
+        case 'social':
+            push('social_farcaster');
+            break;
+        case 'polymarket':
+            push('polymarket_prediction');
+            break;
+        case 'zora':
+            push('zora_nfts');
+            break;
+        case 'market':
+            push('market_macro');
+            break;
+        case 'token_deploy':
+            push('clanker_deploy_token');
+            break;
+        default:
+            break;
+    }
+
+    return selected;
+}
+
 export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: TradingIntent | null, canonicalIntent?: CanonicalIntent | null): SkillResolution {
     const isGrok = String(snapshot.model || '').toLowerCase().includes('grok');
     const rawQuery = String(snapshot.lastUserMessage || '');
     const asksDetailedOnboarding = DETAILED_ONBOARDING_QUERY_RE.test(rawQuery);
     const asksProfitRankingFollowup = /\b(pnl|profit|roi|rank|earned?)\b/i.test(rawQuery) || /收益|盈利|利润|利益|获利|赚(?:了)?多少|回报|回报率|排名|排行/.test(rawQuery);
     const asksWalletTradeSummaryFollowup = /\b(buy|sell|bought|sold|trade summary|trading summary)\b/i.test(rawQuery) || /买入|卖出|交易汇总|买卖汇总/.test(rawQuery);
+    const taskRoute = snapshot.taskRoute || null;
     const normalizedIntent = canonicalIntent || snapshot.normalizedIntent || null;
-    const inheritsEntitiesFromContext = normalizedIntent?.inheritEntitiesFromContext ?? true;
-    const effectiveRequestedTokenAddresses = inheritsEntitiesFromContext
-        ? (snapshot.requestedTokenAddresses || [])
-        : (normalizedIntent?.entities?.tokenAddresses || []);
-    const effectiveRequestedTokenSymbols = inheritsEntitiesFromContext
-        ? (snapshot.requestedTokenSymbols || [])
-        : (normalizedIntent?.entities?.tokenSymbols || []);
+    const inheritsEntitiesFromContext = taskRoute
+        ? taskRoute.inheritEntitiesFromContext
+        : normalizedIntent?.inheritEntitiesFromContext ?? true;
+    const effectiveRequestedTokenAddresses = taskRoute
+        ? (
+            inheritsEntitiesFromContext
+                ? Array.from(new Set([...(snapshot.requestedTokenAddresses || []), ...(taskRoute.entities.tokenAddresses || [])]))
+                : (taskRoute.entities.tokenAddresses || [])
+        )
+        : (
+            inheritsEntitiesFromContext
+                ? (snapshot.requestedTokenAddresses || [])
+                : (normalizedIntent?.entities?.tokenAddresses || [])
+        );
+    const effectiveRequestedTokenSymbols = taskRoute
+        ? (
+            inheritsEntitiesFromContext
+                ? Array.from(new Set([...(snapshot.requestedTokenSymbols || []), ...(taskRoute.entities.tokenSymbols || [])]))
+                : (taskRoute.entities.tokenSymbols || [])
+        )
+        : (
+            inheritsEntitiesFromContext
+                ? (snapshot.requestedTokenSymbols || [])
+                : (normalizedIntent?.entities?.tokenSymbols || [])
+        );
     const availableToolNames = new Set((snapshot.toolDefinitions || []).map((definition) => String(definition.name || '').trim()).filter(Boolean));
     const blockedTools: string[] = [];
     const preferredTools: string[] = [];
@@ -414,7 +535,21 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         tradingIntent,
         normalizedIntent,
     );
-    const matchResult = normalizedIntent
+    const heuristicMatchResult = !taskRoute && !normalizedIntent
+        ? matchSkillsForQuery({
+            snapshot,
+            tradingIntent,
+        })
+        : null;
+    const matchResult = taskRoute
+        ? {
+            rankedMatches: [] as SkillMatch[],
+            rejectedMatches: [] as SkillMatch[],
+            querySignals,
+            searchMode: buildSearchModeFromTaskRoute(snapshot),
+            searchReason: 'task_route',
+        }
+        : normalizedIntent
         ? {
             rankedMatches: [] as SkillMatch[],
             rejectedMatches: [] as SkillMatch[],
@@ -422,7 +557,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
             searchMode: normalizedIntent.searchMode,
             searchReason: 'canonical_intent',
         }
-        : {
+        : heuristicMatchResult || {
             rankedMatches: [] as SkillMatch[],
             rejectedMatches: [] as SkillMatch[],
             querySignals,
@@ -433,55 +568,89 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const asksWalletPnl = querySignals.pnl;
     const hasRequestedToken = querySignals.hasRequestedToken;
     const requiresSocialChainEvidence = querySignals.socialChainEvidence;
-    if (normalizedIntent?.intent === 'image_generation') {
+    const routeImageGeneration = Boolean(taskRoute && taskRoute.owner === 'image' && !hasTaskRouteFacet(taskRoute, 'prompt_only'));
+    const routeImagePrompting = Boolean(taskRoute && taskRoute.owner === 'image' && hasTaskRouteFacet(taskRoute, 'prompt_only'));
+    const routeClankerDeploy = Boolean(taskRoute && taskRoute.owner === 'token_deploy');
+    const imageGenerationTurn = taskRoute
+        ? routeImageGeneration
+        : normalizedIntent?.intent === 'image_generation';
+    const imagePromptingTurn = taskRoute
+        ? routeImagePrompting
+        : normalizedIntent?.intent === 'image_prompting';
+    const clankerDeployTurn = taskRoute
+        ? routeClankerDeploy
+        : normalizedIntent?.intent === 'clanker_deploy';
+    if (imageGenerationTurn) {
         strategyNotes.push('The model-selected package exposes image-generation tools. Decide from the latest user wording and media context whether they want an image generated now or only prompt/advice text; call generate_image_from_intent only when the visual execution request is clear enough.');
         strategyNotes.push('Reference-image, edit, restyle, redraw, replace, put/place, and remix wording still means image generation when the user wants an output image. If source-image context is available, use it through the image tool; if exact pixel editing is unavailable, summarize the reference/edit direction into a new generated-image request instead of answering with prompt-only text.');
         strategyNotes.push('If generating, do not ask for a second confirmation. If a truly critical visual field is missing, ask one precise clarification instead of calling the tool.');
         strategyNotes.push('If prompt structure is still weak before generation, call read_skill_prompts first so the request follows the OpenAI-aligned image prompting playbook.');
         strategyNotes.push('When generate_image_from_intent is visible and the user is asking to generate or edit an image now, do not answer with a packaged prompt draft in assistant text. Call the tool and let it package the optimized prompt for the image model.');
     }
-    if (normalizedIntent?.intent === 'image_prompting') {
+    if (imagePromptingTurn) {
         strategyNotes.push('This turn is asking for image prompt guidance, not automatic image execution. Call read_skill_prompts before answering so the rewrite follows the OpenAI-aligned image prompting playbook.');
         strategyNotes.push('Return one copy-ready prompt, the negative constraints, and a few single-variable refinements. Do not call generate_image_from_intent unless the user explicitly asks to generate now.');
         strategyNotes.push('Do not volunteer Midjourney, Stable Diffusion, or other non-OpenAI prompt variants unless the user explicitly asks for another model.');
     }
-    if (normalizedIntent?.intent === 'clanker_deploy') {
+    if (clankerDeployTurn) {
         strategyNotes.push('This is a Clanker launch or Clanker history request. Follow the Clanker launch safety template: collect only hard-missing launch inputs, keep optional defaults implicit, prepare a dry-run preview first, and wait for explicit user confirmation before any real deploy. Do not restate this internal checklist to the user.');
     }
     const requestedChain = resolveCanonicalChainRef({
+        taskRoute,
         canonicalIntent: normalizedIntent,
         requestedTokenAddresses: effectiveRequestedTokenAddresses,
         requestedTokenSymbols: effectiveRequestedTokenSymbols,
         runtimeChainId: snapshot.runtime.chainId,
         runtimeChainName: snapshot.runtime.chainName,
     });
-    const preferXNativeSearch = normalizedIntent
-        ? (normalizedIntent.searchTarget === 'x' || normalizedIntent.searchTarget === 'x_and_web' || normalizedIntent.domain === 'x')
-        : false;
-    const canUseEarlyBuyerWalletPnlFollowup = !normalizedIntent
-        || normalizedIntent.intent === 'wallet_pnl'
-        || normalizedIntent.intent === 'wallet_analysis';
+    const routeSearchTarget = taskRoute ? buildSearchTargetFromTaskRoute(snapshot) : null;
+    const preferXNativeSearch = taskRoute
+        ? routeSearchTarget === 'x' || routeSearchTarget === 'x_and_web'
+        : normalizedIntent
+            ? (normalizedIntent.searchTarget === 'x' || normalizedIntent.searchTarget === 'x_and_web' || normalizedIntent.domain === 'x')
+            : false;
+    const canUseEarlyBuyerWalletPnlFollowup = taskRoute
+        ? taskRoute.owner === 'wallet'
+        : !normalizedIntent
+            || normalizedIntent.intent === 'wallet_pnl'
+            || normalizedIntent.intent === 'wallet_analysis';
     const asksEarlyBuyerWalletPnlFollowup = canUseEarlyBuyerWalletPnlFollowup
         && sessionToolNames.includes('get_early_buyers')
         && hasRequestedToken
         && refersToPriorWalletSet
         && (querySignals.pnl || asksProfitRankingFollowup || asksWalletTradeSummaryFollowup);
-    const asksEarlyBuyers = normalizedIntent?.intent === 'early_buyers' && !asksEarlyBuyerWalletPnlFollowup;
-    const explicitEarlyBuyerRowCount = normalizedIntent?.rowCount ?? null;
-    const explicitlyRequestsEarlyBuyerFullList = normalizedIntent?.outputMode === 'full_table'
-        || (asksEarlyBuyers && explicitEarlyBuyerRowCount !== null);
+    const asksEarlyBuyers = Boolean(
+        (taskRoute
+            ? taskRoute.owner === 'token' && hasTaskRouteFacet(taskRoute, 'early_buyers')
+            : normalizedIntent?.intent === 'early_buyers')
+        && !asksEarlyBuyerWalletPnlFollowup,
+    );
+    const explicitEarlyBuyerRowCount = taskRoute?.rowCount ?? normalizedIntent?.rowCount ?? null;
+    const explicitlyRequestsEarlyBuyerFullList = Boolean(
+        taskRoute
+            ? taskRoute.owner === 'token' && hasTaskRouteFacet(taskRoute, 'full_list')
+            : normalizedIntent?.outputMode === 'full_table',
+    ) || (asksEarlyBuyers && explicitEarlyBuyerRowCount !== null);
     const wantsEarlyBuyerFullList = asksEarlyBuyers || explicitlyRequestsEarlyBuyerFullList;
-    const normalizedTokenSymbols = Array.isArray(normalizedIntent?.entities?.tokenSymbols)
+    const normalizedTokenSymbols = Array.isArray(taskRoute?.entities?.tokenSymbols)
+        ? taskRoute!.entities.tokenSymbols.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        : Array.isArray(normalizedIntent?.entities?.tokenSymbols)
         ? normalizedIntent!.entities.tokenSymbols.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
         : [];
     const requestedTokenSymbols = Array.isArray(effectiveRequestedTokenSymbols)
         ? effectiveRequestedTokenSymbols.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
         : [];
     const hasExplicitPolymarketCoinSelection = normalizedTokenSymbols.length > 0 || requestedTokenSymbols.length > 0;
-    const asksCreator = normalizedIntent?.intent === 'creator_analysis';
+    const asksCreator = taskRoute
+        ? taskRouteNeedsCreatorEvidence(taskRoute)
+        : normalizedIntent?.intent === 'creator_analysis';
     const shouldConstrainToolExposure = querySignals.welcome || querySignals.metaDebug;
 
-    let selected = normalizedIntent ? mapCanonicalIntentToSkillIds(normalizedIntent, querySignals) : [];
+    let selected = taskRoute
+        ? mapTaskRouteToSkillIds(snapshot, querySignals)
+        : normalizedIntent
+        ? mapCanonicalIntentToSkillIds(normalizedIntent, querySignals)
+        : matchResult.rankedMatches.map((match) => match.skillId);
     if (querySignals.welcome) {
         strategyNotes.push('This is a greeting, self-introduction, or capabilities question. Answer directly without tools unless the user explicitly asks for live data or on-chain evidence.');
         if (asksDetailedOnboarding) {
@@ -492,6 +661,18 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         strategyNotes.push('This turn is about the assistant or system behavior itself. Explain the previous behavior directly from the current conversation and runtime context instead of switching back into a token or market answer.');
         strategyNotes.push('When explaining what went wrong, distinguish between observed facts from the current conversation/runtime and informed inferences. If some evidence is missing, say exactly what is missing instead of fabricating certainty.');
         selected = selected.filter((skillId) => skillId === 'meta_debug');
+    }
+    if (!taskRoute && !normalizedIntent && selected.includes('image_generation')) {
+        strategyNotes.push('The model-selected package exposes image-generation tools. Decide from the latest user wording and media context whether they want an image generated now or only prompt/advice text; call generate_image_from_intent only when the visual execution request is clear enough.');
+        strategyNotes.push('Reference-image, edit, restyle, redraw, replace, put/place, and remix wording still means image generation when the user wants an output image. If source-image context is available, use it through the image tool; if exact pixel editing is unavailable, summarize the reference/edit direction into a new generated-image request instead of answering with prompt-only text.');
+        strategyNotes.push('If generating, do not ask for a second confirmation. If a truly critical visual field is missing, ask one precise clarification instead of calling the tool.');
+        strategyNotes.push('If prompt structure is still weak before generation, call read_skill_prompts first so the request follows the OpenAI-aligned image prompting playbook.');
+        strategyNotes.push('When generate_image_from_intent is visible and the user is asking to generate or edit an image now, do not answer with a packaged prompt draft in assistant text. Call the tool and let it package the optimized prompt for the image model.');
+    }
+    if (!taskRoute && !normalizedIntent && selected.includes('image_prompting')) {
+        strategyNotes.push('This turn is asking for image prompt guidance, not automatic image execution. Call read_skill_prompts before answering so the rewrite follows the OpenAI-aligned image prompting playbook.');
+        strategyNotes.push('Return one copy-ready prompt, the negative constraints, and a few single-variable refinements. Do not call generate_image_from_intent unless the user explicitly asks to generate now.');
+        strategyNotes.push('Do not volunteer Midjourney, Stable Diffusion, or other non-OpenAI prompt variants unless the user explicitly asks for another model.');
     }
 
     if (normalizedIntent && tradingIntent) {
@@ -542,8 +723,8 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const isLeanDirectAnswerTurn = selected.length === 0
         && !querySignals.welcome
         && !querySignals.metaDebug
-        && normalizedIntent?.intent !== 'image_generation'
-        && normalizedIntent?.intent !== 'image_prompting'
+        && !imageGenerationTurn
+        && !imagePromptingTurn
         && matchResult.searchMode === 'forbidden';
 
     const skillPrompts: string[] = [];
@@ -600,7 +781,9 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         strategyNotes.push('No domain skill matched and search is not required. Keep this turn as a lean direct answer without exposing the full registry.');
     }
 
-    const polymarketShortWindowQuery = normalizedIntent?.intent === 'polymarket_short_window';
+    const polymarketShortWindowQuery = taskRoute
+        ? taskRoute.owner === 'polymarket' && hasTaskRouteFacet(taskRoute, 'short_window')
+        : normalizedIntent?.intent === 'polymarket_short_window';
     if (polymarketShortWindowQuery) {
         if (hasExplicitPolymarketCoinSelection) {
             pushPreferred(preferredTools, 'get_polymarket_coin_updown_markets');
@@ -611,7 +794,9 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
             strategyNotes.push('Generic short-window market requests are broader than the coin-only 5-minute slice. Use grouped overview/new-market discovery first, and only narrow to get_polymarket_coin_updown_markets when the user explicitly asks for a coin/token series.');
         }
     }
-    const polymarketOrderQuery = normalizedIntent?.intent === 'polymarket_order';
+    const polymarketOrderQuery = taskRoute
+        ? taskRoute.owner === 'polymarket' && (taskRoute.phase === 'execute' || taskRoute.phase === 'confirm')
+        : normalizedIntent?.intent === 'polymarket_order';
     if (polymarketOrderQuery) {
         pushPreferred(preferredTools, 'prepare_polymarket_bet');
         strategyNotes.push('For concrete Polymarket order turns, go straight to prepare_polymarket_bet when market, outcome, and amount are already explicit. Do not spend another turn re-confirming obvious selected parameters.');
@@ -639,7 +824,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         pushPreferred(preferredTools, 'get_early_buyers');
         pushPreferred(preferredTools, 'get_token_info');
         strategyNotes.push('This request asks for on-chain buyer/holder evidence. Prefer local token-analysis tools before answering from web summaries alone.');
-        if (normalizedIntent?.timeContext?.isTimeBound) {
+        if ((taskRoute?.timeContext || normalizedIntent?.timeContext)?.isTimeBound) {
             strategyNotes.push('For time-bound early-buyer requests, treat the requested time window as literal query scope. Use that exact window for get_early_buyers, do not silently substitute token launch time or announcement time, and if the window returns no buyers say that the requested window had no qualifying buyers.');
         }
         if (wantsEarlyBuyerFullList) {
@@ -724,7 +909,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     blockedTools.splice(0, blockedTools.length, ...blockedTools.filter((toolName) => availableToolNames.has(String(toolName)) || isSyntheticBlockedTool(toolName)));
 
     if (
-        normalizedIntent?.intent === 'image_generation'
+        imageGenerationTurn
         && availableToolNames.has('generate_image_from_intent')
         && !allowedTools.includes('generate_image_from_intent')
     ) {
@@ -755,6 +940,8 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     let effectiveSearchMode = matchResult.searchMode;
     let effectiveSearchReason = matchResult.searchReason;
     const intentEnvelope = buildIntentEnvelope({
+        snapshot,
+        taskRoute,
         canonicalIntent: normalizedIntent,
     });
     const contextContract = buildContextContract({
@@ -806,12 +993,12 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         preferredTools,
     });
 
-    if (normalizedIntent?.intent === 'early_buyers') {
+    if (asksEarlyBuyers) {
         for (const toolName of ['analyze_wallet_pnl_batch', 'analyze_wallet_pnl', 'analyze_wallet_pnl_analysis']) {
             removeTool(allowedTools, toolName);
             removeTool(preferredTools, toolName);
         }
-        strategyNotes.push('The canonical intent is early_buyers. Keep this turn on buyer/token evidence only; do not widen into wallet PnL tools unless a later same-model intent pass selects wallet_pnl.');
+        strategyNotes.push('The selected task is early_buyers. Keep this turn on buyer/token evidence only; do not widen into wallet PnL tools unless a later same-model intent pass selects wallet_pnl.');
     }
 
     if (!isLeanDirectAnswerTurn) {
@@ -853,14 +1040,92 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         contextContract,
         toolPhasePolicy,
         currentPhase: toolPhasePolicy.initialPhase,
-        toolPackageSource: normalizedIntent ? 'canonical_intent' : 'none',
+        toolPackageSource: snapshot.taskRoute ? 'task_route' : normalizedIntent ? 'canonical_intent' : 'none',
     };
 }
 
 function buildIntentEnvelope(params: {
+    snapshot: ChatContextSnapshot;
+    taskRoute: ChatContextSnapshot['taskRoute'] | null;
     canonicalIntent: CanonicalIntent | null;
 }): IntentEnvelope {
-    const { canonicalIntent } = params;
+    const { snapshot, taskRoute, canonicalIntent } = params;
+
+    if (taskRoute) {
+        const primary = (() => {
+            switch (taskRoute.owner) {
+                case 'assistant_meta':
+                    return isTaskRouteAssistantMetaDebug(taskRoute)
+                        ? 'meta_debug' as const
+                        : 'general_answer' as const;
+                case 'general_answer':
+                    return 'general_answer' as const;
+                case 'image':
+                    return hasTaskRouteFacet(taskRoute, 'prompt_only')
+                        ? 'image_prompting' as const
+                        : 'image_generation' as const;
+                case 'social':
+                    return 'social_discovery' as const;
+                case 'token':
+                    return hasTaskRouteFacet(taskRoute, 'risk_review')
+                        ? 'token_risk' as const
+                        : 'token_analysis' as const;
+                case 'wallet':
+                    return 'wallet_analysis' as const;
+                case 'polymarket':
+                    return taskRoute.phase === 'execute' || taskRoute.phase === 'confirm'
+                        ? 'polymarket_order' as const
+                        : 'polymarket_discovery' as const;
+                case 'swap':
+                    return 'swap_execution' as const;
+                case 'copy_trade':
+                    return 'copytrade_execution' as const;
+                case 'token_deploy':
+                    return 'token_deploy' as const;
+                case 'zora':
+                case 'market':
+                    return 'search_discovery' as const;
+                default:
+                    return 'general_answer' as const;
+            }
+        })();
+
+        const domain: IntentDomain | IntentMetaDomain = (() => {
+            switch (taskRoute.owner) {
+                case 'assistant_meta':
+                    return 'assistant_meta';
+                case 'social': {
+                    const socialDomain = detectRouteSocialDomain(snapshot);
+                    return socialDomain === 'market' ? 'market' : socialDomain;
+                }
+                case 'token':
+                case 'swap':
+                case 'copy_trade':
+                case 'token_deploy':
+                    return 'token';
+                case 'wallet':
+                    return 'wallet';
+                case 'polymarket':
+                    return 'polymarket';
+                case 'zora':
+                    return 'zora';
+                case 'market':
+                    return 'market';
+                default:
+                    return 'general';
+            }
+        })();
+
+        return {
+            primary_intent: primary,
+            task_mode: taskRoute.phase === 'answer' ? 'discover' : taskRoute.phase,
+            search_mode: buildSearchModeFromTaskRoute(snapshot),
+            search_target: buildSearchTargetFromTaskRoute(snapshot),
+            domain,
+            execution_risk: taskRoute.phase === 'execute' || taskRoute.phase === 'confirm' ? 'mutation' : 'read_only',
+            required_evidence: Array.from(new Set(resolveTaskRouteEvidenceRequirements(taskRoute))),
+        };
+    }
 
     if (canonicalIntent) {
         const canonicalPrimary = (() => {

@@ -1,19 +1,22 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-21
+// Updated: 2026-04-23
 // Status: mixed
-// Why: Chat V2 now starts with model-first canonical intent selection on every
-// new turn. The runner must always invoke normalization before resolver/tool
-// exposure instead of skipping into a model-selected task-menu bypass.
-// Debug Goal: every new turn enters orchestration with same-model stage-1
-// intent selection already attempted.
-// Search Tags: runner always normalize no model selected task menu bypass
+// Why: Chat V2 now starts with thin task-route owner selection, with legacy
+// canonical intent left as a compatibility view. The runner must attempt route
+// selection first, only fall back to canonical normalization when routing
+// fails, and keep the downstream resolver/tool path aligned with the chosen
+// owner.
+// Debug Goal: every new turn enters orchestration with same-model stage-1 task
+// routing already attempted, and long prompts keep one primary owner.
+// Search Tags: runner task route before canonical normalization primary owner
 // Invariants:
 // - worker lifecycle and v2 turn execution remain separate owner layers
 // - direct trade confirmation and fast swap remain pre-generation branches
-// - new turns attempt canonical normalization before resolver tool exposure
+// - new turns attempt task route selection before canonical normalization
+// - legacy canonical intent is a compatibility bridge, not the routing source
 // Failure Modes:
-// - runtime silently restores model_selected_task_menu bypass
-// - greetings or image turns skip stage-1 intent selection
+// - runtime silently restores canonical-first routing
+// - greetings or image turns lose their route owner before resolver/tool scope
 
 import { LogCode } from '../../config/logRegistry.js';
 import { logger } from '../../utils/logger.js';
@@ -37,6 +40,7 @@ import { isExplicitChainSwitchRequest } from './chainIntent.js';
 import { ChatAiTraceLogger } from './chatAiTraceLogger.js';
 import { resolveProviderInfo } from './providerPolicyBuilder.js';
 import { isModelLedToolOrchestrationEnabled } from './modelLedToolOrchestration.js';
+import { selectTaskRoute } from './taskRouteSelector.js';
 
 export type ChatV2TurnRunnerResult = {
     terminal: boolean;
@@ -78,21 +82,35 @@ export async function runChatV2Turn(params: {
         await params.broker.pushReasoning(text);
     };
 
-    if (!snapshot.normalizedIntent && !snapshot.normalizationState) {
+    if (!snapshot.taskRoute && !snapshot.taskRouteSelectionState) {
+        const routeSelection = await selectTaskRoute({
+            snapshot,
+            generationClient: params.generationClient,
+            shouldCancel: params.shouldCancel,
+            onReasoningDelta: pushNormalizationReasoningDebug,
+        });
+        snapshot = routeSelection.snapshot;
+    }
+
+    if (!snapshot.taskRoute && !snapshot.normalizedIntent && !snapshot.normalizationState) {
         const normalization = await normalizeCanonicalIntent({
             snapshot,
             generationClient: params.generationClient,
             shouldCancel: params.shouldCancel,
             onReasoningDelta: pushNormalizationReasoningDebug,
         });
-        snapshot = applyConversationActionState(normalization.snapshot);
+        snapshot = normalization.snapshot;
     }
 
-    if (snapshot.normalizedIntent && !snapshot.conversationActionState) {
+    if ((snapshot.taskRoute || snapshot.normalizedIntent) && !snapshot.conversationActionState) {
         snapshot = applyConversationActionState(snapshot);
     }
 
-    const finalNormalizationReasoning = String(snapshot.normalizationState?.reasoningText || '');
+    const finalNormalizationReasoning = String(
+        snapshot.taskRouteSelectionState?.reasoningText
+        || snapshot.normalizationState?.reasoningText
+        || '',
+    );
     if (exposeNormalizationReasoning && finalNormalizationReasoning.length > streamedNormalizationReasoningLength) {
         if (!normalizationReasoningStarted) {
             normalizationReasoningStarted = true;
@@ -107,7 +125,7 @@ export async function runChatV2Turn(params: {
         confirmationState: snapshot.confirmationState,
     });
 
-    const tradingIntent = snapshot.normalizedIntent
+    const tradingIntent = (snapshot.taskRoute || snapshot.normalizedIntent)
         ? parseTradingIntent(snapshot.lastUserMessage, snapshot, snapshot.normalizedIntent)
         : preNormalizationTradingIntent;
     const skillResolution = resolveNodeSkills(snapshot, tradingIntent, snapshot.normalizedIntent);
@@ -123,7 +141,7 @@ export async function runChatV2Turn(params: {
         await params.broker.applyModelPlan(materializePlanCard(buildTaskPlanningContext(snapshot, skillResolution)));
     }
 
-    if (!isExplicitChainSwitchRequest(snapshot.lastUserMessage, snapshot.normalizedIntent)) {
+    if (!isExplicitChainSwitchRequest(snapshot.lastUserMessage, snapshot.normalizedIntent, snapshot.taskRoute || null)) {
         const directFollowup = await executeDirectTradeFollowup({
             snapshot,
             task: params.task,

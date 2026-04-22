@@ -1,12 +1,14 @@
-import type { CanonicalIntent, CanonicalIntentNormalizationState } from './canonicalIntent.js';
+import type { CanonicalIntentNormalizationState } from './canonicalIntent.js';
 import type { ChatContextSnapshot, OrchestratorToolCall, OrchestratorToolResult } from './contracts.js';
 import type { ToolExecutionEngine } from './toolExecutionEngine.js';
 import type { ChatStreamBroker } from './streamBroker.js';
 import { normalizeChainAlias, resolveCanonicalChainRef } from './chainIntent.js';
 import { resolveBinaryLocale } from './runtimeLocale.js';
+import { applyTaskRouteToSnapshot, type TaskRoute } from './taskRoute.js';
 
 function detectLocale(snapshot: ChatContextSnapshot): 'en' | 'zh' {
-    return resolveBinaryLocale(String(snapshot.lastUserMessage || ''), snapshot.normalizedIntent?.locale);
+    return snapshot.taskRoute?.locale
+        || resolveBinaryLocale(String(snapshot.lastUserMessage || ''), snapshot.normalizedIntent?.locale);
 }
 
 function parseStructuredSwapRequest(snapshot: ChatContextSnapshot): {
@@ -22,6 +24,7 @@ function parseStructuredSwapRequest(snapshot: ChatContextSnapshot): {
 
     const [, targetRaw, amountIn, tokenInRaw, chainRaw] = buyForMatch;
     const targetChain = normalizeChainAlias(chainRaw) || resolveCanonicalChainRef({
+        taskRoute: snapshot.taskRoute || null,
         requestedTokenAddresses: snapshot.requestedTokenAddresses,
         requestedTokenSymbols: snapshot.requestedTokenSymbols,
         runtimeChainId: snapshot.runtime.chainId,
@@ -53,7 +56,7 @@ export function tryBuildFastLaneSwapIntent(snapshot: ChatContextSnapshot): {
     snapshot: ChatContextSnapshot;
     matched: boolean;
 } {
-    if (snapshot.normalizedIntent) {
+    if (snapshot.taskRoute || snapshot.normalizedIntent) {
         return { snapshot, matched: false };
     }
 
@@ -63,20 +66,16 @@ export function tryBuildFastLaneSwapIntent(snapshot: ChatContextSnapshot): {
     }
 
     const locale = detectLocale(snapshot);
-    const intent: CanonicalIntent = {
-        domain: 'token',
-        intent: 'swap',
-        taskMode: 'execute',
-        outputMode: 'execution_ready',
-        searchMode: 'forbidden',
-        searchTarget: 'none',
-        confidence: 0.99,
-        explanation: 'Structured explicit swap request detected via fast lane parser.',
+    const taskRoute: TaskRoute = {
+        owner: 'swap',
+        phase: 'execute',
+        facets: [],
         entities: {
             tokenAddresses: snapshot.requestedTokenAddresses?.length ? snapshot.requestedTokenAddresses : [parsed.tokenOut],
             tokenSymbols: Array.from(new Set([...(snapshot.requestedTokenSymbols || []), parsed.tokenIn])),
             walletAddresses: [],
             marketIdentifiers: [],
+            imageRefs: [],
         },
         requestedChain: {
             chainId: parsed.chainId,
@@ -84,14 +83,13 @@ export function tryBuildFastLaneSwapIntent(snapshot: ChatContextSnapshot): {
             source: 'llm',
         },
         timeContext: null,
-        evidenceRequirements: [],
-        requiresRealtime: false,
-        requiresOnchainEvidence: false,
-        executionCandidate: true,
         rowCount: null,
+        inheritEntitiesFromContext: false,
         locale,
         needsClarification: false,
         clarificationQuestion: null,
+        explanation: 'Structured explicit swap request detected via fast lane parser.',
+        confidence: 0.99,
         source: 'llm',
     };
 
@@ -104,9 +102,13 @@ export function tryBuildFastLaneSwapIntent(snapshot: ChatContextSnapshot): {
     return {
         matched: true,
         snapshot: {
-            ...snapshot,
-            normalizedIntent: intent,
+            ...applyTaskRouteToSnapshot(snapshot, taskRoute),
             normalizationState,
+            taskRouteSelectionState: {
+                status: 'ok',
+                source: 'deterministic',
+                rawText: '{"source":"fast_lane_structured_swap"}',
+            },
         },
     };
 }
@@ -183,7 +185,8 @@ export async function tryRunFastSwapLane(params: {
     toolExecutionEngine: ToolExecutionEngine;
 }): Promise<boolean> {
     const normalizedIntent = params.snapshot.normalizedIntent;
-    if (!normalizedIntent || normalizedIntent.intent !== 'swap') return false;
+    const routeOwner = params.snapshot.taskRoute?.owner || null;
+    if (routeOwner !== 'swap' && (!normalizedIntent || normalizedIntent.intent !== 'swap')) return false;
 
     const parsed = parseStructuredSwapRequest(params.snapshot);
     if (!parsed) return false;

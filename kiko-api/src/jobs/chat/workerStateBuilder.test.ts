@@ -181,6 +181,71 @@ test('buildWorkerConversationState keeps stale carry-forward entities from pollu
     assert.equal(state.mode_progress_state.internal_state, 'fresh_answer');
 });
 
+test('buildWorkerConversationState prefers task route over stale canonical token carry-forward', () => {
+    const snapshot = makeSnapshot({
+        lastUserMessage: 'Explain quantum entanglement.',
+        requestedTokenSymbols: ['KIKO'],
+        requestedTokenAddresses: ['0x1111111111111111111111111111111111111111'],
+        taskRoute: {
+            owner: 'general_answer',
+            phase: 'answer',
+            facets: [],
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: [],
+                walletAddresses: [],
+                marketIdentifiers: [],
+                imageRefs: [],
+            },
+            requestedChain: null,
+            timeContext: null,
+            rowCount: null,
+            inheritEntitiesFromContext: false,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            explanation: 'Plain direct answer.',
+            confidence: 0.95,
+            source: 'llm',
+        } as any,
+        normalizedIntent: {
+            domain: 'token',
+            intent: 'token_analysis',
+            taskMode: 'analyze',
+            outputMode: 'narrative',
+            searchMode: 'forbidden',
+            searchTarget: 'none',
+            confidence: 0.7,
+            explanation: 'stale token carry-forward',
+            entities: {
+                tokenAddresses: ['0x1111111111111111111111111111111111111111'],
+                tokenSymbols: ['KIKO'],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+            requestedChain: null,
+            timeContext: null,
+            evidenceRequirements: ['onchain_token_evidence'],
+            requiresRealtime: false,
+            requiresOnchainEvidence: true,
+            executionCandidate: false,
+            rowCount: null,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            source: 'llm',
+        } as any,
+    });
+
+    const state = buildWorkerConversationState(snapshot);
+    assert.equal(state.task_state.scope, 'fresh_request');
+    assert.equal(state.mode_progress_state.mode, 'lean_chat');
+    assert.equal(
+        (state.evidence_state?.required || []).includes('onchain_token_evidence'),
+        false,
+    );
+});
+
 test('buildDirectFollowupExecutionPlan derives deterministic execute args for swap confirmations', () => {
     const snapshot = makeSnapshot({
         confirmationState: {

@@ -249,6 +249,8 @@ export function assembleChatContext(params: {
             historyCompacted: budget.historyCompacted,
             compactionHits: budget.compactedSummary ? 1 : 0,
         },
+        taskRoute: null,
+        taskRouteSelectionState: null,
         normalizedIntent: null,
         normalizationState: null,
         conversationActionState: null,

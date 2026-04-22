@@ -168,13 +168,20 @@ function buildWorkflowStateResult(context?: ToolContext) {
     return stripEmptyEntries({
         available: true,
         workerState,
+        taskRoute: snapshot.taskRoute
+            ? {
+                owner: snapshot.taskRoute.owner,
+                phase: snapshot.taskRoute.phase,
+                facets: snapshot.taskRoute.facets,
+            }
+            : null,
         carryForwardRule: workerState.carry_forward_rule,
         pendingAction: actionState?.pendingAction || 'none',
         canExecute: actionState?.canExecute ?? false,
         needsClarification: actionState?.needsClarification ?? false,
         clarificationQuestion: actionState?.clarificationQuestion || null,
         pendingConfirmation: snapshot.confirmationState?.kind || null,
-        timeContext: snapshot.normalizedIntent?.timeContext || null,
+        timeContext: snapshot.taskRoute?.timeContext || snapshot.normalizedIntent?.timeContext || null,
         recentTools: normalizeRecentToolCalls(snapshot),
         carryForwardState: stripEmptyEntries({
             token_symbols: Array.isArray(snapshot.requestedTokenSymbols) ? snapshot.requestedTokenSymbols.slice(0, 6) : undefined,

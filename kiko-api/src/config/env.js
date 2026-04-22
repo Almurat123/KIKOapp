@@ -308,10 +308,10 @@ function validateEnv() {
         .split(',')
         .map(function (v) { return v.trim().toLowerCase(); })
         .filter(Boolean);
-    var defaultPremiumModels = 'gpt-5.4-mini-2026-03-17,gpt-4.1,grok-4-1-fast-reasoning,grok-4-1-fast-non-reasoning';
+    var defaultPremiumModels = 'gpt-5.4-mini-2026-03-17,grok-4-1-fast-reasoning,grok-4-1-fast-non-reasoning';
     var premiumModels = (process.env.BILLING_PREMIUM_MODELS ||
         (process.env.BILLING_GROK_MODELS
-            ? "gpt-5.4-mini-2026-03-17,gpt-4.1,".concat(process.env.BILLING_GROK_MODELS)
+            ? "gpt-5.4-mini-2026-03-17,".concat(process.env.BILLING_GROK_MODELS)
             : defaultPremiumModels))
         .split(',')
         .map(function (v) { return v.trim().toLowerCase(); })
@@ -323,7 +323,6 @@ function validateEnv() {
         // Override via BILLING_MODEL_PRICING_JSON when production pricing is known.
         'kimi-k2-5-reasoning': { promptUsdPer1M: 0, completionUsdPer1M: 0 },
         'kimi-k2-5-instant': { promptUsdPer1M: 0, completionUsdPer1M: 0 },
-        'gpt-4.1': { promptUsdPer1M: 2.00, cachedPromptUsdPer1M: 0.50, completionUsdPer1M: 8.00 },
         'gpt-5.4-mini-2026-03-17': { promptUsdPer1M: 0.75, cachedPromptUsdPer1M: 0.075, completionUsdPer1M: 4.50 },
     };
     if (process.env.BILLING_MODEL_PRICING_JSON) {

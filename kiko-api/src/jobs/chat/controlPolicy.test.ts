@@ -101,6 +101,75 @@ test('resolveActionClass treats canonical Clanker deploy as token deploy mutatio
     assert.equal(actionClass, 'TOKEN_DEPLOY_MUTATION');
 });
 
+test('resolveActionClass prefers task route execution owner over stale canonical intent', () => {
+    const actionClass = resolveActionClass({
+        sessionId: 'session-1',
+        taskId: 'task-1',
+        model: 'gpt-5',
+        history: [],
+        lastUserMessage: 'Deploy a token on Base',
+        requestedTokenAddresses: [],
+        requestedTokenSymbols: [],
+        runtime: {},
+        toolDefinitions: [],
+        taskRoute: {
+            owner: 'token_deploy',
+            phase: 'execute',
+            facets: [],
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: [],
+                walletAddresses: [],
+                marketIdentifiers: [],
+                imageRefs: [],
+            },
+            requestedChain: {
+                chainId: 8453,
+                chainName: 'Base',
+                source: 'llm',
+            },
+            timeContext: null,
+            rowCount: null,
+            inheritEntitiesFromContext: false,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            explanation: 'Deploy a token now.',
+            confidence: 0.94,
+            source: 'llm',
+        } as any,
+        normalizedIntent: {
+            domain: 'general',
+            intent: 'general_answer',
+            taskMode: 'discover',
+            outputMode: 'narrative',
+            searchMode: 'forbidden',
+            searchTarget: 'none',
+            confidence: 0.2,
+            explanation: 'stale canonical fallback',
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: [],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+            requestedChain: null,
+            timeContext: null,
+            evidenceRequirements: [],
+            requiresRealtime: false,
+            requiresOnchainEvidence: false,
+            executionCandidate: false,
+            rowCount: null,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            source: 'llm',
+        },
+    } as any, null);
+
+    assert.equal(actionClass, 'TOKEN_DEPLOY_MUTATION');
+});
+
 test('buildControlPolicySnapshot promotes Clanker skill envelope to token deploy mutation', () => {
     const policy = buildControlPolicySnapshot({
         snapshot: {

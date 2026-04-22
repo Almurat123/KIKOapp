@@ -116,6 +116,7 @@ import type { Skill } from '../../skills/types.js';
 import type { ChatContextSnapshot } from './contracts.js';
 import type { TradingIntent } from './tradingIntentResolver.js';
 import type { CanonicalIntent } from './canonicalIntent.js';
+import { hasTaskRouteFacet, resolveTaskRouteEvidenceRequirements, taskRouteNeedsRealtime } from './taskRoute.js';
 
 export type SearchMode = 'forbidden' | 'fallback' | 'required';
 
@@ -430,6 +431,9 @@ function scoreTradingIntentBoost(
 
 export function detectQuerySignals(query: string, snapshot: ChatContextSnapshot, tradingIntent: TradingIntent | null, canonicalIntent?: CanonicalIntent | null): QuerySignals {
     const clankerDeploy = detectClankerDeploySignal(query);
+    if (snapshot.taskRoute) {
+        return deriveQuerySignalsFromTaskRoute(snapshot, query, tradingIntent, snapshot.taskRoute, clankerDeploy);
+    }
     if (canonicalIntent) {
         return deriveQuerySignalsFromCanonicalIntent(snapshot, query, tradingIntent, canonicalIntent, clankerDeploy);
     }
@@ -466,6 +470,67 @@ export function detectQuerySignals(query: string, snapshot: ChatContextSnapshot,
         imagePrompting,
         hasRequestedToken,
         socialChainEvidence: false,
+    };
+}
+
+function deriveQuerySignalsFromTaskRoute(
+    snapshot: ChatContextSnapshot,
+    query: string,
+    tradingIntent: TradingIntent | null,
+    taskRoute: NonNullable<ChatContextSnapshot['taskRoute']>,
+    clankerDeploy: boolean,
+): QuerySignals {
+    const hasRequestedToken = taskRoute.entities.tokenAddresses.length > 0
+        || taskRoute.entities.tokenSymbols.length > 0
+        || (
+            taskRoute.inheritEntitiesFromContext
+            && (
+                (snapshot.requestedTokenAddresses || []).length > 0
+                || (snapshot.requestedTokenSymbols || []).length > 0
+            )
+        );
+    const requiredEvidence = new Set(resolveTaskRouteEvidenceRequirements(taskRoute));
+    const imageGeneration = detectImageGenerationSignal(query, snapshot);
+    const imagePrompting = detectImagePromptingSignal(query, snapshot);
+    const socialPlatform = String(
+        snapshot.runtime?.socialInput?.platform
+        || snapshot.runtime?.currentPage
+        || '',
+    ).trim().toLowerCase();
+    const isSocialX = taskRoute.owner === 'social' && (socialPlatform === 'x' || socialPlatform === 'twitter');
+    const isSocialWeb = taskRoute.owner === 'social' && !isSocialX;
+
+    return {
+        welcome: taskRoute.owner === 'assistant_meta' && taskRoute.phase === 'answer',
+        metaDebug: taskRoute.owner === 'assistant_meta' && (taskRoute.phase === 'analyze' || hasTaskRouteFacet(taskRoute, 'behavior_debug')),
+        explicitSearch: requiredEvidence.has('native_search_results'),
+        realtime: taskRouteNeedsRealtime(taskRoute),
+        timeContext: Boolean(taskRoute.timeContext),
+        xSearch: isSocialX,
+        webSearch: isSocialWeb || taskRoute.owner === 'market' || taskRoute.owner === 'zora' || (taskRoute.owner === 'token' && hasTaskRouteFacet(taskRoute, 'realtime')) || (taskRoute.owner === 'wallet' && hasTaskRouteFacet(taskRoute, 'realtime')) || (taskRoute.owner === 'polymarket' && hasTaskRouteFacet(taskRoute, 'realtime')),
+        wallet: taskRoute.owner === 'wallet',
+        pnl: taskRoute.owner === 'wallet' && hasTaskRouteFacet(taskRoute, 'wallet_followup'),
+        risk: taskRoute.owner === 'token' && hasTaskRouteFacet(taskRoute, 'risk_review'),
+        prediction: taskRoute.owner === 'polymarket',
+        zora: taskRoute.owner === 'zora',
+        copyTrade: taskRoute.owner === 'copy_trade',
+        crossChain: taskRoute.owner === 'swap' && hasTaskRouteFacet(taskRoute, 'cross_chain'),
+        swap: Boolean(tradingIntent && (tradingIntent.type === 'swap' || tradingIntent.type === 'cross_chain_trade'))
+            || taskRoute.owner === 'swap',
+        alerts: false,
+        tokenAnalysis: taskRoute.owner === 'token',
+        social: taskRoute.owner === 'social',
+        market: taskRoute.owner === 'market',
+        clankerDeploy: clankerDeploy || taskRoute.owner === 'token_deploy',
+        imageGeneration: imageGeneration || (taskRoute.owner === 'image' && !hasTaskRouteFacet(taskRoute, 'prompt_only')),
+        imagePrompting: imagePrompting || (taskRoute.owner === 'image' && hasTaskRouteFacet(taskRoute, 'prompt_only')),
+        hasRequestedToken,
+        socialChainEvidence: requiredEvidence.has('native_search_results')
+            && (
+                requiredEvidence.has('onchain_token_evidence')
+                || requiredEvidence.has('onchain_wallet_evidence')
+                || requiredEvidence.has('connected_chain_evidence')
+            ),
     };
 }
 

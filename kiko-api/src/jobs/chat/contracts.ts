@@ -123,6 +123,10 @@ import type {
   CanonicalIntent,
   CanonicalIntentNormalizationState,
 } from "./canonicalIntent.js";
+import type {
+  TaskRoute,
+  TaskRouteSelectionState,
+} from "./taskRoute.js";
 
 export interface ChatHistoryMessage {
   role: "system" | "user" | "assistant" | "tool";
@@ -267,6 +271,7 @@ export interface WorkerModeProgressState {
     | "confirmation_state"
     | "recent_tool_trace"
     | "polymarket_selection"
+    | "task_route"
     | "normalized_intent"
     | "runtime_surface"
     | "latest_user_message"
@@ -600,6 +605,8 @@ export interface ChatContextSnapshot {
     compactionHits: number;
   } | null;
   previousResponseId?: string | null;
+  taskRoute?: TaskRoute | null;
+  taskRouteSelectionState?: TaskRouteSelectionState | null;
   normalizedIntent?: CanonicalIntent | null;
   normalizationState?: CanonicalIntentNormalizationState | null;
   conversationActionState?: ConversationActionState | null;

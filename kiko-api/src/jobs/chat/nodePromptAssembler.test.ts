@@ -1377,6 +1377,118 @@ test("assembleGenerationMessages includes exact canonical time anchor bounds whe
   assert.match(content, /time_context\.endTime:/);
 });
 
+test("assembleGenerationMessages prefers task route owner, chain, and time context over stale canonical data", () => {
+  const snapshot: ChatContextSnapshot = {
+    sessionId: "session-route-priority",
+    taskId: "task-route-priority",
+    model: "gpt-5-mini",
+    history: [],
+    lastUserMessage: "Use the Farcaster photo and make a fresh version for Base",
+    runtime: {
+      contextBlocks: {},
+      userSettings: {},
+      socialInput: {
+        platform: "farcaster",
+        images: [{ url: "https://example.com/reference.png" }],
+      },
+    },
+    requestedTokenAddresses: [],
+    requestedTokenSymbols: [],
+    toolDefinitions: [],
+    taskRoute: {
+      owner: "image",
+      phase: "execute",
+      facets: ["reference_image", "social_images"],
+      entities: {
+        tokenAddresses: [],
+        tokenSymbols: [],
+        walletAddresses: [],
+        marketIdentifiers: [],
+        imageRefs: ["https://example.com/reference.png"],
+      },
+      requestedChain: {
+        chainId: 8453,
+        chainName: "Base",
+        source: "query",
+      },
+      timeContext: {
+        isTimeBound: true,
+        description: "today 11:48 in user timezone",
+        startTime: "2026-04-23T11:48:00+08:00",
+        endTime: "2026-04-23T11:48:59+08:00",
+      },
+      rowCount: null,
+      inheritEntitiesFromContext: true,
+      locale: "en",
+      needsClarification: false,
+      clarificationQuestion: null,
+      explanation: "Image execution turn with a social reference image.",
+      confidence: 0.99,
+      source: "llm",
+    } as any,
+    normalizedIntent: {
+      domain: "token",
+      intent: "early_buyers",
+      taskMode: "analyze",
+      outputMode: "full_table",
+      searchMode: "forbidden",
+      searchTarget: "none",
+      confidence: 0.95,
+      explanation: "stale canonical intent",
+      entities: {
+        tokenAddresses: ["0xabc"],
+        tokenSymbols: [],
+        walletAddresses: [],
+        marketIdentifiers: [],
+      },
+      requestedChain: {
+        chainId: 56,
+        chainName: "BNB Chain",
+        source: "llm",
+      },
+      timeContext: {
+        isTimeBound: true,
+        description: "stale time window",
+        startTime: "2026-04-22T00:00:00Z",
+        endTime: "2026-04-22T00:59:59Z",
+      },
+      evidenceRequirements: ["onchain_token_evidence"],
+      requiresRealtime: false,
+      requiresOnchainEvidence: true,
+      executionCandidate: false,
+      rowCount: 30,
+      locale: "en",
+      needsClarification: false,
+      clarificationQuestion: null,
+      source: "llm",
+    },
+  } as ChatContextSnapshot;
+
+  const providerInfo: ProviderInfo = {
+    provider: "openai",
+    model: snapshot.model,
+    supportsNativeSearch: false,
+    supportsPreviousResponse: true,
+  };
+
+  const messages = assembleGenerationMessages(snapshot, [], providerInfo);
+  const userMessage = messages.find((message) => message.role === "user");
+  const content =
+    typeof userMessage?.content === "string"
+      ? userMessage.content
+      : JSON.stringify(userMessage?.content || "");
+
+  assert.match(content, /\[TASK_ROUTE\]/);
+  assert.match(content, /owner: image/);
+  assert.match(content, /phase: execute/);
+  assert.match(content, /time_context\.startTime: 2026-04-23T11:48:00\+08:00/);
+  assert.match(content, /time_context\.endTime: 2026-04-23T11:48:59\+08:00/);
+  assert.match(content, /requested_chain\.id: 8453/);
+  assert.match(content, /requested_chain\.name: Base/);
+  assert.doesNotMatch(content, /requested_chain\.name: BNB Chain/);
+  assert.doesNotMatch(content, /2026-04-22T00:00:00Z/);
+});
+
 test("assembleGenerationMessages uses compact execution mode guidance for swap execution flows", () => {
   const snapshot: ChatContextSnapshot = {
     sessionId: "session-6",

@@ -1,10 +1,12 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-15
+// Updated: 2026-04-23
 // Author: Rowan
 // Reason: copy-trade target wallet resolution previously trusted normalized
 //         wallet entities after literal extraction and then fell back to
 //         requestedTokenAddresses, which allowed token contract addresses to be
 //         mistaken for wallets because both share the same 0x address shape.
+//         TaskRoute now also owns swap/copy-trade execution turns, so those
+//         turns must not fall back to stale canonical analysis intents.
 // Goal: resolve copy-trade target wallets only from exact user-provided wallet
 //       literals first, and only fall back to normalized wallet entities when
 //       they are strict-valid and explicitly wallet-scoped.
@@ -15,8 +17,11 @@
 // - exact wallet strings from the latest user message outrank LLM entities
 // - multiple latest-message wallet strings must block copy-trade target picking
 // - malformed wallet candidates must never become copy-trade target slots
+// - TaskRoute owner and requested chain outrank stale canonical carry-forward
 // - token-address carry-over must not become an implicit wallet fallback
 // - keep swap confirmation supersession separate from copy-trade wallet resolution
+// - Once TaskRoute exists, stale canonical cross_chain/swap subtypes must not
+//   change the selected swap path.
 // Document Provenance:
 // - Source: Farcaster mention runtime logs showing token contract addresses
 //           reaching routing state without wallet intent
@@ -42,6 +47,7 @@ import { resolveCanonicalChainRef } from './chainIntent.js';
 import type { CanonicalIntent } from './canonicalIntent.js';
 import { resolveTradeSemantics } from '../../services/ai/tradeSemantics.js';
 import { shouldSupersedePendingSwapConfirmation } from './swapConfirmationSupersession.js';
+import { hasTaskRouteFacet } from './taskRoute.js';
 import { isStrictWalletAddress } from '../../utils/validation.js';
 import { extractUniqueWalletAddressesFromText } from '../../utils/walletAddressExtraction.js';
 
@@ -54,12 +60,8 @@ export interface TradingIntent {
 export function parseTradingIntent(text: string, snapshot: ChatContextSnapshot, canonicalIntent?: CanonicalIntent | null): TradingIntent | null {
     const raw = String(text || '').trim();
     const confirmation = snapshot.confirmationState || {};
+    const taskRoute = snapshot.taskRoute || null;
     const normalizedIntent = canonicalIntent || snapshot.normalizedIntent || null;
-    const allowsTradeConfirmation = normalizedIntent
-        ? normalizedIntent.taskMode === 'confirm'
-            || normalizedIntent.taskMode === 'execute'
-            || ['swap', 'cross_chain_swap', 'copy_trade'].includes(String(normalizedIntent.intent || ''))
-        : true;
     const supersededSwap = confirmation.kind === 'swap_confirmation'
         && shouldSupersedePendingSwapConfirmation({
             text: raw,
@@ -68,14 +70,43 @@ export function parseTradingIntent(text: string, snapshot: ChatContextSnapshot, 
         })
         ? confirmation.swap || null
         : null;
+    const allowsTradeConfirmation = taskRoute
+        ? taskRoute.phase === 'confirm'
+            || taskRoute.phase === 'execute'
+            || ['swap', 'copy_trade'].includes(taskRoute.owner)
+        : normalizedIntent
+            ? normalizedIntent.taskMode === 'confirm'
+                || normalizedIntent.taskMode === 'execute'
+                || ['swap', 'cross_chain_swap', 'copy_trade'].includes(String(normalizedIntent.intent || ''))
+            : true;
     const requestedChain = resolveCanonicalChainRef({
+        taskRoute,
         canonicalIntent: normalizedIntent,
         requestedTokenAddresses: snapshot.requestedTokenAddresses,
         requestedTokenSymbols: snapshot.requestedTokenSymbols,
         runtimeChainId: snapshot.runtime.chainId,
         runtimeChainName: snapshot.runtime.chainName,
     });
-
+    const tradeOwner = taskRoute?.owner || deriveTradeOwnerFromCanonicalIntent(normalizedIntent);
+    const routeTokenAddresses = taskRoute?.entities.tokenAddresses || [];
+    const routeTokenSymbols = taskRoute?.entities.tokenSymbols || [];
+    const routeWalletAddresses = taskRoute?.entities.walletAddresses || [];
+    const routePhase = taskRoute?.phase || null;
+    const effectiveTaskMode = routePhase === 'confirm'
+        ? 'confirm'
+        : routePhase === 'execute'
+            ? 'execute'
+            : normalizedIntent?.taskMode || null;
+    const canonicalChain = requestedChain;
+    const canonicalTokenAddresses = routeTokenAddresses.length > 0
+        ? routeTokenAddresses
+        : normalizedIntent?.entities.tokenAddresses || [];
+    const canonicalTokenSymbols = routeTokenSymbols.length > 0
+        ? routeTokenSymbols
+        : normalizedIntent?.entities.tokenSymbols || [];
+    const canonicalWalletAddresses = routeWalletAddresses.length > 0
+        ? routeWalletAddresses
+        : normalizedIntent?.entities.walletAddresses || [];
     if (
         confirmation.kind === 'swap_confirmation'
         && allowsTradeConfirmation
@@ -95,25 +126,27 @@ export function parseTradingIntent(text: string, snapshot: ChatContextSnapshot, 
         };
     }
 
-    if (normalizedIntent) {
-        const canonicalChain = normalizedIntent.requestedChain;
-        if (normalizedIntent.intent === 'copy_trade') {
-            const targetWalletResolution = resolveCopyTradeTargetWallet(raw, normalizedIntent);
+    if (tradeOwner === 'copy_trade') {
+        const targetWalletResolution = resolveCopyTradeTargetWallet(raw, canonicalWalletAddresses);
+        return {
+            kind: effectiveTaskMode === 'confirm' ? 'trade_confirmation' : 'trading',
+            type: 'copy_trade',
+            slots: {
+                target_wallet: targetWalletResolution.targetWallet,
+                target_wallet_candidates: targetWalletResolution.candidates,
+                target_wallet_ambiguous: targetWalletResolution.ambiguous,
+                chain_id: canonicalChain?.chainId,
+                chain_name: canonicalChain?.chainName,
+            },
+        };
+    }
+    if (tradeOwner === 'swap') {
+        const isCrossChain = taskRoute
+            ? hasTaskRouteFacet(taskRoute, 'cross_chain')
+            : normalizedIntent?.intent === 'cross_chain_swap';
+        if (isCrossChain) {
             return {
-                kind: normalizedIntent.taskMode === 'confirm' ? 'trade_confirmation' : 'trading',
-                type: 'copy_trade',
-                slots: {
-                    target_wallet: targetWalletResolution.targetWallet,
-                    target_wallet_candidates: targetWalletResolution.candidates,
-                    target_wallet_ambiguous: targetWalletResolution.ambiguous,
-                    chain_id: canonicalChain?.chainId,
-                    chain_name: canonicalChain?.chainName,
-                },
-            };
-        }
-        if (normalizedIntent.intent === 'cross_chain_swap') {
-            return {
-                kind: normalizedIntent.taskMode === 'confirm' ? 'trade_confirmation' : 'trading',
+                kind: effectiveTaskMode === 'confirm' ? 'trade_confirmation' : 'trading',
                 type: 'cross_chain_trade',
                 slots: {
                     chain_id: canonicalChain?.chainId,
@@ -123,43 +156,50 @@ export function parseTradingIntent(text: string, snapshot: ChatContextSnapshot, 
                 },
             };
         }
-        if (normalizedIntent.intent === 'swap') {
-            const semantics = resolveTradeSemantics({
-                text: raw,
-                chainId: canonicalChain?.chainId || requestedChain?.chainId || snapshot.runtime.chainId,
-                canonicalTokenAddresses: normalizedIntent.entities.tokenAddresses,
-                canonicalTokenSymbols: normalizedIntent.entities.tokenSymbols,
-                requestedTokenAddresses: snapshot.requestedTokenAddresses || [],
-                requestedTokenSymbols: snapshot.requestedTokenSymbols || [],
-            });
-            const inheritedTokenIn = semantics.tokenIn || supersededSwap?.tokenIn;
-            const inheritedTokenOut = semantics.tokenOut || supersededSwap?.tokenOut;
-            return {
-                kind: normalizedIntent.taskMode === 'confirm' ? 'trade_confirmation' : 'trading',
-                type: 'swap',
-                slots: {
-                    amount: semantics.amount.value,
-                    amount_kind: semantics.amount.kind,
-                    amount_semantic: semantics.amount.semantic,
-                    amount_currency: semantics.amount.currency,
-                    token_in: inheritedTokenIn || undefined,
-                    token_out: inheritedTokenOut || undefined,
-                    chain_id: canonicalChain?.chainId || requestedChain?.chainId || supersededSwap?.chainId,
-                    chain_name: canonicalChain?.chainName || requestedChain?.chainName,
-                    requested_addresses: snapshot.requestedTokenAddresses || [],
-                    requested_symbols: snapshot.requestedTokenSymbols || [],
-                    needs_amount_resolution: semantics.needsAmountResolution,
-                },
-            };
-        }
+        const semantics = resolveTradeSemantics({
+            text: raw,
+            chainId: canonicalChain?.chainId || snapshot.runtime.chainId,
+            canonicalTokenAddresses,
+            canonicalTokenSymbols,
+            requestedTokenAddresses: snapshot.requestedTokenAddresses || [],
+            requestedTokenSymbols: snapshot.requestedTokenSymbols || [],
+        });
+        const inheritedTokenIn = semantics.tokenIn || supersededSwap?.tokenIn;
+        const inheritedTokenOut = semantics.tokenOut || supersededSwap?.tokenOut;
+        return {
+            kind: effectiveTaskMode === 'confirm' ? 'trade_confirmation' : 'trading',
+            type: 'swap',
+            slots: {
+                amount: semantics.amount.value,
+                amount_kind: semantics.amount.kind,
+                amount_semantic: semantics.amount.semantic,
+                amount_currency: semantics.amount.currency,
+                token_in: inheritedTokenIn || undefined,
+                token_out: inheritedTokenOut || undefined,
+                chain_id: canonicalChain?.chainId || supersededSwap?.chainId,
+                chain_name: canonicalChain?.chainName,
+                requested_addresses: snapshot.requestedTokenAddresses || [],
+                requested_symbols: snapshot.requestedTokenSymbols || [],
+                needs_amount_resolution: semantics.needsAmountResolution,
+            },
+        };
     }
 
     return null;
 }
 
+function deriveTradeOwnerFromCanonicalIntent(
+    normalizedIntent: CanonicalIntent | null | undefined,
+): 'swap' | 'copy_trade' | null {
+    const intent = String(normalizedIntent?.intent || '');
+    if (['swap', 'cross_chain_swap'].includes(intent)) return 'swap';
+    if (intent === 'copy_trade') return 'copy_trade';
+    return null;
+}
+
 function resolveCopyTradeTargetWallet(
     text: string,
-    normalizedIntent: CanonicalIntent,
+    walletAddresses: string[],
 ): { targetWallet?: string; candidates: string[]; ambiguous: boolean } {
     const literalWallets = extractUniqueWalletAddressesFromText(text);
     if (literalWallets.length === 1) {
@@ -169,7 +209,7 @@ function resolveCopyTradeTargetWallet(
         return { candidates: literalWallets, ambiguous: true };
     }
 
-    const normalizedWallet = (normalizedIntent.entities.walletAddresses || []).find((value) => isStrictWalletAddress(value));
+    const normalizedWallet = (walletAddresses || []).find((value) => isStrictWalletAddress(value));
     if (normalizedWallet) {
         return { targetWallet: normalizedWallet, candidates: [normalizedWallet], ambiguous: false };
     }

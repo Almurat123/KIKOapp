@@ -977,6 +977,169 @@ test('Grok no-canonical leaderboard-like queries may stay local without overridi
     assert.ok(resolution.allowedTools.includes('get_trending_tokens'));
 });
 
+test('provider policy prefers task route over stale canonical onchain evidence', () => {
+    const providerOptions = buildProviderOptions(
+        makeSnapshot('Summarize the current social thread', {
+            taskRoute: {
+                owner: 'social',
+                phase: 'analyze',
+                facets: ['social_thread'],
+                entities: {
+                    tokenAddresses: [],
+                    tokenSymbols: [],
+                    walletAddresses: [],
+                    marketIdentifiers: [],
+                    imageRefs: [],
+                },
+                requestedChain: null,
+                timeContext: null,
+                rowCount: null,
+                inheritEntitiesFromContext: false,
+                locale: 'en',
+                needsClarification: false,
+                clarificationQuestion: null,
+                explanation: 'Review the current social conversation.',
+                confidence: 0.9,
+                source: 'llm',
+            } as any,
+            normalizedIntent: makeCanonicalIntent({
+                domain: 'token',
+                intent: 'token_analysis',
+                evidenceRequirements: ['onchain_token_evidence'],
+                requiresOnchainEvidence: true,
+            }),
+            policySnapshot: {
+                actionClass: 'READ_ONLY',
+                mutationAllowed: false,
+                enforcementLevel: 'hard',
+            } as any,
+        }),
+        resolveProviderInfo('grok-4.1-fast'),
+        'Summarize the current social thread',
+        {
+            searchMode: 'forbidden',
+            intentEnvelope: {
+                primary_intent: 'social_discovery',
+                task_mode: 'analyze',
+                search_mode: 'forbidden',
+                search_target: 'none',
+                domain: 'x',
+                execution_risk: 'read_only',
+                required_evidence: [],
+            },
+        } as any,
+    );
+
+    assert.equal(providerOptions.enable_search, false);
+    assert.equal(providerOptions.tool_policy?.native_tools.reason, 'search_disabled');
+});
+
+test('task route beats stale canonical intent for long image-execution prompts', () => {
+    const resolution = resolveNodeSkills(makeSnapshot(`Use the attached Farcaster reference image as the composition base.
+Keep the face and product silhouette, replace the background with a clean cinematic sunrise gradient,
+add a subtle Base ecosystem visual language, and output a finished launch poster instead of just rewriting the prompt.`, {
+        taskRoute: {
+            owner: 'image',
+            phase: 'execute',
+            facets: ['reference_image', 'social_images'],
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: [],
+                walletAddresses: [],
+                marketIdentifiers: [],
+                imageRefs: ['https://example.com/ref.png'],
+            },
+            requestedChain: {
+                chainId: 8453,
+                chainName: 'Base',
+                source: 'llm',
+            },
+            timeContext: null,
+            rowCount: null,
+            inheritEntitiesFromContext: true,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            explanation: 'Long reference-image execution brief.',
+            confidence: 0.98,
+            source: 'llm',
+        } as any,
+        normalizedIntent: makeCanonicalIntent({
+            domain: 'x',
+            intent: 'social_discovery',
+            searchMode: 'required',
+            searchTarget: 'x',
+            requiresRealtime: true,
+        }),
+        runtime: {
+            socialInput: {
+                platform: 'farcaster',
+                images: [{ url: 'https://example.com/ref.png' }],
+            },
+        },
+    }), null);
+
+    assert.equal(resolution.selectedSkills[0], 'image_generation');
+    assert.ok(resolution.selectedSkills.includes('image_prompting'));
+    assert.ok(resolution.allowedTools.includes('generate_image_from_intent'));
+    assert.equal(resolution.searchMode, 'forbidden');
+    assert.equal(resolution.intentEnvelope.primary_intent, 'image_generation');
+    assert.equal(resolution.intentEnvelope.search_mode, 'forbidden');
+    assert.equal(resolution.intentEnvelope.domain, 'general');
+    assert.equal(resolution.toolPackageSource, 'task_route');
+});
+
+test('task route image owner suppresses stale canonical early-buyer tool bias', () => {
+    const resolution = resolveNodeSkills(makeSnapshot('Use the attached reference image to generate a launch poster right now.', {
+        taskRoute: {
+            owner: 'image',
+            phase: 'execute',
+            facets: ['reference_image', 'social_images'],
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: ['KIKO'],
+                walletAddresses: [],
+                marketIdentifiers: [],
+                imageRefs: ['https://example.com/reference.png'],
+            },
+            requestedChain: null,
+            timeContext: null,
+            rowCount: null,
+            inheritEntitiesFromContext: true,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            explanation: 'Generate the image now.',
+            confidence: 0.97,
+            source: 'llm',
+        } as any,
+        normalizedIntent: makeCanonicalIntent({
+            domain: 'token',
+            intent: 'early_buyers',
+            outputMode: 'full_table',
+            entities: {
+                tokenAddresses: ['0x1111111111111111111111111111111111111111'],
+                tokenSymbols: ['KIKO'],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+            evidenceRequirements: ['onchain_token_evidence'],
+            requiresOnchainEvidence: true,
+        }),
+        runtime: {
+            socialInput: {
+                platform: 'farcaster',
+                images: [{ url: 'https://example.com/reference.png' }],
+            },
+        },
+    }), null);
+
+    assert.equal(resolution.selectedSkills[0], 'image_generation');
+    assert.ok(!resolution.preferredTools.includes('get_early_buyers'));
+    assert.ok(!resolution.preferredTools.includes('analyze_creator'));
+    assert.ok(!resolution.strategyNotes.some((note) => note.includes('Early-buyer queries default to full-list output')));
+});
+
 test('DeepSeek X plus contract-and-time queries require external search plus chain tools', () => {
     const contract = '0x1111111111111111111111111111111111111111';
     const canonicalIntent = makeCanonicalIntent({

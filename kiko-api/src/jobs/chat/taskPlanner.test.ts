@@ -201,3 +201,90 @@ test("buildTaskPlanningContext follows resolved search contract instead of raw c
   assert.equal(planning.plan.steps[0]?.id, "step-understand");
   assert.equal(planning.plan.steps[1]?.id, "step-summary");
 });
+
+test("buildTaskPlanningContext prefers task route over stale canonical token evidence", () => {
+  const planning = buildTaskPlanningContext(
+    {
+      sessionId: "session-3",
+      taskId: "task-3",
+      model: "gpt-5.4",
+      history: [],
+      lastUserMessage: "Use this reference image to generate a poster.",
+      requestedTokenAddresses: ["0x1111111111111111111111111111111111111111"],
+      requestedTokenSymbols: ["KIKO"],
+      runtime: {},
+      toolDefinitions: [],
+      taskRoute: {
+        owner: "image",
+        phase: "execute",
+        facets: ["reference_image", "social_images"],
+        entities: {
+          tokenAddresses: [],
+          tokenSymbols: [],
+          walletAddresses: [],
+          marketIdentifiers: [],
+          imageRefs: ["https://example.com/ref.png"],
+        },
+        requestedChain: null,
+        timeContext: null,
+        rowCount: null,
+        inheritEntitiesFromContext: false,
+        locale: "en",
+        needsClarification: false,
+        clarificationQuestion: null,
+        explanation: "Generate an image from the reference input.",
+        confidence: 0.96,
+        source: "llm",
+      },
+      normalizedIntent: {
+        domain: "token",
+        intent: "early_buyers",
+        taskMode: "analyze",
+        outputMode: "full_table",
+        searchMode: "forbidden",
+        searchTarget: "none",
+        confidence: 0.9,
+        explanation: "stale token carry-forward",
+        entities: {
+          tokenAddresses: ["0x1111111111111111111111111111111111111111"],
+          tokenSymbols: ["KIKO"],
+          walletAddresses: [],
+          marketIdentifiers: [],
+        },
+        requestedChain: null,
+        timeContext: null,
+        evidenceRequirements: ["onchain_token_evidence"],
+        requiresRealtime: false,
+        requiresOnchainEvidence: true,
+        executionCandidate: false,
+        rowCount: 30,
+        locale: "en",
+        needsClarification: false,
+        clarificationQuestion: null,
+        source: "llm",
+      },
+    } as any,
+    {
+      preferredTools: ["generate_image_from_intent"],
+      intentEnvelope: {
+        primary_intent: "image_generation",
+        task_mode: "execute",
+        search_mode: "forbidden",
+        search_target: "none",
+        domain: "general",
+        execution_risk: "read_only",
+        required_evidence: [],
+      },
+    } as any,
+  );
+
+  assert.equal(planning.asksOnChainEvidence, false);
+  assert.equal(
+    planning.plan.steps.some((step) => step.id === "step-evidence"),
+    false,
+  );
+  assert.equal(planning.plan.steps[0]?.id, "step-understand");
+  assert.equal(planning.plan.steps[1]?.id, "step-prepare");
+  assert.equal(planning.plan.steps[2]?.id, "step-summary");
+  assert.equal(planning.plan.visibility, "visible");
+});

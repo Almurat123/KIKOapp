@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-18
+// Updated: 2026-04-23
 // Author: Rowan
 // Reason: chat context-read tools were returning mixed camelCase runtime
 //         fields and raw wallet objects. That format made the model infer
@@ -10,12 +10,15 @@
 //         boolean/null unions.
 // Goal: expose session and wallet context as compact operation fields that a
 //       model worker can use directly for chain, wallet, entity, and balance decisions.
+//       Model-selected TaskRoute chain requests must beat stale canonical
+//       carry-forward inside the same contract.
 // Owns: model-facing normalization of session context and wallet state.
 // Does Not Own: wallet hydration, chain switching, balance fetching, or execution gating.
 // Design Language:
 // - context tool payloads use stable snake_case operation fields
 // - session context answers who/where/what-chain, wallet state answers what funds exist
 // - effective task chain must be explicit so requested chain beats connected chain
+// - TaskRoute requested chain outranks legacy canonical requested chain
 // - raw provider/cache objects should be compacted before reaching the model
 // - summaries should be short data contracts, not prose descriptions
 // - contract fields use typed primitive helpers; do not pass generic mixed primitives into chain/string slots
@@ -64,6 +67,7 @@ export function buildSessionContextContract(snapshot: ChatContextSnapshot) {
     const walletAddress = normalizePrimitive(runtime.walletAddress || runtime.userAddress);
     const connectedChain = buildChain(runtime.chainId, runtime.chainName);
     const requestedChainRef = resolveCanonicalChainRef({
+        taskRoute: snapshot.taskRoute || null,
         canonicalIntent: snapshot.normalizedIntent || null,
         requestedTokenAddresses: snapshot.requestedTokenAddresses,
         requestedTokenSymbols: snapshot.requestedTokenSymbols,

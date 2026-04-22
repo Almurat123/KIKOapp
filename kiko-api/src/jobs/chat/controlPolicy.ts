@@ -53,6 +53,7 @@ import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import type { ChatContextSnapshot, OrchestratorToolCall } from './contracts.js';
 import type { SkillResolution } from './nodeSkillResolver.js';
+import { isTaskRouteExecutionPhase } from './taskRoute.js';
 import type { TradingIntent } from './tradingIntentResolver.js';
 export type ActionClass = 'READ_ONLY' | 'TRADE_MUTATION' | 'ORDER_MUTATION' | 'TOKEN_DEPLOY_MUTATION';
 export type EnforcementLevel = 'hard' | 'soft';
@@ -167,6 +168,7 @@ export function buildControlPolicySnapshot(params: {
 }
 
 export function resolveActionClass(snapshot: ChatContextSnapshot, tradingIntent: TradingIntent | null): ActionClass {
+    const taskRoute = snapshot.taskRoute || null;
     const canonicalIntent = snapshot.normalizedIntent || null;
     const confirmationKind = String(snapshot.confirmationState?.kind || '');
     const actionState = snapshot.conversationActionState || null;
@@ -179,6 +181,17 @@ export function resolveActionClass(snapshot: ChatContextSnapshot, tradingIntent:
     }
     if (actionState?.pendingAction === 'swap') {
         return 'TRADE_MUTATION';
+    }
+    if (taskRoute && isTaskRouteExecutionPhase(taskRoute)) {
+        if (taskRoute.owner === 'token_deploy') {
+            return 'TOKEN_DEPLOY_MUTATION';
+        }
+        if (taskRoute.owner === 'swap') {
+            return 'TRADE_MUTATION';
+        }
+        if (taskRoute.owner === 'copy_trade' || taskRoute.owner === 'polymarket') {
+            return 'ORDER_MUTATION';
+        }
     }
     if (canonicalIntent?.taskMode === 'confirm' || canonicalIntent?.taskMode === 'execute') {
         if (canonicalIntent.intent === 'clanker_deploy') {

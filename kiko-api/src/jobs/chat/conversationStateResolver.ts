@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-19
+// Updated: 2026-04-23
 // Author: Renata
 // Reason: Farcaster inbound mentions are persisted with transport wrapper text
 //         that can pollute token-symbol extraction and canonical intent
@@ -15,12 +15,16 @@
 //         confirmation state so the model can confirm the exact prepared
 //         launch payload and the backend can replay it with `confirmDeploy`
 //         only at execution handoff.
+//         TaskRoute now also owns the primary task/phase, so confirmation
+//         carry-forward must not trust stale canonical execute/confirm flags
+//         once the route owner has changed.
 // Owns: reconstructing conversation confirmation state from recent tool traces
 //       and recovering literal user query text from wrapped chat ingress.
 // Does Not Own: webhook ingress formatting, tool execution, or copy-trade persistence.
 // Design Language:
 // - confirmation state carries provenance; it does not reinterpret wallet identity
 // - wallet-binding metadata is separate from public tool args
+// - TaskRoute phase outranks stale canonical confirmation flags
 // - stale confirmation protections stay separate from audit provenance
 // - transport wrapper labels must never become token symbols or search terms
 // - downstream intent routing should see the literal user query, not ingress scaffolding
@@ -169,12 +173,17 @@ export function extractRecentToolTrace(messages: any[]): RecentToolTrace | null 
 
 export function buildConversationActionState(snapshot: ChatContextSnapshot): ConversationActionState {
     const raw = String(snapshot.lastUserMessage || '').trim();
+    const taskRoute = snapshot.taskRoute || null;
     const normalizedIntent = snapshot.normalizedIntent || null;
-    const wantsConfirmation = normalizedIntent?.taskMode === 'confirm' || normalizedIntent?.taskMode === 'execute';
-    const carriesMutationIntent = normalizedIntent
-        ? ['swap', 'cross_chain_swap', 'copy_trade', 'polymarket_order', 'clanker_deploy'].includes(String(normalizedIntent.intent || ''))
-        : true;
-    const explicitChainSwitch = isExplicitChainSwitchRequest(raw, normalizedIntent);
+    const wantsConfirmation = taskRoute
+        ? taskRoute.phase === 'confirm' || taskRoute.phase === 'execute'
+        : normalizedIntent?.taskMode === 'confirm' || normalizedIntent?.taskMode === 'execute';
+    const carriesMutationIntent = taskRoute
+        ? ['swap', 'copy_trade', 'polymarket', 'token_deploy'].includes(taskRoute.owner)
+        : normalizedIntent
+            ? ['swap', 'cross_chain_swap', 'copy_trade', 'polymarket_order', 'clanker_deploy'].includes(String(normalizedIntent.intent || ''))
+            : true;
+    const explicitChainSwitch = isExplicitChainSwitchRequest(raw, normalizedIntent, taskRoute);
     const toolTrace = snapshot.recentToolTrace || null;
 
     if (explicitChainSwitch) {
@@ -281,6 +290,7 @@ export function resolveTradeConfirmationState(
     messages: any[],
     latestUserMessage: string,
     normalizedIntent?: ChatContextSnapshot['normalizedIntent'],
+    taskRoute?: ChatContextSnapshot['taskRoute'],
 ): TradeConfirmationState | null {
     const snapshot = applyConversationActionState({
         sessionId: 'adhoc',
@@ -292,6 +302,7 @@ export function resolveTradeConfirmationState(
         runtime: {},
         requestedTokenAddresses: extractRequestedTokenAddressesFromHistory(messages),
         requestedTokenSymbols: extractRequestedTokenSymbolsFromHistory(messages),
+        taskRoute: taskRoute || null,
         normalizedIntent: normalizedIntent || null,
         toolDefinitions: [],
     } as ChatContextSnapshot);
@@ -299,6 +310,8 @@ export function resolveTradeConfirmationState(
 }
 
 export function isConfirmationMessage(_message: string, snapshot?: ChatContextSnapshot | null): boolean {
+    const taskRoute = snapshot?.taskRoute || null;
+    if (taskRoute?.phase === 'confirm' || taskRoute?.phase === 'execute') return true;
     const normalizedIntent = snapshot?.normalizedIntent || null;
     return normalizedIntent?.taskMode === 'confirm' || normalizedIntent?.taskMode === 'execute' || false;
 }

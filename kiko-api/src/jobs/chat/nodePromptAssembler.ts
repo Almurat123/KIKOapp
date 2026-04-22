@@ -703,9 +703,13 @@ function buildFallbackContextContract(
   const canonicalIntentName = String(snapshot.normalizedIntent?.intent || "")
     .trim()
     .toLowerCase();
+  const taskRouteOwner = String(snapshot.taskRoute?.owner || "")
+    .trim()
+    .toLowerCase();
   const hasCanonicalTaskIntent = Boolean(
-    canonicalIntentName &&
-    !["general_answer", "assistant_meta"].includes(canonicalIntentName),
+    (taskRouteOwner && !["general_answer", "assistant_meta"].includes(taskRouteOwner))
+      || (canonicalIntentName &&
+    !["general_answer", "assistant_meta"].includes(canonicalIntentName)),
   );
   const queryLooksTaskScoped =
     /(\b(buy|sell|swap|trade|bridge|deploy|analy[sz]e|analysis|risk|price|pnl|profit|trend|trending|market|bet|polymarket|token|wallet|balance|launch|launchpad|prompt|image|poster|cover|illustration|edit|editing|rewrite|x|farcaster|cast|zora)\b|买|卖|换|交换|跨链|部署|分析|风险|价格|钱包|余额|代币|趋势|预测市场|提示词|图片|海报|封面|插画|改图|修图|改写)/i.test(
@@ -815,6 +819,20 @@ function buildContextCatalogBlock(): string {
     );
   }
   return lines.join("\n");
+}
+
+function buildTaskRouteBlock(snapshot: ChatContextSnapshot): string {
+  const taskRoute = snapshot.taskRoute;
+  if (!taskRoute) {
+    return buildCanonicalIntentBlock(snapshot);
+  }
+  return [
+    "[TASK_ROUTE]",
+    `- owner: ${taskRoute.owner}`,
+    `- phase: ${taskRoute.phase}`,
+    `- facets: ${taskRoute.facets.length > 0 ? taskRoute.facets.join(", ") : "none"}`,
+    "- route_source: task_route",
+  ].join("\n");
 }
 
 function buildCanonicalIntentBlock(snapshot: ChatContextSnapshot): string {
@@ -1097,7 +1115,7 @@ export function assembleGenerationMessages(
   }
   const contextTextParts: string[] = modelLedTools
     ? [
-        buildCanonicalIntentBlock(snapshot),
+        buildTaskRouteBlock(snapshot),
         buildContextCatalogBlock(),
         buildContextContractBlock(contextContract),
       ]
@@ -1342,7 +1360,10 @@ function buildWorkflowStateBlock(snapshot: ChatContextSnapshot): string {
   const workerState = buildWorkerConversationState(snapshot);
   return buildLabeledSummaryBlock("WORKFLOW_STATE", {
     ...workerState,
-    time_context: snapshot.normalizedIntent?.timeContext || undefined,
+    time_context:
+      snapshot.taskRoute?.timeContext ||
+      snapshot.normalizedIntent?.timeContext ||
+      undefined,
     polymarket_selection: snapshot.polymarketSelection
       ? {
           summary: summarizePolymarketSelection(snapshot.polymarketSelection),
@@ -1359,6 +1380,7 @@ function buildUserSettings(settings: Record<string, any>): Record<string, any> {
 function buildUserContext(snapshot: ChatContextSnapshot): Record<string, any> {
   const runtime = snapshot.runtime || {};
   const requestedChain = resolveCanonicalChainRef({
+    taskRoute: snapshot.taskRoute || null,
     canonicalIntent: snapshot.normalizedIntent || null,
     requestedTokenAddresses: snapshot.requestedTokenAddresses,
     requestedTokenSymbols: snapshot.requestedTokenSymbols,

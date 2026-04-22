@@ -269,6 +269,125 @@ test('parseTradingIntent does not turn an analysis request into trade confirmati
     assert.equal(intent, null);
 });
 
+test('parseTradingIntent prefers task route swap owner over stale canonical analysis intent', () => {
+    const token = '0x0bc61768132aa1484e2b09301284b7def78a4444';
+    const intent = parseTradingIntent('Buy 0.001 BNB worth of BENJI on Base', makeSnapshot('Buy 0.001 BNB worth of BENJI on Base', {
+        requestedTokenAddresses: [token],
+        requestedTokenSymbols: ['BENJI', 'BNB'],
+        taskRoute: {
+            owner: 'swap',
+            phase: 'execute',
+            facets: [],
+            entities: {
+                tokenAddresses: [token],
+                tokenSymbols: ['BENJI', 'BNB'],
+                walletAddresses: [],
+                marketIdentifiers: [],
+                imageRefs: [],
+            },
+            requestedChain: {
+                chainId: 8453,
+                chainName: 'Base',
+                source: 'llm',
+            },
+            timeContext: null,
+            rowCount: null,
+            inheritEntitiesFromContext: false,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            explanation: 'Execute the swap now.',
+            confidence: 0.95,
+            source: 'llm',
+        } as any,
+        normalizedIntent: makeCanonicalIntent({
+            intent: 'early_buyers',
+            taskMode: 'analyze',
+            outputMode: 'full_table',
+            executionCandidate: false,
+            entities: {
+                tokenAddresses: [token],
+                tokenSymbols: ['BENJI'],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+            requestedChain: {
+                chainId: 56,
+                chainName: 'BNB Chain',
+                source: 'llm',
+            },
+        }),
+        runtime: {
+            chainId: 8453,
+            chainName: 'Base',
+        },
+    }));
+
+    assert.ok(intent);
+    assert.equal(intent?.type, 'swap');
+    assert.equal(intent?.slots.chain_id, 8453);
+    assert.equal(intent?.slots.chain_name, 'Base');
+});
+
+test('parseTradingIntent keeps task-route plain swap flow when stale canonical says cross-chain', () => {
+    const token = '0x0bc61768132aa1484e2b09301284b7def78a4444';
+    const intent = parseTradingIntent('Buy 0.001 BNB worth of BENJI on Base', makeSnapshot('Buy 0.001 BNB worth of BENJI on Base', {
+        requestedTokenAddresses: [token],
+        requestedTokenSymbols: ['BENJI', 'BNB'],
+        taskRoute: {
+            owner: 'swap',
+            phase: 'execute',
+            facets: [],
+            entities: {
+                tokenAddresses: [token],
+                tokenSymbols: ['BENJI', 'BNB'],
+                walletAddresses: [],
+                marketIdentifiers: [],
+                imageRefs: [],
+            },
+            requestedChain: {
+                chainId: 8453,
+                chainName: 'Base',
+                source: 'llm',
+            },
+            timeContext: null,
+            rowCount: null,
+            inheritEntitiesFromContext: false,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            explanation: 'Execute a plain single-chain swap.',
+            confidence: 0.96,
+            source: 'llm',
+        } as any,
+        normalizedIntent: makeCanonicalIntent({
+            intent: 'cross_chain_swap',
+            taskMode: 'execute',
+            requestedChain: {
+                chainId: 8453,
+                chainName: 'Base',
+                source: 'llm',
+            },
+            entities: {
+                tokenAddresses: [token],
+                tokenSymbols: ['BENJI', 'BNB'],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+        }),
+        runtime: {
+            chainId: 8453,
+            chainName: 'Base',
+        },
+    }));
+
+    assert.ok(intent);
+    assert.equal(intent?.kind, 'trading');
+    assert.equal(intent?.type, 'swap');
+    assert.equal(intent?.slots.chain_id, 8453);
+    assert.equal(intent?.slots.token_out, token);
+});
+
 test('parseTradingIntent prefers the literal copy-trade wallet from the latest user message over malformed normalized wallet entities', () => {
     const literalWallet = '0xbd708164137146ac234aceb75d3981cd3599e21a';
     const malformedWallet = '0xbd708164137146ac234aceb75d3981cd359e21a';

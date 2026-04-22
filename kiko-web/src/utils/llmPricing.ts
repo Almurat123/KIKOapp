@@ -41,7 +41,6 @@ const PRICING: Record<string, { input: number; output: number; currency: Currenc
     'kimi-k2-5-reasoning': { input: 0, output: 0, currency: 'USD' },
     'kimi-k2-5-instant': { input: 0, output: 0, currency: 'USD' },
     // GPT (USD)
-    'gpt-4.1': { input: 2.00, output: 8.00, currency: 'USD' },
     'gpt-5.4-mini-2026-03-17': { input: 0.75, output: 4.50, currency: 'USD' },
 };
 

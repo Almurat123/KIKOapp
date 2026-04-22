@@ -1,13 +1,16 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-12
+// Updated: 2026-04-23
 // Author: Rowan
 // Reason: this layer resolves chain intent hints for swap validation and task planning.
+//         TaskRoute now also carries the model-selected requested chain, which
+//         must outrank stale canonical carry-forward when the primary owner changes.
 // Goal: preserve explicit chain requests without letting bare token symbols hijack chain selection.
 // Owns: chain alias normalization, runtime chain fallback, and requested-chain hint resolution.
 // Does Not Own: token amount parsing, swap execution, confirmation policy, or UI routing.
 // Design Language:
 // - Treat only explicit chain names and chain-specific symbols as chain hints.
 // - Do not let shared native asset symbols like ETH override the connected chain by default.
+// - Prefer TaskRoute requested chain over legacy canonical carry-forward.
 // - Prefer wallet context when the user only named an input asset or token symbol.
 // - Avoid local special cases that reintroduce token-vs-chain ambiguity.
 // Document Provenance:
@@ -21,11 +24,12 @@
 // - system-journal/owner-map/backend-swap-validation.md
 // - system-journal/fix-log/2026-04-12-eth-symbol-chain-ambiguity.md
 import type { CanonicalIntent } from './canonicalIntent.js';
+import type { TaskRoute } from './taskRoute.js';
 
 export interface CanonicalChainRef {
     chainId: number;
     chainName: string;
-    source: 'normalized_intent' | 'entity_hint' | 'wallet_context';
+    source: 'task_route' | 'normalized_intent' | 'entity_hint' | 'wallet_context';
 }
 
 interface ChainDefinition {
@@ -77,12 +81,22 @@ export function normalizeChainAlias(value: string | null | undefined): Canonical
 }
 
 export function resolveCanonicalChainRef(params: {
+    taskRoute?: Pick<TaskRoute, 'requestedChain'> | null;
     canonicalIntent?: CanonicalIntent | null;
     requestedTokenAddresses?: string[];
     requestedTokenSymbols?: string[];
     runtimeChainId?: number | null;
     runtimeChainName?: string | null;
 }): CanonicalChainRef | null {
+    const taskRoute = params.taskRoute || null;
+    if (taskRoute?.requestedChain) {
+        return {
+            chainId: taskRoute.requestedChain.chainId,
+            chainName: taskRoute.requestedChain.chainName,
+            source: 'task_route',
+        };
+    }
+
     const canonicalIntent = params.canonicalIntent || null;
     if (canonicalIntent?.requestedChain) {
         return {
@@ -133,11 +147,13 @@ export function resolveRequestedChainHint(params: {
     text?: string;
     requestedTokenAddresses?: string[];
     requestedTokenSymbols?: string[];
+    taskRoute?: Pick<TaskRoute, 'requestedChain'> | null;
     canonicalIntent?: CanonicalIntent | null;
     runtimeChainId?: number | null;
     runtimeChainName?: string | null;
 }): CanonicalChainRef | null {
     return resolveCanonicalChainRef({
+        taskRoute: params.taskRoute,
         canonicalIntent: params.canonicalIntent,
         requestedTokenAddresses: params.requestedTokenAddresses,
         requestedTokenSymbols: params.requestedTokenSymbols,
@@ -146,7 +162,14 @@ export function resolveRequestedChainHint(params: {
     });
 }
 
-export function isExplicitChainSwitchRequest(text: string, canonicalIntent?: CanonicalIntent | null): boolean {
+export function isExplicitChainSwitchRequest(
+    text: string,
+    canonicalIntent?: CanonicalIntent | null,
+    taskRoute?: Pick<TaskRoute, 'owner'> | null,
+): boolean {
+    if (taskRoute?.owner === 'swap') {
+        return false;
+    }
     if (canonicalIntent?.intent === 'swap' || canonicalIntent?.intent === 'cross_chain_swap') {
         return false;
     }

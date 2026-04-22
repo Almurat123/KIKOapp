@@ -17,92 +17,21 @@ import {
 } from './creditBillingService.js';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-21
-// Author: Rowan
-// Reason: generated-image billing must not reuse chat quota logic. Image
-//         generation has stricter anti-abuse requirements: the free allowance
-//         is per authenticated user per UTC day, GPT Image 2 now owns the
-//         paid high-quality OpenAI image tier,
-//         unavailable variants must fail closed, and generated-image reservations must stay
-//         bound to one server-owned request context so frontend state cannot mint
-//         free runs or replay a reservation across contexts. GPT Image Mini is
-//         now the default generated-image model and must share the same
-//         env-driven daily free-image allowance as Grok normal so default image
-//         turns do not trip billing consent before the user's free runs are
-//         exhausted.
-// Goal: expose one server-side owner for generated-image availability,
-//       free-image accounting, paid-cost calculation, and reservation/finalize
-//       transitions.
-// Owns: generated-image model normalization, free-vs-paid reservation
-//       decisions, per-user daily free-image counting, and reservation status
-//       updates for future image routes.
-// Does Not Own: prompt rewriting, image safety moderation, provider HTTP
-//               invocation, or frontend selector rendering.
-// Design Language:
-// - generated-image billing must be separate from chat usage quota
-// - free-image allowance is resolved on the backend from authenticated user id
-// - free-image allowance may be tuned from env, but the backend remains the only source of truth
-// - reservation ids must be bound to a server-owned context id
-// - unavailable image models fail closed even if the frontend exposes them
-// - image-model preference resolution must not surface disabled models to
-//   callers that need an executable default
-// - generated-image reservation replays must match the original server-owned context
-// - GPT Image Mini and Grok normal both consume the backend-owned
-//   generated-image daily free allowance before paid spillover; they must share
-//   one free pool, not receive separate per-family free pools
-// - paid generated-image calls require active billing consent before provider execution
-// - forbidden local patch patterns: relying on localStorage or client-side counters for image freebies
-// Document Provenance:
-// - Source: xAI Grok Imagine Image model page
-// - Kind: official API doc
-// - Retrieved: 2026-04-18
-// - Applied To: normal-mode price of `$n200000000` ticks per output image and model id `grok-imagine-image`
-// - Verification: verified in docs
-// - Source: xAI Grok Imagine Image Pro model page
-// - Kind: official API doc
-// - Retrieved: 2026-04-18
-// - Applied To: pro-mode price of `$n700000000` ticks per output image and temporary disable state
-// - Verification: verified in docs
-// - Source: OpenAI GPT Image 2 model page
-// - Kind: official API doc
-// - Retrieved: 2026-04-22
-// - Applied To: recognizing `gpt-image-2` as the paid OpenAI image model with low / medium / high quality tiers
-// - Verification: verified in docs
-// - Source: OpenAI Image generation guide
-// - Kind: official API doc
-// - Retrieved: 2026-04-22
-// - Applied To: fixed 1024x1024 per-image pricing for GPT Image 2 and GPT Image Mini in current product UI
-// - Verification: verified in docs
-// - Source: operator requirement on 2026-04-22
-// - Kind: product doc
-// - Retrieved: 2026-04-22
-// - Applied To: GPT Image 2 enabled as the paid OpenAI image tier, Grok normal
-//   daily free allowance, Grok Pro disabled, and consent-required paid fallback
-// - Verification: verified in code
-// - Source: operator correction on 2026-04-21
-// - Kind: product doc
-// - Retrieved: 2026-04-21
-// - Applied To: GPT Image Mini participating in the generated-image daily free
-//   allowance while remaining the default image model
-// - Verification: verified in code and targeted tests
-// - Source: /Users/almurat/KiKo/system-journal/design-language/generated-image-billing.md
-// - Kind: repo doc
-// - Retrieved: 2026-04-20
-// - Applied To: env-driven generated-image free-output allowance
-// - Verification: verified in code
-// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-generated-image-free-allowance-env-control.md
-// - Kind: repo doc
-// - Retrieved: 2026-04-20
-// - Applied To: configurable image free-count default and env knob
-// - Verification: verified in code
-// See also:
-// - /Users/almurat/KiKo/system-journal/INDEX.md
-// - /Users/almurat/KiKo/system-journal/design-language/generated-image-billing.md
-// - /Users/almurat/KiKo/system-journal/owner-map/generated-image-billing.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-billing-and-gating.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-generated-image-free-allowance-env-control.md
-// - /Users/almurat/KiKo/system-journal/design-language/generated-image-safety.md
-// - /Users/almurat/KiKo/system-journal/conflicts.md
+// Updated: 2026-04-23
+// Status: mixed
+// Why: generated-image charging must now follow the credits ledger only. All
+// enabled image models share one lifetime free-request pool, and paid requests
+// reserve/capture/release credits from the same explicit image price table.
+// Debug Goal: keep shared lifetime image freebies and paid credits charging
+// correct across gpt-image-1-mini, gpt-image-2, and grok-imagine-image.
+// Search Tags: generated image shared free pool lifetime requests credits reserve capture
+// Invariants:
+// - gpt-image-1-mini, gpt-image-2, and grok-imagine-image share one lifetime free-request pool.
+// - Paid image requests only charge credits from env.credits.imagePricing.
+// - Reservation ids stay bound to one server-owned context and must not be replayable across contexts.
+// Failure Modes:
+// - Charging gpt-image-2 immediately instead of consuming the shared free pool.
+// - Showing one product price while reserve/capture uses a different credits table.
 
 const GENERATED_IMAGE_RESERVATION_LOCK_TTL_SECONDS = 8;
 const GPT_IMAGE_2_LOW_PRICE_USD_PER_OUTPUT = 0.006;
@@ -333,7 +262,7 @@ function normalizeGeneratedImageRequest(model: string, quality?: string | null):
             modelFamily: 'gpt-image-2',
             quality: normalizedGptQuality,
             enabled: true,
-            freeOutputImageLimit: 0,
+            freeOutputImageLimit: getGeneratedImageLifetimeFreeRequestLimit(),
             pricePerOutputImageUsd,
         };
     }

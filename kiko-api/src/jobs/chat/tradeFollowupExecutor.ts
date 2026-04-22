@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-18
+// Updated: 2026-04-23
 // Author: Rowan
 // Reason: copy-trade creation executes on a later confirmation turn where the
 //         latest user message is often just "confirm", so wallet provenance from
@@ -10,7 +10,10 @@
 //         layer only emits tool-authored text and client actions. Execution
 //         receipt review on 2026-04-19 moved hash/order/token URL replies into
 //         the shared post-tool receipt formatter so confirmation follow-ups and
-//         normal tool rounds produce the same receipt answer.
+//         normal tool rounds produce the same receipt answer. TaskRoute routing
+//         now also means some confirm/execute follow-up turns arrive without a
+//         fresh canonical-intent pass, so this owner must accept TaskRoute as
+//         the primary follow-up gate.
 // Goal: execute confirmed copy-trade tools with the same wallet-binding audit
 //       evidence captured during preflight and preserve immediate in-chat card
 //       rendering for direct follow-up confirmations, without inventing
@@ -28,6 +31,8 @@
 // - direct follow-up should execute from one deterministic plan object, not kind-specific branches spread across this file
 // - direct follow-up receipt text must come from the shared tool-result hook
 //   before falling back to legacy tool-authored summaries
+// - confirmed follow-up execution must work from TaskRoute alone when canonical
+//   intent is absent or stale
 // Document Provenance:
 // - Source: production incident analysis of malformed BSC copy-trade target wallets
 // - Kind: runtime observation
@@ -76,7 +81,7 @@ export async function executeDirectTradeFollowup(params: {
     broker: ChatStreamBroker;
     toolExecutionEngine: ToolExecutionEngine;
 }): Promise<{ handled: boolean; toolResult?: OrchestratorToolResult }> {
-    const taskMode = params.snapshot.normalizedIntent?.taskMode;
+    const taskMode = resolveFollowupTaskMode(params.snapshot);
     if (taskMode !== 'confirm' && taskMode !== 'execute') {
         return { handled: false };
     }
@@ -144,7 +149,7 @@ async function invokeTool(params: {
     });
 
     const txMessageId = toolResult.result?.messageId;
-    const locale = params.snapshot.normalizedIntent?.locale === 'en' ? 'en' : 'zh';
+    const locale = resolveFollowupLocale(params.snapshot);
     const finalText = txMessageId
         ? ''
         : buildExecutionReceiptAnswer(toolResult, locale)
@@ -156,6 +161,23 @@ async function invokeTool(params: {
 
 function extractVisibleFollowupText(value: unknown): string {
     return typeof value === 'string' ? value.trim() : '';
+}
+
+function resolveFollowupTaskMode(snapshot: ChatContextSnapshot): 'discover' | 'analyze' | 'execute' | 'confirm' | null {
+    if (snapshot.taskRoute?.phase === 'confirm' || snapshot.taskRoute?.phase === 'execute') {
+        return snapshot.taskRoute.phase;
+    }
+    const canonicalTaskMode = snapshot.normalizedIntent?.taskMode;
+    if (canonicalTaskMode === 'confirm' || canonicalTaskMode === 'execute') {
+        return canonicalTaskMode;
+    }
+    return null;
+}
+
+function resolveFollowupLocale(snapshot: ChatContextSnapshot): 'en' | 'zh' {
+    return snapshot.taskRoute?.locale === 'en' || snapshot.normalizedIntent?.locale === 'en'
+        ? 'en'
+        : 'zh';
 }
 
 async function broadcastClientAction(params: {

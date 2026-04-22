@@ -92,7 +92,7 @@ type IntentSelectionTrace = {
     model: string;
     canonical_intent: string | null;
     task_mode: string | null;
-    tool_package_source: 'canonical_intent' | 'none';
+    tool_package_source: 'task_route' | 'canonical_intent' | 'none';
 };
 
 const TRACE_ENABLED = String(process.env.CHAT_AI_TRACE_LOGS || 'true').trim().toLowerCase() !== 'false';
@@ -125,7 +125,7 @@ export class ChatAiTraceLogger {
         round: number;
         canonicalIntent: ChatContextSnapshot['normalizedIntent'] | null | undefined;
         model?: string | null;
-        toolPackageSource: 'canonical_intent' | 'none';
+        toolPackageSource: 'task_route' | 'canonical_intent' | 'none';
     }) {
         this.intentSelections.push({
             round: args.round,
@@ -287,6 +287,14 @@ export class ChatAiTraceLogger {
             historyCount: Array.isArray(this.snapshot.history) ? this.snapshot.history.length : 0,
             hasImages: Boolean(this.snapshot.runtime?.socialInput?.images?.length),
             imageCount: Array.isArray(this.snapshot.runtime?.socialInput?.images) ? this.snapshot.runtime.socialInput.images.length : 0,
+            taskRoute: this.snapshot.taskRoute
+                ? {
+                    owner: this.snapshot.taskRoute.owner,
+                    phase: this.snapshot.taskRoute.phase,
+                    facets: this.snapshot.taskRoute.facets,
+                    confidence: this.snapshot.taskRoute.confidence,
+                }
+                : null,
             normalizedIntent: this.snapshot.normalizedIntent
                 ? {
                     domain: this.snapshot.normalizedIntent.domain,

@@ -256,6 +256,101 @@ test('non-confirm analysis turns do not execute from stale swap confirmation', a
     assert.equal(executed.length, 0);
 });
 
+test('task-route-only confirm turns execute direct follow-up without canonical taskMode', async () => {
+    const completed: Array<{ content?: string }> = [];
+    const executed: any[] = [];
+    const snapshot: any = {
+        sessionId: 'session-1',
+        taskId: 'task-1',
+        lastUserMessage: 'confirm',
+        taskRoute: {
+            owner: 'swap',
+            phase: 'confirm',
+            facets: [],
+            entities: {
+                tokenAddresses: ['0x0bc61768132aa1484e2b09301284b7def78a4444'],
+                tokenSymbols: ['BNB'],
+                walletAddresses: [],
+                marketIdentifiers: [],
+                imageRefs: [],
+            },
+            requestedChain: {
+                chainId: 56,
+                chainName: 'BNB Chain',
+                source: 'llm',
+            },
+            timeContext: null,
+            rowCount: null,
+            inheritEntitiesFromContext: false,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            explanation: 'Confirm the prepared swap.',
+            confidence: 0.99,
+            source: 'llm',
+        },
+        confirmationState: {
+            kind: 'swap_confirmation',
+            swap: {
+                tokenIn: 'BNB',
+                tokenOut: '0x0bc61768132aa1484e2b09301284b7def78a4444',
+                amountIn: '0.001',
+                chainId: 56,
+            },
+        },
+        recentToolTrace: {
+            messageId: 'assistant-1',
+            toolCalls: [],
+        },
+        policySnapshot: {
+            policyDecisionId: 'policy-1',
+        },
+    };
+
+    const result = await executeDirectTradeFollowup({
+        snapshot,
+        task: {
+            sessionId: 'session-1',
+            assistantMessageId: 'assistant-1',
+            toolContext: {
+                toolConfig: {
+                    customSlippage: '1.0',
+                },
+            },
+        },
+        userId: 'user-1',
+        broker: {
+            complete: async (payload: { content?: string }) => {
+                completed.push(payload);
+            },
+            recordToolResult: async () => undefined,
+        } as any,
+        toolExecutionEngine: {
+            execute: async (call: any) => {
+                executed.push(call);
+                return {
+                    id: call.id,
+                    name: call.name,
+                    arguments: call.arguments,
+                    ok: true,
+                    result: {
+                        txHash: '0xabc',
+                    },
+                    metadata: { source: 'test' },
+                };
+            },
+        } as any,
+    });
+
+    assert.equal(result.handled, true);
+    assert.equal(executed.length, 1);
+    assert.equal(executed[0]?.name, 'prepare_swap_transaction');
+    assert.equal(
+        String(completed[0]?.content || ''),
+        'Swap submitted.\nTransaction hash: 0xabc\nExplorer: unavailable',
+    );
+});
+
 test('confirm turn without pending confirmation falls back to the model path instead of a fixed precheck reply', async () => {
     const completed: Array<{ content?: string }> = [];
     const snapshot: any = {

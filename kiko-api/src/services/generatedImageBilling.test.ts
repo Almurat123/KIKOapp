@@ -18,6 +18,27 @@ function withLifetimeFreeRequests<T>(value: number, fn: () => T): T {
     }
 }
 
+test('GPT Image 2 uses the shared lifetime free image request pool before charging credits', () => {
+    withLifetimeFreeRequests(3, () => {
+        const decision = buildGeneratedImageBillingDecision({
+            dateUtc: '2026-04-22',
+            model: 'gpt-image-2',
+            quality: 'medium',
+            imageCount: 1,
+            freeOutputImagesUsed: 0,
+            availableCredits: 0,
+        });
+
+        assert.equal(decision.allowed, true);
+        assert.equal(decision.freeOutputImageLimit, 3);
+        assert.equal(decision.freeRequestCount, 1);
+        assert.equal(decision.freeImageCount, 1);
+        assert.equal(decision.billedImageCount, 0);
+        assert.equal(decision.creditsCost, 1.59);
+        assert.equal(decision.usdCost, 0);
+    });
+});
+
 test('GPT Image 2 requires credits after the free lifetime pool is exhausted', () => {
     withLifetimeFreeRequests(3, () => {
         const decision = buildGeneratedImageBillingDecision({

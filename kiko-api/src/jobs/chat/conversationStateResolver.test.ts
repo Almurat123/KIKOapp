@@ -266,6 +266,98 @@ test('applyConversationActionState clears stale swap confirmation for read-only 
     assert.equal(snapshot.confirmationState, null);
 });
 
+test('applyConversationActionState clears stale swap confirmation when task route is a non-mutation owner', () => {
+    const token = '0x3e17ee3B1895dD1A7CF993A89769C5e029584444';
+    const snapshot = applyConversationActionState({
+        sessionId: 's1',
+        taskId: 't1',
+        model: 'gpt-5.4',
+        history: [],
+        lastUserMessage: `Explain why ${token} rallied.`,
+        recentToolTrace: {
+            messageId: 'assistant-1',
+            toolCalls: [
+                {
+                    tool: 'simulate_swap',
+                    status: 'success',
+                    args: {
+                        token_in: 'BNB',
+                        token_out: token,
+                        amount_in: '0.001',
+                        chain_id: 56,
+                    },
+                    result: {
+                        expected_out: '52.88',
+                    },
+                },
+            ],
+        },
+        runtime: {
+            chainId: 56,
+            chainName: 'BNB Chain',
+        },
+        requestedTokenAddresses: [token.toLowerCase()],
+        requestedTokenSymbols: [],
+        taskRoute: {
+            owner: 'general_answer',
+            phase: 'answer',
+            facets: [],
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: [],
+                walletAddresses: [],
+                marketIdentifiers: [],
+                imageRefs: [],
+            },
+            requestedChain: null,
+            timeContext: null,
+            rowCount: null,
+            inheritEntitiesFromContext: false,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            explanation: 'Plain explanation request.',
+            confidence: 0.95,
+            source: 'llm',
+        } as any,
+        normalizedIntent: {
+            domain: 'token',
+            intent: 'swap',
+            taskMode: 'execute',
+            outputMode: 'execution_ready',
+            searchMode: 'forbidden',
+            searchTarget: 'none',
+            confidence: 0.96,
+            explanation: 'stale canonical swap',
+            entities: {
+                tokenAddresses: [token.toLowerCase()],
+                tokenSymbols: [],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+            requestedChain: {
+                chainId: 56,
+                chainName: 'BNB Chain',
+                source: 'llm',
+            },
+            timeContext: null,
+            evidenceRequirements: [],
+            requiresRealtime: false,
+            requiresOnchainEvidence: false,
+            executionCandidate: true,
+            rowCount: null,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            source: 'llm',
+        } as any,
+        toolDefinitions: [],
+    } as any);
+
+    assert.equal(snapshot.conversationActionState?.pendingAction, 'none');
+    assert.equal(snapshot.confirmationState, null);
+});
+
 test('resolveTradeConfirmationState extracts order confirmation from a prepared Polymarket bet', () => {
     const state = resolveTradeConfirmationState([
         {
@@ -517,6 +609,12 @@ test('isConfirmationMessage stays strict for ordinary trade requests that contai
     assert.equal(isConfirmationMessage('继续执行', {
         normalizedIntent: {
             taskMode: 'execute',
+        },
+    } as any), true);
+    assert.equal(isConfirmationMessage('confirm', {
+        taskRoute: {
+            owner: 'swap',
+            phase: 'confirm',
         },
     } as any), true);
 });

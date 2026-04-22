@@ -1,6 +1,7 @@
 import type { ChatContextSnapshot } from './contracts.js';
 import type { ActionClass } from './controlPolicy.js';
 import type { IntentEnvelope, SkillResolution, ToolPhase } from './nodeSkillResolver.js';
+import { taskRouteNeedsOnchainEvidence } from './taskRoute.js';
 
 // CONTEXT MEMORY
 // Updated: 2026-04-17
@@ -165,11 +166,13 @@ export function buildProviderOptions(
 
     const searchMode = skillResolution?.searchMode || 'forbidden';
     const intentEnvelope = skillResolution?.intentEnvelope;
+    const taskRoute = snapshot.taskRoute || null;
     const canonicalIntent = snapshot.normalizedIntent || null;
     const currentPhase = phaseContext?.currentPhase || skillResolution?.currentPhase || 'local_analysis';
     const requiresRealtimeSocialSearch = searchMode !== 'forbidden';
-    const requestsOnchainEvidence =
-        canonicalIntent
+    const requestsOnchainEvidence = taskRoute
+        ? taskRouteNeedsOnchainEvidence(taskRoute)
+        : canonicalIntent
             ? canonicalIntent.evidenceRequirements.includes('onchain_token_evidence')
                 || canonicalIntent.evidenceRequirements.includes('onchain_wallet_evidence')
                 || canonicalIntent.requiresOnchainEvidence

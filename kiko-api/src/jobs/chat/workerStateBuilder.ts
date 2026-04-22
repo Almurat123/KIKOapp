@@ -79,6 +79,11 @@ import type {
   WorkerModeProgressState,
 } from "./contracts.js";
 import { computeConfirmationToken } from "./executionGate.js";
+import {
+  isTaskRouteAssistantMetaDebug,
+  resolveTaskRouteEvidenceRequirements,
+  taskRouteCarriesTokenContext,
+} from "./taskRoute.js";
 
 const SEARCH_EVIDENCE_TOOLS = new Set([
   "external_web_search",
@@ -108,11 +113,12 @@ export function buildWorkerConversationState(
 ): WorkerConversationState {
   const actionState = snapshot.conversationActionState || null;
   const confirmation = snapshot.confirmationState || null;
-  const requiredEvidence = Array.isArray(
-    snapshot.normalizedIntent?.evidenceRequirements,
-  )
-    ? snapshot.normalizedIntent!.evidenceRequirements
-    : [];
+  const requiredEvidence =
+    snapshot.taskRoute
+      ? resolveTaskRouteEvidenceRequirements(snapshot.taskRoute)
+      : Array.isArray(snapshot.normalizedIntent?.evidenceRequirements)
+        ? snapshot.normalizedIntent!.evidenceRequirements
+        : [];
   const gatheredEvidence = deriveGatheredEvidence(snapshot);
   const missingEvidence = requiredEvidence.filter(
     (item) => !gatheredEvidence.includes(item),
@@ -516,15 +522,7 @@ function buildModeProgressState(params: {
       pending.add("identify_target");
       missing.add("target");
     }
-    if (
-      resolveCanonicalChainRef({
-        canonicalIntent: snapshot.normalizedIntent || null,
-        requestedTokenAddresses: snapshot.requestedTokenAddresses,
-        requestedTokenSymbols: snapshot.requestedTokenSymbols,
-        runtimeChainId: snapshot.runtime.chainId,
-        runtimeChainName: snapshot.runtime.chainName,
-      })
-    ) {
+    if (resolveEffectiveChain(snapshot)) {
       completed.add("identify_chain");
     } else {
       pending.add("identify_chain");
@@ -534,7 +532,7 @@ function buildModeProgressState(params: {
     return normalizeModeProgress({
       mode: actionState.pendingAction === "order" ? "polymarket" : "swap_quote",
       internal_state: "quote_needed",
-      state_source: "normalized_intent",
+      state_source: snapshot.taskRoute ? "task_route" : "normalized_intent",
       completed,
       pending,
       missing,
@@ -598,7 +596,7 @@ function buildModeProgressState(params: {
     };
   }
 
-  if (looksLikeMetaDebugTurn(query)) {
+  if (looksLikeMetaDebugTurn(query, snapshot)) {
     return {
       mode: "meta_debug",
       internal_state: "context_required",
@@ -740,13 +738,7 @@ function deriveGatheredEvidence(snapshot: ChatContextSnapshot): string[] {
       gathered.add("execution_receipt");
     }
   }
-  const effectiveChain = resolveCanonicalChainRef({
-    canonicalIntent: snapshot.normalizedIntent || null,
-    requestedTokenAddresses: snapshot.requestedTokenAddresses,
-    requestedTokenSymbols: snapshot.requestedTokenSymbols,
-    runtimeChainId: snapshot.runtime.chainId,
-    runtimeChainName: snapshot.runtime.chainName,
-  });
+  const effectiveChain = resolveEffectiveChain(snapshot);
   if (effectiveChain?.chainId || effectiveChain?.chainName) {
     gathered.add("connected_chain_evidence");
   }
@@ -1036,13 +1028,7 @@ function buildCarryForwardEntities(
   snapshot: ChatContextSnapshot,
 ): Record<string, any> | undefined {
   const runtime = snapshot.runtime || {};
-  const effectiveChain = resolveCanonicalChainRef({
-    canonicalIntent: snapshot.normalizedIntent || null,
-    requestedTokenAddresses: snapshot.requestedTokenAddresses,
-    requestedTokenSymbols: snapshot.requestedTokenSymbols,
-    runtimeChainId: runtime.chainId,
-    runtimeChainName: runtime.chainName,
-  });
+  const effectiveChain = resolveEffectiveChain(snapshot);
   return stripEmptyEntries({
     connected_wallet: runtime.walletAddress || runtime.userAddress,
     effective_chain: effectiveChain
@@ -1081,9 +1067,11 @@ function inferModeFromSnapshot(
 ): WorkerModeProgressState["mode"] {
   const actionState = snapshot.conversationActionState || null;
   const query = String(snapshot.lastUserMessage || "").toLowerCase();
+  const routeMode = resolveRouteDrivenMode(snapshot);
   if (snapshot.confirmationState?.kind) {
     return resolveConfirmationProgressMode(snapshot.confirmationState);
   }
+  if (routeMode) return routeMode;
   if (
     actionState?.pendingAction === "swap" ||
     /(\b(buy|sell|swap|bridge|quote)\b|买|卖|换|交换|跨链|报价)/i.test(query)
@@ -1092,7 +1080,7 @@ function inferModeFromSnapshot(
   }
   if (actionState?.pendingAction === "order" || snapshot.polymarketSelection)
     return "polymarket";
-  if (looksLikeMetaDebugTurn(query)) return "meta_debug";
+  if (looksLikeMetaDebugTurn(query, snapshot)) return "meta_debug";
   if (looksLikeWalletTurn(query)) return "wallet_read";
   if (looksLikeTokenTurn(snapshot)) return "token_analysis";
   if (
@@ -1112,6 +1100,7 @@ function inferModeStateSource(
   if (snapshot.confirmationState?.kind) return "confirmation_state";
   if (snapshot.polymarketSelection) return "polymarket_selection";
   if ((recentToolNames(snapshot) || []).length > 0) return "recent_tool_trace";
+  if (snapshot.taskRoute) return "task_route";
   if (snapshot.normalizedIntent?.intent) return "normalized_intent";
   if (snapshot.runtime?.socialInput) return "runtime_surface";
   return "latest_user_message";
@@ -1123,13 +1112,21 @@ function looksLikeWalletTurn(query: string): boolean {
   );
 }
 
-function looksLikeMetaDebugTurn(query: string): boolean {
+function looksLikeMetaDebugTurn(
+  query: string,
+  snapshot?: ChatContextSnapshot,
+): boolean {
+  if (isTaskRouteAssistantMetaDebug(snapshot?.taskRoute || null)) return true;
   return /(\b(why did|why was|debug|log|logs|routing|architecture|prompt|tool|terminated|fallback|hardcoded)\b|为什么|日志|架构|提示词|工具|路由|硬编码|终止|报错|错误原因)/i.test(
     query,
   );
 }
 
 function looksLikeTokenTurn(snapshot: ChatContextSnapshot): boolean {
+  if (snapshot.taskRoute) {
+    if (taskRouteCarriesTokenContext(snapshot.taskRoute)) return true;
+    return false;
+  }
   const query = String(snapshot.lastUserMessage || "");
   return (
     tokenEntityMentionedInQuery(snapshot, query) ||
@@ -1218,6 +1215,56 @@ function recentToolNames(snapshot: ChatContextSnapshot): string[] | undefined {
     .map((call) => String(call?.tool || "").trim())
     .filter(Boolean);
   return tools.length > 0 ? tools : undefined;
+}
+
+function resolveEffectiveChain(snapshot: ChatContextSnapshot) {
+  if (snapshot.taskRoute?.requestedChain) {
+    return {
+      chainId: snapshot.taskRoute.requestedChain.chainId,
+      chainName: snapshot.taskRoute.requestedChain.chainName,
+      source: "task_route" as const,
+    };
+  }
+  return resolveCanonicalChainRef({
+    canonicalIntent: snapshot.normalizedIntent || null,
+    requestedTokenAddresses: snapshot.requestedTokenAddresses,
+    requestedTokenSymbols: snapshot.requestedTokenSymbols,
+    runtimeChainId: snapshot.runtime.chainId,
+    runtimeChainName: snapshot.runtime.chainName,
+  });
+}
+
+function resolveRouteDrivenMode(
+  snapshot: ChatContextSnapshot,
+): WorkerModeProgressState["mode"] | null {
+  const route = snapshot.taskRoute || null;
+  if (!route) return null;
+  switch (route.owner) {
+    case "assistant_meta":
+      return isTaskRouteAssistantMetaDebug(route) ? "meta_debug" : "lean_chat";
+    case "image":
+      return "image_chat";
+    case "social":
+      return "social_thread";
+    case "wallet":
+      return "wallet_read";
+    case "token":
+      return "token_analysis";
+    case "market":
+    case "zora":
+      return "market_research";
+    case "swap":
+    case "copy_trade":
+      return "swap_quote";
+    case "polymarket":
+      return "polymarket";
+    case "token_deploy":
+      return "token_deploy";
+    case "general_answer":
+      return "lean_chat";
+    default:
+      return null;
+  }
 }
 
 function stripEmptyEntries<T extends Record<string, any>>(value: T): T {

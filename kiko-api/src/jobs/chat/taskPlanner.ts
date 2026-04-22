@@ -3,6 +3,13 @@ import type { ChatContextSnapshot, PlanCard, PlanStep } from "./contracts.js";
 import type { SkillResolution } from "./nodeSkillResolver.js";
 import type { CanonicalIntent } from "./canonicalIntent.js";
 import { resolveBinaryLocale } from "./runtimeLocale.js";
+import {
+  isTaskRouteAssistantMetaDebug,
+  isTaskRouteExecutionPhase,
+  taskRouteCarriesTokenContext,
+  taskRouteNeedsCreatorEvidence,
+  taskRouteNeedsOnchainEvidence,
+} from "./taskRoute.js";
 
 // CONTEXT MEMORY
 // Updated: 2026-04-18
@@ -114,12 +121,10 @@ export function buildTaskPlanningContext(
   snapshot: ChatContextSnapshot,
   skillResolution: SkillResolution,
 ): TaskPlanningContext {
+  const taskRoute = snapshot.taskRoute || null;
   const canonicalIntent = snapshot.normalizedIntent || null;
   const intentEnvelope = skillResolution.intentEnvelope;
-  const locale = detectLocale(
-    String(snapshot.lastUserMessage || ""),
-    canonicalIntent,
-  );
+  const locale = resolvePlanningLocale(snapshot, canonicalIntent);
   const asksRealtimeSocial = Boolean(
     intentEnvelope?.required_evidence?.includes("native_search_results") ||
     (skillResolution.searchMode === "required" &&
@@ -128,25 +133,48 @@ export function buildTaskPlanningContext(
         intentEnvelope?.domain === "x" ||
         intentEnvelope?.domain === "farcaster")),
   );
-  const asksOnChainEvidence = Boolean(
-    intentEnvelope?.required_evidence?.includes("onchain_token_evidence") ||
-    intentEnvelope?.required_evidence?.includes("onchain_wallet_evidence") ||
-    intentEnvelope?.required_evidence?.includes("connected_chain_evidence") ||
-    canonicalIntent?.requiresOnchainEvidence,
-  );
-  const asksCreatorEvidence = canonicalIntent?.intent === "creator_analysis";
-  const requestedToken =
-    (snapshot.requestedTokenAddresses || []).length > 0 ||
-    (snapshot.requestedTokenSymbols || []).length > 0;
+  const asksOnChainEvidence = taskRoute
+    ? Boolean(
+        intentEnvelope?.required_evidence?.includes("onchain_token_evidence") ||
+          intentEnvelope?.required_evidence?.includes(
+            "onchain_wallet_evidence",
+          ) ||
+          intentEnvelope?.required_evidence?.includes(
+            "connected_chain_evidence",
+          ) ||
+          taskRouteNeedsOnchainEvidence(taskRoute),
+      )
+    : Boolean(
+        intentEnvelope?.required_evidence?.includes("onchain_token_evidence") ||
+          intentEnvelope?.required_evidence?.includes(
+            "onchain_wallet_evidence",
+          ) ||
+          intentEnvelope?.required_evidence?.includes(
+            "connected_chain_evidence",
+          ) ||
+          canonicalIntent?.requiresOnchainEvidence,
+      );
+  const asksCreatorEvidence = taskRoute
+    ? taskRouteNeedsCreatorEvidence(taskRoute)
+    : canonicalIntent?.intent === "creator_analysis";
+  const requestedToken = taskRoute
+    ? taskRouteCarriesTokenContext(taskRoute) &&
+      (((taskRoute.entities.tokenAddresses || []).length > 0) ||
+        ((taskRoute.entities.tokenSymbols || []).length > 0) ||
+        ((snapshot.requestedTokenAddresses || []).length > 0) ||
+        ((snapshot.requestedTokenSymbols || []).length > 0))
+    : (snapshot.requestedTokenAddresses || []).length > 0 ||
+      (snapshot.requestedTokenSymbols || []).length > 0;
   const needsEvidence =
     asksRealtimeSocial ||
     asksOnChainEvidence ||
     asksCreatorEvidence ||
     requestedToken;
-  const isAssistantMetaDebug =
-    canonicalIntent?.intent === "assistant_meta" &&
-    canonicalIntent.taskMode === "analyze";
+  const isAssistantMetaDebug = isTaskRouteAssistantMetaDebug(taskRoute) ||
+    (canonicalIntent?.intent === "assistant_meta" &&
+      canonicalIntent.taskMode === "analyze");
   const isExecutionTask =
+    isTaskRouteExecutionPhase(taskRoute) ||
     canonicalIntent?.taskMode === "execute" ||
     canonicalIntent?.taskMode === "confirm" ||
     skillResolution.intentEnvelope.execution_risk === "mutation";
@@ -479,4 +507,13 @@ export function detectLocale(
   canonicalIntent?: CanonicalIntent | null,
 ): "en" | "zh" {
   return resolveBinaryLocale(text, canonicalIntent?.locale);
+}
+
+function resolvePlanningLocale(
+  snapshot: ChatContextSnapshot,
+  canonicalIntent?: CanonicalIntent | null,
+): "en" | "zh" {
+  const routeLocale = snapshot.taskRoute?.locale;
+  if (routeLocale === "en" || routeLocale === "zh") return routeLocale;
+  return detectLocale(String(snapshot.lastUserMessage || ""), canonicalIntent);
 }

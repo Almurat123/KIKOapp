@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { ChatContextSnapshot } from './contracts.js';
 import { runChatV2Turn } from './chatV2TurnRunner.js';
+import { applyTaskRouteToSnapshot } from './taskRoute.js';
 
 function makeSnapshot(message: string, overrides: Partial<ChatContextSnapshot> = {}): ChatContextSnapshot {
     const { runtime: runtimeOverrides, ...restOverrides } = overrides;
@@ -135,6 +136,78 @@ test('runChatV2Turn reuses a pre-normalized snapshot without issuing a normalize
     assert.equal(result.terminal, false);
     assert.match(broker.getContent(), /Quantum entanglement/);
     assert.equal(String(result.snapshot.conversationActionState?.pendingAction || 'none'), 'none');
+});
+
+test('runChatV2Turn reuses a pre-routed snapshot without route-selection or normalization calls', async () => {
+    const taskIds: string[] = [];
+    const generationClient = {
+        async generate(params: { taskId: string; messages?: Array<{ role: string; content: any }>; onTextDelta: (text: string) => Promise<void> }) {
+            taskIds.push(params.taskId);
+            if (params.taskId.endsWith(':route_selection') || params.taskId.endsWith(':normalize')) {
+                throw new Error(`unexpected intent stage call: ${params.taskId}`);
+            }
+            await params.onTextDelta('I can generate an image from the uploaded reference.');
+            return {
+                toolCalls: [],
+                text: 'I can generate an image from the uploaded reference.',
+                reasoning: '',
+                citations: [],
+            };
+        },
+    } as any;
+    const broker = makeBroker();
+    const snapshot = applyTaskRouteToSnapshot(
+        makeSnapshot('Use the attached image and make a cleaner poster version', {
+            runtime: {
+                socialInput: {
+                    platform: 'farcaster',
+                    images: [{ url: 'https://example.com/reference.png' }],
+                },
+            },
+        }),
+        {
+            owner: 'image',
+            phase: 'execute',
+            facets: ['reference_image', 'social_images'],
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: [],
+                walletAddresses: [],
+                marketIdentifiers: [],
+                imageRefs: ['https://example.com/reference.png'],
+            },
+            requestedChain: null,
+            timeContext: null,
+            rowCount: null,
+            inheritEntitiesFromContext: true,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            explanation: 'Reference-image generation request.',
+            confidence: 0.99,
+            source: 'llm',
+        },
+    );
+
+    const result = await runChatV2Turn({
+        snapshot,
+        task: {
+            id: 'task-runner',
+            sessionId: 'session-runner',
+            assistantMessageId: 'assistant-runner',
+            model: 'gpt-5.4-mini',
+            toolContext: {},
+        },
+        userId: 'user-runner',
+        broker: broker as any,
+        generationClient,
+        toolExecutionEngine: {} as any,
+    });
+
+    assert.deepEqual(taskIds, ['task-runner']);
+    assert.equal(result.terminal, false);
+    assert.equal(result.snapshot.taskRoute?.owner, 'image');
+    assert.match(broker.getContent(), /generate an image/);
 });
 
 test('runChatV2Turn normalizes unnormalized turns with the same session model before orchestration', async () => {

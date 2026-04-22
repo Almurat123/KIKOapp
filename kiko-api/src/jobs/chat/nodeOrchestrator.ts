@@ -191,6 +191,7 @@ import {
 } from './canonicalIntentNormalizer.js';
 import type { CanonicalIntent } from './canonicalIntent.js';
 import { applyConversationActionState } from './conversationStateResolver.js';
+import { selectTaskRoute } from './taskRouteSelector.js';
 import { tryBuildFastLaneSwapIntent, tryRunFastSwapLane } from './swapFastLane.js';
 import { ChatAiTraceLogger } from './chatAiTraceLogger.js';
 import { isModelLedToolOrchestrationEnabled } from './modelLedToolOrchestration.js';
@@ -286,27 +287,39 @@ export async function runNodeOrchestration(params: {
             await params.broker.bootstrapRuntime(buildWarmupPlan(params.snapshot.lastUserMessage));
         }
     let normalizedSnapshot = tryBuildFastLaneSwapIntent(params.snapshot).snapshot;
-    if (!normalizedSnapshot.normalizedIntent && !normalizedSnapshot.normalizationState) {
+    if (!normalizedSnapshot.taskRoute && !normalizedSnapshot.taskRouteSelectionState) {
+        const routeSelection = await selectTaskRoute({
+            snapshot: normalizedSnapshot,
+            generationClient: params.generationClient,
+            shouldCancel: params.shouldCancel,
+        });
+        normalizedSnapshot = routeSelection.snapshot;
+    }
+    if (!normalizedSnapshot.taskRoute && !normalizedSnapshot.normalizedIntent && !normalizedSnapshot.normalizationState) {
         const normalization = await normalizeCanonicalIntent({
             snapshot: normalizedSnapshot,
             generationClient: params.generationClient,
             shouldCancel: params.shouldCancel,
         });
-        normalizedSnapshot = applyConversationActionState(normalization.snapshot);
+        normalizedSnapshot = normalization.snapshot;
     }
-    if (normalizedSnapshot.normalizedIntent && !normalizedSnapshot.conversationActionState) {
+    if ((normalizedSnapshot.taskRoute || normalizedSnapshot.normalizedIntent) && !normalizedSnapshot.conversationActionState) {
         normalizedSnapshot = applyConversationActionState(normalizedSnapshot);
     }
-    if (
-        normalizedSnapshot.normalizedIntent?.needsClarification
-        && normalizedSnapshot.normalizedIntent.clarificationQuestion
-    ) {
-        await params.broker.pushText(normalizedSnapshot.normalizedIntent.clarificationQuestion);
-        chatAiTrace.markTerminal('normalized_intent_clarification');
+    const clarificationQuestion = normalizedSnapshot.taskRoute?.clarificationQuestion
+        || normalizedSnapshot.normalizedIntent?.clarificationQuestion
+        || null;
+    const needsClarification = Boolean(
+        normalizedSnapshot.taskRoute?.needsClarification
+        || normalizedSnapshot.normalizedIntent?.needsClarification,
+    );
+    if (needsClarification && clarificationQuestion) {
+        await params.broker.pushText(clarificationQuestion);
+        chatAiTrace.markTerminal('task_route_clarification');
         chatAiTrace.emit();
         return { terminal: false };
     }
-    let tradingIntent = normalizedSnapshot.normalizedIntent
+    let tradingIntent = (normalizedSnapshot.taskRoute || normalizedSnapshot.normalizedIntent)
         ? parseTradingIntent(
             normalizedSnapshot.lastUserMessage,
             normalizedSnapshot,
@@ -419,14 +432,23 @@ export async function runNodeOrchestration(params: {
         round: number,
         options?: { phaseAfterNativeSearch?: ToolPhase | null },
     ) => {
-        const normalization = await normalizeCanonicalIntent({
+        const routeSelection = await selectTaskRoute({
             snapshot: buildIntentReentrySnapshot(params.snapshot, intentSelectionHistory),
             generationClient: params.generationClient,
             shouldCancel: params.shouldCancel,
         });
-        normalizedSnapshot = applyConversationActionState(normalization.snapshot);
+        normalizedSnapshot = routeSelection.snapshot;
+        if (!normalizedSnapshot.taskRoute && !normalizedSnapshot.normalizedIntent && !normalizedSnapshot.normalizationState) {
+            const normalization = await normalizeCanonicalIntent({
+                snapshot: normalizedSnapshot,
+                generationClient: params.generationClient,
+                shouldCancel: params.shouldCancel,
+            });
+            normalizedSnapshot = normalization.snapshot;
+        }
+        normalizedSnapshot = applyConversationActionState(normalizedSnapshot);
         params.snapshot = normalizedSnapshot;
-        tradingIntent = normalizedSnapshot.normalizedIntent
+        tradingIntent = (normalizedSnapshot.taskRoute || normalizedSnapshot.normalizedIntent)
             ? parseTradingIntent(
                 normalizedSnapshot.lastUserMessage,
                 normalizedSnapshot,
@@ -461,13 +483,17 @@ export async function runNodeOrchestration(params: {
             skillPrompts: skillResolution.skillPrompts,
             providerNativeEvidence,
         });
-        if (
-            normalizedSnapshot.normalizedIntent?.needsClarification
-            && normalizedSnapshot.normalizedIntent.clarificationQuestion
-        ) {
-            await params.broker.pushText(normalizedSnapshot.normalizedIntent.clarificationQuestion);
-            chatAiTrace.markTerminal('normalized_intent_clarification');
-            chatAiTrace.emit({ finalRound: round, finalReason: 'normalized_intent_clarification' });
+        const clarificationQuestion = normalizedSnapshot.taskRoute?.clarificationQuestion
+            || normalizedSnapshot.normalizedIntent?.clarificationQuestion
+            || null;
+        const needsClarification = Boolean(
+            normalizedSnapshot.taskRoute?.needsClarification
+            || normalizedSnapshot.normalizedIntent?.needsClarification,
+        );
+        if (needsClarification && clarificationQuestion) {
+            await params.broker.pushText(clarificationQuestion);
+            chatAiTrace.markTerminal('task_route_clarification');
+            chatAiTrace.emit({ finalRound: round, finalReason: 'task_route_clarification' });
             return true;
         }
         return false;
@@ -916,6 +942,7 @@ export async function runNodeOrchestration(params: {
             applyCanonicalIntentOverridesToToolCall(
                 normalizeToolCallForProvider(call, providerInfo.provider),
                 params.snapshot.normalizedIntent || null,
+                params.snapshot.taskRoute || null,
             )
         );
         for (const call of normalizedToolCalls) {
@@ -1697,12 +1724,13 @@ export function normalizeToolCallForProvider(
 export function applyCanonicalIntentOverridesToToolCall(
     call: { id: string; name: string; arguments: Record<string, any> },
     canonicalIntent: CanonicalIntent | null | undefined,
+    taskRoute?: ChatContextSnapshot['taskRoute'] | null,
 ) {
     if (String(call.name || '') !== 'get_early_buyers') {
         return call;
     }
 
-    const timeContext = canonicalIntent?.timeContext;
+    const timeContext = taskRoute?.timeContext || canonicalIntent?.timeContext;
     if (!timeContext?.isTimeBound) {
         return call;
     }

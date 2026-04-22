@@ -564,11 +564,11 @@ function validateEnv(): EnvConfig {
         .split(',')
         .map(v => v.trim().toLowerCase())
         .filter(Boolean);
-    const defaultPremiumModels = 'gpt-5.4-mini-2026-03-17,gpt-4.1,grok-4-1-fast-reasoning,grok-4-1-fast-non-reasoning';
+    const defaultPremiumModels = 'gpt-5.4-mini-2026-03-17,grok-4-1-fast-reasoning,grok-4-1-fast-non-reasoning';
     const premiumModels = (
         process.env.BILLING_PREMIUM_MODELS ||
         (process.env.BILLING_GROK_MODELS
-            ? `gpt-5.4-mini-2026-03-17,gpt-4.1,${process.env.BILLING_GROK_MODELS}`
+            ? `gpt-5.4-mini-2026-03-17,${process.env.BILLING_GROK_MODELS}`
             : defaultPremiumModels)
     )
         .split(',')
@@ -581,7 +581,6 @@ function validateEnv(): EnvConfig {
         // Override via BILLING_MODEL_PRICING_JSON when production pricing is known.
         'kimi-k2-5-reasoning': { promptUsdPer1M: 0, completionUsdPer1M: 0 },
         'kimi-k2-5-instant': { promptUsdPer1M: 0, completionUsdPer1M: 0 },
-        'gpt-4.1': { promptUsdPer1M: 2.00, cachedPromptUsdPer1M: 0.50, completionUsdPer1M: 8.00 },
         'gpt-5.4-mini-2026-03-17': { promptUsdPer1M: 0.75, cachedPromptUsdPer1M: 0.075, completionUsdPer1M: 4.50 },
     };
     if (process.env.BILLING_MODEL_PRICING_JSON) {
@@ -595,25 +594,28 @@ function validateEnv(): EnvConfig {
         baseCreditsPerMessage: number;
         inputCreditsPer1kTokens: number;
         outputCreditsPer1kTokens: number;
-    }> = Object.fromEntries(
-        Object.entries(modelPricing).map(([model, pricing]) => {
-            const multiplier = (Number.isFinite(billingUsdMultiplier) ? billingUsdMultiplier : 3)
-                * (Number.isFinite(creditsPerUsd) ? creditsPerUsd : 10);
-            return [
-                model,
-                {
-                    baseCreditsPerMessage: 1,
-                    inputCreditsPer1kTokens: Number((((pricing.promptUsdPer1M || 0) * multiplier) / 1_000_000 * 1000).toFixed(8)),
-                    outputCreditsPer1kTokens: Number((((pricing.completionUsdPer1M || 0) * multiplier) / 1_000_000 * 1000).toFixed(8)),
-                },
-            ];
-        })
-    );
+    }> = {
+        'gpt-5.4-mini-2026-03-17': {
+            baseCreditsPerMessage: 0.5,
+            inputCreditsPer1kTokens: 0.0225,
+            outputCreditsPer1kTokens: 0.135,
+        },
+        'grok-4-1-fast-reasoning': {
+            baseCreditsPerMessage: 0.3,
+            inputCreditsPer1kTokens: 0.006,
+            outputCreditsPer1kTokens: 0.015,
+        },
+        'grok-4-1-fast-non-reasoning': {
+            baseCreditsPerMessage: 0.3,
+            inputCreditsPer1kTokens: 0.006,
+            outputCreditsPer1kTokens: 0.015,
+        },
+    };
     if (process.env.CREDITS_TEXT_PRICING_JSON) {
         try {
             creditTextPricing = JSON.parse(process.env.CREDITS_TEXT_PRICING_JSON);
         } catch (error) {
-            console.warn('[Env] Failed to parse CREDITS_TEXT_PRICING_JSON, falling back to derived text pricing map.');
+            console.warn('[Env] Failed to parse CREDITS_TEXT_PRICING_JSON, falling back to default text pricing map.');
         }
     }
     let creditImagePricing: Record<string, Record<string, number>> = {

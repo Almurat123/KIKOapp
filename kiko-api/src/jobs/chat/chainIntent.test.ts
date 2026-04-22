@@ -62,3 +62,29 @@ test('resolveCanonicalChainRef prefers canonical intent over wallet context', ()
         source: 'normalized_intent',
     });
 });
+
+test('resolveCanonicalChainRef prefers task route over stale canonical intent', () => {
+    const result = resolveCanonicalChainRef({
+        taskRoute: {
+            requestedChain: {
+                chainId: 8453,
+                chainName: 'Base',
+                source: 'llm',
+            },
+        } as any,
+        canonicalIntent: {
+            requestedChain: {
+                chainId: 56,
+                chainName: 'BNB Chain',
+            },
+        } as any,
+        runtimeChainId: 137,
+        runtimeChainName: 'Polygon',
+    });
+
+    assert.deepEqual(result, {
+        chainId: 8453,
+        chainName: 'Base',
+        source: 'task_route',
+    });
+});

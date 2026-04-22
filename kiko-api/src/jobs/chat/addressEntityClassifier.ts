@@ -46,7 +46,12 @@ export async function enrichRequestedAddressClassifications(
         };
     }
 
-    const chainId = Number(snapshot.normalizedIntent?.requestedChain?.chainId || snapshot.runtime.chainId || 0) || undefined;
+    const chainId = Number(
+        snapshot.taskRoute?.requestedChain?.chainId
+        || snapshot.normalizedIntent?.requestedChain?.chainId
+        || snapshot.runtime.chainId
+        || 0,
+    ) || undefined;
     const chainName = chainId ? resolveChainName(chainId) : snapshot.runtime.chainName || null;
     const classifications = await Promise.all(
         addresses.map((address) => classifyRequestedAddress({

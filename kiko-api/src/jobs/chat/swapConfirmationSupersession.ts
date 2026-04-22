@@ -1,6 +1,7 @@
 import type { ChatContextSnapshot, TradeConfirmationState } from './contracts.js';
 import { resolveCanonicalChainRef } from './chainIntent.js';
 import { resolveTradeSemantics } from '../../services/ai/tradeSemantics.js';
+import { hasTaskRouteFacet } from './taskRoute.js';
 
 function normalizeTradeValue(value: string | number | null | undefined): string {
     return String(value || '').trim().toLowerCase();
@@ -14,13 +15,23 @@ export function shouldSupersedePendingSwapConfirmation(params: {
     const pendingSwap = params.pendingSwap || null;
     if (!pendingSwap) return false;
 
+    const taskRoute = params.snapshot.taskRoute || null;
     const normalizedIntent = params.snapshot.normalizedIntent || null;
-    if (!normalizedIntent || !['swap', 'cross_chain_swap'].includes(String(normalizedIntent.intent || ''))) {
+    const routeWantsSwap = taskRoute?.owner === 'swap';
+    const canonicalWantsSwap = !taskRoute && Boolean(
+        normalizedIntent && ['swap', 'cross_chain_swap'].includes(String(normalizedIntent.intent || '')),
+    );
+    if (!routeWantsSwap && !canonicalWantsSwap) {
         return false;
     }
-    if (normalizedIntent.taskMode === 'confirm') return false;
+    if (taskRoute) {
+        if (taskRoute.phase === 'confirm') return false;
+    } else if (normalizedIntent?.taskMode === 'confirm') {
+        return false;
+    }
 
     const requestedChain = resolveCanonicalChainRef({
+        taskRoute,
         canonicalIntent: normalizedIntent,
         requestedTokenAddresses: params.snapshot.requestedTokenAddresses,
         requestedTokenSymbols: params.snapshot.requestedTokenSymbols,
@@ -29,9 +40,13 @@ export function shouldSupersedePendingSwapConfirmation(params: {
     });
     const semantics = resolveTradeSemantics({
         text: params.text,
-        chainId: normalizedIntent.requestedChain?.chainId || requestedChain?.chainId || params.snapshot.runtime.chainId,
-        canonicalTokenAddresses: normalizedIntent.entities?.tokenAddresses,
-        canonicalTokenSymbols: normalizedIntent.entities?.tokenSymbols,
+        chainId: taskRoute?.requestedChain?.chainId || normalizedIntent?.requestedChain?.chainId || requestedChain?.chainId || params.snapshot.runtime.chainId,
+        canonicalTokenAddresses: taskRoute?.entities.tokenAddresses?.length
+            ? taskRoute.entities.tokenAddresses
+            : normalizedIntent?.entities?.tokenAddresses,
+        canonicalTokenSymbols: taskRoute?.entities.tokenSymbols?.length
+            ? taskRoute.entities.tokenSymbols
+            : normalizedIntent?.entities?.tokenSymbols,
         requestedTokenAddresses: params.snapshot.requestedTokenAddresses || [],
         requestedTokenSymbols: params.snapshot.requestedTokenSymbols || [],
     });
@@ -49,7 +64,10 @@ export function shouldSupersedePendingSwapConfirmation(params: {
     const nextTokenIn = normalizeTradeValue(semantics.tokenIn);
     const nextTokenOut = normalizeTradeValue(semantics.tokenOut);
     const nextAmountIn = normalizeTradeValue(semantics.amount.value);
-    const nextChainId = normalizedIntent.requestedChain?.chainId || requestedChain?.chainId || params.snapshot.runtime.chainId;
+    const nextChainId = taskRoute?.requestedChain?.chainId
+        || normalizedIntent?.requestedChain?.chainId
+        || requestedChain?.chainId
+        || params.snapshot.runtime.chainId;
 
     const amountChanged = Boolean(nextAmountIn) && nextAmountIn !== pendingAmountIn;
     const tokenInChanged = Boolean(nextTokenIn) && nextTokenIn !== pendingTokenIn;
@@ -60,5 +78,7 @@ export function shouldSupersedePendingSwapConfirmation(params: {
         return true;
     }
 
-    return normalizedIntent.taskMode === 'execute';
+    return taskRoute
+        ? taskRoute.phase === 'execute' || hasTaskRouteFacet(taskRoute, 'cross_chain')
+        : normalizedIntent?.taskMode === 'execute';
 }
