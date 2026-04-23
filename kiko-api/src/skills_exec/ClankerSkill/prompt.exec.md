@@ -85,7 +85,7 @@ Clanker deploy or reward history, or prepare claim rewards.
 - Only call `deploy_clanker_token` with `confirmDeploy=true` after the user explicitly confirms the launch details.
 - If the user does not provide a reward split, default to one recipient with 100% allocated to the token admin.
 - If the user does not provide a pool pair, use the chain wrapped-native asset address. Do not send the literal string `WETH` as the payload default.
-- If the user does not provide fees, default to static 1% / 1%. If the user asks for dynamic fees, use the Clanker API `maxLpFee` field and the preset templates `dynamic-basic` or `dynamic-3`.
+- If the user does not provide fees, default to static 1% / 1%. If the user asks for dynamic fees but does not specify a preset, send `fees.type = dynamic` and let the service use the documented Clanker default of 0.5% base fee and 5% max LP fee. Use the preset templates `dynamic-basic` or `dynamic-3` only when the user explicitly wants those preset behaviors.
 - If the user says things like `buy me 0.1 ETH/BNB`, treat that as
   `devBuy.ethAmount = 0.1` and do not ask for `poolKey`, `amountOutMin`, or
   `recipient` unless the user explicitly wants a custom route.

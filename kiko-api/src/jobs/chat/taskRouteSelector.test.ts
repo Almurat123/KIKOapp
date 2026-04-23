@@ -324,6 +324,82 @@ test('selectTaskRoute clears stale token carry-over for assistant_meta debug tur
     assert.deepEqual(result.snapshot.requestedTokenSymbols, []);
 });
 
+test('selectTaskRoute keeps short social wallet-context followups on the wallet owner', async () => {
+    const snapshot = {
+        ...makeSnapshot('你看不到上下文吗', {
+            runtime: {
+                currentPage: 'farcaster',
+                pageContext: 'farcaster_agent',
+                socialInput: {
+                    text: 'Current @almurat cast',
+                    threadContextText: 'Prior wallet follow-up thread',
+                },
+                prefetchedToolResults: {
+                    get_wallet_info: {
+                        address: '0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B',
+                        ethBalance: '0.145',
+                    },
+                },
+            } as any,
+            recentToolTrace: {
+                toolCalls: [
+                    { tool: 'read_wallet_state', status: 'ok' },
+                    { tool: 'read_user_context', status: 'ok' },
+                ],
+            },
+        }),
+        history: [
+            { role: 'user', content: 'Check my wallet assets on Base.' },
+            { role: 'assistant', content: 'I can read your wallet assets and holdings.' },
+            { role: 'user', content: '你看不到上下文吗' },
+        ],
+    } as ChatContextSnapshot;
+
+    const result = await selectTaskRoute({
+        snapshot,
+        generationClient: {
+            async generate() {
+                return {
+                    text: JSON.stringify({
+                        owner: 'assistant_meta',
+                        phase: 'answer',
+                        facets: ['behavior_debug'],
+                        confidence: 0.95,
+                        explanation: 'The user sounds like they are questioning assistant behavior.',
+                        entities: {
+                            token_addresses: [],
+                            token_symbols: [],
+                            wallet_addresses: [],
+                            market_identifiers: [],
+                            image_refs: [],
+                        },
+                        requested_chain: null,
+                        requested_time_window: null,
+                        row_count: null,
+                        inherit_entities_from_context: false,
+                        locale: 'zh',
+                        needs_clarification: false,
+                        clarification_question: null,
+                    }),
+                    reasoning: '',
+                    toolCalls: [],
+                };
+            },
+        } as any,
+    });
+
+    assert.equal(result.state.status, 'ok');
+    assert.equal(result.state.source, 'deterministic');
+    assert.equal(result.snapshot.taskRoute?.owner, 'wallet');
+    assert.equal(result.snapshot.taskRoute?.phase, 'answer');
+    assert.ok(result.snapshot.taskRoute?.facets.includes('wallet_followup'));
+    assert.ok(result.snapshot.taskRoute?.facets.includes('social_thread'));
+
+    const resolution = resolveNodeSkills(result.snapshot, null, result.snapshot.normalizedIntent);
+    assert.ok(resolution.allowedTools.includes('read_wallet_state'));
+    assert.ok(resolution.preferredTools.includes('read_wallet_state'));
+});
+
 test('selectTaskRoute marks invalid JSON explicitly', async () => {
     const result = await selectTaskRoute({
         snapshot: makeSnapshot('whatever'),

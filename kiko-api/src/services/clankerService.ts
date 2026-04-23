@@ -251,6 +251,15 @@ function assertFiniteNumber(value: unknown, field: string): asserts value is num
     }
 }
 
+function assertPercentNumber(value: unknown, field: string, options?: { min?: number; max?: number }) {
+    assertFiniteNumber(value, field);
+    const min = typeof options?.min === 'number' ? options.min : 0;
+    const max = typeof options?.max === 'number' ? options.max : 100;
+    if (value < min || value > max) {
+        throw new Error(`${field} must be between ${min} and ${max}`);
+    }
+}
+
 function pickFiniteNumber(...values: unknown[]): number | undefined {
     for (const value of values) {
         if (typeof value === 'number' && Number.isFinite(value)) {
@@ -453,8 +462,8 @@ function normalizeDeployPayload(input: DeployClankerTokenInput) {
             : undefined;
     const dynamicBasicFees = {
         type: 'dynamic' as const,
-        baseFee: 100,
-        maxLpFee: 500,
+        baseFee: 1,
+        maxLpFee: 5,
         referenceTickFilterPeriod: 30,
         resetPeriod: 120,
         resetTickFilter: 200,
@@ -463,12 +472,22 @@ function normalizeDeployPayload(input: DeployClankerTokenInput) {
     };
     const dynamic3Fees = {
         type: 'dynamic' as const,
-        baseFee: 100,
-        maxLpFee: 300,
+        baseFee: 1,
+        maxLpFee: 3,
         referenceTickFilterPeriod: 30,
         resetPeriod: 120,
         resetTickFilter: 200,
         feeControlNumerator: 250000000,
+        decayFilterBps: 7500,
+    };
+    const documentedDynamicDefaultFees = {
+        type: 'dynamic' as const,
+        baseFee: 0.5,
+        maxLpFee: 5,
+        referenceTickFilterPeriod: 30,
+        resetPeriod: 120,
+        resetTickFilter: 200,
+        feeControlNumerator: 500000000,
         decayFilterBps: 7500,
     };
     const mergeDynamicFees = (base: typeof dynamicBasicFees, override?: DeployClankerTokenInput['fees']) => ({
@@ -496,22 +515,32 @@ function normalizeDeployPayload(input: DeployClankerTokenInput) {
 
     const fees = (() => {
         if (input.fees?.type === 'dynamic') {
-            const base = selectedFeePreset === 'dynamic-3' ? dynamic3Fees : dynamicBasicFees;
-            return mergeDynamicFees(base, input.fees);
+            const base = selectedFeePreset === 'dynamic-3'
+                ? dynamic3Fees
+                : selectedFeePreset === 'dynamic-basic'
+                    ? dynamicBasicFees
+                    : documentedDynamicDefaultFees;
+            const fees = mergeDynamicFees(base, input.fees);
+            assertPercentNumber(fees.baseFee, 'fees.baseFee', { min: 0.25, max: 5 });
+            assertPercentNumber(fees.maxLpFee, 'fees.maxLpFee', { min: fees.baseFee, max: 5 });
+            return fees;
         }
         if (input.fees?.type === 'static') {
-            return {
+            const fees = {
                 type: 'static' as const,
-                clankerFee: Number.isFinite(input.fees.clankerFee as number) ? Number(input.fees.clankerFee) : 100,
-                pairedFee: Number.isFinite(input.fees.pairedFee as number) ? Number(input.fees.pairedFee) : 100,
+                clankerFee: Number.isFinite(input.fees.clankerFee as number) ? Number(input.fees.clankerFee) : 1,
+                pairedFee: Number.isFinite(input.fees.pairedFee as number) ? Number(input.fees.pairedFee) : 1,
             };
+            assertPercentNumber(fees.clankerFee, 'fees.clankerFee', { min: 0, max: 5 });
+            assertPercentNumber(fees.pairedFee, 'fees.pairedFee', { min: 0, max: 5 });
+            return fees;
         }
         if (selectedFeePreset === 'dynamic-3') return dynamic3Fees;
         if (selectedFeePreset === 'dynamic-basic') return dynamicBasicFees;
         return {
             type: 'static' as const,
-            clankerFee: 100,
-            pairedFee: 100,
+            clankerFee: 1,
+            pairedFee: 1,
         };
     })();
 
@@ -572,12 +601,36 @@ async function fetchClankerJson(path: string, init: RequestInit = {}) {
     }
 
     if (!response.ok) {
-        const message = typeof json === 'object' && json && 'error' in json
-            ? String((json as any).error)
-            : `Clanker API request failed with ${response.status}`;
+        const message = formatClankerApiError(response.status, json);
         throw new Error(message);
     }
     return json;
+}
+
+function formatClankerApiError(status: number, json: unknown): string {
+    if (typeof json !== 'object' || !json) {
+        return `Clanker API request failed with ${status}`;
+    }
+
+    const record = json as Record<string, unknown>;
+    const base = typeof record.error === 'string' && record.error.trim()
+        ? record.error.trim()
+        : `Clanker API request failed with ${status}`;
+    const details = Array.isArray(record.data)
+        ? record.data
+            .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object')
+            .map((entry) => {
+                const path = Array.isArray(entry.path)
+                    ? entry.path.map((part) => String(part)).filter(Boolean).join('.')
+                    : '';
+                const message = typeof entry.message === 'string' ? entry.message.trim() : '';
+                if (path && message) return `${path}: ${message}`;
+                return message || path;
+            })
+            .filter(Boolean)
+            .slice(0, 3)
+        : [];
+    return details.length > 0 ? `${base} ${details.join('; ')}` : base;
 }
 
 function buildQuery(params: Record<string, string | number | boolean | undefined>) {

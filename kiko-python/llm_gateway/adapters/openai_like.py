@@ -137,26 +137,36 @@ def _coerce_responses_image_url(value: Any) -> str | None:
     return None
 
 
-def _convert_message_content_to_responses_parts(content: Any) -> list[dict[str, Any]]:
+def _responses_text_part_type_for_role(role: str) -> str:
+    return "output_text" if role == "assistant" else "input_text"
+
+
+def _convert_message_content_to_responses_parts(content: Any, *, role: str = "user") -> list[dict[str, Any]]:
     if content is None:
         return []
+    text_part_type = _responses_text_part_type_for_role(role)
     if isinstance(content, str):
         text = content.strip()
-        return [{"type": "input_text", "text": content}] if text else []
+        return [{"type": text_part_type, "text": content}] if text else []
     if isinstance(content, list):
         parts: list[dict[str, Any]] = []
         for item in content:
-            parts.extend(_convert_message_content_to_responses_parts(item))
+            parts.extend(_convert_message_content_to_responses_parts(item, role=role))
         return parts
     if isinstance(content, dict):
         part_type = str(content.get("type") or "").strip().lower()
         if part_type in {"input_text", "text", "output_text"}:
             text = _coerce_responses_input_text(content.get("text"))
-            return [{"type": "input_text", "text": text}] if text.strip() else []
+            return [{"type": text_part_type, "text": text}] if text.strip() else []
+        if role == "assistant" and part_type == "refusal":
+            text = _coerce_responses_input_text(content.get("refusal") or content.get("text") or content.get("content"))
+            return [{"type": "refusal", "refusal": text}] if text.strip() else []
         if part_type in {"image_url", "input_image"}:
             image_url = _coerce_responses_image_url(content.get("image_url") if "image_url" in content else content)
             if not image_url:
                 return []
+            if role == "assistant":
+                return [{"type": "output_text", "text": image_url}]
             part: dict[str, Any] = {"type": "input_image", "image_url": image_url}
             detail = content.get("detail")
             if isinstance(detail, str) and detail.strip():
@@ -173,9 +183,9 @@ def _convert_message_content_to_responses_parts(content: Any) -> list[dict[str, 
             return [part]
         if "text" in content:
             text = _coerce_responses_input_text(content.get("text"))
-            return [{"type": "input_text", "text": text}] if text.strip() else []
+            return [{"type": text_part_type, "text": text}] if text.strip() else []
     text = _coerce_responses_input_text(content)
-    return [{"type": "input_text", "text": text}] if text.strip() else []
+    return [{"type": text_part_type, "text": text}] if text.strip() else []
 
 
 def _normalize_responses_role(role: str) -> str:
@@ -205,7 +215,7 @@ def _convert_messages_to_responses_input(messages: list[Any]) -> list[dict[str, 
             continue
         if role not in {"developer", "user", "assistant"}:
             continue
-        parts = _convert_message_content_to_responses_parts(content)
+        parts = _convert_message_content_to_responses_parts(content, role=role)
         if not parts:
             continue
         items.append({

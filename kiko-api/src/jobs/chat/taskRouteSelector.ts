@@ -65,12 +65,12 @@ export async function selectTaskRoute(args: {
         if (!validated.ok) {
             return invalidResult(snapshot, validated.reasonCode, validated.error, rawText, reasoningText);
         }
-        const deterministicImageRoute = buildImmediateImageExecutionOverride(snapshot, validated.route);
-        const route = deterministicImageRoute || validated.route;
+        const deterministicRoute = buildDeterministicRouteOverride(snapshot, validated.route);
+        const route = deterministicRoute || validated.route;
         const selectedSnapshot = applyTaskRouteToSnapshot(snapshot, route);
         const state: TaskRouteSelectionState = {
             status: 'ok',
-            source: deterministicImageRoute ? 'deterministic' : 'llm',
+            source: deterministicRoute ? 'deterministic' : 'llm',
             rawText,
             reasoningText,
         };
@@ -237,6 +237,15 @@ const IMAGE_DIRECT_EXECUTION_RE = /\b(?:generate|create|make|design|draw|render|
 const IMAGE_REFERENCE_EDIT_RE = /\b(?:edit|restyle|transform|replace|remove|erase|extend|inpaint|outpaint|photoshop|composite|remix|reimagine|place|put|turn)\b|\bmake\b.{0,32}\blook\b|(?:改图|修图|修照片|改照片|图像编辑|图片编辑|替换背景|去掉背景|换背景|扩图|补图|抠图|把.+变成|把.+放到|换成|放到|放在|合成|变成|做成)/i;
 const IMAGE_CONTINUATION_EXECUTION_RE = /\b(?:regenerate|generate again|try again|rerun|redo|remake|make another|again)\b|(?:再生成|重新生成|重生成|重画|重新画|按原图|按上一张|按刚才|再来一张|再来一次|换一版|重做|重新做|继续生成)/i;
 const META_QUESTION_RE = /\b(?:why|what happened|how come)\b|(?:为什么|怎么回事|咋回事|怎么没有|为什么没|为何)/i;
+const WALLET_QUERY_RE = /(\b(wallet|balance|balances|holdings|portfolio|pnl|profit|loss|position|positions|asset|assets)\b|钱包|余额|持仓|资产|收益|利润|亏损|仓位)/i;
+const WALLET_CONTINUATION_RE = /(?:上下文|context|继续|接着|然后呢|那现在|这次呢|再看|再查|看不到|没看到|基于这个|按这个|用这个|继续说|继续看|钱包里|资产里)/i;
+const CAPABILITY_OR_ONBOARDING_RE = /(?:\bwhat can you do\b|\bcapabilit(?:y|ies)\b|\bwho are you\b|你是谁|你能做什么|你会什么)/i;
+const WALLET_CONTEXT_TOOLS = new Set(['read_wallet_state', 'get_wallet_info', 'analyze_wallet_pnl', 'analyze_wallet_pnl_batch']);
+
+function buildDeterministicRouteOverride(snapshot: ChatContextSnapshot, selected: TaskRoute): TaskRoute | null {
+    return buildImmediateImageExecutionOverride(snapshot, selected)
+        || buildWalletFollowupOverride(snapshot, selected);
+}
 
 function buildImmediateImageExecutionOverride(snapshot: ChatContextSnapshot, selected: TaskRoute): TaskRoute | null {
     if (selected.owner === 'image' && selected.phase === 'execute') return null;
@@ -281,6 +290,53 @@ function buildImmediateImageExecutionOverride(snapshot: ChatContextSnapshot, sel
         confidence: Math.max(selected.confidence, 0.99),
         source: 'deterministic',
     };
+}
+
+function buildWalletFollowupOverride(snapshot: ChatContextSnapshot, selected: TaskRoute): TaskRoute | null {
+    if (!snapshot.runtime?.socialInput) return null;
+    if (!['assistant_meta', 'general_answer'].includes(selected.owner)) return null;
+    if (selected.owner === 'assistant_meta' && !selected.facets.includes('behavior_debug')) return null;
+
+    const latest = extractEffectiveUserQuery(snapshot.lastUserMessage).trim();
+    if (!latest || CAPABILITY_OR_ONBOARDING_RE.test(latest)) return null;
+    if (!hasWalletCarryForwardContext(snapshot)) return null;
+    if (!looksLikeWalletCarryForwardFollowup(latest)) return null;
+
+    const facets = new Set<TaskRouteFacet>(selected.facets.filter((facet) => facet !== 'behavior_debug' && facet !== 'capabilities'));
+    facets.add('wallet_followup');
+    if (String(snapshot.runtime?.socialInput?.threadContextText || '').trim()) {
+        facets.add('social_thread');
+    }
+    return {
+        ...selected,
+        owner: 'wallet',
+        phase: 'answer',
+        facets: Array.from(facets),
+        inheritEntitiesFromContext: true,
+        explanation: [
+            'Deterministic wallet follow-up override:',
+            'the latest short social-thread turn is continuing prior wallet evidence/context,',
+            'so assistant_meta/general routing must not hide read_wallet_state.',
+        ].join(' '),
+        confidence: Math.max(selected.confidence, 0.98),
+        source: 'deterministic',
+    };
+}
+
+function hasWalletCarryForwardContext(snapshot: ChatContextSnapshot): boolean {
+    const recentTools = snapshot.recentToolTrace?.toolCalls || [];
+    if (recentTools.some((call) => WALLET_CONTEXT_TOOLS.has(String(call?.tool || '')))) return true;
+    if (snapshot.runtime?.prefetchedToolResults?.get_wallet_info) return true;
+    const priorHistory = snapshot.history
+        .slice(0, Math.max(0, snapshot.history.length - 1))
+        .map((message) => `${message.role}: ${message.content || ''}`)
+        .join('\n');
+    return WALLET_QUERY_RE.test(priorHistory);
+}
+
+function looksLikeWalletCarryForwardFollowup(latest: string): boolean {
+    if (WALLET_QUERY_RE.test(latest)) return true;
+    return Array.from(latest).length <= 24 && WALLET_CONTINUATION_RE.test(latest);
 }
 
 function hasPriorImageExecutionContext(snapshot: ChatContextSnapshot, hasCurrentImageInput: boolean): boolean {

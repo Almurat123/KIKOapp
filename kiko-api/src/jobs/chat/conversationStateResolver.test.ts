@@ -582,8 +582,8 @@ test('resolveTradeConfirmationState treats a Clanker dry run as reusable deploy 
                                     },
                                     fees: {
                                         type: 'static',
-                                        clankerFee: 100,
-                                        pairedFee: 100,
+                                        clankerFee: 1,
+                                        pairedFee: 1,
                                     },
                                 },
                             },

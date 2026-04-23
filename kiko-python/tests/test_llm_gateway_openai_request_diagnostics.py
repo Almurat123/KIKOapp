@@ -122,6 +122,34 @@ class OpenAIRequestDiagnosticsTests(unittest.TestCase):
             sorted(body["tools"][0]["parameters"]["properties"].keys()),
         )
 
+    def test_builds_responses_request_with_assistant_history_as_output_text(self):
+        req = GenerateRequest(
+            model="gpt-5.4-mini-2026-03-17",
+            api_mode="responses",
+            messages=[
+                {"role": "system", "content": "You are the wallet controller."},
+                {"role": "user", "content": "Check my wallet holdings."},
+                {"role": "assistant", "content": "I can inspect your wallet context first."},
+                {"role": "user", "content": "你看不到上下文吗"},
+            ],
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "read_wallet_state",
+                        "description": "Read wallet state.",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+            ],
+        )
+
+        body = _build_openai_responses_request_body(req)
+
+        self.assertEqual(body["input"][2]["role"], "assistant")
+        self.assertEqual(body["input"][2]["content"][0]["type"], "output_text")
+        self.assertEqual(body["input"][2]["content"][0]["text"], "I can inspect your wallet context first.")
+
     def test_normalizes_responses_strict_schema_for_optional_and_nested_fields(self):
         req = GenerateRequest(
             model="gpt-5.4-mini-2026-03-17",

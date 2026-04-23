@@ -160,10 +160,10 @@ export const DeployClankerTokenTool: Tool = {
                     description: 'Optional fee configuration. Omit to use the standard fixed 1% / 1% launch fees.',
                     properties: {
                         type: { type: 'string', enum: ['static', 'dynamic'], description: 'Static is the default fixed-fee mode. Dynamic should be used only when the user asks for a fee that changes with volatility.' },
-                        clankerFee: { type: 'number', description: 'Fixed fee on the token side, in basis points. 100 = 1%.' },
-                        pairedFee: { type: 'number', description: 'Fixed fee on the paired-asset side, in basis points. 100 = 1%.' },
-                        baseFee: { type: 'number', description: 'Dynamic fee minimum, in basis points. 100 = 1%.' },
-                        maxLpFee: { type: 'number', description: 'Preferred Clanker dynamic fee maximum, in basis points. This is the payload field the service sends to Clanker.' },
+                        clankerFee: { type: 'number', description: 'Fixed fee on the token side, in percent. 1 = 1%.' },
+                        pairedFee: { type: 'number', description: 'Fixed fee on the paired-asset side, in percent. 1 = 1%.' },
+                        baseFee: { type: 'number', description: 'Dynamic fee minimum, in percent. 1 = 1%.' },
+                        maxLpFee: { type: 'number', description: 'Preferred Clanker dynamic fee maximum, in percent. This is the payload field the service sends to Clanker.' },
                         maxFee: { type: 'number', description: 'Legacy alias for maxLpFee. KiKo maps it to the Clanker payload field for compatibility.' },
                         referenceTickFilterPeriod: { type: 'number', description: 'Dynamic fee smoothing window in seconds.' },
                         resetPeriod: { type: 'number', description: 'Dynamic fee reset window in seconds.' },
@@ -175,7 +175,7 @@ export const DeployClankerTokenTool: Tool = {
                 feePreset: {
                     type: 'string',
                     enum: ['static-basic', 'dynamic-basic', 'dynamic-3'],
-                    description: 'Recommended fee template. Static basic = fixed 1% / 1%. Dynamic basic = 1% to 5% (maxLpFee 500). Dynamic 3 = 1% to 3% (maxLpFee 300).',
+                    description: 'Recommended fee template. Static basic = fixed 1% / 1%. Dynamic basic = 1% to 5% (maxLpFee 5). Dynamic 3 = 1% to 3% (maxLpFee 3).',
                 },
                 confirmDeploy: {
                     type: 'boolean',

@@ -19,7 +19,7 @@ test('deployClankerToken dry run resolves wrapped-native pair and maxLpFee paylo
         },
         fees: {
             type: 'dynamic',
-            maxFee: 450,
+            maxFee: 4.5,
         },
     }, {
         confirmDeploy: false,
@@ -29,9 +29,52 @@ test('deployClankerToken dry run resolves wrapped-native pair and maxLpFee paylo
     assert.equal(result.dryRun, true);
     const payload = requirePayload(result);
     assert.equal(payload.pool?.pairedToken, WETH_ADDRESSES[8453]);
-    assert.equal(payload.fees?.maxLpFee, 450);
+    assert.equal(payload.fees?.maxLpFee, 4.5);
+    assert.equal(payload.fees?.baseFee, 0.5);
     assert.equal(payload.devBuy?.ethAmount, 0.25);
     assert.ok(!('maxFee' in (payload.fees || {})));
+});
+
+test('deployClankerToken dry run uses percentage fee units that match Clanker v4 docs', async () => {
+    const result = await deployClankerToken({
+        name: 'Fee Unit Token',
+        symbol: 'FEE',
+        tokenAdmin: '0x0000000000000000000000000000000000000001',
+    }, {
+        confirmDeploy: false,
+    });
+
+    const payload = requirePayload(result);
+    assert.deepEqual(payload.fees, {
+        type: 'static',
+        clankerFee: 1,
+        pairedFee: 1,
+    });
+});
+
+test('deployClankerToken dry run uses documented 0.5% to 5% defaults for generic dynamic fees', async () => {
+    const result = await deployClankerToken({
+        name: 'Dynamic Default Token',
+        symbol: 'DDT',
+        tokenAdmin: '0x0000000000000000000000000000000000000001',
+        fees: {
+            type: 'dynamic',
+        },
+    }, {
+        confirmDeploy: false,
+    });
+
+    const payload = requirePayload(result);
+    assert.deepEqual(payload.fees, {
+        type: 'dynamic',
+        baseFee: 0.5,
+        maxLpFee: 5,
+        referenceTickFilterPeriod: 30,
+        resetPeriod: 120,
+        resetTickFilter: 200,
+        feeControlNumerator: 500000000,
+        decayFilterBps: 7500,
+    });
 });
 
 test('deployClankerToken dry run preserves chain-neutral context and devBuy route overrides on a non-Base chain', async () => {
@@ -118,6 +161,48 @@ test('deployClankerToken real deploy returns the Clanker token page URL from exp
         assert.equal(result.tokenAddress, expectedAddress);
         assert.equal(result.tokenUrl, `https://www.clanker.world/clanker/${expectedAddress}`);
         assert.equal(JSON.parse(postedBody).devBuy.ethAmount, 0.25);
+    } finally {
+        globalThis.fetch = originalFetch;
+        if (originalApiKey === undefined) {
+            delete process.env.CLANKER_API_KEY;
+        } else {
+            process.env.CLANKER_API_KEY = originalApiKey;
+        }
+    }
+});
+
+test('deployClankerToken surfaces Clanker validation details from 400 responses', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalApiKey = process.env.CLANKER_API_KEY;
+
+    process.env.CLANKER_API_KEY = 'test-api-key';
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+        error: 'Invalid input. See data for details.',
+        data: [
+            {
+                path: ['fees', 'clankerFee'],
+                message: 'Fee percentage must be less than or equal to 5',
+            },
+        ],
+    }), {
+        status: 400,
+        headers: {
+            'content-type': 'application/json',
+        },
+    })) as typeof fetch;
+
+    try {
+        await assert.rejects(
+            () => deployClankerToken({
+                name: 'Broken Token',
+                symbol: 'BROKE',
+                tokenAdmin: '0x0000000000000000000000000000000000000001',
+            }, {
+                confirmDeploy: true,
+            }),
+            /fees\.clankerFee: Fee percentage must be less than or equal to 5/,
+        );
     } finally {
         globalThis.fetch = originalFetch;
         if (originalApiKey === undefined) {
