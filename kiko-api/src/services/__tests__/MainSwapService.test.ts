@@ -78,6 +78,24 @@ test('swap error mapping classifies rpc pool failures explicitly', () => {
   );
 });
 
+test('swap error mapping classifies permit2 signature mismatches explicitly', () => {
+  const message = 'Permit2 quote is missing the required typed signature. No swap transaction was sent.';
+  assert.equal(inferSwapReasonCode(message), 'approval_signature_missing');
+  assert.equal(
+    buildUserFacingSwapError(message),
+    'The quote required a Permit2 signature, but that authorization payload was incomplete. No swap transaction was sent.'
+  );
+});
+
+test('swap error mapping classifies gateway and cors masking explicitly', () => {
+  const message = 'Fetch API cannot load https://api.kikoapp.app/api/swap/execute-instant due to access control checks. Status 502';
+  assert.equal(inferSwapReasonCode(message), 'gateway_unavailable');
+  assert.equal(
+    buildUserFacingSwapError(message),
+    'The swap request was blocked by the API gateway or CORS layer before execution status could be read. Please retry shortly.'
+  );
+});
+
 test('txLifecycleFromExecutionFinality maps confirmed executor success into tx lifecycle evidence', () => {
   const lifecycle = txLifecycleFromExecutionFinality({
     finalityState: 'confirmed_success',

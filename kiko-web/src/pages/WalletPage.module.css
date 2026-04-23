@@ -2625,6 +2625,10 @@
   animation: fadeIn 0.2s ease-out;
 }
 
+.modalOverlayLocked {
+  cursor: progress;
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;

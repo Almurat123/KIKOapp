@@ -40,6 +40,7 @@ export default function WalletPage() {
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
   const [isSendOpen, setIsSendOpen] = useState(false);
   const [isSwapOpen, setIsSwapOpen] = useState(false);
+  const [isSwapExecutionBusy, setIsSwapExecutionBusy] = useState(false);
   const [selectedToken, setSelectedToken] = useState<any>(null);
   const [viewMode, setViewMode] = useState<'assets' | 'orders'>('assets');
   const [showAllAssets, setShowAllAssets] = useState(false);
@@ -114,6 +115,30 @@ export default function WalletPage() {
     void loadBillingData();
   }, [authenticated]);
 
+  useEffect(() => {
+    if (!isSwapOpen) {
+      setIsSwapExecutionBusy(false);
+    }
+  }, [isSwapOpen]);
+
+  useEffect(() => {
+    if (!isSwapOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (isSwapExecutionBusy) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      setIsSwapExecutionBusy(false);
+      setIsSwapOpen(false);
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [isSwapExecutionBusy, isSwapOpen]);
+
   const handleRequestRefund = async (depositId: string) => {
     setIsRefundSubmitting(true);
     try {
@@ -139,6 +164,12 @@ export default function WalletPage() {
     </div>
   );
 
+  const closeSwapModal = () => {
+    if (isSwapExecutionBusy) return;
+    setIsSwapExecutionBusy(false);
+    setIsSwapOpen(false);
+  };
+
   return (
     <div className={styles.container}>
       <div className={styles.contentWrapper}>
@@ -151,7 +182,10 @@ export default function WalletPage() {
             setIsSendOpen(true);
           }}
           onReceiveClick={() => setIsReceiveOpen(true)}
-          onSwapClick={() => setIsSwapOpen(true)}
+          onSwapClick={() => {
+            setIsSwapExecutionBusy(false);
+            setIsSwapOpen(true);
+          }}
           styles={styles}
         />
         {needsAuthorization && (
@@ -342,7 +376,25 @@ export default function WalletPage() {
         onConfirm={handleRequestRefund}
         isSubmitting={isRefundSubmitting}
       />
-      {isSwapOpen && createPortal(<div className={styles.modalOverlay} onClick={() => setIsSwapOpen(false)}><div onClick={e => e.stopPropagation()}><SwapCardIntegrated userAddress={walletAddress} chainId={chainId} onClose={() => setIsSwapOpen(false)} onSwapSuccess={() => refreshData(true)} userHoldings={swapScopedHoldings} /></div></div>, document.body)}
+      {isSwapOpen && createPortal(
+        <div
+          className={`${styles.modalOverlay} ${isSwapExecutionBusy ? styles.modalOverlayLocked : ''}`}
+          onClick={closeSwapModal}
+          aria-busy={isSwapExecutionBusy}
+        >
+          <div onClick={e => e.stopPropagation()}>
+            <SwapCardIntegrated
+              userAddress={walletAddress}
+              chainId={chainId}
+              onClose={closeSwapModal}
+              onSwapSuccess={() => refreshData(true)}
+              onExecutionBusyChange={setIsSwapExecutionBusy}
+              userHoldings={swapScopedHoldings}
+            />
+          </div>
+        </div>,
+        document.body
+      )}
       <ConfirmDialog isOpen={confirmDialog.isOpen} title="Close Position" message={`Sell shares of "${confirmDialog.order?.title}"?`} onConfirm={handleClosePosition} onCancel={() => setConfirmDialog({ isOpen: false, order: null })} />
     </div>
   );

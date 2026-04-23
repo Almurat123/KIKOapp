@@ -411,10 +411,26 @@ export function inferSwapReasonCode(message?: string): string {
   const normalized = String(message || '').toLowerCase();
   if (!normalized) return 'swap_failed';
   if (
+    normalized.includes('permit2 quote is missing the required typed signature')
+    || normalized.includes('required typed signature')
+    || normalized.includes('invalid_permit2_signature')
+    || normalized.includes('invalid_calldata_for_permit2')
+    || normalized.includes('permit2_deadline_')
+  ) return 'approval_signature_missing';
+  if (
     normalized.includes('approved spender no longer matches')
     || normalized.includes('quote changed after approval')
     || normalized.includes('explicit approval quote')
   ) return 'approval_quote_mismatch';
+  if (
+    normalized.includes('access-control-allow-origin')
+    || normalized.includes('cors')
+    || normalized.includes('bad gateway')
+    || normalized.includes('gateway')
+    || normalized.includes('load failed')
+    || normalized.includes('failed to fetch')
+    || normalized.includes('502')
+  ) return 'gateway_unavailable';
   if (normalized.includes('transaction reverted') || normalized.includes(' reverted')) return 'execution_reverted';
   if (
     normalized.includes('all rpc endpoints failed')
@@ -427,6 +443,10 @@ export function inferSwapReasonCode(message?: string): string {
   if (normalized.includes('no route') || normalized.includes('no liquidity') || normalized.includes('liquidity')) return 'quote_unavailable';
   if (normalized.includes('unsupported')) return 'unsupported_token_or_chain';
   if (normalized.includes('invalid evm token') || normalized.includes('invalid address')) return 'invalid_token';
+  if (
+    (normalized.includes('allowance') || normalized.includes('approval'))
+    && !normalized.includes('approval quote')
+  ) return 'approval_required';
   if (normalized.includes('insufficient')) return 'insufficient_balance';
   if (normalized.includes('slippage')) return 'slippage_exceeded';
   return 'execution_rejected';
@@ -435,8 +455,14 @@ export function inferSwapReasonCode(message?: string): string {
 export function buildUserFacingSwapError(message?: string, routePolicy?: RoutePolicy): string {
   const reasonCode = inferSwapReasonCode(message);
   switch (reasonCode) {
+    case 'approval_signature_missing':
+      return 'The quote required a Permit2 signature, but that authorization payload was incomplete. No swap transaction was sent.';
     case 'approval_quote_mismatch':
       return 'The swap route changed after token approval, so no swap transaction was sent. Please retry with a fresh quote.';
+    case 'approval_required':
+      return 'Token approval did not complete, so the swap transaction was not sent.';
+    case 'gateway_unavailable':
+      return 'The swap request was blocked by the API gateway or CORS layer before execution status could be read. Please retry shortly.';
     case 'execution_reverted':
       return 'The swap transaction reverted on-chain before settlement.';
     case 'rpc_unavailable':

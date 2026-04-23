@@ -154,6 +154,52 @@ function buildGatewayMaskedSwapErrorMessage(): string {
     return 'The API gateway blocked the swap result before the app could read it. No success response was received. Please retry after the gateway or CORS layer recovers.';
 }
 
+function normalizeSwapExecutionErrorMessage(message: string): string {
+    const normalized = String(message || '').trim().toLowerCase();
+    if (!normalized) return 'Swap execution failed.';
+
+    if (
+        normalized.includes('permit2 quote is missing the required typed signature')
+        || normalized.includes('required typed signature')
+        || normalized.includes('invalid_permit2_signature')
+    ) {
+        return 'The quote fell onto a Permit2 authorization path instead of a standard AllowanceHolder approval, so no swap transaction was sent.';
+    }
+
+    if (
+        normalized.includes('approved spender no longer matches')
+        || normalized.includes('quote changed after approval')
+        || normalized.includes('explicit approval quote')
+    ) {
+        return 'The quote changed after token approval, so the swap transaction was not sent. Please retry with a fresh quote.';
+    }
+
+    if (
+        normalized.includes('access-control-allow-origin')
+        || normalized.includes('cors')
+        || normalized.includes('bad gateway')
+        || normalized.includes('gateway')
+        || normalized.includes('load failed')
+        || normalized.includes('failed to fetch')
+        || normalized.includes('502')
+    ) {
+        return buildGatewayMaskedSwapErrorMessage();
+    }
+
+    if (normalized.includes('reverted')) {
+        return 'The swap transaction reverted on-chain before settlement.';
+    }
+
+    if (
+        (normalized.includes('allowance') || normalized.includes('approval'))
+        && !normalized.includes('approval quote')
+    ) {
+        return 'Token approval did not complete, so the swap transaction was not sent.';
+    }
+
+    return message;
+}
+
 async function reconcileRecentInstantSwap(params: {
     userAddress?: string;
     tokenIn: string;
@@ -187,7 +233,7 @@ async function reconcileRecentInstantSwap(params: {
                         success: false,
                         tradeId: matched.id,
                         status: 'FAILED',
-                        error: 'Swap failed after submission.',
+                        error: normalizeSwapExecutionErrorMessage(matched.error || 'Swap failed after submission.'),
                     };
                 }
             }
@@ -240,7 +286,7 @@ export async function waitForSwapTradeSettlement(
                     success: false,
                     tradeId: trade.id,
                     status: 'FAILED',
-                    error: trade.error || 'Swap failed after submission.',
+                    error: normalizeSwapExecutionErrorMessage(trade.error || 'Swap failed after submission.'),
                 };
             }
         } catch (error) {
@@ -384,7 +430,9 @@ export async function executeSwapInstant(params: {
         }
 
         if (!response.ok || !data.success) {
-            const errorMessage = data.message || data.error || `Request failed: ${response.statusText}`;
+            const errorMessage = normalizeSwapExecutionErrorMessage(
+                data.message || data.error || `Request failed: ${response.statusText}`
+            );
             console.error('[SwapService] Instant swap failed:', errorMessage);
             if (isAmbiguousSwapFailure(response.status, new Error(errorMessage))) {
                 const reconciled = await reconcileRecentInstantSwap({
@@ -426,7 +474,9 @@ export async function executeSwapInstant(params: {
         }
         return {
             success: false,
-            error: isGatewayMaskedSwapFailure(error) ? buildGatewayMaskedSwapErrorMessage() : message,
+            error: normalizeSwapExecutionErrorMessage(
+                isGatewayMaskedSwapFailure(error) ? buildGatewayMaskedSwapErrorMessage() : message
+            ),
         };
     }
 }
