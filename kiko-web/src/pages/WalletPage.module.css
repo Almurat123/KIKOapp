@@ -1826,7 +1826,7 @@
   color: var(--wallet-button-secondary-text);
   transform: translateY(-1px);
   box-shadow: var(--wallet-button-secondary-shadow);
-  border-color: rgba(237, 202, 142, 0.24);
+  border-color: var(--wallet-button-secondary-border);
 }
 
 :global(.light) .settingsButton:hover {
@@ -2135,7 +2135,7 @@
 .actionButton:hover {
   background: var(--wallet-button-secondary-hover-bg);
   transform: translateY(-1px);
-  border-color: rgba(237, 202, 142, 0.24);
+  border-color: var(--wallet-button-secondary-border);
   box-shadow: var(--wallet-button-secondary-shadow);
 }
 
@@ -2159,8 +2159,21 @@
 }
 
 .actionBtnPrimary:hover {
-  filter: brightness(1.03);
-  box-shadow: 0 5px 12px rgba(220, 184, 116, 0.18);
+  background: var(--wallet-button-primary-bg);
+  color: var(--wallet-button-primary-text);
+  border-color: rgba(220, 184, 116, 0.34);
+  transform: translateY(-1px);
+  filter: none;
+  box-shadow: 0 3px 9px rgba(220, 184, 116, 0.14);
+}
+
+.actionBtnPrimary:active,
+.actionBtnPrimary:focus-visible {
+  background: var(--wallet-button-primary-bg);
+  color: var(--wallet-button-primary-text);
+  border-color: rgba(220, 184, 116, 0.34);
+  filter: none;
+  box-shadow: 0 3px 9px rgba(220, 184, 116, 0.14);
 }
 
 .actionBtnSecondary {
