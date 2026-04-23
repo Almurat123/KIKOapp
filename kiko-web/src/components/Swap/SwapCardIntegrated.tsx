@@ -13,7 +13,7 @@ import { useSolanaSwap } from '@/hooks/useSolanaSwap';
 import type { Token } from '@/types/swap';
 import { findTokenOnAnyChain, getTokenData, getCommonTokens, type TokenData } from '@/services/tokenDataService';
 import { MEVProtectionBadge } from './MEVProtectionBadge';
-import { executeSwapInstant, waitForSwapTradeSettlement } from '../../services/swapService';
+import { executeSwapInstant, waitForSolanaTransactionSettlement, waitForSwapTradeSettlement } from '../../services/swapService';
 import {
   emitImportedTokensUpdated,
   readImportedSwapTokensFromStorage,
@@ -179,7 +179,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
 
   // Use Solana swap hook for Solana (chainId 900), otherwise use EVM swap hook
   const isSolana = chainId === 900;
-  const serverExecutionEnabled = !isSolana && useServerExecution && executionMode === 'instant';
+  const serverExecutionEnabled = useServerExecution && executionMode === 'instant';
 
   const evmSwap = useSwap({
     chainId: isSolana ? 1 : chainId, // Fallback to Ethereum if Solana
@@ -452,7 +452,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
 
     try {
       if (serverExecutionEnabled) {
-        if (!userAddress || !swapState?.tokenIn || !swapState?.tokenOut) {
+        if ((!userAddress && !isSolana) || !swapState?.tokenIn || !swapState?.tokenOut) {
           markSwapFailure('Missing swap parameters');
           return;
         }
@@ -472,6 +472,42 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
           slippageBps: Math.round(slippage * 100),
           userAddress,
         });
+
+        if (isSolana && result.success && result.txHash && result.status === 'PENDING') {
+          setExecutionState({
+            phase: 'broadcast',
+            message: `Transaction broadcast: ${result.txHash.slice(0, 10)}...`,
+            txHash: result.txHash,
+          });
+
+          await new Promise((resolve) => window.setTimeout(resolve, 320));
+
+          setExecutionState({
+            phase: 'confirming',
+            message: 'Waiting for Solana confirmation...',
+            txHash: result.txHash,
+          });
+
+          const settled = await waitForSolanaTransactionSettlement(result.txHash);
+          if (settled.success && settled.txHash) {
+            await markSwapSuccess(settled.txHash);
+            return;
+          }
+
+          if (settled.status === 'FAILED') {
+            markSwapFailure(settled.error || 'Solana swap failed after broadcast.', undefined, result.txHash);
+            return;
+          }
+
+          setExecutionState({
+            phase: 'indeterminate',
+            message: settled.error || 'Solana transaction is still pending. Check wallet activity shortly.',
+            txHash: result.txHash,
+            error: settled.error,
+          });
+          onSwapError?.(settled.error || 'Solana transaction is still pending.');
+          return;
+        }
 
         if (result.success && result.txHash && result.status === 'SUCCESS') {
           await markSwapSuccess(result.txHash, result.tradeId);

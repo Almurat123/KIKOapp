@@ -6,6 +6,7 @@ import type { SwapParams, SwapQuote, TradeExecutionResult, PriceData } from '@/t
 import { priceRateLimiter, balanceRateLimiter } from '@/utils/apiRateLimiter';
 import { getAuthToken } from '../utils/authToken';
 import { getStoredSlippageBps } from '@/config/slippageConfig';
+import { getSolanaRpcConnection } from '@/utils/solanaRpcConnection';
 import { parseUnits } from 'viem';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -26,6 +27,7 @@ const RECENT_SWAP_LOOKBACK_MS = 3 * 60 * 1000;
 const SWAP_RECONCILE_TIMEOUT_MS = 12000;
 const SWAP_RECONCILE_POLL_MS = 1500;
 const SWAP_STATUS_POLL_TIMEOUT_MS = 120000;
+const SOLANA_STATUS_POLL_TIMEOUT_MS = 60000;
 
 function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -302,6 +304,63 @@ export async function waitForSwapTradeSettlement(
         status: 'PENDING',
         ambiguous: true,
         error: 'Swap submission is still syncing. Please check recent transactions shortly.',
+    };
+}
+
+export async function waitForSolanaTransactionSettlement(
+    txHash: string,
+    options: {
+        timeoutMs?: number;
+        pollMs?: number;
+    } = {}
+): Promise<TradeExecutionResult> {
+    const deadline = Date.now() + (options.timeoutMs ?? SOLANA_STATUS_POLL_TIMEOUT_MS);
+    const pollMs = Math.max(250, options.pollMs ?? SWAP_RECONCILE_POLL_MS);
+    const connection = getSolanaRpcConnection({ commitment: 'confirmed' });
+    let sawVisibility = false;
+
+    while (Date.now() < deadline) {
+        try {
+            const status = await connection.getSignatureStatus(txHash, {
+                searchTransactionHistory: true,
+            });
+
+            const value = status?.value;
+            if (value) {
+                sawVisibility = true;
+
+                if (value.err) {
+                    return {
+                        success: false,
+                        txHash,
+                        status: 'FAILED',
+                        error: `Solana transaction failed: ${JSON.stringify(value.err)}`,
+                    };
+                }
+
+                if (value.confirmationStatus === 'confirmed' || value.confirmationStatus === 'finalized') {
+                    return {
+                        success: true,
+                        txHash,
+                        status: 'SUCCESS',
+                    };
+                }
+            }
+        } catch (error) {
+            console.warn('[SwapService] Solana signature poll failed:', error);
+        }
+
+        await sleep(pollMs);
+    }
+
+    return {
+        success: false,
+        txHash,
+        status: 'PENDING',
+        ambiguous: true,
+        error: sawVisibility
+            ? 'Solana transaction was broadcast and observed, but confirmation is still pending.'
+            : 'Solana transaction confirmation timed out before the signature became visible.',
     };
 }
 

@@ -719,6 +719,11 @@ function buildFallbackContextContract(
   const primaryIntent = intentEnvelope?.primary_intent || "general_answer";
   const domain = intentEnvelope?.domain || "general";
   const executionRisk = intentEnvelope?.execution_risk || "read_only";
+  const hasCarryForwardTradeState = Boolean(
+    snapshot.confirmationState?.kind ||
+      (snapshot.conversationActionState?.pendingAction &&
+        snapshot.conversationActionState.pendingAction !== "none"),
+  );
   const isImageIntent =
     taskRouteOwner === "image" ||
     primaryIntent === "image_generation" ||
@@ -747,6 +752,18 @@ function buildFallbackContextContract(
     required.add("workflow_state");
     required.add("skill_prompts");
     required.add("user_context");
+  } else if (
+    mode === "execution" &&
+    (primaryIntent === "swap_execution" || primaryIntent === "copytrade_execution")
+  ) {
+    if (hasCarryForwardTradeState) {
+      required.add("workflow_state");
+    } else {
+      optional.add("workflow_state");
+    }
+    optional.add("skill_prompts");
+    optional.add("execution_plan");
+    optional.add("user_context");
   } else if (mode !== "lean") {
     required.add("workflow_state");
     required.add("skill_prompts");

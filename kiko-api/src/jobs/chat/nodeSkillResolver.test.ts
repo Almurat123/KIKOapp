@@ -1401,9 +1401,17 @@ test('swap intents prefer wallet info and preflight before prepare swap executio
     assert.ok(resolution.preferredTools.includes('simulate_swap'));
     assert.ok(resolution.preferredTools.includes('prepare_swap_transaction'));
     assert.equal(resolution.contextContract.mode, 'execution');
+    assert.ok(!resolution.contextContract.requiredContexts.includes('workflow_state'));
+    assert.ok(!resolution.contextContract.requiredContexts.includes('skill_prompts'));
+    assert.ok(!resolution.contextContract.requiredContexts.includes('execution_plan'));
+    assert.ok(!resolution.contextContract.requiredContexts.includes('user_context'));
     assert.ok(resolution.contextContract.requiredContexts.includes('user_settings'));
     assert.ok(resolution.contextContract.requiredContexts.includes('wallet_state'));
     assert.ok(resolution.contextContract.requiredContexts.includes('token_context'));
+    assert.ok(resolution.contextContract.optionalContexts.includes('workflow_state'));
+    assert.ok(resolution.contextContract.optionalContexts.includes('skill_prompts'));
+    assert.ok(resolution.contextContract.optionalContexts.includes('execution_plan'));
+    assert.ok(resolution.contextContract.optionalContexts.includes('user_context'));
     assert.ok(
         resolution.strategyNotes.some((note) =>
             note.includes('preflight evidence first') || note.includes('Quote-before-swap mode is enabled')

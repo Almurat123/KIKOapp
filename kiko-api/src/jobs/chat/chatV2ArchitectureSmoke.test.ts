@@ -191,6 +191,12 @@ test('chat v2 smoke: execution turn exposes read_user_settings contract without 
     const userContent = String(userMessage?.content || '');
 
     assert.match(userContent, /required_contexts: .*user_settings/);
+    assert.match(userContent, /required_contexts: .*wallet_state/);
+    assert.match(userContent, /required_contexts: .*token_context/);
+    assert.doesNotMatch(userContent, /required_contexts: .*workflow_state/);
+    assert.doesNotMatch(userContent, /required_contexts: .*skill_prompts/);
+    assert.doesNotMatch(userContent, /required_contexts: .*execution_plan/);
+    assert.doesNotMatch(userContent, /required_contexts: .*user_context/);
     assert.match(userContent, /user_settings: worker constraints and defaults: quote rules, swap defaults, safety flags; read via read_user_settings/);
     assert.doesNotMatch(String(systemMessage?.content || ''), /EXECUTION_MODE:/);
 });

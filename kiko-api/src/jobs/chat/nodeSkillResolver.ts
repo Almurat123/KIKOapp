@@ -1216,6 +1216,10 @@ function isImagePrimaryIntent(primaryIntent: IntentEnvelope['primary_intent']): 
     return primaryIntent === 'image_generation' || primaryIntent === 'image_prompting';
 }
 
+function isTradeExecutionPrimaryIntent(primaryIntent: IntentEnvelope['primary_intent']): boolean {
+    return primaryIntent === 'swap_execution' || primaryIntent === 'copytrade_execution';
+}
+
 function resolveExecutionRisk(params: {
     primaryIntent: IntentEnvelope['primary_intent'];
     taskMode: string;
@@ -1248,6 +1252,11 @@ function buildContextContract(params: {
     const hasSocialImages = Array.isArray(snapshot.runtime?.socialInput?.images) && snapshot.runtime.socialInput.images.length > 0;
     const needsImagePromptPlaybook = querySignals.imagePrompting || querySignals.imageGeneration;
     const isImageIntent = isImagePrimaryIntent(intentEnvelope.primary_intent);
+    const isTradeExecutionIntent = isTradeExecutionPrimaryIntent(intentEnvelope.primary_intent);
+    const hasCarryForwardTradeState = Boolean(
+        snapshot.confirmationState?.kind
+        || (snapshot.conversationActionState?.pendingAction && snapshot.conversationActionState.pendingAction !== 'none'),
+    );
 
     const mode: ChatContextContract['mode'] = (() => {
         if (isLeanFallbackIntent(intentEnvelope.primary_intent) && !needsImagePromptPlaybook && !hasSocialInput) return 'lean';
@@ -1263,10 +1272,21 @@ function buildContextContract(params: {
         required.add('skill_prompts');
         required.add('user_context');
     } else if (mode === 'analysis' || mode === 'execution') {
-        required.add('workflow_state');
-        required.add('skill_prompts');
-        required.add('execution_plan');
-        required.add('user_context');
+        if (mode === 'execution' && isTradeExecutionIntent) {
+            if (hasCarryForwardTradeState) {
+                required.add('workflow_state');
+            } else {
+                optional.add('workflow_state');
+            }
+            optional.add('skill_prompts');
+            optional.add('execution_plan');
+            optional.add('user_context');
+        } else {
+            required.add('workflow_state');
+            required.add('skill_prompts');
+            required.add('execution_plan');
+            required.add('user_context');
+        }
     } else if (mode === 'debug') {
         required.add('workflow_state');
         required.add('user_context');

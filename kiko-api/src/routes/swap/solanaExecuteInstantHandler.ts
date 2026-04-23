@@ -56,7 +56,7 @@ export function resolveSolanaTokenAddress(symbolOrAddress: string): string {
 async function executeSolanaInstantWithDeps(
     params: SolanaExecuteInstantParams,
     deps: SolanaExecuteInstantDeps
-): Promise<{ txHash: string; method: SolanaExecuteMethod }> {
+): Promise<{ txHash: string; method: SolanaExecuteMethod; status: 'PENDING' }> {
     const resolvedTokenIn = resolveSolanaTokenAddress(params.tokenIn);
     const resolvedTokenOut = resolveSolanaTokenAddress(params.tokenOut);
     const usdcMint = deps.normalizeSolanaTokenAddress('USDC');
@@ -101,6 +101,7 @@ async function executeSolanaInstantWithDeps(
         return {
             txHash,
             method: 'solana_launchpad',
+            status: 'PENDING',
         };
     }
 
@@ -121,6 +122,7 @@ async function executeSolanaInstantWithDeps(
         return {
             txHash,
             method: 'solana_pumpswap_fast',
+            status: 'PENDING',
         };
     }
 
@@ -150,6 +152,7 @@ async function executeSolanaInstantWithDeps(
     return {
         txHash,
         method: 'jupiter_aggregator',
+        status: 'PENDING',
     };
 }
 

@@ -660,8 +660,12 @@ test("assembleGenerationMessages exposes execution context contract for swap tur
   );
   assert.match(
     content,
-    /required_context_tools: read_workflow_state, read_skill_prompts, read_execution_plan, read_user_context, read_user_settings, read_wallet_state, read_token_context/,
+    /required_context_tools: read_user_settings, read_wallet_state, read_token_context/,
   );
+  assert.doesNotMatch(content, /required_context_tools: .*read_workflow_state/);
+  assert.doesNotMatch(content, /required_context_tools: .*read_skill_prompts/);
+  assert.doesNotMatch(content, /required_context_tools: .*read_execution_plan/);
+  assert.doesNotMatch(content, /required_context_tools: .*read_user_context/);
   assert.doesNotMatch(content, /\[USER_BALANCE_CONTEXT\]/);
   assert.doesNotMatch(content, /\[TOKEN_CONTEXT\]/);
   assert.doesNotMatch(content, /\[SKILLS\]/);

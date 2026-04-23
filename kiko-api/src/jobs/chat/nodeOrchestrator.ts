@@ -531,7 +531,7 @@ export async function runNodeOrchestration(params: {
             tools: missingRequiredContextTools,
             contextMode: skillResolution.contextContract?.mode || null,
         });
-        for (const toolName of missingRequiredContextTools) {
+        const prefetchResults = await Promise.all(missingRequiredContextTools.map(async (toolName) => {
             if (params.shouldCancel && await params.shouldCancel()) {
                 throw new Error('Task cancelled');
             }
@@ -543,6 +543,9 @@ export async function runNodeOrchestration(params: {
             toolUsageCount.set(toolName, (toolUsageCount.get(toolName) || 0) + 1);
             await params.onToolStatus?.(toolName);
             const result = await params.toolExecutionEngine.execute(call, params.toolContext);
+            return { toolName, result };
+        }));
+        for (const { toolName, result } of prefetchResults) {
             if (!result.ok && result.reasonCode && ['POLICY_UNAUTHORIZED_TOOL', 'POLICY_CONTROL_PLANE_VIOLATION'].includes(result.reasonCode)) {
                 throw createOrchestrationError(result.reasonCode, result.error || 'Tool blocked by policy');
             }
