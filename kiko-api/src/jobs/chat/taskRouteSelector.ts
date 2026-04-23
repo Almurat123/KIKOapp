@@ -6,6 +6,8 @@ import type { GenerationMessage } from './nodePromptAssembler.js';
 import { extractEffectiveUserQuery } from './conversationStateResolver.js';
 import {
     applyTaskRouteToSnapshot,
+    type TaskRoute,
+    type TaskRouteFacet,
     type TaskRouteSelectionReasonCode,
     type TaskRouteSelectionState,
     validateTaskRoutePayload,
@@ -63,10 +65,12 @@ export async function selectTaskRoute(args: {
         if (!validated.ok) {
             return invalidResult(snapshot, validated.reasonCode, validated.error, rawText, reasoningText);
         }
-        const selectedSnapshot = applyTaskRouteToSnapshot(snapshot, validated.route);
+        const deterministicImageRoute = buildImmediateImageExecutionOverride(snapshot, validated.route);
+        const route = deterministicImageRoute || validated.route;
+        const selectedSnapshot = applyTaskRouteToSnapshot(snapshot, route);
         const state: TaskRouteSelectionState = {
             status: 'ok',
-            source: 'llm',
+            source: deterministicImageRoute ? 'deterministic' : 'llm',
             rawText,
             reasoningText,
         };
@@ -74,10 +78,13 @@ export async function selectTaskRoute(args: {
         logger.info(LogCode.AI_ORCHESTRATOR, 'Task route selection: success', {
             sessionId: snapshot.sessionId,
             taskId: snapshot.taskId,
-            owner: validated.route.owner,
-            phase: validated.route.phase,
-            facets: validated.route.facets,
-            confidence: validated.route.confidence,
+            owner: route.owner,
+            phase: route.phase,
+            facets: route.facets,
+            confidence: route.confidence,
+            routeSource: state.source,
+            originalOwner: validated.route.owner,
+            originalPhase: validated.route.phase,
         });
         return {
             snapshot: selectedSnapshot,
@@ -222,6 +229,70 @@ function buildRouteSelectionMessages(snapshot: ChatContextSnapshot): GenerationM
             content: buildRouteSelectionUserContent(payload, socialImages),
         },
     ];
+}
+
+const IMAGE_PROMPT_ADVICE_RE = /\b(?:prompt|prompts|image prompt)\b.{0,32}\b(?:how|write|writing|improve|optimi[sz]e|tutorial|guide|better)\b|\b(?:how|write|writing|improve|optimi[sz]e)\b.{0,32}\b(?:prompt|image prompt)\b|(?:图片|出图|海报|封面|插画|视觉稿)?提示词.{0,24}(?:怎么写|教程|优化|写法|模板|指南)|(?:怎么写|优化|改写).{0,24}(?:图片|出图|海报|封面|插画|视觉稿)?提示词|给我(?:写|改写|优化)一个(?:图片|出图|海报|封面|插画|视觉稿)?提示词/i;
+const IMAGE_NOW_RE = /\b(?:now|right now|directly|immediately|just generate|go ahead)\b|(?:现在|立刻|马上|直接|就生成|开始生成)/i;
+const IMAGE_DIRECT_EXECUTION_RE = /\b(?:generate|create|make|design|draw|render|illustrate)\b.{0,80}\b(?:image|picture|poster|cover|illustration|thumbnail|banner|hero|visual|artwork|ad|creative|mockup|photo|photograph|wallpaper|portrait|scene|shot)\b|\b(?:image|picture|poster|cover|illustration|thumbnail|banner|hero|visual|artwork|ad|creative|mockup|photo|photograph|wallpaper|portrait|scene|shot)\b.{0,80}\b(?:generate|create|make|design|draw|render|illustrate)\b|(?:做|生成|画|设计)(?:一张|一个|个)?[^。！？\n]{0,80}(?:图|图片|海报|封面|插画|配图|宣传图|视觉稿|壁纸|头像|照片|场景图)/i;
+const IMAGE_REFERENCE_EDIT_RE = /\b(?:edit|restyle|transform|replace|remove|erase|extend|inpaint|outpaint|photoshop|composite|remix|reimagine|place|put|turn)\b|\bmake\b.{0,32}\blook\b|(?:改图|修图|修照片|改照片|图像编辑|图片编辑|替换背景|去掉背景|换背景|扩图|补图|抠图|把.+变成|把.+放到|换成|放到|放在|合成|变成|做成)/i;
+const IMAGE_CONTINUATION_EXECUTION_RE = /\b(?:regenerate|generate again|try again|rerun|redo|remake|make another|again)\b|(?:再生成|重新生成|重生成|重画|重新画|按原图|按上一张|按刚才|再来一张|再来一次|换一版|重做|重新做|继续生成)/i;
+const META_QUESTION_RE = /\b(?:why|what happened|how come)\b|(?:为什么|怎么回事|咋回事|怎么没有|为什么没|为何)/i;
+
+function buildImmediateImageExecutionOverride(snapshot: ChatContextSnapshot, selected: TaskRoute): TaskRoute | null {
+    if (selected.owner === 'image' && selected.phase === 'execute') return null;
+    const latest = extractEffectiveUserQuery(snapshot.lastUserMessage);
+    if (!latest) return null;
+
+    const hasPromptAdviceOnly = IMAGE_PROMPT_ADVICE_RE.test(latest) && !IMAGE_NOW_RE.test(latest);
+    if (hasPromptAdviceOnly) return null;
+
+    const socialImages = normalizeRouteSelectionSocialImages(snapshot);
+    const hasCurrentImageInput = socialImages.length > 0 || selected.entities.imageRefs.length > 0;
+    const directImageExecution = IMAGE_DIRECT_EXECUTION_RE.test(latest);
+    const referenceImageExecution = hasCurrentImageInput && IMAGE_REFERENCE_EDIT_RE.test(latest);
+    const continuationExecution = IMAGE_CONTINUATION_EXECUTION_RE.test(latest) && hasPriorImageExecutionContext(snapshot, hasCurrentImageInput);
+    const isMetaQuestionWithoutExecution = META_QUESTION_RE.test(latest) && !continuationExecution && !referenceImageExecution;
+    if ((!directImageExecution && !referenceImageExecution && !continuationExecution) || isMetaQuestionWithoutExecution) {
+        return null;
+    }
+
+    const facets = new Set<TaskRouteFacet>(selected.facets.filter((facet) => facet !== 'behavior_debug' && facet !== 'capabilities'));
+    if (socialImages.length > 0) facets.add('social_images');
+    if (hasCurrentImageInput || referenceImageExecution) facets.add('reference_image');
+    if (String(snapshot.runtime?.socialInput?.threadContextText || '').trim()) facets.add('social_thread');
+    return {
+        ...selected,
+        owner: 'image',
+        phase: 'execute',
+        facets: Array.from(facets),
+        entities: {
+            ...selected.entities,
+            imageRefs: Array.from(new Set([
+                ...selected.entities.imageRefs,
+                ...socialImages.map((image) => image.url),
+            ])),
+        },
+        inheritEntitiesFromContext: true,
+        explanation: [
+            'Deterministic image execution override:',
+            'the latest user turn explicitly asks for image generation/editing/regeneration,',
+            'so assistant_meta/general routing must not hide generate_image_from_intent.',
+        ].join(' '),
+        confidence: Math.max(selected.confidence, 0.99),
+        source: 'deterministic',
+    };
+}
+
+function hasPriorImageExecutionContext(snapshot: ChatContextSnapshot, hasCurrentImageInput: boolean): boolean {
+    if (hasCurrentImageInput) return true;
+    if ((snapshot.recentToolTrace?.toolCalls || []).some((call) => String(call?.tool || '') === 'generate_image_from_intent')) {
+        return true;
+    }
+    const priorHistory = snapshot.history
+        .slice(0, Math.max(0, snapshot.history.length - 1))
+        .map((message) => `${message.role}: ${message.content || ''} ${JSON.stringify(message.toolCalls || [])}`)
+        .join('\n');
+    return /generate_image_from_intent|generated-image|image_generation|image_prompting|生成.{0,24}(图|图片|照片|海报)|generate.{0,40}(image|picture|photo|poster)/i.test(priorHistory);
 }
 
 // CONTEXT MEMORY

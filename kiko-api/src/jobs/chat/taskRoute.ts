@@ -91,7 +91,7 @@ export interface TaskRoute {
     clarificationQuestion: string | null;
     explanation: string;
     confidence: number;
-    source: 'llm';
+    source: 'llm' | 'deterministic';
 }
 
 export type TaskRouteSelectionReasonCode =

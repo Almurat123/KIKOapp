@@ -163,6 +163,123 @@ test('selectTaskRoute keeps generate_image_from_intent visible for image prompt_
     assert.ok(resolution.strategyNotes.some((note) => note.includes('prompt_only is only a prompt-guidance hint')));
 });
 
+test('selectTaskRoute forces first-turn explicit image generation even when llm route says general', async () => {
+    const snapshot = makeSnapshot(
+        'generate a image epic cinematic poster using the mascot as the base character, massive army of mascot variations, dramatic sky, 4K masterpiece.',
+        {
+            runtime: {
+                currentPage: 'farcaster',
+                pageContext: 'farcaster_agent',
+            } as any,
+        },
+    );
+
+    const result = await selectTaskRoute({
+        snapshot,
+        generationClient: {
+            async generate() {
+                return {
+                    text: JSON.stringify({
+                        owner: 'general_answer',
+                        phase: 'answer',
+                        facets: [],
+                        confidence: 0.91,
+                        explanation: 'Incorrectly treated the long prompt as ordinary text.',
+                        entities: {
+                            token_addresses: [],
+                            token_symbols: [],
+                            wallet_addresses: [],
+                            market_identifiers: [],
+                            image_refs: [],
+                        },
+                        requested_chain: null,
+                        requested_time_window: null,
+                        row_count: null,
+                        inherit_entities_from_context: false,
+                        locale: 'en',
+                        needs_clarification: false,
+                        clarification_question: null,
+                    }),
+                    reasoning: '',
+                    toolCalls: [],
+                };
+            },
+        } as any,
+    });
+
+    assert.equal(result.state.status, 'ok');
+    assert.equal(result.state.source, 'deterministic');
+    assert.equal(result.snapshot.taskRoute?.owner, 'image');
+    assert.equal(result.snapshot.taskRoute?.phase, 'execute');
+    assert.equal(result.snapshot.normalizedIntent?.intent, 'image_generation');
+
+    const resolution = resolveNodeSkills(result.snapshot, null, result.snapshot.normalizedIntent);
+    assert.ok(resolution.allowedTools.includes('generate_image_from_intent'));
+    assert.equal(resolution.intentEnvelope.primary_intent, 'image_generation');
+});
+
+test('selectTaskRoute prioritizes regenerate commands over assistant meta debugging', async () => {
+    const snapshot = {
+        ...makeSnapshot('Why did you not generate the image? regenerate it now.'),
+        history: [
+            { role: 'user', content: 'Generate a cinematic KIKO launch poster with the mascot leading an army.' },
+            { role: 'assistant', content: 'I can generate that poster.' },
+            { role: 'user', content: 'Why did you not generate the image? regenerate it now.' },
+        ],
+        recentToolTrace: {
+            toolCalls: [
+                {
+                    tool: 'generate_image_from_intent',
+                    status: 'failed',
+                },
+            ],
+        },
+    } as ChatContextSnapshot;
+
+    const result = await selectTaskRoute({
+        snapshot,
+        generationClient: {
+            async generate() {
+                return {
+                    text: JSON.stringify({
+                        owner: 'assistant_meta',
+                        phase: 'analyze',
+                        facets: ['behavior_debug'],
+                        confidence: 0.97,
+                        explanation: 'The user asks why the prior image task did not complete.',
+                        entities: {
+                            token_addresses: [],
+                            token_symbols: [],
+                            wallet_addresses: [],
+                            market_identifiers: [],
+                            image_refs: [],
+                        },
+                        requested_chain: null,
+                        requested_time_window: null,
+                        row_count: null,
+                        inherit_entities_from_context: false,
+                        locale: 'en',
+                        needs_clarification: false,
+                        clarification_question: null,
+                    }),
+                    reasoning: '',
+                    toolCalls: [],
+                };
+            },
+        } as any,
+    });
+
+    assert.equal(result.state.status, 'ok');
+    assert.equal(result.state.source, 'deterministic');
+    assert.equal(result.snapshot.taskRoute?.owner, 'image');
+    assert.equal(result.snapshot.taskRoute?.phase, 'execute');
+    assert.equal(result.snapshot.taskRoute?.facets.includes('behavior_debug'), false);
+    assert.equal(result.snapshot.normalizedIntent?.intent, 'image_generation');
+
+    const resolution = resolveNodeSkills(result.snapshot, null, result.snapshot.normalizedIntent);
+    assert.ok(resolution.allowedTools.includes('generate_image_from_intent'));
+});
+
 test('selectTaskRoute clears stale token carry-over for assistant_meta debug turns', async () => {
     const snapshot = makeSnapshot('Why did you answer with prompt advice instead of generating the image?', {
         requestedTokenSymbols: ['KIKO', 'WHAT'],

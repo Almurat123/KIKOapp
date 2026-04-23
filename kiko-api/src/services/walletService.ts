@@ -9,6 +9,7 @@ import {
     readSolanaTokenBalanceFast,
 } from './rpc/balanceRpcReader.js';
 import { getWalletTransactionsForWalletPage } from './walletTransactionHistoryService.js';
+import { getEmbeddedWalletAddress } from './privyWallet.js';
 
 const ALL_BALANCES_CACHE_TTL_MS = 60_000;
 // [Perf]: In-memory mirror of Redis cache for zero-latency repeat reads within same process.
@@ -236,13 +237,15 @@ export const walletService = {
         const cacheKey = `${userId}::${normalizedAddress}`;
         const cached = accessCache.get(cacheKey);
         if (cached && Date.now() - cached.timestamp < ACCESS_CACHE_TTL_MS) {
-            return cached.allowed;
+            // Positive access is stable enough to reuse. EVM denies are rechecked so
+            // a freshly linked Privy embedded wallet can repair stale local bindings.
+            if (cached.allowed || !isEvmAddress) return cached.allowed;
         }
         const accessCached = await cacheGet(accessRedisKey(cacheKey)).catch(() => null);
         if (accessCached) {
             const allowed = accessCached === '1';
             accessCache.set(cacheKey, { timestamp: Date.now(), allowed });
-            return allowed;
+            if (allowed || !isEvmAddress) return allowed;
         }
 
         console.log('[verifyAccess] Checking access:', {
@@ -303,6 +306,54 @@ export const walletService = {
                 accessCache.set(cacheKey, { timestamp: Date.now(), allowed: true });
                 await cacheSet(accessRedisKey(cacheKey), '1', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
                 return true;
+            }
+
+            if (isEvmAddress) {
+                const embeddedWalletAddress = await getEmbeddedWalletAddress(userId, 'ethereum').catch((error: any) => {
+                    console.warn('[verifyAccess] Failed to load Privy embedded EVM wallet for repair', {
+                        userIdPrefix: userId?.substring(0, 20),
+                        requestedAddress: normalizedAddress,
+                        error: error?.message || String(error),
+                    });
+                    return null;
+                });
+                const normalizedEmbeddedWallet = embeddedWalletAddress?.toLowerCase();
+
+                if (normalizedEmbeddedWallet === normalizedAddress) {
+                    const existingOwner = await prisma.user.findFirst({
+                        where: {
+                            walletAddress: {
+                                equals: normalizedAddress,
+                                mode: 'insensitive',
+                            },
+                            NOT: { id: user.id },
+                        },
+                        select: { id: true, privyDid: true },
+                    });
+
+                    if (existingOwner) {
+                        console.error('[verifyAccess] ❌ Privy wallet repair blocked; address owned by another user', {
+                            requestedAddress: normalizedAddress,
+                            owner: existingOwner.privyDid,
+                        });
+                        accessCache.set(cacheKey, { timestamp: Date.now(), allowed: false });
+                        await cacheSet(accessRedisKey(cacheKey), '0', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
+                        return false;
+                    }
+
+                    await prisma.user.update({
+                        where: { id: user.id },
+                        data: { walletAddress: normalizedAddress },
+                    });
+                    accessCache.set(cacheKey, { timestamp: Date.now(), allowed: true });
+                    await cacheSet(accessRedisKey(cacheKey), '1', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
+                    console.log('[verifyAccess] ✅ Access granted (synced Privy embedded EVM wallet)', {
+                        userId: user.id,
+                        previousWalletAddress: user.walletAddress?.toLowerCase(),
+                        requestedAddress: normalizedAddress,
+                    });
+                    return true;
+                }
             }
 
             // DEBUG: Log the actual mismatch details

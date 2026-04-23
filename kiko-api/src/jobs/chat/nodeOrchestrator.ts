@@ -1343,6 +1343,14 @@ export async function runNodeOrchestration(params: {
                 chatAiTrace.emit({ finalRound: round, finalReason: 'tool_receipt_answer_hook' });
                 return { terminal: false };
             }
+            const confirmationAnswer = buildConfirmationCheckpointAnswer(result, planning.locale);
+            if (confirmationAnswer) {
+                await params.broker.setRuntimeState?.(undefined);
+                await params.broker.markAnswerStarted(buildSummaryPlanStep(params.snapshot.lastUserMessage));
+                await params.broker.pushText(confirmationAnswer);
+                chatAiTrace.emit({ finalRound: round, finalReason: 'tool_confirmation_answer_hook' });
+                return { terminal: false };
+            }
             if (result.continuation?.next_action === 'complete_with_side_effect') {
                 await params.broker.setRuntimeState?.(undefined);
                 chatAiTrace.markTerminal('tool_managed_side_effect_response');
@@ -2259,6 +2267,88 @@ function normalizeProviderNativeSourceType(name: string | undefined): 'x_search'
     if (normalized.startsWith('x_') || normalized === 'x_search') return 'x_search';
     if (normalized.startsWith('web_') || normalized === 'browse_page' || normalized === 'open_page') return 'web_search';
     return null;
+}
+
+function buildConfirmationCheckpointAnswer(
+    toolResult: {
+        name?: string;
+        ok?: boolean;
+        result?: any;
+        metadata?: Record<string, any>;
+        continuation?: any;
+    },
+    locale: 'en' | 'zh',
+): string | null {
+    const result = toolResult.result && typeof toolResult.result === 'object'
+        ? toolResult.result as Record<string, any>
+        : null;
+    if (!toolResult.ok || !result) return null;
+    const needsConfirmation =
+        result.requires_confirmation === true
+        || toolResult.metadata?.confirmationRequired === true
+        || toolResult.continuation?.next_action === 'ask_user_confirmation';
+    if (!needsConfirmation) return null;
+
+    const summary = cleanConfirmationSummary(result.summary || result._user_message);
+    if (summary) return appendConfirmationPrompt(summary, locale);
+
+    const quote = result.quote && typeof result.quote === 'object'
+        ? result.quote as Record<string, any>
+        : {};
+    const swapDetails = result.swapDetails && typeof result.swapDetails === 'object'
+        ? result.swapDetails as Record<string, any>
+        : {};
+    if (String(toolResult.name || '') === 'prepare_swap_transaction') {
+        const amountIn = normalizeConfirmationField(swapDetails.amountIn);
+        const tokenIn = normalizeConfirmationField(swapDetails.tokenIn);
+        const tokenOut = normalizeConfirmationField(swapDetails.tokenOut);
+        const amountOut = normalizeConfirmationField(quote.amountOut || quote.expectedOut || quote.expected_out);
+        const route = normalizeConfirmationField(quote.dex || quote.dexName || quote.route);
+        const priceImpact = normalizeConfirmationField(quote.priceImpact || quote.price_impact);
+        const lines = [
+            amountIn && tokenIn && tokenOut
+                ? amountOut
+                    ? `Quote ready: ${amountIn} ${tokenIn} -> about ${amountOut} ${tokenOut}.`
+                    : `Swap prepared: ${amountIn} ${tokenIn} -> ${tokenOut}.`
+                : locale === 'zh'
+                    ? '报价已准备好。'
+                    : 'Quote ready.',
+            route ? `Route: ${route}` : null,
+            priceImpact ? `Price impact: ${priceImpact}` : null,
+            locale === 'zh'
+                ? '回复 confirm 或 execute 后我再执行。'
+                : 'Reply confirm or execute and I will execute it.',
+        ].filter((line): line is string => Boolean(line));
+        return lines.join('\n');
+    }
+
+    return locale === 'zh'
+        ? '操作已准备好，需要你确认后才会执行。回复 confirm 或 execute 后我再执行。'
+        : 'Action prepared. It has not been executed yet. Reply confirm or execute and I will execute it.';
+}
+
+function cleanConfirmationSummary(value: unknown): string | null {
+    const text = normalizeConfirmationField(value);
+    if (!text) return null;
+    if (/\b(executed successfully|swap submitted|transaction hash|tx hash|on-chain confirmation|confirmed on-chain)\b|已执行|已提交|交易哈希|链上确认/i.test(text)) {
+        return null;
+    }
+    return text;
+}
+
+function appendConfirmationPrompt(summary: string, locale: 'en' | 'zh'): string {
+    if (/\b(confirm|execute)\b|确认|执行/i.test(summary)) return summary;
+    return [
+        summary,
+        locale === 'zh'
+            ? '回复 confirm 或 execute 后我再执行。'
+            : 'Reply confirm or execute and I will execute it.',
+    ].join('\n');
+}
+
+function normalizeConfirmationField(value: unknown): string | null {
+    const text = String(value ?? '').trim();
+    return text.length > 0 ? text : null;
 }
 
 function isLikelyExecutionTool(toolName: string): boolean {
