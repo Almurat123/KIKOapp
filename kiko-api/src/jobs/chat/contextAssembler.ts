@@ -22,6 +22,8 @@
 // - preserve raw message history for audit, but do not let wrapper labels drive routing
 // - social multimodal context belongs in runtime metadata, not replayed history
 // - active normal-provider context blocks should use the current provider-family label
+// - chain-scoped allChainBalances must outrank unscoped nativeBalance when
+//   seeding current-chain wallet state
 // Document Provenance:
 // - Source: Farcaster mention runtime logs for trace dd7b79f7-41fb-4147-8e38-44a3c4bfeff0
 // - Kind: runtime observation
@@ -306,8 +308,32 @@ function normalizeBalanceEntries(balance: any): Array<{ symbol: string; balance:
                 contractAddress: (raw as any).contractAddress || (raw as any).contract,
             };
         }
-        return { symbol, balance: String(raw) };
+        return { symbol, balance: String(raw), contractAddress: isLikelyEvmAddress(symbol) ? symbol : undefined };
     });
+}
+
+function isLikelyEvmAddress(value: unknown): boolean {
+    return /^0x[a-fA-F0-9]{40}$/.test(String(value || '').trim());
+}
+
+function mergeScopedBalanceTokens(
+    scopedTokens: Array<{ symbol: string; balance: string; decimals?: number; contractAddress?: string }>,
+    supplementalTokens: Array<{ symbol: string; balance: string; decimals?: number; contractAddress?: string }>,
+): Array<{ symbol: string; balance: string; decimals?: number; contractAddress?: string }> {
+    if (supplementalTokens.length === 0) return scopedTokens;
+    const merged = [...scopedTokens];
+    const knownAddresses = new Set(
+        scopedTokens
+            .map((token) => String(token.contractAddress || '').toLowerCase())
+            .filter(Boolean),
+    );
+    for (const token of supplementalTokens) {
+        const address = String(token.contractAddress || '').toLowerCase();
+        if (!address || knownAddresses.has(address)) continue;
+        knownAddresses.add(address);
+        merged.push(token);
+    }
+    return merged;
 }
 
 function resolveNativeSymbol(chainId?: number): string {
@@ -440,6 +466,26 @@ function resolveCurrentChainBalanceSnapshot(toolContext: any, chainId?: number):
     if (!toolContext || !chainId) return null;
     const singleChainTokens = normalizeBalanceEntries(toolContext.balance);
     const singleChainEthBalance = toolContext.nativeBalance;
+
+    const chainKey = CHAIN_BALANCE_KEYS[chainId];
+    const allChainBalances = toolContext.allChainBalances;
+    if (chainKey && allChainBalances && typeof allChainBalances === 'object') {
+        const chainBalance = allChainBalances[chainKey];
+        if (chainBalance && typeof chainBalance === 'object') {
+            const tokens = mergeScopedBalanceTokens(
+                normalizeBalanceEntries(chainBalance.tokens),
+                singleChainTokens,
+            );
+            const ethBalance = chainBalance.ethBalanceFormatted ?? chainBalance.ethBalance ?? chainBalance.nativeBalance;
+            if (tokens.length > 0 || ethBalance != null || singleChainTokens.length > 0 || singleChainEthBalance != null) {
+                return {
+                    ethBalance: ethBalance ?? singleChainEthBalance,
+                    tokens,
+                };
+            }
+        }
+    }
+
     if (singleChainTokens.length > 0 || singleChainEthBalance != null) {
         return {
             ethBalance: singleChainEthBalance,
@@ -447,18 +493,5 @@ function resolveCurrentChainBalanceSnapshot(toolContext: any, chainId?: number):
         };
     }
 
-    const chainKey = CHAIN_BALANCE_KEYS[chainId];
-    const allChainBalances = toolContext.allChainBalances;
-    if (!chainKey || !allChainBalances || typeof allChainBalances !== 'object') return null;
-    const chainBalance = allChainBalances[chainKey];
-    if (!chainBalance || typeof chainBalance !== 'object') return null;
-
-    const tokens = normalizeBalanceEntries(chainBalance.tokens);
-    const ethBalance = chainBalance.ethBalanceFormatted ?? chainBalance.ethBalance ?? chainBalance.nativeBalance;
-    if (tokens.length === 0 && ethBalance == null) return null;
-
-    return {
-        ethBalance,
-        tokens,
-    };
+    return null;
 }

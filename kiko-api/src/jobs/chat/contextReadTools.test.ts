@@ -152,6 +152,43 @@ test('read_wallet_state returns compact worker-facing balance context', async ()
     assert.equal(result.context?.snapshots?.active_chain_at, '2026-03-19T00:00:00.000Z');
 });
 
+test('read_wallet_state prefers scoped prefetched native balance over unscoped runtime native balance', async () => {
+    const snapshot = makeSnapshot('What is my Base ETH balance?', {
+        runtime: {
+            walletAddress: '0xabc',
+            chainId: 8453,
+            chainName: 'Base',
+            nativeBalance: '0.47',
+            balance: {
+                ETH: '0.47',
+                USDC: '999',
+            },
+            prefetchedToolResults: {
+                get_wallet_info: {
+                    address: '0xabc',
+                    chain: 'Base',
+                    ethBalance: '0.000642567281279995',
+                    tokens: [
+                        {
+                            symbol: 'USDC',
+                            balance: '1.25',
+                            contractAddress: '0x833589fCD6eDb6E08f4c7C32D4f71B54bdA02913',
+                            decimals: 6,
+                        },
+                    ],
+                },
+            },
+        },
+    });
+
+    const result = await ReadWalletStateTool.handler({}, { __snapshot: snapshot });
+    assert.equal(result.available, true);
+    assert.equal(result.context?.balances?.active_chain?.native, '0.000642567281279995');
+    assert.equal(result.context?.balances?.active_chain?.tokens?.[0]?.symbol, 'USDC');
+    assert.equal(result.context?.balances?.active_chain?.tokens?.[0]?.balance, '1.25');
+    assert.equal(result.context?.balances?.active_chain?.tokens?.length, 1);
+});
+
 test('read_workflow_state carries persisted polymarket selection', async () => {
     const snapshot = makeSnapshot('bet down for 1$', {
         requestedTokenSymbols: ['BTC'],

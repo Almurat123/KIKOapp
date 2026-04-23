@@ -19,6 +19,8 @@
 // - session context answers who/where/what-chain, wallet state answers what funds exist
 // - effective task chain must be explicit so requested chain beats connected chain
 // - TaskRoute requested chain outranks legacy canonical requested chain
+// - active-chain native balance must use chain-scoped prefetched wallet state
+//   before any unscoped runtime nativeBalance value
 // - raw provider/cache objects should be compacted before reaching the model
 // - summaries should be short data contracts, not prose descriptions
 // - contract fields use typed primitive helpers; do not pass generic mixed primitives into chain/string slots
@@ -148,18 +150,41 @@ function buildActiveChainBalance(params: {
     prefetchedWallet: Record<string, any> | null | undefined;
 }) {
     const native = normalizePrimitive(
-        params.nativeBalance
-        ?? params.prefetchedWallet?.ethBalanceFormatted
+        params.prefetchedWallet?.ethBalanceFormatted
         ?? params.prefetchedWallet?.ethBalance
-        ?? params.prefetchedWallet?.nativeBalance,
+        ?? params.prefetchedWallet?.nativeBalance
+        ?? params.nativeBalance,
     );
     const balanceTokens = summarizeBalanceTokens(params.balance) || [];
     const prefetchedTokens = summarizeTokenArray(params.prefetchedWallet?.tokens);
     const active = stripEmptyEntries({
         native,
-        tokens: balanceTokens.length > 0 ? balanceTokens : prefetchedTokens,
+        tokens: mergeScopedWorkerTokens(prefetchedTokens, balanceTokens),
     });
     return Object.keys(active).length > 0 ? active : undefined;
+}
+
+function mergeScopedWorkerTokens(
+    prefetchedTokens: CompactTokenBalance[] | undefined,
+    balanceTokens: CompactTokenBalance[],
+): CompactTokenBalance[] | undefined {
+    if (!prefetchedTokens || prefetchedTokens.length === 0) {
+        return balanceTokens.length > 0 ? balanceTokens : undefined;
+    }
+    if (balanceTokens.length === 0) return prefetchedTokens;
+    const merged = [...prefetchedTokens];
+    const knownAddresses = new Set(
+        prefetchedTokens
+            .map((token) => String(token.contract_address || '').toLowerCase())
+            .filter(Boolean),
+    );
+    for (const token of balanceTokens) {
+        const address = String(token.contract_address || '').toLowerCase();
+        if (!address || knownAddresses.has(address)) continue;
+        knownAddresses.add(address);
+        merged.push(token);
+    }
+    return merged;
 }
 
 function summarizeAllChainBalances(allChainBalances: unknown) {

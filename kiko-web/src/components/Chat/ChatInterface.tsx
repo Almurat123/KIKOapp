@@ -833,6 +833,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   // State for user balances (common tokens)
   const [userBalances, setUserBalances] = useState<Record<string, string>>({});
+  const [userBalancesChainId, setUserBalancesChainId] = useState<number | null>(null);
   const [input, setInput] = useState('');
   const [isStopping, setIsStopping] = useState(false);
   const [selectedImageDrafts, setSelectedImageDrafts] = useState<ComposerImageDraft[]>([]);
@@ -2091,6 +2092,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   // Fetch user balances for common tokens AND tokens mentioned in chat
   useEffect(() => {
     if (!walletAddress || !authenticated || chainId === 0) return;
+    setUserBalances({});
+    setUserBalancesChainId(null);
 
     const fetchBalances = async () => {
       // Loading state handled internally
@@ -2181,6 +2184,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         });
 
         setUserBalances(balances);
+        setUserBalancesChainId(chainId);
       } catch (error) {
         logger.error('Error fetching balances:', error);
       }
@@ -3279,13 +3283,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         900: 'SOL',
       };
       const nativeSymbol = nativeSymbolMap[chainId] || 'ETH';
-      const nativeBalance = userBalances[nativeSymbol];
+      const balancesForCurrentChain = userBalancesChainId === chainId ? userBalances : {};
+      const nativeBalance = balancesForCurrentChain[nativeSymbol];
       const contextPayload = {
         walletAddress,
         chainId,
         chainName: currentChain.name,
         isWalletConnected: !!walletAddress,
-        balance: userBalances,
+        balance: balancesForCurrentChain,
         nativeBalance,
         currentPage: window.location.pathname,
         pageContext: `${document.title || 'KiKo'} | ${window.location.pathname}`,
@@ -3315,7 +3320,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
               nativeBalance,
               currentPage: window.location.pathname,
               pageContext: `${document.title || 'KiKo'} | ${window.location.pathname}`,
-              balance: userBalances,
+              balance: balancesForCurrentChain,
               farcaster: contextPayload.farcaster,
               context: contextPayload,
               imageUploadIds: preparedImageUploadIds,

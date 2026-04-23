@@ -56,6 +56,66 @@ test('assembleChatContext uses all-chain balances to seed current wallet state w
     assert.equal(snapshot.runtime.prefetchedToolResults?.get_wallet_info?.tokens?.[0]?.symbol, 'USDC');
 });
 
+test('assembleChatContext does not let unscoped nativeBalance override current-chain all-chain balance', () => {
+    const snapshot = assembleChatContext({
+        task: {
+            id: 'task-chain-scope',
+            sessionId: 'session-chain-scope',
+            userMessageId: 'user-chain-scope',
+            assistantMessageId: 'assistant-chain-scope',
+            model: 'gpt-5-mini',
+            toolContext: {
+                walletAddress: '0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E',
+                chainId: 8453,
+                chainName: 'Base',
+                nativeBalance: '0.47',
+                balance: {
+                    ETH: '0.47',
+                    USDC: '999',
+                },
+                allChainBalances: {
+                    base: {
+                        ethBalanceFormatted: '0.000642567281279995',
+                        tokens: [
+                            {
+                                symbol: 'USDC',
+                                balance: '1.25',
+                                contractAddress: '0x833589fCD6eDb6E08f4c7C32D4f71B54bdA02913',
+                                decimals: 6,
+                            },
+                        ],
+                    },
+                    eth: {
+                        ethBalanceFormatted: '0.47',
+                        tokens: [],
+                    },
+                },
+                allChainBalancesSnapshotAt: '2026-04-23T08:39:00.000Z',
+            },
+        },
+        session: {
+            userId: 'user-chain-scope',
+        },
+        messages: [
+            {
+                role: 'user',
+                content: 'Swap ETH to USDC on Base',
+            },
+        ],
+        toolDefinitions: [],
+        userId: 'user-chain-scope',
+    });
+
+    const walletState = String(snapshot.runtime.contextBlocks?.walletState || '');
+    assert.match(walletState, /Chain: Base/);
+    assert.match(walletState, /Native: 0\.000642567281279995 ETH/);
+    assert.doesNotMatch(walletState, /Native: 0\.47 ETH/);
+    assert.match(walletState, /USDC: 1\.25/);
+    assert.doesNotMatch(walletState, /ETH: 0\.47/);
+    assert.doesNotMatch(walletState, /USDC: 999/);
+    assert.equal(snapshot.runtime.prefetchedToolResults?.get_wallet_info?.ethBalance, '0.000642567281279995');
+});
+
 test('assembleChatContext surfaces exact requested token balances from direct token balance hydration', () => {
     const token = '0xe6cbe943baef2dbca46d68fe0db2e3a60073bba3';
     const snapshot = assembleChatContext({
