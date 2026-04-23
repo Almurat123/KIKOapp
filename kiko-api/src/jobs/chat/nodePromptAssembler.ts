@@ -105,6 +105,8 @@
 // - model-led tool mode should not reintroduce backend intent menus; it should
 //   expose the tool catalog contract and leave semantic tool choice to the model
 // - post-execution receipt text belongs to the runtime receipt hook, not prompt prose
+// - if the runtime receipt hook already rendered a deploy page or token URL,
+//   do not repeat that link in model-authored follow-up text
 // - Clanker deploy confirmations should expose the prepared launch payload in
 //   WORKING_MEMORY so the model can confirm the same payload the backend will
 //   execute
@@ -374,6 +376,7 @@ const ANSWER_QUALITY_CONTRACT_PROMPT = [
   "- Never end with a generic capability pitch when the user asked a specific follow-up, correction, or debug question.",
   "- For tool results, use only returned fields. If a field is absent, say it is unavailable instead of inventing it.",
   "- For execution preparation, show the quote/preflight facts or prepared launch payload and ask for confirmation. For confirmed execution, report the real receipt/status returned by the tool.",
+  "- If a runtime receipt hook already rendered the deploy page or token URL, do not repeat that link in assistant text.",
   "- Keep normal answers natural and short unless the task needs tables, ranked lists, or audit/debug structure.",
 ].join("\n");
 

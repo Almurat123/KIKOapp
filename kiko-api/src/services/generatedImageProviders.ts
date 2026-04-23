@@ -78,6 +78,7 @@ import { logger } from '../utils/logger.js';
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 export type GeneratedImageProviderName = 'openai' | 'xai';
+export type GeneratedImageExecutionProvider = 'openai' | 'openrouter' | 'xai';
 export type GeneratedImageProviderModel = 'gpt-image-2' | 'gpt-image-1-mini' | 'grok-imagine-image' | 'grok-imagine-image-pro';
 export type GeneratedImageProviderQuality = 'low' | 'medium' | 'high' | 'normal' | 'pro';
 
@@ -97,6 +98,7 @@ export interface GeneratedImageProviderRequest {
 
 export interface GeneratedImageProviderResult {
     provider: GeneratedImageProviderName;
+    executionProvider: GeneratedImageExecutionProvider;
     model: GeneratedImageProviderModel;
     quality: GeneratedImageProviderQuality;
     imageBuffer: Buffer;
@@ -494,6 +496,7 @@ async function generateOpenRouterImage(
         const downloaded = await decodeGeneratedImageAsset(latestImageUrl);
         return {
             provider: 'openai',
+            executionProvider: 'openrouter',
             model,
             quality: normalizedQuality,
             imageBuffer: downloaded.buffer,
@@ -513,6 +516,7 @@ async function generateOpenRouterImage(
     const downloaded = await decodeGeneratedImageAsset(url);
     return {
         provider: 'openai',
+        executionProvider: 'openrouter',
         model,
         quality: normalizedQuality,
         imageBuffer: downloaded.buffer,
@@ -711,6 +715,7 @@ async function generateOpenAiImage(
 
         return {
             provider: 'openai',
+            executionProvider: 'openai',
             model,
             quality: normalizedQuality,
             imageBuffer: completedImageBuffer,
@@ -726,6 +731,7 @@ async function generateOpenAiImage(
     if (b64) {
         return {
             provider: 'openai',
+            executionProvider: 'openai',
             model,
             quality: normalizedQuality,
             imageBuffer: Buffer.from(b64, 'base64'),
@@ -743,6 +749,7 @@ async function generateOpenAiImage(
     const downloaded = await fetchBinaryFromUrl(url);
     return {
         provider: 'openai',
+        executionProvider: 'openai',
         model,
         quality: normalizedQuality,
         imageBuffer: downloaded.buffer,
@@ -795,6 +802,7 @@ async function generateXaiImage(params: {
         }
         return {
             provider: 'xai',
+            executionProvider: 'xai',
             model: params.quality === 'pro' ? 'grok-imagine-image-pro' : 'grok-imagine-image',
             quality: params.quality,
             imageBuffer: Buffer.from(b64, 'base64'),
@@ -807,6 +815,7 @@ async function generateXaiImage(params: {
     const downloaded = await fetchBinaryFromUrl(url);
     return {
         provider: 'xai',
+        executionProvider: 'xai',
         model: params.quality === 'pro' ? 'grok-imagine-image-pro' : 'grok-imagine-image',
         quality: params.quality,
         imageBuffer: downloaded.buffer,
@@ -821,6 +830,20 @@ function shouldUseOpenRouterForOpenAiImageModel(model: 'gpt-image-2' | 'gpt-imag
         return false;
     }
     return Boolean(String(process.env.OPENROUTER_API_KEY || '').trim());
+}
+
+export function resolveGeneratedImageExecutionProvider(
+    model?: string | null,
+    provider?: GeneratedImageProviderName | null,
+): GeneratedImageExecutionProvider | null {
+    if (provider === 'xai' || isXaiGeneratedImageModel(model)) {
+        return 'xai';
+    }
+    if (provider === 'openai' || isOpenAiGeneratedImageModel(model)) {
+        const normalizedModel = isOpenAiGeneratedImageModel(model) ? model : 'gpt-image-1-mini';
+        return shouldUseOpenRouterForOpenAiImageModel(normalizedModel) ? 'openrouter' : 'openai';
+    }
+    return null;
 }
 
 export async function generateImageWithProvider(params: GeneratedImageProviderRequest): Promise<GeneratedImageProviderResult> {

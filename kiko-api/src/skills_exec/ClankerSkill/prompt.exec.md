@@ -95,6 +95,9 @@ Clanker deploy or reward history, or prepare claim rewards.
   that best matches the user's launch intent for `image`. Do not let the backend
   auto-pick an image for you. If multiple images could reasonably fit and the
   intent is still ambiguous, ask one precise clarification before launching.
+- When the deploy succeeds, let the runtime receipt hook provide the token
+  page link exactly once. Do not repeat the `tokenUrl` or `Clanker 页面` in your
+  own assistant text if the runtime receipt already rendered it.
 
 ## Read tools
 

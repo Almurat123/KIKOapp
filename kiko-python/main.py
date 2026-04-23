@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import uvicorn
+from logging_setup import build_uvicorn_log_config, configure_service_logging
 
 # Load environment variables
 # First try current directory, then fallback to kiko-api/.env
@@ -19,7 +20,7 @@ if not os.getenv("RAILWAY_ENVIRONMENT") and not os.getenv("XAI_API_KEY"):
         load_dotenv(env_path)
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+configure_service_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -154,4 +155,9 @@ async def _shutdown():
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=port,
+        log_config=build_uvicorn_log_config(),
+    )

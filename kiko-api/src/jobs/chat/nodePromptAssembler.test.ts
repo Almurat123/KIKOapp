@@ -442,6 +442,7 @@ test("assembleGenerationMessages uses model-led tool orchestration prompt by def
     assert.match(systemContent, /provisional intent\/tool package/);
     assert.match(systemContent, /call generate_image_from_intent directly/);
     assert.match(systemContent, /do not reply with a standalone optimized prompt draft/i);
+    assert.match(systemContent, /runtime receipt hook already rendered the deploy page or token URL/i);
     assert.doesNotMatch(systemContent, /\[WORKER_STATE_MACHINE\]/);
     assert.doesNotMatch(systemContent, /\[CONTEXT_TRIGGER_POLICY\]/);
     assert.doesNotMatch(userContent, /\[TASK_MENU\]/);

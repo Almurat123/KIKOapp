@@ -248,7 +248,7 @@ function buildClankerDeployAnswer(
   return compactLines([
     locale === "zh" ? "Clanker 代币已部署。" : "Clanker token deployed.",
     formatLine(locale, "代币地址", "Token address", tokenAddress),
-    formatLine(locale, "Clanker 页面", "Clanker page", tokenUrl),
+    formatMarkdownLinkLine(locale, "Clanker 页面", "Clanker page", tokenUrl),
     formatLine(locale, "代币浏览器", "Token explorer", tokenExplorerUrl),
     txHash ? formatLine(locale, "部署交易", "Deployment transaction", txHash) : null,
     txHash || explorerUrl
@@ -499,6 +499,18 @@ function formatOptionalLine(
   value: string | null,
 ): string | null {
   return value ? formatLine(locale, zhLabel, enLabel, value) : null;
+}
+
+function formatMarkdownLinkLine(
+  locale: Locale,
+  zhLabel: string,
+  enLabel: string,
+  url: string | null,
+): string | null {
+  if (!url) return null;
+  const label = locale === "zh" ? zhLabel : enLabel;
+  const linkText = locale === "zh" ? "打开链接" : "Open link";
+  return `${label}: [${linkText}](${url})`;
 }
 
 function compactLines(lines: Array<string | null | undefined>): string {

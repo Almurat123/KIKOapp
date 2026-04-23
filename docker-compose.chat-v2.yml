@@ -19,8 +19,8 @@ services:
 
   llm-gateway:
     build:
-      context: ./kiko-python
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: kiko-python/Dockerfile
     container_name: kiko-v2-llm-gateway
     command: ["python", "llm_gateway_server.py"]
     environment:
@@ -37,8 +37,8 @@ services:
 
   tool-runtime:
     build:
-      context: ./kiko-python
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: kiko-python/Dockerfile
     container_name: kiko-v2-tool-runtime
     command: ["python", "tool_runtime_server.py"]
     environment:
@@ -52,8 +52,8 @@ services:
 
   chat-api:
     build:
-      context: ./kiko-python
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: kiko-python/Dockerfile
     container_name: kiko-v2-chat-api
     command: ["python", "chat_api_server.py"]
     environment:

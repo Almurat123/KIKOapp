@@ -2,13 +2,14 @@ import os
 import logging
 import uvicorn
 from dotenv import load_dotenv
+from logging_setup import build_uvicorn_log_config, configure_service_logging
 
 
 # Always load env from this service directory first, regardless of cwd.
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 load_dotenv()
-logging.basicConfig(level=logging.INFO)
+configure_service_logging()
 logger = logging.getLogger(__name__)
 
 # Keep internal service URLs on the same local port by default.
@@ -47,4 +48,9 @@ if __name__ == "__main__":
     else:
         port = int(os.getenv("CHAT_API_PORT", "8001"))
     logger.info("Starting chat-api on port=%s llm_gateway=%s tool_runtime=%s", port, settings.LLM_GATEWAY_URL, settings.TOOL_RUNTIME_URL)
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=port,
+        log_config=build_uvicorn_log_config(),
+    )

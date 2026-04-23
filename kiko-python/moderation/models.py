@@ -33,10 +33,11 @@ import logging
 from typing import Any
 from openai import OpenAI
 from dotenv import load_dotenv
+from logging_setup import configure_service_logging
 
 load_dotenv()
 
-logging.basicConfig(level=logging.INFO)
+configure_service_logging()
 logger = logging.getLogger(__name__)
 
 

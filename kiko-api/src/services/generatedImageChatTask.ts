@@ -25,7 +25,9 @@ import {
 import {
     generateImageWithProvider,
     isGeneratedImageProviderError,
+    resolveGeneratedImageExecutionProvider,
     supportsGeneratedImageReferenceInputModel,
+    type GeneratedImageExecutionProvider,
     type GeneratedImageProviderInputImage,
 } from './generatedImageProviders.js';
 import { logger } from '../utils/logger.js';
@@ -148,11 +150,13 @@ import { LogCode } from '../config/logRegistry.js';
 const GENERATED_IMAGE_MAX_CONCURRENCY = Math.max(1, Number(process.env.GENERATED_IMAGE_MAX_CONCURRENCY || '2') || 2);
 const GENERATED_IMAGE_USER_LOCK_TTL_SECONDS = Math.max(60, Number(process.env.GENERATED_IMAGE_USER_LOCK_TTL_SECONDS || '300') || 300);
 const OPENAI_PARTIAL_IMAGE_PROGRESS_STEPS = 2;
+const OPENROUTER_PARTIAL_IMAGE_PROGRESS_STEPS = 1;
 const generatedImageExecutionLimit = pLimit(GENERATED_IMAGE_MAX_CONCURRENCY);
 
 export type GeneratedImageMessageState = {
     requestedModel: string;
     provider: 'openai' | 'xai' | null;
+    executionProvider: GeneratedImageExecutionProvider | null;
     providerModel: string | null;
     quality: string | null;
     prompt: string;
@@ -220,24 +224,36 @@ function normalizeQuality(requestedModel: string, quality?: string | null): stri
     return normalizedQuality || null;
 }
 
+function supportsProgressiveRevealForExecutionProvider(provider: GeneratedImageExecutionProvider | null): boolean {
+    return provider === 'openai' || provider === 'openrouter';
+}
+
+function partialImageCountForExecutionProvider(provider: GeneratedImageExecutionProvider | null): number | null {
+    if (provider === 'openai') return OPENAI_PARTIAL_IMAGE_PROGRESS_STEPS;
+    if (provider === 'openrouter') return OPENROUTER_PARTIAL_IMAGE_PROGRESS_STEPS;
+    return null;
+}
+
 export function buildGeneratedImagePendingData(params: {
     requestedModel: string;
     quality?: string | null;
     prompt: string;
 }): GeneratedImageMessageState {
     const provider = inferProvider(params.requestedModel);
+    const executionProvider = resolveGeneratedImageExecutionProvider(params.requestedModel, provider);
     const providerModel = inferProviderModel(params.requestedModel);
     return {
         requestedModel: String(params.requestedModel || '').trim().toLowerCase(),
         provider,
+        executionProvider,
         providerModel,
         quality: normalizeQuality(params.requestedModel, params.quality),
         prompt: String(params.prompt || '').trim(),
         status: 'queued',
         stageLabel: 'Queued',
-        supportsProgressiveReveal: provider === 'openai',
+        supportsProgressiveReveal: supportsProgressiveRevealForExecutionProvider(executionProvider),
         partialImageIndex: null,
-        partialImageCount: provider === 'openai' ? OPENAI_PARTIAL_IMAGE_PROGRESS_STEPS : null,
+        partialImageCount: partialImageCountForExecutionProvider(executionProvider),
         images: [],
         revisedPrompt: null,
         errorMessage: null,
@@ -347,6 +363,7 @@ async function recordGeneratedImageTaskOutput(params: {
                 output: {
                     status: params.state.status,
                     provider: params.state.provider,
+                    executionProvider: params.state.executionProvider,
                     providerModel: params.state.providerModel,
                     quality: params.state.quality,
                     images: params.state.images,
@@ -519,9 +536,9 @@ async function runGeneratedImageChatTask(params: StartGeneratedImageChatTaskPara
             quality: reservation.quality,
             status: 'generating',
             stageLabel: 'Generating',
-            supportsProgressiveReveal: reservation.provider === 'openai',
+            supportsProgressiveReveal: supportsProgressiveRevealForExecutionProvider(initialState.executionProvider),
             partialImageIndex: null,
-            partialImageCount: reservation.provider === 'openai' ? OPENAI_PARTIAL_IMAGE_PROGRESS_STEPS : null,
+            partialImageCount: partialImageCountForExecutionProvider(initialState.executionProvider),
         };
         await publishGeneratedImageMessageState({
             userId: params.userId,
@@ -593,6 +610,7 @@ async function runGeneratedImageChatTask(params: StartGeneratedImageChatTaskPara
 
         const moderatingState: GeneratedImageMessageState = {
             ...generatingState,
+            executionProvider: providerResult.executionProvider,
             revisedPrompt: providerResult.revisedPrompt || null,
             supportsProgressiveReveal: providerResult.supportsProgressiveReveal,
             status: 'moderating',

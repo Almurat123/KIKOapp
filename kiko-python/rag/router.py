@@ -9,13 +9,14 @@ from rag.vectorstore import KnowledgeBase
 from dotenv import load_dotenv
 from langchain_community.document_loaders import DirectoryLoader
 from service_auth import require_internal_service
+from logging_setup import build_uvicorn_log_config, configure_service_logging
 
 # Load environment variables
 dotenv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'kiko-api', '.env')
 load_dotenv(dotenv_path)
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+configure_service_logging()
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="KiKo RAG Service")
@@ -160,4 +161,9 @@ def query_knowledge(request: QueryRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8002)
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8002,
+        log_config=build_uvicorn_log_config(),
+    )

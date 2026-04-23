@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
     generateImageWithProvider,
+    resolveGeneratedImageExecutionProvider,
     supportsGeneratedImageReferenceInputModel,
 } from './generatedImageProviders.js';
 
@@ -104,6 +105,24 @@ test('reference-image support includes GPT and Grok image models', () => {
     assert.equal(supportsGeneratedImageReferenceInputModel('grok-imagine-image-pro'), true);
 });
 
+test('execution provider resolves OpenRouter only for gpt-image-2 when configured', () => {
+    const originalOpenRouterApiKey = process.env.OPENROUTER_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    try {
+        assert.equal(resolveGeneratedImageExecutionProvider('gpt-image-1-mini', 'openai'), 'openai');
+        assert.equal(resolveGeneratedImageExecutionProvider('gpt-image-2', 'openai'), 'openai');
+        process.env.OPENROUTER_API_KEY = 'test-openrouter-key';
+        assert.equal(resolveGeneratedImageExecutionProvider('gpt-image-2', 'openai'), 'openrouter');
+        assert.equal(resolveGeneratedImageExecutionProvider('grok-imagine-image', 'xai'), 'xai');
+    } finally {
+        if (typeof originalOpenRouterApiKey === 'string') {
+            process.env.OPENROUTER_API_KEY = originalOpenRouterApiKey;
+        } else {
+            delete process.env.OPENROUTER_API_KEY;
+        }
+    }
+});
+
 test('OpenAI gpt-image-2 uploaded-image requests use the edits endpoint with JSON image_url references', async () => {
     await withOpenAiImageFetchMock(
         async (calls) => {
@@ -183,6 +202,7 @@ test('gpt-image-1-mini stays on OpenAI Images even when OpenRouter is configured
         assert.equal(calls[0].url, 'https://api.openai.com/v1/images/generations');
         assert.equal(calls[0].body.model, 'gpt-image-1-mini');
         assert.equal(Object.hasOwn(calls[0].body, 'reasoning'), false);
+        assert.equal(result.executionProvider, 'openai');
         assert.equal(result.imageBuffer.toString('utf8'), 'mini-openai-image');
         assert.equal(result.contentType, 'image/png');
     } finally {
@@ -279,6 +299,7 @@ test('OpenRouter gpt-image-2 image requests use chat completions with image_url 
                     ],
                 },
             ]);
+            assert.equal(result.executionProvider, 'openrouter');
             assert.equal(result.imageBuffer.toString('utf8'), 'router-image');
             assert.equal(result.contentType, 'image/png');
             assert.equal(result.supportsProgressiveReveal, false);
@@ -338,6 +359,7 @@ test('OpenRouter streamed GPT image responses decode delta.images', async () => 
             assert.deepEqual(calls[0].body.reasoning, {
                 effort: 'high',
             });
+            assert.equal(result.executionProvider, 'openrouter');
             assert.equal(result.imageBuffer.toString('utf8'), 'streamed-router-image');
             assert.equal(result.supportsProgressiveReveal, true);
         },
@@ -385,6 +407,7 @@ test('xAI Grok normal image requests use generation endpoint with auto aspect ra
             });
             assert.equal(result.model, 'grok-imagine-image');
             assert.equal(result.quality, 'normal');
+            assert.equal(result.executionProvider, 'xai');
             assert.equal(result.imageBuffer.toString('utf8'), 'xai-image');
         },
         async (input: RequestInfo | URL) => {
@@ -441,6 +464,7 @@ test('xAI Grok pro uploaded-image requests use edits endpoint with 2k resolution
             });
             assert.equal(result.model, 'grok-imagine-image-pro');
             assert.equal(result.quality, 'pro');
+            assert.equal(result.executionProvider, 'xai');
             assert.equal(result.imageBuffer.toString('utf8'), 'xai-pro-image');
         },
         async (input: RequestInfo | URL) => {

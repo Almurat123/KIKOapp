@@ -118,3 +118,21 @@ test("buildExecutionReceiptDecision formats failed deploy receipts without anoth
     ].join("\n"),
   );
 });
+
+test("buildExecutionReceiptAnswer embeds the Clanker page as a clickable link", () => {
+  const answer = buildExecutionReceiptAnswer(
+    {
+      id: "call-6",
+      name: "deploy_clanker_token",
+      arguments: {},
+      ok: true,
+      result: {
+        tokenAddress: "0xabc",
+        tokenUrl: "https://clanker.world/clanker/0xabc",
+      },
+    },
+    "zh",
+  );
+
+  assert.match(answer || "", /Clanker 页面: \[打开链接\]\(https:\/\/clanker\.world\/clanker\/0xabc\)/);
+});

@@ -4,6 +4,7 @@ import uvicorn
 import logging
 from moderation.models import moderation_models
 from service_auth import require_internal_service
+from logging_setup import build_uvicorn_log_config, configure_service_logging
 
 # CONTEXT MEMORY
 # Updated: 2026-04-17
@@ -34,7 +35,7 @@ from service_auth import require_internal_service
 # - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-generated-image-safety-gate.md
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+configure_service_logging()
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="KiKo Moderation Service")
@@ -115,4 +116,9 @@ async def moderate_output(req: ModerationRequest):
     }
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8003)
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8003,
+        log_config=build_uvicorn_log_config(),
+    )
