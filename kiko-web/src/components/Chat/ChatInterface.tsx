@@ -825,8 +825,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     );
     if (embeddedEVM) return embeddedEVM.address;
 
-    const evmWallet = wallets.find((w) => w.walletClientType !== 'solana');
-    return evmWallet?.address || user?.wallet?.address || '';
+    // Do not fall back to social/external wallets for EVM tool context.
+    // Server wallet binding is keyed to the Privy embedded wallet only.
+    return '';
   }, [wallets, user, currentChain.id]);
 
   // const chainName = chainNameMap[chainId] || `Chain ${chainId}`;

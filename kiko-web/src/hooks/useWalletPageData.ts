@@ -99,10 +99,11 @@ export function useWalletPageData() {
     const isSolana = chainId === 900;
     const { solanaWallet, evmWallet } = usePrivyEmbeddedWallets();
 
-    // evmPrimaryAddress is always the EVM wallet address (used as the primary balance API path param)
-    const evmPrimaryAddress = evmWallet?.address || user?.wallet?.address;
+    // Only the Privy embedded EVM wallet may be used as the balance API path param.
+    // `user.wallet.address` can be a login/social wallet before embedded wallets finish hydrating.
+    const evmPrimaryAddress = evmWallet?.address;
     // walletAddress is the chain-specific address shown in the UI (send/receive modals etc.)
-    const walletAddress = isSolana ? (solanaWallet?.address || evmPrimaryAddress) : evmPrimaryAddress;
+    const walletAddress = isSolana ? solanaWallet?.address : evmPrimaryAddress;
 
     const [holdings, setHoldings] = useState<TokenHolding[]>([]);
     const [cachedHoldings, setCachedHoldings] = useState<TokenHolding[]>([]);
@@ -207,7 +208,11 @@ export function useWalletPageData() {
         // 1. Access verification works (user record is keyed by EVM address)
         // 2. Alchemy EVM queries receive a valid EVM address regardless of active chain
         // 3. Solana data is fetched separately via the solanaAddress query param
-        const fetchAddr = evmPrimaryAddress || walletAddress!;
+        const fetchAddr = evmPrimaryAddress;
+        if (!fetchAddr) {
+            setLoading(true);
+            return;
+        }
         // Cache key includes solanaWallet address so the cache is busted when Privy
         // loads the Solana wallet for the first time (undefined → actual address).
         const cacheKey = `${fetchAddr}:${solanaWallet?.address || ''}`;
@@ -353,6 +358,10 @@ export function useWalletPageData() {
         try {
             const chain = getChainName(chainId);
             const addr = walletAddress;
+            if (!addr) {
+                setTransactions([]);
+                return;
+            }
             const cacheKey = `${chain}:${addr?.toLowerCase()}`;
             const cached = txCache.get(cacheKey);
             if (cached && Date.now() - cached.timestamp < TX_CACHE_TTL_MS) {

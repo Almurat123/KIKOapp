@@ -32,6 +32,7 @@ import { AppError } from './errorHandler.js';
 import { resolvePrivyServerConfig } from '../config/privy.js';
 import { maybeAutoSyncVerifiedPrivyFarcasterUser } from '../services/farcaster-agent/farcasterIdentityService.js';
 import { maybeAutoSyncVerifiedPrivyXUser } from '../services/x/xIdentityService.js';
+import { maybeAutoSyncPrivyWalletBindings } from '../services/userWalletBindingService.js';
 import prisma from '../db/prisma.js';
 
 const PRIVY_JWKS_URL = process.env.PRIVY_JWKS_URL || '';
@@ -172,6 +173,7 @@ export async function requireAuth(request: FastifyRequest, _reply: FastifyReply)
   (request as any).user = await verifyPrivyToken(token);
   const endUserId = String((request as any).user?.sub || '').trim();
   if (endUserId && (request as any).user?.role !== 'service') {
+    await maybeAutoSyncPrivyWalletBindings(endUserId).catch(() => undefined);
     await maybeAutoSyncVerifiedPrivyXUser(endUserId).catch(() => undefined);
     await maybeAutoSyncVerifiedPrivyFarcasterUser(endUserId).catch(() => undefined);
   }

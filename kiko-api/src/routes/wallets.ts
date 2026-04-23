@@ -95,7 +95,7 @@ export default async function walletRoutes(fastify: FastifyInstance, options: Fa
                 return reply.status(401).send({ success: false, message: 'Unauthorized' });
             }
             const { address } = request.params as any;
-            const { solanaAddress, forceRefresh } = request.query as any;
+            const { forceRefresh } = request.query as any;
 
             // Verify ownership/monitoring
             const hasAccess = await walletService.verifyAccess(userId, address);
@@ -106,10 +106,8 @@ export default async function walletRoutes(fastify: FastifyInstance, options: Fa
                 });
             }
 
-            const verifiedSolanaAddress = await walletService.resolveVerifiedSolanaWalletAddress(
-                userId,
-                typeof solanaAddress === 'string' ? solanaAddress : undefined
-            );
+            const binding = await walletService.getAuthenticatedWalletBinding(userId);
+            const verifiedSolanaAddress = binding.solanaWalletAddress || undefined;
 
             const balances = await walletService.getAllChainBalances(address, verifiedSolanaAddress || undefined, {
                 forceRefresh: forceRefresh === '1' || forceRefresh === 'true' || forceRefresh === 1 || forceRefresh === true

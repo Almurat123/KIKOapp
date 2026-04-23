@@ -27,11 +27,15 @@ function resolveRoutingPath(tx: { txPurpose?: string; executionProfile?: string;
 
 const _walletInfoCache = new Map<string, { info: { address: string; id: string } | null; ts: number }>();
 const WALLET_INFO_CACHE_TTL_MS = 600_000;
+const WALLET_INFO_NEGATIVE_CACHE_TTL_MS = 2_000;
 
 function getFromWalletCache(userId: string, chainType: string) {
     const key = `${userId}:${chainType}`;
     const cached = _walletInfoCache.get(key);
-    if (cached && Date.now() - cached.ts < WALLET_INFO_CACHE_TTL_MS) return cached.info;
+    if (cached) {
+        const ttl = cached.info ? WALLET_INFO_CACHE_TTL_MS : WALLET_INFO_NEGATIVE_CACHE_TTL_MS;
+        if (Date.now() - cached.ts < ttl) return cached.info;
+    }
     return undefined;
 }
 function setWalletCache(userId: string, chainType: string, info: { address: string; id: string } | null) {
@@ -116,7 +120,7 @@ describe('Optimization: wallet info in-memory cache', () => {
         assert.equal(result!.id, 'wallet-id-abc');
     });
 
-    test('null (no wallet) result is also cached correctly', () => {
+    test('null (wallet not ready) result is cached only briefly', () => {
         const userId = 'did:privy:no-wallet-user';
         setWalletCache(userId, 'ethereum', null);
         const result = getFromWalletCache(userId, 'ethereum');

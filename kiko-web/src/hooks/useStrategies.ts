@@ -373,9 +373,8 @@ export const useStrategies = () => {
     const strategy = previousStrategy;
     if (strategy?.type === 'copy_trade' && updates.copyTradeConfig) {
       try {
-        const signerWallet = wallets.find((w: any) => w.walletClientType === 'privy' && w.chainId?.includes?.('eip155'))
-          || wallets.find((w: any) => w.chainId?.includes?.('eip155'));
-        const signerAddress = signerWallet?.address || user?.wallet?.address || '';
+        const signerWallet = wallets.find((w: any) => w.walletClientType === 'privy' && w.chainId?.includes?.('eip155'));
+        const signerAddress = signerWallet?.address || '';
         if (!signerWallet || !signerAddress || !user?.id) {
           throw new Error('SIGNATURE_REQUIRED: EVM embedded wallet is required to update copy trade config');
         }
@@ -463,9 +462,8 @@ export const useStrategies = () => {
     if (strategy.type === 'copy_trade') {
       try {
         invalidateStrategiesSnapshot(strategiesCacheKey);
-        const signerWallet = wallets.find((w: any) => w.walletClientType === 'privy' && w.chainId?.includes?.('eip155'))
-          || wallets.find((w: any) => w.chainId?.includes?.('eip155'));
-        const signerAddress = signerWallet?.address || user?.wallet?.address || '';
+        const signerWallet = wallets.find((w: any) => w.walletClientType === 'privy' && w.chainId?.includes?.('eip155'));
+        const signerAddress = signerWallet?.address || '';
         if (!signerWallet || !signerAddress || !user?.id || !strategy.copyTradeConfig) {
           throw new Error('SIGNATURE_REQUIRED: EVM embedded wallet is required to delete copy trade config');
         }

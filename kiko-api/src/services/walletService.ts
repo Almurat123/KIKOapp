@@ -9,7 +9,7 @@ import {
     readSolanaTokenBalanceFast,
 } from './rpc/balanceRpcReader.js';
 import { getWalletTransactionsForWalletPage } from './walletTransactionHistoryService.js';
-import { getEmbeddedWalletAddress, getSolanaEmbeddedWalletAddress } from './privyWallet.js';
+import { syncPrivyEmbeddedWalletBindings } from './userWalletBindingService.js';
 
 const ALL_BALANCES_CACHE_TTL_MS = 60_000;
 // [Perf]: In-memory mirror of Redis cache for zero-latency repeat reads within same process.
@@ -227,60 +227,8 @@ export const walletService = {
         return await getWalletTransactionsForWalletPage(address, options);
     },
 
-    /**
-     * Resolve the authenticated user's Solana embedded wallet from Privy and keep
-     * the local user row in sync. The optional client-supplied address is treated
-     * as a hint only; balances should use the server-verified address returned here.
-     */
-    async resolveVerifiedSolanaWalletAddress(userId: string, requestedSolanaAddress?: string | null): Promise<string | null> {
-        const requestedAddress = String(requestedSolanaAddress || '').trim();
-        const user = await prisma.user.findFirst({
-            where: {
-                OR: [
-                    { privyDid: userId },
-                    { id: userId }
-                ]
-            },
-            select: { id: true, privyDid: true, solanaWalletAddress: true }
-        });
-
-        if (user?.solanaWalletAddress && (!requestedAddress || requestedAddress === user.solanaWalletAddress)) {
-            return user.solanaWalletAddress;
-        }
-
-        const privySolanaAddress = await getSolanaEmbeddedWalletAddress(userId).catch((error: any) => {
-            console.warn('[resolveVerifiedSolanaWalletAddress] Failed to load Privy Solana wallet', {
-                userIdPrefix: userId?.substring(0, 20),
-                requestedAddress: requestedAddress || null,
-                error: error?.message || String(error),
-            });
-            return null;
-        });
-
-        if (privySolanaAddress) {
-            if (requestedAddress && requestedAddress !== privySolanaAddress) {
-                console.warn('[resolveVerifiedSolanaWalletAddress] Ignoring client Solana address mismatch', {
-                    requestedAddress,
-                    privySolanaAddress,
-                    userIdPrefix: userId?.substring(0, 20),
-                });
-            }
-
-            if (user && user.solanaWalletAddress !== privySolanaAddress) {
-                await prisma.user.update({
-                    where: { id: user.id },
-                    data: { solanaWalletAddress: privySolanaAddress },
-                });
-                console.log('[resolveVerifiedSolanaWalletAddress] ✅ Synced Privy Solana wallet', {
-                    userId: user.id,
-                    solanaWalletAddress: privySolanaAddress,
-                });
-            }
-
-            return privySolanaAddress;
-        }
-
-        return null;
+    async getAuthenticatedWalletBinding(userId: string) {
+        return syncPrivyEmbeddedWalletBindings(userId);
     },
 
     /**
@@ -289,33 +237,17 @@ export const walletService = {
     async verifyAccess(userId: string, address: string): Promise<boolean> {
         const normalizedAddress = address.toLowerCase();
         const isEvmAddress = normalizedAddress.startsWith('0x') && normalizedAddress.length === 42;
-        let trustedEmbeddedEvmAddress: string | null | undefined;
-        const resolveTrustedEmbeddedEvmAddress = async () => {
-            if (!isEvmAddress) return null;
-            if (trustedEmbeddedEvmAddress !== undefined) return trustedEmbeddedEvmAddress;
-            trustedEmbeddedEvmAddress = await getEmbeddedWalletAddress(userId, 'ethereum').catch((error: any) => {
-                console.warn('[verifyAccess] Failed to load Privy embedded EVM wallet for repair', {
-                    userIdPrefix: userId?.substring(0, 20),
-                    requestedAddress: normalizedAddress,
-                    error: error?.message || String(error),
-                });
-                return null;
-            });
-            return trustedEmbeddedEvmAddress;
-        };
 
         const cacheKey = `${userId}::${normalizedAddress}`;
         const cached = accessCache.get(cacheKey);
         if (cached && Date.now() - cached.timestamp < ACCESS_CACHE_TTL_MS) {
-            // Positive access is stable enough to reuse. EVM denies are rechecked so
-            // a freshly linked Privy embedded wallet can repair stale local bindings.
-            if (cached.allowed || !isEvmAddress) return cached.allowed;
+            if (!isEvmAddress) return cached.allowed;
         }
         const accessCached = await cacheGet(accessRedisKey(cacheKey)).catch(() => null);
         if (accessCached) {
             const allowed = accessCached === '1';
             accessCache.set(cacheKey, { timestamp: Date.now(), allowed });
-            if (allowed || !isEvmAddress) return allowed;
+            if (!isEvmAddress) return allowed;
         }
 
         console.log('[verifyAccess] Checking access:', {
@@ -325,8 +257,19 @@ export const walletService = {
             requestedAddress: address
         });
 
-        // Check if it's the user's primary wallet or solana wallet
-        const user = await prisma.user.findFirst({
+        const binding = await syncPrivyEmbeddedWalletBindings(userId);
+        if (binding.status === 'conflict') {
+            console.error('[verifyAccess] ❌ Access denied (Privy wallet binding conflict)', {
+                userIdPrefix: userId?.substring(0, 20),
+                requestedAddress: normalizedAddress,
+                evmWalletAddress: binding.evmWalletAddress,
+            });
+            accessCache.set(cacheKey, { timestamp: Date.now(), allowed: false });
+            await cacheSet(accessRedisKey(cacheKey), '0', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
+            return false;
+        }
+
+        const user = binding.user ?? await prisma.user.findFirst({
             where: {
                 OR: [
                     { privyDid: userId },
@@ -350,145 +293,41 @@ export const walletService = {
             });
         }
 
-        if (user) {
-            const isAddressMatch =
-                user.walletAddress.toLowerCase() === normalizedAddress ||
-                user.solanaWalletAddress?.toLowerCase() === normalizedAddress ||
-                // Solana addresses are base58 (case-sensitive), but we normalize to be safe for legacy/db consistency.
-                // Re-checking against raw address for Solana specifically.
-                user.solanaWalletAddress === address;
-
-            if (isAddressMatch) {
-                accessCache.set(cacheKey, { timestamp: Date.now(), allowed: true });
-                await cacheSet(accessRedisKey(cacheKey), '1', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
-                console.log('[verifyAccess] ✅ Access granted');
-                return true;
-            }
-
-            // [Logic]: Auto-link Solana wallet if missing but requested by authorized user.
-            const isSolanaAddress = !isEvmAddress && address.length >= 32 && address.length <= 44;
-            if (isSolanaAddress && !user.solanaWalletAddress) {
-                console.log('[verifyAccess] 🔄 Auto-linking Solana wallet for user:', { userId, address });
-                await prisma.user.update({
-                    where: { id: user.id },
-                    data: { solanaWalletAddress: address }
-                });
-                accessCache.set(cacheKey, { timestamp: Date.now(), allowed: true });
-                await cacheSet(accessRedisKey(cacheKey), '1', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
-                return true;
-            }
-
-            if (isEvmAddress) {
-                const embeddedWalletAddress = await resolveTrustedEmbeddedEvmAddress();
-                const normalizedEmbeddedWallet = embeddedWalletAddress?.toLowerCase();
-
-                if (normalizedEmbeddedWallet === normalizedAddress) {
-                    const existingOwner = await prisma.user.findFirst({
-                        where: {
-                            walletAddress: {
-                                equals: normalizedAddress,
-                                mode: 'insensitive',
-                            },
-                            NOT: { id: user.id },
-                        },
-                        select: { id: true, privyDid: true },
-                    });
-
-                    if (existingOwner) {
-                        console.error('[verifyAccess] ❌ Privy wallet repair blocked; address owned by another user', {
-                            requestedAddress: normalizedAddress,
-                            owner: existingOwner.privyDid,
-                        });
-                        accessCache.set(cacheKey, { timestamp: Date.now(), allowed: false });
-                        await cacheSet(accessRedisKey(cacheKey), '0', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
-                        return false;
-                    }
-
-                    await prisma.user.update({
-                        where: { id: user.id },
-                        data: { walletAddress: normalizedAddress },
-                    });
-                    accessCache.set(cacheKey, { timestamp: Date.now(), allowed: true });
-                    await cacheSet(accessRedisKey(cacheKey), '1', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
-                    console.log('[verifyAccess] ✅ Access granted (synced Privy embedded EVM wallet)', {
-                        userId: user.id,
-                        previousWalletAddress: user.walletAddress?.toLowerCase(),
-                        requestedAddress: normalizedAddress,
-                    });
-                    return true;
-                }
-            }
-
-            // DEBUG: Log the actual mismatch details
-            console.log('[verifyAccess] ❌ Access denied (address mismatch)', {
-                requestedAddress: normalizedAddress,
-                dbWalletAddress: user.walletAddress?.toLowerCase(),
-                dbSolanaWalletAddress: user.solanaWalletAddress?.toLowerCase(),
-                privyDid: user.privyDid?.substring(0, 30) + '...',
-                userId: user.id
-            });
+        if (!user) {
+            console.log('[verifyAccess] ❌ User not found');
             accessCache.set(cacheKey, { timestamp: Date.now(), allowed: false });
             await cacheSet(accessRedisKey(cacheKey), '0', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
             return false;
-        } else {
-            console.log('[verifyAccess] ❌ User not found');
-            if (!isEvmAddress) {
-                // User model requires walletAddress (EVM). We do not auto-create users from non-EVM addresses.
-                accessCache.set(cacheKey, { timestamp: Date.now(), allowed: false });
-                await cacheSet(accessRedisKey(cacheKey), '0', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
-                return false;
-            }
-            const embeddedWalletAddress = await resolveTrustedEmbeddedEvmAddress();
-            const normalizedEmbeddedWallet = embeddedWalletAddress?.toLowerCase();
-            if (normalizedEmbeddedWallet !== normalizedAddress) {
-                console.warn('[verifyAccess] ❌ User creation blocked; requested EVM address is not the Privy embedded wallet', {
-                    requestedAddress: normalizedAddress,
-                    embeddedWalletAddress: normalizedEmbeddedWallet || null,
-                    userIdPrefix: userId?.substring(0, 20),
-                });
-                accessCache.set(cacheKey, { timestamp: Date.now(), allowed: false });
-                await cacheSet(accessRedisKey(cacheKey), '0', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
-                return false;
-            }
-            const existingUser = await prisma.user.findFirst({
-                where: { walletAddress: normalizedAddress }
-            });
-
-            if (existingUser) {
-                if (existingUser.privyDid && existingUser.privyDid !== userId) {
-                    console.error('[verifyAccess] ❌ Address owned by another user', {
-                        requestedAddress: normalizedAddress,
-                        owner: existingUser.privyDid
-                    });
-                    accessCache.set(cacheKey, { timestamp: Date.now(), allowed: false });
-                    await cacheSet(accessRedisKey(cacheKey), '0', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
-                    return false;
-                }
-
-                await prisma.user.update({
-                    where: { id: existingUser.id },
-                    data: { privyDid: userId }
-                });
-                console.log('[verifyAccess] ✅ Access granted (attached privyDid to existing user)');
-                accessCache.set(cacheKey, { timestamp: Date.now(), allowed: true });
-                await cacheSet(accessRedisKey(cacheKey), '1', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
-                return true;
-            }
-
-            try {
-                const created = await prisma.user.create({
-                    data: { privyDid: userId, walletAddress: normalizedAddress }
-                });
-                console.log('[verifyAccess] ✅ Access granted (created user)', { userId: created.id });
-                accessCache.set(cacheKey, { timestamp: Date.now(), allowed: true });
-                await cacheSet(accessRedisKey(cacheKey), '1', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
-                return true;
-            } catch (createError: any) {
-                console.error('[verifyAccess] ❌ Failed to create user record', { error: createError.message });
-                accessCache.set(cacheKey, { timestamp: Date.now(), allowed: false });
-                await cacheSet(accessRedisKey(cacheKey), '0', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
-                return false;
-            }
         }
+
+        const dbEvmAddress = user.walletAddress?.toLowerCase();
+        const dbSolanaAddress = user.solanaWalletAddress || null;
+        const bindingEvmAddress = binding.evmWalletAddress?.toLowerCase() || null;
+        const bindingSolanaAddress = binding.solanaWalletAddress || null;
+        const isAddressMatch = isEvmAddress
+            ? normalizedAddress === bindingEvmAddress || normalizedAddress === dbEvmAddress
+            : address === bindingSolanaAddress ||
+                address === dbSolanaAddress ||
+                normalizedAddress === dbSolanaAddress?.toLowerCase();
+
+        if (isAddressMatch) {
+            accessCache.set(cacheKey, { timestamp: Date.now(), allowed: true });
+            await cacheSet(accessRedisKey(cacheKey), '1', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
+            console.log('[verifyAccess] ✅ Access granted');
+            return true;
+        }
+
+        console.log('[verifyAccess] ❌ Access denied (address mismatch)', {
+            requestedAddress: normalizedAddress,
+            dbWalletAddress: dbEvmAddress,
+            dbSolanaWalletAddress: dbSolanaAddress?.toLowerCase(),
+            privyEvmWalletAddress: bindingEvmAddress,
+            privySolanaWalletAddress: bindingSolanaAddress,
+            privyDid: user.privyDid?.substring(0, 30) + '...',
+            userId: user.id
+        });
+        accessCache.set(cacheKey, { timestamp: Date.now(), allowed: false });
+        await cacheSet(accessRedisKey(cacheKey), '0', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
+        return false;
     }
 };

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { usePrivy } from '@privy-io/react-auth';
+import { usePrivy, useWallets } from '@privy-io/react-auth';
 import type { WalletWithMetadata } from '@privy-io/react-auth';
 import { useWallets as useSolanaWallets } from '@privy-io/react-auth/solana';
 
@@ -9,9 +9,10 @@ export type EmbeddedPrivyWallet = WalletWithMetadata & {
   signTransaction?: (...args: any[]) => Promise<any>;
 };
 
-function isPrivyWallet(account: any): account is WalletWithMetadata {
+function isPrivyWallet(account: any): boolean {
+  const accountType = String(account?.type || '').toLowerCase();
   return (
-    account?.type === 'wallet' &&
+    (!accountType || accountType === 'wallet' || accountType === 'ethereum' || accountType === 'solana') &&
     account?.walletClientType === 'privy' &&
     typeof account?.address === 'string' &&
     account.address.length > 0
@@ -20,6 +21,7 @@ function isPrivyWallet(account: any): account is WalletWithMetadata {
 
 export function usePrivyEmbeddedWallets() {
   const { user } = usePrivy();
+  const { wallets: connectedWallets } = useWallets();
   const { wallets: embeddedSolanaWallets } = useSolanaWallets();
 
   return useMemo(() => {
@@ -30,6 +32,15 @@ export function usePrivyEmbeddedWallets() {
     const mergedByAddress = new Map<string, EmbeddedPrivyWallet>();
     for (const wallet of linkedWallets) {
       mergedByAddress.set(wallet.address.toLowerCase(), wallet);
+    }
+
+    for (const wallet of connectedWallets || []) {
+      if (!isPrivyWallet(wallet)) continue;
+      const existing = mergedByAddress.get(wallet.address.toLowerCase());
+      mergedByAddress.set(wallet.address.toLowerCase(), {
+        ...(existing || {}),
+        ...wallet,
+      } as unknown as EmbeddedPrivyWallet);
     }
 
     for (const wallet of embeddedSolanaWallets || []) {
@@ -62,5 +73,5 @@ export function usePrivyEmbeddedWallets() {
       evmWallet,
       solanaWallet,
     };
-  }, [embeddedSolanaWallets, user]);
+  }, [connectedWallets, embeddedSolanaWallets, user]);
 }

@@ -83,6 +83,13 @@ interface ChainProviderProps {
   children: ReactNode;
 }
 
+const getEmbeddedEvmWallet = (wallets: any[]) =>
+  wallets.find((wallet: any) =>
+    wallet?.walletClientType === 'privy' &&
+    typeof wallet?.address === 'string' &&
+    wallet.address.startsWith('0x')
+  );
+
 export const ChainProvider: React.FC<ChainProviderProps> = ({ children }) => {
   const { login, authenticated } = usePrivy();
   const { wallets } = useWallets();
@@ -112,7 +119,7 @@ export const ChainProvider: React.FC<ChainProviderProps> = ({ children }) => {
   }, [currentChain.id]);
 
   useEffect(() => {
-    const evmWallet = wallets.find((wallet: any) => wallet?.walletClientType !== 'solana');
+    const evmWallet = getEmbeddedEvmWallet(wallets);
     const walletChainId = typeof evmWallet?.chainId === 'string' && evmWallet.chainId.startsWith('eip155:')
       ? Number(evmWallet.chainId.replace('eip155:', ''))
       : undefined;
@@ -150,7 +157,7 @@ export const ChainProvider: React.FC<ChainProviderProps> = ({ children }) => {
           return;
         }
 
-        const evmWallet = wallets.find((wallet: any) => wallet?.walletClientType !== 'solana');
+        const evmWallet = getEmbeddedEvmWallet(wallets);
         if (!evmWallet || typeof (evmWallet as any).switchChain !== 'function') {
           throw new Error('No EVM wallet with chain switching support is currently connected');
         }

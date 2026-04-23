@@ -6,6 +6,7 @@ export type EmbeddedWalletChainType = 'ethereum' | 'solana' | 'auto';
 
 const walletInfoCache = new Map<string, { info: { address: string; id: string } | null; ts: number }>();
 const WALLET_INFO_CACHE_TTL_MS = Number(process.env.PRIVY_WALLET_INFO_CACHE_TTL_MS || '600000');
+const WALLET_INFO_NEGATIVE_CACHE_TTL_MS = Number(process.env.PRIVY_WALLET_INFO_NEGATIVE_CACHE_TTL_MS || '2000');
 
 function isLikelyEvmAddress(value: unknown): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(String(value || ''));
@@ -14,8 +15,7 @@ function isLikelyEvmAddress(value: unknown): boolean {
 function isPrivyEmbeddedWalletAccount(account: any): boolean {
   if (account?.type !== 'wallet') return false;
   const walletClientType = String(account?.walletClientType || '').toLowerCase();
-  if (walletClientType && walletClientType !== 'privy') return false;
-  return typeof account?.address === 'string' && account.address.length > 0;
+  return walletClientType === 'privy' && typeof account?.address === 'string' && account.address.length > 0;
 }
 
 function resolveEmbeddedWallet(user: any, chainType: EmbeddedWalletChainType) {
@@ -54,8 +54,11 @@ export async function fetchPrivyEmbeddedWalletInfo(
   const chainType = deps.chainType || 'auto';
   const cacheKey = `${userId}:${chainType}`;
   const cached = walletInfoCache.get(cacheKey);
-  if (cached && Date.now() - cached.ts < WALLET_INFO_CACHE_TTL_MS) {
-    return cached.info;
+  if (cached) {
+    const ttlMs = cached.info ? WALLET_INFO_CACHE_TTL_MS : WALLET_INFO_NEGATIVE_CACHE_TTL_MS;
+    if (Date.now() - cached.ts < ttlMs) {
+      return cached.info;
+    }
   }
 
   const maxRetries = 3;
