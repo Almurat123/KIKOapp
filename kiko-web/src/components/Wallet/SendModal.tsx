@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X, ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
 import { isAddress, parseUnits, encodeFunctionData } from 'viem';
-import { useWallets } from '@privy-io/react-auth';
+import { getEmbeddedConnectedWallet, useSendTransaction, useWallets } from '@privy-io/react-auth';
+import type { ConnectedWallet } from '@privy-io/react-auth';
 import { useWallets as useSolanaWallets } from '@privy-io/react-auth/solana';
 import {
     PublicKey,
@@ -71,10 +72,19 @@ export const SendModal: React.FC<SendModalProps> = ({
     const [isSending, setIsSending] = useState(false);
     const [txHash, setTxHash] = useState<string | null>(null);
 
-    const { wallets } = useWallets();
+    const { wallets, ready: walletsReady } = useWallets();
     const { wallets: solanaWallets } = useSolanaWallets();
+    const { sendTransaction } = useSendTransaction();
     const [step, setStep] = useState<'input' | 'confirm' | 'processing' | 'success'>('input');
     const [isSelectingToken, setIsSelectingToken] = useState(false);
+
+    const readEvmTxHash = (result: unknown) => {
+        if (typeof result === 'string') return result;
+        if (result && typeof result === 'object' && 'hash' in result && typeof result.hash === 'string') {
+            return result.hash;
+        }
+        return null;
+    };
 
     // Reset state on open
     useEffect(() => {
@@ -171,10 +181,26 @@ export const SendModal: React.FC<SendModalProps> = ({
                 if (!solWallet) throw new Error('Solana wallet not connected');
                 await handleSolanaSend(solWallet);
             } else {
-                const evmWallet = wallets.find((w: any) =>
-                    w.chainId?.includes?.('eip155') &&
-                    (walletAddress ? w.address?.toLowerCase() === walletAddress.toLowerCase() : true)
-                ) || wallets.find((w: any) => w.chainId?.includes?.('eip155'));
+                if (!walletsReady) {
+                    throw new Error('Embedded wallet is still loading. Try again in a moment.');
+                }
+                const embeddedWallet = getEmbeddedConnectedWallet(wallets);
+                const evmWallet = (
+                    embeddedWallet
+                    || wallets.find((wallet: ConnectedWallet) =>
+                        wallet.walletClientType === 'privy'
+                        && wallet.chainId?.includes?.('eip155')
+                        && (walletAddress ? wallet.address?.toLowerCase() === walletAddress.toLowerCase() : true)
+                    )
+                    || wallets.find((wallet: ConnectedWallet) =>
+                        wallet.walletClientType === 'privy' && wallet.chainId?.includes?.('eip155')
+                    )
+                    || wallets.find((wallet: ConnectedWallet) =>
+                        wallet.chainId?.includes?.('eip155')
+                        && (walletAddress ? wallet.address?.toLowerCase() === walletAddress.toLowerCase() : true)
+                    )
+                    || wallets.find((wallet: ConnectedWallet) => wallet.chainId?.includes?.('eip155'))
+                ) as ConnectedWallet | null;
                 if (!evmWallet) throw new Error('EVM wallet not connected');
                 await handleEvmSend(evmWallet);
             }
@@ -189,32 +215,47 @@ export const SendModal: React.FC<SendModalProps> = ({
     };
 
     const handleEvmSend = async (wallet: any) => {
-        // [Logic]: wallet.sendTransaction is used directly, no need for provider/signer here.
         const to = recipient.trim();
+        const from = wallet.address;
+
+        if (!from || !isAddress(from)) {
+            throw new Error('Privy embedded EVM wallet is not ready for this account.');
+        }
 
         // Ensure correct chain
-        if (wallet.chainId !== `eip155:${chainId}`) {
+        if (String(wallet.chainId) !== `eip155:${chainId}`) {
             await wallet.switchChain(chainId);
         }
 
-        let hash;
+        let result;
         if (isNative) {
-            hash = await wallet.sendTransaction({
+            result = await sendTransaction({
+                chainId,
+                from,
                 to,
-                value: parseUnits(amount, 18).toString(),
-            });
+                value: parseUnits(amount, 18),
+            }, { address: from });
         } else {
+            if (!tokenAddress || !isAddress(tokenAddress)) {
+                throw new Error('Missing token contract address');
+            }
             const data = encodeFunctionData({
                 abi: [{ name: 'transfer', type: 'function', inputs: [{ name: 'to', type: 'address' }, { name: 'value', type: 'uint256' }], outputs: [{ name: 'success', type: 'bool' }] }],
                 args: [to as `0x${string}`, parseUnits(amount, tokenDecimals || 18)]
             });
-            hash = await wallet.sendTransaction({
+            result = await sendTransaction({
+                chainId,
+                from,
                 to: tokenAddress as `0x${string}`,
                 data,
-                value: '0'
-            });
+                value: 0,
+            }, { address: from });
         }
-        setTxHash(hash.hash || hash);
+        const hash = readEvmTxHash(result);
+        if (!hash) {
+            throw new Error('Transaction submitted, but no hash was returned.');
+        }
+        setTxHash(hash);
     };
 
     const handleSolanaSend = async (wallet: any) => {
