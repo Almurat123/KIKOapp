@@ -91,6 +91,10 @@ Clanker deploy or reward history, or prepare claim rewards.
   `recipient` unless the user explicitly wants a custom route.
 - If the user asks for creator buy / dev buy, collect the amount and send it
   through `devBuy.ethAmount`; otherwise omit `devBuy` entirely.
+- If the current turn includes uploaded images, inspect them and choose the one
+  that best matches the user's launch intent for `image`. Do not let the backend
+  auto-pick an image for you. If multiple images could reasonably fit and the
+  intent is still ambiguous, ask one precise clarification before launching.
 
 ## Read tools
 

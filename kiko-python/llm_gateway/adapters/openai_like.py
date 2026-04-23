@@ -215,6 +215,111 @@ def _convert_messages_to_responses_input(messages: list[Any]) -> list[dict[str, 
     return items
 
 
+def _schema_allows_null(schema: Any) -> bool:
+    if not isinstance(schema, dict):
+        return False
+    schema_type = schema.get("type")
+    if schema_type == "null":
+        return True
+    if isinstance(schema_type, list) and "null" in schema_type:
+        return True
+    for keyword in ("anyOf", "oneOf"):
+        variants = schema.get(keyword)
+        if isinstance(variants, list) and any(_schema_allows_null(variant) for variant in variants):
+            return True
+    enum_values = schema.get("enum")
+    if isinstance(enum_values, list) and None in enum_values:
+        return True
+    return False
+
+
+def _make_schema_nullable(schema: Any) -> Any:
+    if not isinstance(schema, dict):
+        return schema
+    if _schema_allows_null(schema):
+        return schema
+    cloned: dict[str, Any] = {**schema}
+    schema_type = cloned.get("type")
+    if isinstance(schema_type, str) and schema_type != "null":
+        cloned["type"] = [schema_type, "null"]
+    elif isinstance(schema_type, list):
+        normalized_types = [item for item in schema_type if item != "null"]
+        normalized_types.append("null")
+        cloned["type"] = normalized_types
+    elif isinstance(cloned.get("anyOf"), list):
+        cloned["anyOf"] = [*cloned["anyOf"], {"type": "null"}]
+    elif isinstance(cloned.get("oneOf"), list):
+        cloned["oneOf"] = [*cloned["oneOf"], {"type": "null"}]
+    else:
+        cloned["anyOf"] = [schema, {"type": "null"}]
+    if isinstance(cloned.get("enum"), list) and None not in cloned["enum"]:
+        cloned["enum"] = [*cloned["enum"], None]
+    return cloned
+
+
+def _normalize_schema_for_openai_strict(schema: Any) -> Any:
+    if not isinstance(schema, dict):
+        return schema
+
+    cloned: dict[str, Any] = {**schema}
+
+    for keyword in ("anyOf", "oneOf", "allOf"):
+        variants = cloned.get(keyword)
+        if isinstance(variants, list):
+            cloned[keyword] = [
+                _normalize_schema_for_openai_strict(variant)
+                for variant in variants
+            ]
+
+    if isinstance(cloned.get("items"), dict):
+        cloned["items"] = _normalize_schema_for_openai_strict(cloned["items"])
+    elif isinstance(cloned.get("items"), list):
+        cloned["items"] = [
+            _normalize_schema_for_openai_strict(item)
+            for item in cloned["items"]
+        ]
+
+    if isinstance(cloned.get("not"), dict):
+        cloned["not"] = _normalize_schema_for_openai_strict(cloned["not"])
+
+    properties = cloned.get("properties")
+    is_object_schema = (
+        cloned.get("type") == "object"
+        or isinstance(properties, dict)
+        or isinstance(cloned.get("required"), list)
+        or "additionalProperties" in cloned
+    )
+
+    if is_object_schema:
+        property_map = properties if isinstance(properties, dict) else {}
+        original_required = set(
+            str(item) for item in cloned.get("required", [])
+            if isinstance(item, str)
+        )
+        normalized_properties: dict[str, Any] = {}
+        for name, value in property_map.items():
+            normalized_value = _normalize_schema_for_openai_strict(value)
+            if name not in original_required:
+                normalized_value = _make_schema_nullable(normalized_value)
+            normalized_properties[name] = normalized_value
+        cloned["type"] = "object"
+        cloned["properties"] = normalized_properties
+        cloned["required"] = list(normalized_properties.keys())
+        cloned["additionalProperties"] = False
+        return cloned
+
+    return cloned
+
+
+def _normalize_parameters_for_openai_responses_strict(parameters: Any) -> dict[str, Any]:
+    if not isinstance(parameters, dict):
+        parameters = {"type": "object", "properties": {}}
+    base = {**parameters}
+    if not isinstance(base.get("properties"), dict):
+        base["properties"] = {}
+    return _normalize_schema_for_openai_strict(base)
+
+
 def _convert_chat_tools_to_responses_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
     converted: list[dict[str, Any]] = []
     for tool in tools:
@@ -229,12 +334,17 @@ def _convert_chat_tools_to_responses_tools(tools: list[dict[str, Any]]) -> list[
         name = str(function.get("name") or "").strip()
         if not name:
             continue
+        strict = function.get("strict")
+        strict_enabled = strict is not False
+        parameters = function.get("parameters") if isinstance(function.get("parameters"), dict) else {"type": "object", "properties": {}}
+        if strict_enabled:
+            parameters = _normalize_parameters_for_openai_responses_strict(parameters)
         converted.append({
             "type": "function",
             "name": name,
             "description": str(function.get("description") or ""),
-            "parameters": function.get("parameters") if isinstance(function.get("parameters"), dict) else {"type": "object", "properties": {}},
-            "strict": bool(function.get("strict", True)),
+            "parameters": parameters,
+            "strict": strict_enabled,
         })
     return converted
 
@@ -300,7 +410,7 @@ def _summarize_openai_request_shape(body: dict[str, Any]) -> dict[str, Any]:
     for index, tool in enumerate(tools):
         if not isinstance(tool, dict):
             continue
-        function = tool.get("function")
+        function = tool.get("function") if isinstance(tool.get("function"), dict) else tool
         if not isinstance(function, dict):
             continue
         name = str(function.get("name") or "")

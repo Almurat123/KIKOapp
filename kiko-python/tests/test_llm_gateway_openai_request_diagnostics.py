@@ -116,6 +116,83 @@ class OpenAIRequestDiagnosticsTests(unittest.TestCase):
         self.assertEqual(body["tools"][0]["name"], "generate_image_from_intent")
         self.assertEqual(body["tools"][0]["strict"], True)
         self.assertEqual(body["store"], False)
+        self.assertEqual(body["tools"][0]["parameters"]["additionalProperties"], False)
+        self.assertEqual(
+            sorted(body["tools"][0]["parameters"]["required"]),
+            sorted(body["tools"][0]["parameters"]["properties"].keys()),
+        )
+
+    def test_normalizes_responses_strict_schema_for_optional_and_nested_fields(self):
+        req = GenerateRequest(
+            model="gpt-5.4-mini-2026-03-17",
+            api_mode="responses",
+            messages=[{"role": "user", "content": "edit this image"}],
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "generate_image_from_intent",
+                        "description": "Generate or edit an image.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "user_intent": {"type": "string"},
+                                "style_hint": {"type": "string"},
+                                "reference_images": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "url": {"type": "string"},
+                                            "description": {"type": "string"},
+                                        },
+                                        "required": ["url"],
+                                    },
+                                },
+                            },
+                            "required": ["user_intent"],
+                        },
+                    },
+                }
+            ],
+        )
+
+        body = _build_openai_responses_request_body(req)
+        schema = body["tools"][0]["parameters"]
+
+        self.assertEqual(schema["additionalProperties"], False)
+        self.assertEqual(schema["required"], ["user_intent", "style_hint", "reference_images"])
+        self.assertEqual(schema["properties"]["style_hint"]["type"], ["string", "null"])
+
+        nested = schema["properties"]["reference_images"]["items"]
+        self.assertEqual(nested["additionalProperties"], False)
+        self.assertEqual(nested["required"], ["url", "description"])
+        self.assertEqual(nested["properties"]["description"]["type"], ["string", "null"])
+
+    def test_normalizes_empty_object_parameters_for_responses_strict_schema(self):
+        req = GenerateRequest(
+            model="gpt-5.4-mini-2026-03-17",
+            api_mode="responses",
+            messages=[{"role": "user", "content": "read context"}],
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "read_social_images",
+                        "description": "Read social image context.",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+            ],
+        )
+
+        body = _build_openai_responses_request_body(req)
+        schema = body["tools"][0]["parameters"]
+
+        self.assertEqual(schema["type"], "object")
+        self.assertEqual(schema["properties"], {})
+        self.assertEqual(schema["required"], [])
+        self.assertEqual(schema["additionalProperties"], False)
 
     def test_summarizes_tool_shape_without_prompt_content(self):
         body = {
@@ -153,6 +230,27 @@ class OpenAIRequestDiagnosticsTests(unittest.TestCase):
         self.assertEqual(summary["long_tool_description_count"], 1)
         self.assertEqual(summary["non_object_tool_parameter_count"], 1)
         self.assertNotIn("do not log this prompt", str(summary))
+
+    def test_summarizes_flattened_responses_tool_shape(self):
+        body = {
+            "model": "gpt-5.4-mini-2026-03-17",
+            "input": [{"role": "user", "content": [{"type": "input_text", "text": "generate"}]}],
+            "stream": True,
+            "tools": [
+                {
+                    "type": "function",
+                    "name": "generate_image_from_intent",
+                    "description": "Generate an image.",
+                    "parameters": {"type": "object", "properties": {}, "required": [], "additionalProperties": False},
+                    "strict": True,
+                }
+            ],
+        }
+
+        summary = _summarize_openai_request_shape(body)
+
+        self.assertEqual(summary["tool_count"], 1)
+        self.assertEqual(summary["first_tool_names"], ["generate_image_from_intent"])
 
 
 if __name__ == "__main__":

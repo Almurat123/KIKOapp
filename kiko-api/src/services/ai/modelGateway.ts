@@ -54,18 +54,97 @@ export interface GatewayResponse {
     requestBody: Record<string, any>;
 }
 
+function schemaAllowsNull(schema: any): boolean {
+    if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return false;
+    if (schema.type === 'null') return true;
+    if (Array.isArray(schema.type) && schema.type.includes('null')) return true;
+    if (Array.isArray(schema.enum) && schema.enum.includes(null)) return true;
+    for (const keyword of ['oneOf', 'anyOf'] as const) {
+        if (Array.isArray(schema[keyword]) && schema[keyword].some((item: any) => schemaAllowsNull(item))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function makeSchemaNullable(schema: any): any {
+    if (!schema || typeof schema !== 'object' || Array.isArray(schema) || schemaAllowsNull(schema)) {
+        return schema;
+    }
+    const cloned: Record<string, any> = { ...schema };
+    if (typeof cloned.type === 'string' && cloned.type !== 'null') {
+        cloned.type = [cloned.type, 'null'];
+    } else if (Array.isArray(cloned.type)) {
+        cloned.type = [...cloned.type.filter((item: any) => item !== 'null'), 'null'];
+    } else if (Array.isArray(cloned.anyOf)) {
+        cloned.anyOf = [...cloned.anyOf, { type: 'null' }];
+    } else if (Array.isArray(cloned.oneOf)) {
+        cloned.oneOf = [...cloned.oneOf, { type: 'null' }];
+    } else {
+        cloned.anyOf = [schema, { type: 'null' }];
+    }
+    if (Array.isArray(cloned.enum) && !cloned.enum.includes(null)) {
+        cloned.enum = [...cloned.enum, null];
+    }
+    return cloned;
+}
+
+function strictifySchemaNode(schema: any): any {
+    if (!schema || typeof schema !== 'object') return schema;
+
+    if (Array.isArray(schema)) {
+        return schema.map((item) => strictifySchemaNode(item));
+    }
+
+    const cloned: Record<string, any> = { ...schema };
+    const isObjectSchema = cloned.type === 'object' || cloned.properties || cloned.required || cloned.additionalProperties !== undefined;
+
+    if (cloned.items !== undefined) {
+        cloned.items = strictifySchemaNode(cloned.items);
+    }
+
+    for (const keyword of ['oneOf', 'anyOf', 'allOf'] as const) {
+        if (Array.isArray(cloned[keyword])) {
+            cloned[keyword] = cloned[keyword].map((item: any) => strictifySchemaNode(item));
+        }
+    }
+
+    if (cloned.not) {
+        cloned.not = strictifySchemaNode(cloned.not);
+    }
+
+    if (isObjectSchema) {
+        const properties = cloned.properties && typeof cloned.properties === 'object' && !Array.isArray(cloned.properties)
+            ? cloned.properties
+            : {};
+        const originalRequired = new Set(Array.isArray(cloned.required) ? cloned.required.map((item: any) => String(item)) : []);
+        cloned.type = 'object';
+        cloned.properties = Object.fromEntries(
+            Object.entries(properties).map(([key, value]) => {
+                const normalized = strictifySchemaNode(value);
+                return [
+                    key,
+                    originalRequired.has(String(key))
+                        ? normalized
+                        : makeSchemaNullable(normalized),
+                ];
+            }),
+        );
+        cloned.required = Object.keys(cloned.properties);
+        cloned.additionalProperties = false;
+    }
+
+    return cloned;
+}
+
 function toStrictSchema(def: ToolDefinition): ToolDefinition {
     const properties = def.parameters?.properties || {};
-    const required = Array.isArray(def.parameters?.required)
-        ? def.parameters.required
-        : Object.keys(properties);
-
-    const normalizedParameters = {
-        type: 'object' as const,
+    const normalizedParameters = strictifySchemaNode({
+        ...def.parameters,
+        type: 'object',
         properties,
-        required,
         additionalProperties: false,
-    } as any;
+    });
 
     return {
         ...def,
