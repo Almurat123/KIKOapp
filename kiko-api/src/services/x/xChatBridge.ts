@@ -8,6 +8,10 @@
 //         X generated-image turns now need to mirror Farcaster's model-led flow:
 //         carry image-model preferences into tool context, wait for generated
 //         image assistant rows, and return hydrated media URLs to publication.
+//         A production OpenRouter `gpt-image-2` trace on 2026-04-23 completed
+//         successfully after about 199 seconds, so X mention publication must
+//         wait at least as long as the 300-second image provider timeout before
+//         falling back to a pending public reply.
 // Goal: enqueue X-originated chat work with stable text history plus explicit
 //       structured social-agent multimodal input for the current turn and
 //       generated-image media output for X reply publication.
@@ -27,6 +31,12 @@
 // - Retrieved: 2026-04-16
 // - Applied To: preserving X mention thread/media context for model-visible input
 // - Verification: verified in docs and code
+// - Source: production runtime log /Users/almurat/Downloads/logs.1776925061863.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-23
+// - Applied To: aligning X reply wait budget with slow successful OpenRouter
+//   generated-image turns
+// - Verification: verified in runtime log and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
@@ -61,7 +71,7 @@ const DEFAULT_X_ERROR_REPLY = 'I ran into an issue processing that request. Plea
 const DEFAULT_X_TIMEOUT_REPLY = 'I am still working on that. Please try again in a moment.';
 const DEFAULT_X_GENERATED_IMAGE_READY_REPLY = 'Generated.';
 const DEFAULT_X_GENERATED_IMAGE_PENDING_REPLY = 'Image generation is still running. Please try again in a moment.';
-const DEFAULT_X_TASK_REPLY_TIMEOUT_MS = 180_000;
+const DEFAULT_X_TASK_REPLY_TIMEOUT_MS = 300_000;
 
 function sanitizeXPublicReplyText(text: string): string {
   const trimmed = String(text || '').trim();
@@ -326,9 +336,15 @@ export async function waitForTaskAssistantReply(params: {
   taskId?: string | null;
   assistantMessageId: string;
   timeoutMs?: number;
+  repo?: Pick<typeof chatRepo, 'getTask' | 'getMessage'>;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
 }): Promise<XAssistantReply> {
+  const repo = params.repo || chatRepo;
+  const now = params.now || Date.now;
+  const sleep = params.sleep || ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   if (!params.taskId) {
-    const assistantMessage = await chatRepo.getMessage(params.assistantMessageId);
+    const assistantMessage = await repo.getMessage(params.assistantMessageId);
     const reply = await buildXAssistantReplyFromMessage(assistantMessage);
     return {
       text: reply.text || resolveXAssistantReplyText(assistantMessage),
@@ -337,12 +353,12 @@ export async function waitForTaskAssistantReply(params: {
   }
 
   const timeoutMs = Math.max(1_000, Number(params.timeoutMs || DEFAULT_X_TASK_REPLY_TIMEOUT_MS));
-  const startedAt = Date.now();
+  const startedAt = now();
 
-  while (Date.now() - startedAt < timeoutMs) {
+  while (now() - startedAt < timeoutMs) {
     const [task, assistantMessage] = await Promise.all([
-      chatRepo.getTask(params.taskId),
-      chatRepo.getMessage(params.assistantMessageId),
+      repo.getTask(params.taskId),
+      repo.getMessage(params.assistantMessageId),
     ]);
 
     if (!task || ['done', 'error', 'cancelled'].includes(task.status)) {
@@ -361,10 +377,10 @@ export async function waitForTaskAssistantReply(params: {
       };
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await sleep(1000);
   }
 
-  const assistantMessage = await chatRepo.getMessage(params.assistantMessageId);
+  const assistantMessage = await repo.getMessage(params.assistantMessageId);
   const reply = await buildXAssistantReplyFromMessage(assistantMessage);
   return {
     text: reply.text || resolveXAssistantReplyText(assistantMessage, {

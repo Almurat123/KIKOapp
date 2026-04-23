@@ -79,8 +79,9 @@ import { normalizeSocialImageUrl } from '../../../services/socialAgentInput.js';
 //   fall back to the deterministic prompt so image execution still proceeds.
 // - `action:auto` follows the official Responses tool mental model: generate
 //   without source images and edit when usable source/reference images exist.
-//   Forced `generate` must not pass source images as edit inputs; forced `edit`
-//   needs source/reference images.
+//   In this intent-level tool, `action:generate` means "make a new output image";
+//   it must not discard current-turn reference images from social/uploads.
+//   Forced `edit` still needs source/reference images.
 // Document Provenance:
 // - Source: operator requirement on 2026-04-18 for model-owned image generation inside main chat
 // - Kind: product doc
@@ -353,6 +354,36 @@ function buildImplicitImageReferenceInputs(params: {
     };
 }
 
+// CONTEXT MEMORY
+// Updated: 2026-04-23
+// Status: mixed
+// Why: GPT tool calls often use action=generate to mean "make a new output"
+// even when the user supplied a reference image in the current X/Farcaster
+// post. Dropping references on that action loses the exact image the user
+// asked us to use.
+// Debug Goal: social/uploaded reference images must survive action=generate
+// and reach generated-image execution; only action=edit enforces that a source
+// image exists.
+// Search Tags: generate_image_from_intent action generate preserve reference images social uploads
+// Invariants:
+// - Current-turn reference images are passed to providers whenever present.
+// - action=edit without any usable source/reference image remains an error.
+// Failure Modes:
+// - X/Farcaster "use this image" turns generate unrelated pictures.
+// - The model chooses action=generate and silently clears socialInput.images.
+function resolveReferenceInputsForAction(params: {
+    requestedAction: ReturnType<typeof normalizeGeneratedImageToolAction>;
+    builtReferenceInputs: ReturnType<typeof buildImplicitImageReferenceInputs>;
+}): ReturnType<typeof buildImplicitImageReferenceInputs> {
+    if (
+        params.requestedAction === 'edit'
+        && params.builtReferenceInputs.providerReferenceImages.length === 0
+    ) {
+        throw new Error('generate_image_from_intent action=edit requires a source or reference image input.');
+    }
+    return params.builtReferenceInputs;
+}
+
 export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record<string, any>> = {
     definition: {
         name: 'generate_image_from_intent',
@@ -484,15 +515,12 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
             })),
             context,
         });
-        const mergedReferenceImages = requestedAction === 'generate'
-            ? []
-            : builtReferenceInputs.mergedReferenceImages;
-        const providerReferenceImages = requestedAction === 'generate'
-            ? []
-            : builtReferenceInputs.providerReferenceImages;
-        if (requestedAction === 'edit' && providerReferenceImages.length === 0) {
-            throw new Error('generate_image_from_intent action=edit requires a source or reference image input.');
-        }
+        const referenceInputs = resolveReferenceInputsForAction({
+            requestedAction,
+            builtReferenceInputs,
+        });
+        const mergedReferenceImages = referenceInputs.mergedReferenceImages;
+        const providerReferenceImages = referenceInputs.providerReferenceImages;
         const normalizedArgs = normalizeGeneratedImageIntentInput({
             ...args,
             action: requestedAction,
@@ -625,4 +653,5 @@ export const __generateImageFromIntentTest = {
     mergeImplicitReferenceImages,
     readImplicitSocialReferenceImages,
     buildProviderReferenceImages,
+    resolveReferenceInputsForAction,
 };

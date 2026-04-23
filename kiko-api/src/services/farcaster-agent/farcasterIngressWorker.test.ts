@@ -15,6 +15,7 @@ import {
   buildFarcasterAssistantReplyFromGeneratedImageState,
   buildFarcasterAssistantReplyFromMessage,
   resolveFarcasterAssistantReplyText,
+  waitForFarcasterTaskAssistantReply,
 } from './farcasterChatBridge.js';
 
 after(async () => {
@@ -362,6 +363,55 @@ test('resolveFarcasterAssistantReplyText keeps generated-image timeout replies o
   });
 
   assert.equal(reply, 'Image generation is still running. Please try again in a moment.');
+});
+
+test('waitForFarcasterTaskAssistantReply waits long enough for slow generated-image tasks before pending fallback', async () => {
+  let virtualNow = 0;
+  const repo = {
+    getTask: async () => {
+      if (virtualNow >= 190_000) {
+        return {
+          id: 'task-slow-image',
+          status: 'done',
+          toolContext: {
+            generatedImage: {
+              output: {
+                status: 'complete',
+                images: [
+                  { publicUrl: 'https://cdn.example/slow-generated.png' },
+                ],
+              },
+            },
+          },
+        };
+      }
+      return {
+        id: 'task-slow-image',
+        status: 'running',
+        toolContext: {},
+      };
+    },
+    getMessage: async () => ({
+      id: 'assistant-slow-image',
+      type: 'generated-image',
+      content: '',
+      data: null,
+    }),
+  };
+
+  const reply = await waitForFarcasterTaskAssistantReply({
+    taskId: 'task-slow-image',
+    assistantMessageId: 'assistant-slow-image',
+    repo,
+    now: () => virtualNow,
+    sleep: async () => {
+      virtualNow += 1000;
+    },
+  });
+
+  assert.equal(reply.text, 'Generated.');
+  assert.deepEqual(reply.embeds, ['https://cdn.example/slow-generated.png']);
+  assert.equal(virtualNow >= 190_000, true);
 });
 
 test('resolveFarcasterAssistantReplyText does not publish raw provider HTTP errors', () => {

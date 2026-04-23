@@ -45,11 +45,13 @@ test('selectTaskRoute keeps long social reference-image prompts on the image own
             requestedTokenSymbols: ['KIKO'],
         },
     );
+    let capturedMessages: any[] = [];
 
     const result = await selectTaskRoute({
         snapshot,
         generationClient: {
-            async generate() {
+            async generate(params: any) {
+                capturedMessages = params.messages || [];
                 return {
                     text: JSON.stringify({
                         owner: 'image',
@@ -84,6 +86,18 @@ test('selectTaskRoute keeps long social reference-image prompts on the image own
     assert.equal(result.snapshot.taskRoute?.phase, 'execute');
     assert.ok(result.snapshot.taskRoute?.facets.includes('reference_image'));
     assert.equal(result.snapshot.normalizedIntent?.intent, 'image_generation');
+    const routeUserContent = capturedMessages.find((message) => message.role === 'user')?.content;
+    assert.ok(Array.isArray(routeUserContent));
+    assert.equal(routeUserContent[1]?.type, 'image_url');
+    assert.equal(routeUserContent[1]?.image_url?.url, 'https://example.com/kiko-ref.png');
+    const routePayload = JSON.parse(String(routeUserContent[0]?.text || '{}'));
+    assert.deepEqual(routePayload.social_images, [
+        {
+            index: 1,
+            label: 'cast image',
+            url: 'https://example.com/kiko-ref.png',
+        },
+    ]);
 
     const resolution = resolveNodeSkills(result.snapshot, null, result.snapshot.normalizedIntent);
     assert.equal(resolution.toolPackageSource, 'task_route');

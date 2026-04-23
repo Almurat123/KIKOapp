@@ -19,7 +19,11 @@
 //         generated-image task output media before publishing. A later runtime
 //         trace showed NVIDIA/GLM tool-first turns could exceed the bridge's
 //         original 90-second wait window, causing Farcaster to publish the
-//         generic pending reply before the first tool round completed.
+//         generic pending reply before the first tool round completed. A later
+//         production trace on 2026-04-23 showed successful OpenRouter
+//         `gpt-image-2` turns taking about 199 seconds end-to-end, so the
+//         Farcaster bridge must wait at least as long as the 300-second image
+//         provider timeout before falling back to a pending public reply.
 //         Operator correction on 2026-04-21 confirmed GPT Image Mini remains the
 //         default generated-image model and should consume the shared free
 //         generated-image allowance. A later correction on the same day moved
@@ -122,6 +126,12 @@
 // - Retrieved: 2026-04-21
 // - Applied To: Farcaster generated-image default model selection and fallback order
 // - Verification: verified in code and targeted tests
+// - Source: production runtime log /Users/almurat/Downloads/logs.1776925061863.json
+// - Kind: runtime observation
+// - Retrieved: 2026-04-23
+// - Applied To: aligning Farcaster reply wait budget with slow successful
+//   OpenRouter generated-image turns
+// - Verification: verified in runtime log and code
 // - Source: operator correction on 2026-04-21 that Farcaster image generation
 //   should be decided by the model, not by ingress regex routing
 // - Kind: product doc
@@ -170,7 +180,7 @@ const DEFAULT_FARCASTER_ERROR_REPLY = 'I ran into an issue processing that reque
 const DEFAULT_FARCASTER_TIMEOUT_REPLY = 'I am still working on that. Please try again in a moment.';
 const DEFAULT_FARCASTER_GENERATED_IMAGE_READY_REPLY = 'Generated.';
 const DEFAULT_FARCASTER_GENERATED_IMAGE_PENDING_REPLY = 'Image generation is still running. Please try again in a moment.';
-const DEFAULT_FARCASTER_TASK_REPLY_TIMEOUT_MS = 180_000;
+const DEFAULT_FARCASTER_TASK_REPLY_TIMEOUT_MS = 300_000;
 
 function sanitizeFarcasterPublicReplyText(text: string): string {
   const trimmed = String(text || '').trim();
@@ -523,9 +533,15 @@ export async function waitForFarcasterTaskAssistantReply(params: {
   taskId?: string | null;
   assistantMessageId: string;
   timeoutMs?: number;
+  repo?: Pick<typeof chatRepo, 'getTask' | 'getMessage'>;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
 }): Promise<FarcasterAssistantReply> {
+  const repo = params.repo || chatRepo;
+  const now = params.now || Date.now;
+  const sleep = params.sleep || ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   if (!params.taskId) {
-    const assistantMessage = await chatRepo.getMessage(params.assistantMessageId);
+    const assistantMessage = await repo.getMessage(params.assistantMessageId);
     const reply = await buildFarcasterAssistantReplyFromMessage(assistantMessage);
     const resolvedReply = {
       text: reply.text || resolveFarcasterAssistantReplyText(assistantMessage),
@@ -542,12 +558,12 @@ export async function waitForFarcasterTaskAssistantReply(params: {
   }
 
   const timeoutMs = Math.max(1_000, Number(params.timeoutMs || DEFAULT_FARCASTER_TASK_REPLY_TIMEOUT_MS));
-  const startedAt = Date.now();
+  const startedAt = now();
 
-  while (Date.now() - startedAt < timeoutMs) {
+  while (now() - startedAt < timeoutMs) {
     const [task, assistantMessage] = await Promise.all([
-      chatRepo.getTask(params.taskId),
-      chatRepo.getMessage(params.assistantMessageId),
+      repo.getTask(params.taskId),
+      repo.getMessage(params.assistantMessageId),
     ]);
 
     if (!task || ['done', 'error', 'cancelled'].includes(task.status)) {
@@ -578,10 +594,10 @@ export async function waitForFarcasterTaskAssistantReply(params: {
       return resolvedReply;
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await sleep(1000);
   }
 
-  const assistantMessage = await chatRepo.getMessage(params.assistantMessageId);
+  const assistantMessage = await repo.getMessage(params.assistantMessageId);
   const reply = await buildFarcasterAssistantReplyFromMessage(assistantMessage);
   const resolvedReply = {
     text: reply.text || resolveFarcasterAssistantReplyText(assistantMessage, {

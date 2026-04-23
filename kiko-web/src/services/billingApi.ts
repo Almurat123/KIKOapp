@@ -121,6 +121,58 @@ let usageSummaryCache: UsageSummaryCacheEntry | null = null;
 const usageSummaryInFlight = new Map<string, Promise<UsageSummary>>();
 
 // CONTEXT MEMORY
+// Updated: 2026-04-23
+// Status: mixed
+// Why: billing/admin pages use a lightweight fetch layer instead of the larger
+// shared API client, and Safari exposed that malformed runtime URL or header
+// inputs can fail before the request is sent.
+// Debug Goal: billing fetches must build valid absolute URLs and only attach
+// valid auth/content headers so /admin and wallet credits screens load across browsers.
+// Search Tags: admin billing fetch string did not match expected pattern safari billingApi
+// Invariants:
+// - Relative billing paths must resolve against one normalized API base.
+// - Authorization headers must only use a trimmed non-empty token string.
+// Failure Modes:
+// - Runtime API_URL formatting regressions can make fetch throw before any HTTP request.
+// - Forcing JSON headers on bodyless GET requests can create browser-specific request issues.
+
+function buildBillingApiUrl(path: string): string {
+  const normalizedPath = String(path || '').trim();
+  if (!normalizedPath) {
+    throw new Error('Missing billing API path');
+  }
+
+  try {
+    if (/^https?:\/\//i.test(normalizedPath)) {
+      return new URL(normalizedPath).toString();
+    }
+    return new URL(normalizedPath.replace(/^\/*/, '/'), `${API_BASE_URL.replace(/\/+$/, '')}/`).toString();
+  } catch (error) {
+    console.error('[billingApi] Failed to build request URL', {
+      apiBaseUrl: API_BASE_URL,
+      path: normalizedPath,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw new Error('Invalid billing API URL configuration');
+  }
+}
+
+async function parseJsonResponse<T>(response: Response, fallbackMessage: string): Promise<T> {
+  try {
+    return await response.json() as T;
+  } catch (error) {
+    const bodyText = await response.text().catch(() => '');
+    console.error('[billingApi] Failed to parse JSON response', {
+      url: response.url,
+      status: response.status,
+      bodyPreview: bodyText.slice(0, 200),
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw new Error(fallbackMessage);
+  }
+}
+
+// CONTEXT MEMORY
 // Updated: 2026-04-16
 // Author: Rowan
 // Reason: Sidebar was refreshing billing usage on focus/visibility and turning
@@ -167,14 +219,16 @@ const usageSummaryInFlight = new Map<string, Promise<UsageSummary>>();
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 async function authFetch(path: string, options: RequestInit = {}, authToken?: string | null) {
-  const token = authToken ?? await getAuthToken();
+  const token = String(authToken ?? await getAuthToken() ?? '').trim();
   const headers = new Headers(options.headers);
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }
-  headers.set('Content-Type', 'application/json');
+  if (options.body !== undefined && options.body !== null) {
+    headers.set('Content-Type', 'application/json');
+  }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(buildBillingApiUrl(path), {
     ...options,
     headers,
   });
@@ -235,7 +289,7 @@ export async function getUsageSummary(
       }
       throw new Error('Failed to fetch usage summary');
     }
-    const data = await response.json() as UsageSummary;
+    const data = await parseJsonResponse<UsageSummary>(response, 'Failed to parse usage summary');
     usageSummaryCache = {
       authKey,
       data,
@@ -265,7 +319,7 @@ export async function getCreditDeposits(authToken?: string | null) {
   if (!response.ok) {
     throw new Error('Failed to fetch credit deposits');
   }
-  const data = await response.json() as { items: CreditDepositItem[] };
+  const data = await parseJsonResponse<{ items: CreditDepositItem[] }>(response, 'Failed to parse credit deposits');
   return data.items;
 }
 
@@ -274,7 +328,7 @@ export async function getCreditRefunds(authToken?: string | null) {
   if (!response.ok) {
     throw new Error('Failed to fetch credit refunds');
   }
-  const data = await response.json() as { items: CreditRefundItem[] };
+  const data = await parseJsonResponse<{ items: CreditRefundItem[] }>(response, 'Failed to parse credit refunds');
   return data.items;
 }
 
@@ -297,7 +351,7 @@ export async function getAdminCreditRefunds(status = '', authToken?: string | nu
   if (!response.ok) {
     throw new Error('Failed to fetch admin refunds');
   }
-  const data = await response.json() as { items: AdminCreditRefundItem[] };
+  const data = await parseJsonResponse<{ items: AdminCreditRefundItem[] }>(response, 'Failed to parse admin refunds');
   return data.items;
 }
 
@@ -352,6 +406,6 @@ export async function getCreditWatcherMonitor(authToken?: string | null) {
   if (!response.ok) {
     throw new Error('Failed to fetch credit watcher monitor');
   }
-  const data = await response.json() as { watcher: CreditWatcherStatus | null };
+  const data = await parseJsonResponse<{ watcher: CreditWatcherStatus | null }>(response, 'Failed to parse credit watcher monitor');
   return data.watcher;
 }

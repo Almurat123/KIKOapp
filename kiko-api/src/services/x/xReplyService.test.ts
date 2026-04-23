@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { after } from 'node:test';
 
+import prisma from '../../db/prisma.js';
+import { waitForTaskAssistantReply } from './xChatBridge.js';
 import { __xReplyServiceTest, sanitizePublicXReplyText } from './xReplyService.js';
+
+after(async () => {
+  await prisma.$disconnect().catch(() => {});
+  setImmediate(() => process.exit(0));
+});
 
 test('sanitizePublicXReplyText strips KIKO share and OGP links from public replies', () => {
   const text = sanitizePublicXReplyText(
@@ -59,4 +66,53 @@ test('generated-image ready replies require uploaded media when media URLs are p
     }),
     false,
   );
+});
+
+test('waitForTaskAssistantReply waits long enough for slow generated-image tasks before pending fallback', async () => {
+  let virtualNow = 0;
+  const repo = {
+    getTask: async () => {
+      if (virtualNow >= 190_000) {
+        return {
+          id: 'task-slow-image',
+          status: 'done',
+          toolContext: {
+            generatedImage: {
+              output: {
+                status: 'complete',
+                images: [
+                  { publicUrl: 'https://cdn.example/x-slow-generated.png' },
+                ],
+              },
+            },
+          },
+        };
+      }
+      return {
+        id: 'task-slow-image',
+        status: 'running',
+        toolContext: {},
+      };
+    },
+    getMessage: async () => ({
+      id: 'assistant-slow-image',
+      type: 'generated-image',
+      content: '',
+      data: null,
+    }),
+  };
+
+  const reply = await waitForTaskAssistantReply({
+    taskId: 'task-slow-image',
+    assistantMessageId: 'assistant-slow-image',
+    repo,
+    now: () => virtualNow,
+    sleep: async () => {
+      virtualNow += 1000;
+    },
+  });
+
+  assert.equal(reply.text, 'Generated.');
+  assert.deepEqual(reply.mediaUrls, ['https://cdn.example/x-slow-generated.png']);
+  assert.equal(virtualNow >= 190_000, true);
 });

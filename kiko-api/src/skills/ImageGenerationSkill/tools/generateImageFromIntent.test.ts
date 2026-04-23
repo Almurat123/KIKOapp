@@ -226,3 +226,51 @@ test('generated image tool builds provider reference images from social runtime 
         },
     ]);
 });
+
+test('generated image tool preserves social reference inputs when model requests action generate', () => {
+    const built = __generateImageFromIntentTest.buildImplicitImageReferenceInputs({
+        explicitReferenceImages: [],
+        uploadedTaskImages: [],
+        context: {
+            __snapshot: {
+                runtime: {
+                    socialInput: {
+                        images: [
+                            {
+                                url: 'https://example.com/x-reference-image.png',
+                                sourceLabel: 'current X post by @artist',
+                            },
+                        ],
+                    },
+                },
+            },
+        },
+    });
+    const resolved = __generateImageFromIntentTest.resolveReferenceInputsForAction({
+        requestedAction: 'generate',
+        builtReferenceInputs: built,
+    });
+
+    assert.deepEqual(resolved.providerReferenceImages, [
+        {
+            url: 'https://example.com/x-reference-image.png',
+            sourceLabel: 'current X post by @artist | preserve subject identity and visual details from the social post image',
+        },
+    ]);
+});
+
+test('generated image tool still rejects action edit without reference inputs', () => {
+    const built = __generateImageFromIntentTest.buildImplicitImageReferenceInputs({
+        explicitReferenceImages: [],
+        uploadedTaskImages: [],
+        context: {},
+    });
+
+    assert.throws(
+        () => __generateImageFromIntentTest.resolveReferenceInputsForAction({
+            requestedAction: 'edit',
+            builtReferenceInputs: built,
+        }),
+        /action=edit requires a source or reference image input/,
+    );
+});

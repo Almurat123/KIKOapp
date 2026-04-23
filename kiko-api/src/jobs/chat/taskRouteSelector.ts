@@ -136,7 +136,57 @@ function buildRouteSelectionMessages(snapshot: ChatContextSnapshot): GenerationM
             ? extractEffectiveUserQuery(String(message.content || '')).slice(0, 600)
             : String(message.content || '').slice(0, 600),
     }));
-    const hasSocialImages = Array.isArray(snapshot.runtime?.socialInput?.images) && snapshot.runtime.socialInput.images.length > 0;
+    const socialImages = normalizeRouteSelectionSocialImages(snapshot);
+    const hasSocialImages = socialImages.length > 0;
+    const payload = JSON.stringify({
+        latest_user_message: extractEffectiveUserQuery(snapshot.lastUserMessage),
+        recent_history: recentHistory,
+        requested_token_addresses: snapshot.requestedTokenAddresses || [],
+        requested_token_symbols: snapshot.requestedTokenSymbols || [],
+        requested_address_classifications: snapshot.requestedAddressClassifications || [],
+        current_surface: snapshot.runtime?.currentPage || null,
+        page_context: snapshot.runtime?.pageContext || null,
+        has_social_input: Boolean(snapshot.runtime?.socialInput),
+        has_social_images: hasSocialImages,
+        social_images: socialImages.map((image, index) => ({
+            index: index + 1,
+            label: image.label,
+            url: image.url,
+        })),
+        connected_chain_id: snapshot.runtime?.chainId || null,
+        connected_chain_name: snapshot.runtime?.chainName || null,
+        wallet_address: snapshot.runtime?.walletAddress || snapshot.runtime?.userAddress || null,
+        confirmation_state: snapshot.confirmationState || null,
+        return_schema: {
+            owner: 'enum',
+            phase: 'enum',
+            facets: ['enum'],
+            confidence: '0_to_1_number',
+            explanation: 'string',
+            entities: {
+                token_addresses: ['string'],
+                token_symbols: ['string'],
+                wallet_addresses: ['string'],
+                market_identifiers: ['string'],
+                image_refs: ['string'],
+            },
+            requested_chain: {
+                chain_id: 'number',
+                chain_name: 'string',
+            },
+            requested_time_window: {
+                is_time_bound: 'boolean',
+                description: 'string',
+                start_time: 'optional_iso_string',
+                end_time: 'optional_iso_string',
+            },
+            row_count: 'number_or_null',
+            inherit_entities_from_context: 'boolean',
+            locale: 'en_or_zh',
+            needs_clarification: 'boolean',
+            clarification_question: 'string_or_null',
+        },
+    });
     return [
         {
             role: 'system',
@@ -169,51 +219,52 @@ function buildRouteSelectionMessages(snapshot: ChatContextSnapshot): GenerationM
         },
         {
             role: 'user',
-            content: JSON.stringify({
-                latest_user_message: extractEffectiveUserQuery(snapshot.lastUserMessage),
-                recent_history: recentHistory,
-                requested_token_addresses: snapshot.requestedTokenAddresses || [],
-                requested_token_symbols: snapshot.requestedTokenSymbols || [],
-                requested_address_classifications: snapshot.requestedAddressClassifications || [],
-                current_surface: snapshot.runtime?.currentPage || null,
-                page_context: snapshot.runtime?.pageContext || null,
-                has_social_input: Boolean(snapshot.runtime?.socialInput),
-                has_social_images: hasSocialImages,
-                connected_chain_id: snapshot.runtime?.chainId || null,
-                connected_chain_name: snapshot.runtime?.chainName || null,
-                wallet_address: snapshot.runtime?.walletAddress || snapshot.runtime?.userAddress || null,
-                confirmation_state: snapshot.confirmationState || null,
-                return_schema: {
-                    owner: 'enum',
-                    phase: 'enum',
-                    facets: ['enum'],
-                    confidence: '0_to_1_number',
-                    explanation: 'string',
-                    entities: {
-                        token_addresses: ['string'],
-                        token_symbols: ['string'],
-                        wallet_addresses: ['string'],
-                        market_identifiers: ['string'],
-                        image_refs: ['string'],
-                    },
-                    requested_chain: {
-                        chain_id: 'number',
-                        chain_name: 'string',
-                    },
-                    requested_time_window: {
-                        is_time_bound: 'boolean',
-                        description: 'string',
-                        start_time: 'optional_iso_string',
-                        end_time: 'optional_iso_string',
-                    },
-                    row_count: 'number_or_null',
-                    inherit_entities_from_context: 'boolean',
-                    locale: 'en_or_zh',
-                    needs_clarification: 'boolean',
-                    clarification_question: 'string_or_null',
-                },
-            }),
+            content: buildRouteSelectionUserContent(payload, socialImages),
         },
+    ];
+}
+
+// CONTEXT MEMORY
+// Updated: 2026-04-23
+// Status: mixed
+// Why: social image edit/generate turns need route selection to see the same
+// current-turn images that the main model sees, otherwise vague requests like
+// "turn this into a poster" can be routed as text/social answers.
+// Debug Goal: X/Farcaster uploaded or attached images must reach GPT route
+// selection as image_url parts before tool visibility is decided.
+// Search Tags: route selection social images image_url reference edit
+// Invariants:
+// - Social images remain current-turn context, not replayed history.
+// - The route selector still returns JSON only; image parts are input context.
+// Failure Modes:
+// - A post with an attached image and edit wording never exposes generate_image_from_intent.
+// - Route selection sees only has_social_images and cannot inspect the source image.
+function normalizeRouteSelectionSocialImages(snapshot: ChatContextSnapshot): Array<{ url: string; label: string }> {
+    const images = Array.isArray(snapshot.runtime?.socialInput?.images)
+        ? snapshot.runtime.socialInput.images
+        : [];
+    return images
+        .map((image: any, index: number) => ({
+            url: String(image?.url || '').trim(),
+            label: String(image?.sourceLabel || `social image ${index + 1}`).trim(),
+        }))
+        .filter((image) => /^https?:\/\//i.test(image.url))
+        .slice(0, 4);
+}
+
+function buildRouteSelectionUserContent(
+    payload: string,
+    socialImages: Array<{ url: string; label: string }>,
+): string | Array<Record<string, any>> {
+    if (socialImages.length === 0) return payload;
+    return [
+        { type: 'text', text: payload },
+        ...socialImages.map((image) => ({
+            type: 'image_url',
+            image_url: {
+                url: image.url,
+            },
+        })),
     ];
 }
 
