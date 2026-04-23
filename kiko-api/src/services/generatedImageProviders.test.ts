@@ -143,6 +143,63 @@ test('OpenAI gpt-image-2 uploaded-image requests use the edits endpoint with JSO
     );
 });
 
+test('gpt-image-1-mini stays on OpenAI Images even when OpenRouter is configured', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalOpenAiApiKey = process.env.OPENAI_API_KEY;
+    const originalOpenRouterApiKey = process.env.OPENROUTER_API_KEY;
+    const calls: Array<{ url: string; body: any }> = [];
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+    process.env.OPENROUTER_API_KEY = 'test-openrouter-key';
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const rawBody = typeof init?.body === 'string' ? init.body : '';
+        calls.push({
+            url: String(input),
+            body: rawBody ? JSON.parse(rawBody) : null,
+        });
+        return new Response(
+            JSON.stringify({
+                data: [
+                    { b64_json: Buffer.from('mini-openai-image').toString('base64') },
+                ],
+            }),
+            {
+                status: 200,
+                headers: {
+                    'content-type': 'application/json',
+                },
+            },
+        );
+    }) as typeof fetch;
+
+    try {
+        const result = await generateImageWithProvider({
+            provider: 'openai',
+            model: 'gpt-image-1-mini',
+            prompt: 'Make a rock style concert poster with neon stage lights.',
+            quality: 'medium',
+        });
+
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0].url, 'https://api.openai.com/v1/images/generations');
+        assert.equal(calls[0].body.model, 'gpt-image-1-mini');
+        assert.equal(Object.hasOwn(calls[0].body, 'reasoning'), false);
+        assert.equal(result.imageBuffer.toString('utf8'), 'mini-openai-image');
+        assert.equal(result.contentType, 'image/png');
+    } finally {
+        globalThis.fetch = originalFetch;
+        if (typeof originalOpenAiApiKey === 'string') {
+            process.env.OPENAI_API_KEY = originalOpenAiApiKey;
+        } else {
+            delete process.env.OPENAI_API_KEY;
+        }
+        if (typeof originalOpenRouterApiKey === 'string') {
+            process.env.OPENROUTER_API_KEY = originalOpenRouterApiKey;
+        } else {
+            delete process.env.OPENROUTER_API_KEY;
+        }
+    }
+});
+
 test('OpenAI streamed image edits parse image_edit SSE events', async () => {
     const encoder = new TextEncoder();
     await withOpenAiImageFetchMock(

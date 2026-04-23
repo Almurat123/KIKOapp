@@ -256,6 +256,141 @@ test('execution turns expose only missing required read tools before wider local
     assert.equal(broker.getContent(), 'Ready to prepare the launch after reading the required context.');
 });
 
+test('image execution turns prefetch image-lane required context before the first model round', async () => {
+    const snapshot = makeSnapshot('Generate a rock style poster using the attached mascot image.', {
+        model: 'gpt-5.4-mini-2026-03-17',
+        taskRoute: {
+            owner: 'image',
+            phase: 'execute',
+            facets: ['reference_image'],
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: [],
+                walletAddresses: [],
+                marketIdentifiers: [],
+                imageRefs: [],
+            },
+            requestedChain: null,
+            timeContext: null,
+            rowCount: null,
+            inheritEntitiesFromContext: true,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            explanation: 'image execution test route',
+            confidence: 0.99,
+            source: 'llm',
+        } as any,
+        runtime: {
+            socialInput: {
+                images: [
+                    {
+                        url: 'https://example.com/mascot.png',
+                        sourceLabel: 'attached mascot image',
+                    },
+                ],
+            },
+        },
+    });
+    const broker = makeBroker();
+    const seenRounds: Array<{ tools: string[] }> = [];
+    const seenMessages: any[][] = [];
+    let generationRound = 0;
+
+    const generationClient = {
+        async generate(params: any) {
+            if (String(params?.taskId || '').endsWith(':plan')) {
+                return { text: '', reasoning: '', toolCalls: [] };
+            }
+            generationRound += 1;
+            seenRounds.push({
+                tools: (params.tools || []).map((item: any) => item.function?.name).filter(Boolean),
+            });
+            seenMessages.push(params.messages || []);
+            return {
+                text: '',
+                reasoning: '',
+                toolCalls: [
+                    {
+                        id: 'call-image-1',
+                        name: 'generate_image_from_intent',
+                        arguments: {
+                            user_intent: 'Generate a rock style poster using the attached mascot image.',
+                            style_hint: 'rock style',
+                            action: 'auto',
+                        },
+                    },
+                ],
+            };
+        },
+    };
+
+    await runNodeOrchestration({
+        snapshot,
+        generationClient: generationClient as any,
+        toolExecutionEngine: {
+            async execute(call: any) {
+                if (String(call.name || '').startsWith('read_')) {
+                    return {
+                        id: call.id || `prefetch-${call.name}`,
+                        name: call.name,
+                        arguments: call.arguments || {},
+                        ok: true,
+                        result: { available: true },
+                        metadata: { source: 'tool_runtime' },
+                        continuation: {
+                            next_action: 'call_another_tool',
+                            can_answer_now: false,
+                            reason: 'Context read completed.',
+                            reusable_for_next_turn: true,
+                        },
+                    };
+                }
+                assert.equal(call.name, 'generate_image_from_intent');
+                return {
+                    id: call.id || 'call-image-1',
+                    name: call.name,
+                    arguments: call.arguments || {},
+                    ok: true,
+                    result: {
+                        handled_response: true,
+                        response_channel: 'generated-image',
+                    },
+                    metadata: { source: 'tool_runtime' },
+                    continuation: {
+                        next_action: 'complete_with_side_effect',
+                        can_answer_now: true,
+                        reason: 'Generated image response is owned by the image task pipeline.',
+                        reusable_for_next_turn: false,
+                    },
+                };
+            },
+        } as any,
+        broker: broker as any,
+        toolContext: {},
+    });
+
+    assert.equal(generationRound, 1);
+    assert.ok((seenRounds[0]?.tools || []).includes('generate_image_from_intent'));
+    assert.ok(!(seenRounds[0]?.tools || []).includes('read_workflow_state'));
+    assert.ok(!(seenRounds[0]?.tools || []).includes('read_skill_prompts'));
+    assert.ok(!(seenRounds[0]?.tools || []).includes('read_user_context'));
+    assert.ok((seenRounds[0]?.tools || []).includes('read_social_images'));
+    assert.equal(
+        (seenMessages[0] || []).filter((message: any) => String(message?.content || '').includes('[BACKEND_PREFETCHED_CONTEXT]')).length,
+        3,
+    );
+    assert.deepEqual(
+        broker.recordedToolResults.map((item: any) => item.name),
+        [
+            'read_workflow_state',
+            'read_skill_prompts',
+            'read_user_context',
+            'generate_image_from_intent',
+        ],
+    );
+});
+
 test('Grok social queries keep native search phase free of local tools, then hand off to local analysis', async () => {
     const snapshot = makeSnapshot('Search X for BTC sentiment, then analyze holders', {
         requestedTokenSymbols: ['BTC'],

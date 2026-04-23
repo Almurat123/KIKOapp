@@ -3,27 +3,33 @@ import { PrivyProvider } from '@privy-io/react-auth';
 import { arbitrum, base, baseSepolia, bsc, mainnet, optimism, polygon } from 'viem/chains';
 import { useMiniAppContext } from '../contexts/MiniAppContext';
 import { useTheme } from '../hooks/useTheme';
+import { MiniAppPrivyBootstrap } from './MiniAppPrivyBootstrap';
 
 const privyAppId = import.meta.env.VITE_PRIVY_APP_ID;
 const privyClientId = import.meta.env.VITE_PRIVY_CLIENT_ID;
 
 // CONTEXT MEMORY
 // Updated: 2026-04-23
-// Status: mixed
-// Why: Mini App hosts should use browser social login instead of the Farcaster-specific embedding path, while keeping embedded wallets available for downstream actions like credit top-up.
-// Debug Goal: Keep the login modal browser-native in Mini App contexts and preserve wallet creation for trade/top-up flows.
-// Search Tags: privy browser login mini app farcaster embedded wallet
+// Status: active
+// Why: Farcaster Mini Apps need the official SIWF-based auto-login flow and cannot rely
+//      on Privy modal login or automatic embedded wallet creation.
+// Debug Goal: Use Mini App auth for session bootstrap, disable unsupported external wallet
+//             connectors in Mini App hosts, and manually provision embedded wallets after auth.
+// Search Tags: privy farcaster mini app auto login walletconnect embedded wallet
 // Invariants:
-// - Mini App login methods stay browser-social-only unless product scope explicitly adds Farcaster login back.
+// - Mini App auth must prefer `loginToMiniApp` over browser social flows.
+// - WalletConnect and other external wallet connectors stay disabled inside Mini Apps.
+// - Embedded wallets in Mini Apps are provisioned manually after auth, not via `createOnLogin`.
 // - Base Sepolia remains supported while testnet router deployments are used.
 // Failure Modes:
-// - Removing Base Sepolia makes router testnet top-up fail before the wallet confirmation.
-// - Adding external wallet lists can reintroduce WalletConnect CSP failures in Mini App contexts.
+// - Re-enabling browser social login in Mini Apps brings back auth.privy.io iframe/browser flow bugs.
+// - Re-enabling WalletConnect causes Farcaster CSP failures against explorer-api.walletconnect.com.
+// - Re-enabling createOnLogin in Mini Apps causes unsupported embedded-wallet bootstrap races.
 // Privy Provider with theme support
 export const ThemedPrivyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { resolvedTheme } = useTheme();
   const { isMiniApp, loading: miniAppLoading } = useMiniAppContext();
-  const useBrowserOnlyLoginMethods = miniAppLoading || isMiniApp;
+  const isMiniAppContext = !miniAppLoading && isMiniApp;
 
   // Determine Privy theme and logo based on resolved theme
   const privyTheme = resolvedTheme === 'dark' ? '#222224' : '#FFFFFF';
@@ -44,16 +50,23 @@ export const ThemedPrivyProvider: React.FC<{ children: React.ReactNode }> = ({ c
         },
         supportedChains: [base, baseSepolia, mainnet, bsc, arbitrum, optimism, polygon],
         defaultChain: base,
-        loginMethods: useBrowserOnlyLoginMethods
-          ? ['email', 'google', 'twitter']
+        loginMethods: isMiniAppContext
+          ? ['farcaster']
           : ['email', 'farcaster', 'google', 'twitter'],
-        // Removed fundingMethodConfig temporarily to test if sandbox is causing the crash
+        externalWallets: isMiniAppContext
+          ? {
+              disableAllExternalWallets: true,
+              walletConnect: {
+                enabled: false,
+              },
+            }
+          : undefined,
         embeddedWallets: {
           ethereum: {
-            createOnLogin: 'all-users',
+            createOnLogin: isMiniAppContext ? 'off' : 'all-users',
           },
           solana: {
-            createOnLogin: 'all-users',
+            createOnLogin: isMiniAppContext ? 'off' : 'all-users',
           },
           showWalletUIs: true,
         },
@@ -71,6 +84,7 @@ export const ThemedPrivyProvider: React.FC<{ children: React.ReactNode }> = ({ c
         } as any
       }}
     >
+      <MiniAppPrivyBootstrap />
       {children}
     </PrivyProvider>
   );

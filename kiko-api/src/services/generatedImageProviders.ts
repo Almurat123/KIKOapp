@@ -525,18 +525,19 @@ async function generateOpenRouterImage(
 // CONTEXT MEMORY
 // Updated: 2026-04-23
 // Status: verified
-// Why: GPT image models can now be routed through OpenRouter's OpenAI-compatible
-//      chat/completions transport when the OpenRouter key is configured, while
-//      preserving the legacy OpenAI images endpoint as a fallback. OpenRouter's
-//      GPT Image 2 route also needs the selected low/medium/high level passed
-//      as `reasoning.effort`, while leaving image dimensions to the user's
-//      prompt instead of forcing a local 1:1 image_config.
-// Debug Goal: keep GPT image requests on OpenRouter chat/completions with
+// Why: product routing now keeps `gpt-image-1-mini` on OpenAI's native Images
+//      API while letting `gpt-image-2` use OpenRouter's OpenAI-compatible
+//      chat/completions transport when the OpenRouter key is configured.
+//      OpenRouter's GPT Image 2 route also needs the selected low/medium/high
+//      level passed as `reasoning.effort`, while leaving image dimensions to
+//      the user's prompt instead of forcing a local 1:1 image_config.
+// Debug Goal: keep GPT Image 2 requests on OpenRouter chat/completions with
 //             `image_url` message parts, `reasoning.effort`, prompt-owned
-//             dimensions, and data URL decoding.
-// Search Tags: openrouter gpt image chat completions reasoning effort prompt dimensions image_url data url
+//             dimensions, while keeping GPT Image 1 Mini on OpenAI Images.
+// Search Tags: openrouter gpt-image-2 only chat completions reasoning effort prompt dimensions image_url data url
 // Invariants:
-// - OpenRouter transport is only used when `OPENROUTER_API_KEY` is present.
+// - OpenRouter transport is only used for `gpt-image-2` when `OPENROUTER_API_KEY` is present.
+// - `gpt-image-1-mini` always uses OpenAI Images endpoints.
 // - OpenAI images endpoints remain the fallback when OpenRouter is not configured.
 // - Provider-selection logs must identify OpenRouter vs OpenAI fallback without leaking secrets.
 // - OpenRouter GPT Image 2 requests must pass low/medium/high as `reasoning.effort`.
@@ -815,6 +816,13 @@ async function generateXaiImage(params: {
     };
 }
 
+function shouldUseOpenRouterForOpenAiImageModel(model: 'gpt-image-2' | 'gpt-image-1-mini'): boolean {
+    if (model !== 'gpt-image-2') {
+        return false;
+    }
+    return Boolean(String(process.env.OPENROUTER_API_KEY || '').trim());
+}
+
 export async function generateImageWithProvider(params: GeneratedImageProviderRequest): Promise<GeneratedImageProviderResult> {
     const prompt = String(params.prompt || '').trim();
     if (!prompt) {
@@ -823,8 +831,8 @@ export async function generateImageWithProvider(params: GeneratedImageProviderRe
     const inputImages = normalizeProviderInputImages(params.inputImages);
 
     if (params.provider === 'openai' || isOpenAiGeneratedImageModel(params.model)) {
-        const useOpenRouter = Boolean(String(process.env.OPENROUTER_API_KEY || '').trim());
         const model = isOpenAiGeneratedImageModel(params.model) ? params.model : 'gpt-image-1-mini';
+        const useOpenRouter = shouldUseOpenRouterForOpenAiImageModel(model);
         const quality = params.quality === 'low' || params.quality === 'high' ? params.quality : 'medium';
         logger.info(LogCode.AI_API_CALL, 'Generated image provider selected', {
             provider: useOpenRouter ? 'openrouter' : 'openai',

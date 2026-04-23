@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { usePrivy } from '@privy-io/react-auth';
+import { useAppLogin } from './useAppLogin';
 
 interface UseSecureLoginReturn {
     secureLogin: () => void;
@@ -9,7 +9,7 @@ interface UseSecureLoginReturn {
 }
 
 export const useSecureLogin = (): UseSecureLoginReturn => {
-    const { login } = usePrivy();
+    const { login } = useAppLogin();
     const [isWarningOpen, setIsWarningOpen] = useState(false);
 
     // This function replaces the standard login call

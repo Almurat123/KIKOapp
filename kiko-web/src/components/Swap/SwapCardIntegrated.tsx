@@ -10,6 +10,7 @@ import { ArrowDown, X, Settings2, Zap, ChevronDown, Search, Check, Loader2 } fro
 import { usePrivy } from '@privy-io/react-auth';
 import { useSwap } from '@/hooks/useSwap';
 import { useSolanaSwap } from '@/hooks/useSolanaSwap';
+import { useAppLogin } from '@/hooks/useAppLogin';
 import type { Token } from '@/types/swap';
 import { findTokenOnAnyChain, getTokenData, getCommonTokens, type TokenData } from '@/services/tokenDataService';
 import { MEVProtectionBadge } from './MEVProtectionBadge';
@@ -349,7 +350,8 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [importedTokens, setImportedTokens] = useState<Token[]>([]);
 
-  const { login, authenticated } = usePrivy();
+  const { authenticated } = usePrivy();
+  const { login } = useAppLogin();
   const getNativeGasBuffer = React.useCallback(() => {
     if (isSolana) return 0.01;
     // Keep frontend guard aligned with backend gasReserve.

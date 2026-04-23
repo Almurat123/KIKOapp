@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { mainnet, base, arbitrum, bsc, optimism, polygon } from 'viem/chains';
+import { useAppLogin } from '../hooks/useAppLogin';
 
 export interface ChainInfo {
   id: number;
@@ -91,7 +92,8 @@ const getEmbeddedEvmWallet = (wallets: any[]) =>
   );
 
 export const ChainProvider: React.FC<ChainProviderProps> = ({ children }) => {
-  const { login, authenticated } = usePrivy();
+  const { authenticated } = usePrivy();
+  const { login } = useAppLogin();
   const { wallets } = useWallets();
 
   // Load initial chain from localStorage or default to first supported chain

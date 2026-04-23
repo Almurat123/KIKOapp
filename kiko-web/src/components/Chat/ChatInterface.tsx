@@ -24,6 +24,7 @@ import { useFarcasterContext } from '../../contexts/FarcasterContext';
 import { moderationService } from '../../services/moderation';
 import { logger } from '../../utils/logger';
 import { getStoredSlippageBps } from '@/config/slippageConfig';
+import { useAppLogin } from '@/hooks/useAppLogin';
 import { getUserSettings, saveUserSettings } from '../../services/userSettingsApi';
 import { ChatMessageList } from './ChatMessageList';
 import { ChatComposer } from './ChatComposer';
@@ -764,7 +765,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     registerPendingLocalUserMessage,
   } = useConversationContext();
 
-  const { user, authenticated, ready, login, getAccessToken } = usePrivy();
+  const { user, authenticated, ready, getAccessToken } = usePrivy();
+  const { login } = useAppLogin();
   const { wallets } = useWallets();
   const farcasterContext = useFarcasterContext();
   const { currentChain, switchChain } = useChain();

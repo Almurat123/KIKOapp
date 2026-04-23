@@ -1528,7 +1528,7 @@ function resolveMissingRequiredContextTools(
 function shouldEnforceRequiredContextReads(contextContract: ChatContextContract | null | undefined): boolean {
     const contract = contextContract || null;
     if (!contract) return false;
-    if (contract.mode === 'execution' || contract.mode === 'debug') {
+    if (contract.mode === 'execution' || contract.mode === 'debug' || contract.mode === 'image') {
         return true;
     }
     const highRiskContexts = new Set<ChatContextContract['requiredContexts'][number]>([
@@ -1543,7 +1543,8 @@ function shouldEnforceRequiredContextReads(contextContract: ChatContextContract 
 function shouldBackendPrefetchRequiredContextReads(contextContract: ChatContextContract | null | undefined): boolean {
     const contract = contextContract || null;
     if (!contract) return false;
-    return contract.mode === 'execution' && shouldEnforceRequiredContextReads(contract);
+    return (contract.mode === 'execution' || contract.mode === 'image')
+        && shouldEnforceRequiredContextReads(contract);
 }
 
 function isImageExecutionWorkMode(

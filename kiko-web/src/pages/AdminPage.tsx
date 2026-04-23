@@ -3,6 +3,7 @@ import { ShieldAlert } from 'lucide-react';
 import { usePrivy } from '@privy-io/react-auth';
 import { PageContainer } from '../components/Layout/PageContainer';
 import { toast } from '../components/Toast';
+import { useAppLogin } from '../hooks/useAppLogin';
 import {
   approveAdminCreditRefund,
   getAdminCreditRefunds,
@@ -29,7 +30,8 @@ function shortenHash(value?: string | null) {
 }
 
 export default function AdminPage() {
-  const { authenticated, ready, getAccessToken, login } = usePrivy();
+  const { authenticated, ready, getAccessToken } = usePrivy();
+  const { login } = useAppLogin();
   const [summary, setSummary] = React.useState<UsageSummary | null>(null);
   const [refunds, setRefunds] = React.useState<AdminCreditRefundItem[]>([]);
   const [watcherStatus, setWatcherStatus] = React.useState<CreditWatcherStatus | null>(null);
