@@ -1,23 +1,22 @@
 // CONTEXT MEMORY
 // Updated: 2026-04-23
-// Status: mixed
+// Status: verified
 // Why: Chat V2 now starts with thin task-route owner selection, with legacy
-// canonical intent left as a compatibility view. The runner must attempt route
-// selection first, only fall back to canonical normalization when routing
-// fails, and keep the downstream resolver/tool path aligned with the chosen
-// owner.
-// Debug Goal: every new turn enters orchestration with same-model stage-1 task
-// routing already attempted, and long prompts keep one primary owner.
-// Search Tags: runner task route before canonical normalization primary owner
+// canonical intent left as a compatibility view. Product architecture review
+// then removed the parallel structured-swap fast lane so swap turns follow the
+// same model-led route selection and orchestration path as other work instead
+// of bypassing the main owner pipeline.
+// Debug Goal: every new turn enters orchestration through one owner-selection
+// path, and explicit swap requests no longer depend on a separate deterministic
+// fast lane contract.
+// Search Tags: runner task route before canonical normalization unified owner
 // Invariants:
 // - worker lifecycle and v2 turn execution remain separate owner layers
 // - direct trade confirmation and fast swap remain pre-generation branches
-// - explicit swap syntax can short-circuit task-route LLM selection when the
-//   request is already structurally complete
 // - new turns attempt task route selection before canonical normalization
 // - legacy canonical intent is a compatibility bridge, not the routing source
 // Failure Modes:
-// - explicit swap quotes spend seconds in route selection before deterministic parsing
+// - swap turns bypass route selection via a hidden deterministic branch
 // - runtime silently restores canonical-first routing
 // - greetings or image turns lose their route owner before resolver/tool scope
 
@@ -44,7 +43,6 @@ import { ChatAiTraceLogger } from './chatAiTraceLogger.js';
 import { resolveProviderInfo } from './providerPolicyBuilder.js';
 import { isModelLedToolOrchestrationEnabled } from './modelLedToolOrchestration.js';
 import { selectTaskRoute } from './taskRouteSelector.js';
-import { tryBuildFastLaneSwapIntent } from './swapFastLane.js';
 
 export type ChatV2TurnRunnerResult = {
     terminal: boolean;
@@ -70,7 +68,7 @@ export async function runChatV2Turn(params: {
     ) => boolean;
     isSuspiciousProviderResponseId?: (value: string) => boolean;
 }): Promise<ChatV2TurnRunnerResult> {
-    let snapshot = tryBuildFastLaneSwapIntent(params.snapshot).snapshot;
+    let snapshot = params.snapshot;
     const exposeNormalizationReasoning = shouldExposeNormalizationReasoning();
     let normalizationReasoningStarted = false;
     let streamedNormalizationReasoningLength = 0;

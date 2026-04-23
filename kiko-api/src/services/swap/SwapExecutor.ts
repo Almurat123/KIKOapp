@@ -61,10 +61,15 @@ import {
     type NativeBalanceEvidence,
 } from './nativeBalanceEvidence.js';
 
-// 0x AllowanceHolder address (Base). If a token already has sufficient allowance here,
-// we can skip Permit2 first-try and reduce sell failure risk for problematic tokens.
+// 0x AllowanceHolder address for Cancun-hardfork chains supported by this app.
+// Official 0x docs allow hardcoding this address for these chains.
 const ZEROX_ALLOWANCE_HOLDER_BY_CHAIN: Record<number, string> = {
-    8453: '0x0000000000001ff3684f28c67538d4d072c22734'
+    1: '0x0000000000001ff3684f28c67538d4d072c22734',
+    10: '0x0000000000001ff3684f28c67538d4d072c22734',
+    56: '0x0000000000001ff3684f28c67538d4d072c22734',
+    137: '0x0000000000001ff3684f28c67538d4d072c22734',
+    8453: '0x0000000000001ff3684f28c67538d4d072c22734',
+    42161: '0x0000000000001ff3684f28c67538d4d072c22734',
 };
 const KNOWN_PERMIT2_SPENDERS = new Set([
     '0x000000000022d473030f116ddee9f6b43ac78ba3',

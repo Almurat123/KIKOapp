@@ -6,7 +6,8 @@ export interface EvmApprovalPolicyDecision {
   reasonCode?:
   | 'copytrade_exit_explicit_approval_preferred'
   | 'confirmed_sell_explicit_approval_preferred'
-  | 'wallet_erc20_input_explicit_approval_preferred';
+  | 'wallet_erc20_input_explicit_approval_preferred'
+  | 'native_input_allowance_holder_preferred';
 }
 
 function isCopytradeExit(runtimeContext?: OrderRuntimeContext): boolean {
@@ -36,7 +37,7 @@ export function resolveEvmApprovalPolicy(params: {
   // Search Tags: wallet page permit2 spender not 0x confirmed sell explicit approval
   // Invariants:
   // - wallet EVM swaps with ERC20 input do not prefer Permit2 or signed permits.
-  // - native-input buy flows keep Permit2 enabled because no token approval is needed.
+  // - native-input flows do not use Permit2 because native assets have no ERC20 allowance step.
   // Failure Modes:
   // - user sees Permit2 / uniswap-style spender on wallet-page sell approval.
   // - permit2 sell path succeeds on approval but fails on execution with limited diagnosis.
@@ -57,6 +58,14 @@ export function resolveEvmApprovalPolicy(params: {
       preferPermit2: false,
       allowSignedPermit: false,
       reasonCode: 'wallet_erc20_input_explicit_approval_preferred'
+    };
+  }
+
+  if (params.tokenInRequiresApproval === false) {
+    return {
+      preferPermit2: false,
+      allowSignedPermit: false,
+      reasonCode: 'native_input_allowance_holder_preferred'
     };
   }
 

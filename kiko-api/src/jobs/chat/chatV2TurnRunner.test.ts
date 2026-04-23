@@ -210,13 +210,50 @@ test('runChatV2Turn reuses a pre-routed snapshot without route-selection or norm
     assert.match(broker.getContent(), /generate an image/);
 });
 
-test('runChatV2Turn short-circuits route selection for explicit swap syntax', async () => {
+test('runChatV2Turn routes explicit swap syntax through the unified owner-selection path', async () => {
     const taskIds: string[] = [];
-    const executedTools: Array<{ name: string; arguments: Record<string, any> }> = [];
     const generationClient = {
-        async generate(params: { taskId: string }) {
+        async generate(params: { taskId: string; onTextDelta?: (text: string) => Promise<void> }) {
             taskIds.push(params.taskId);
-            throw new Error(`generation should not be called: ${params.taskId}`);
+            if (params.taskId.endsWith(':route')) {
+                return {
+                    toolCalls: [],
+                    text: JSON.stringify({
+                        owner: 'swap',
+                        phase: 'execute',
+                        facets: [],
+                        entities: {
+                            token_addresses: [],
+                            token_symbols: ['ETH', 'USDC'],
+                            wallet_addresses: [],
+                            market_identifiers: [],
+                            image_refs: [],
+                        },
+                        requested_chain: {
+                            chain_id: 8453,
+                            chain_name: 'Base',
+                            source: 'llm',
+                        },
+                        requested_time_window: null,
+                        row_count: null,
+                        inherit_entities_from_context: false,
+                        locale: 'en',
+                        needs_clarification: false,
+                        clarification_question: null,
+                        explanation: 'Direct swap request on Base.',
+                        confidence: 0.99,
+                    }),
+                    reasoning: '',
+                    citations: [],
+                };
+            }
+            await params.onTextDelta?.('I can quote this swap once the execution tool runs.');
+            return {
+                toolCalls: [],
+                text: 'I can quote this swap once the execution tool runs.',
+                reasoning: '',
+                citations: [],
+            };
         },
     } as any;
     const broker = makeBroker();
@@ -228,18 +265,6 @@ test('runChatV2Turn short-circuits route selection for explicit swap syntax', as
                 chainId: 8453,
                 chainName: 'Base',
                 nativeBalance: '0.03823547',
-                userSettings: {
-                    showQuoteBeforeSwap: true,
-                },
-                toolContext: {
-                    chainId: 8453,
-                    chainName: 'Base',
-                    nativeBalance: '0.03823547',
-                    toolConfig: {
-                        showQuoteBeforeSwap: true,
-                        customSlippage: '0.5',
-                    },
-                },
             },
         }),
         task: {
@@ -247,122 +272,19 @@ test('runChatV2Turn short-circuits route selection for explicit swap syntax', as
             sessionId: 'session-runner',
             assistantMessageId: 'assistant-runner',
             model: 'gpt-5.4-mini',
-            toolContext: {
-                toolConfig: {
-                    showQuoteBeforeSwap: true,
-                    customSlippage: '0.5',
-                },
-            },
+            toolContext: {},
         },
         userId: 'user-runner',
         broker: broker as any,
         generationClient,
-        toolExecutionEngine: {
-            async execute(call: any) {
-                executedTools.push({ name: call.name, arguments: call.arguments || {} });
-                return {
-                    id: call.id,
-                    name: call.name,
-                    arguments: call.arguments,
-                    ok: true,
-                    result: {
-                        expected_out_human: '2.30',
-                        price_impact: '0.1%',
-                    },
-                    metadata: { source: 'tool_runtime' },
-                };
-            },
-        } as any,
+        toolExecutionEngine: {} as any,
     });
 
-    assert.deepEqual(taskIds, []);
+    assert.ok(taskIds.includes('task-runner:route'));
+    assert.ok(taskIds.includes('task-runner'));
     assert.equal(result.snapshot.taskRoute?.owner, 'swap');
     assert.equal(result.snapshot.taskRoute?.phase, 'execute');
-    assert.deepEqual(result.snapshot.taskRoute?.facets || [], []);
-    assert.deepEqual(executedTools.map((tool) => tool.name), ['simulate_swap']);
-    assert.match(broker.getContent(), /Fast quote ready|已获取快速报价/);
-});
-
-test('runChatV2Turn short-circuits route selection for explicit sell-all syntax', async () => {
-    const taskIds: string[] = [];
-    const executedTools: Array<{ name: string; arguments: Record<string, any> }> = [];
-    const generationClient = {
-        async generate(params: { taskId: string }) {
-            taskIds.push(params.taskId);
-            throw new Error(`generation should not be called: ${params.taskId}`);
-        },
-    } as any;
-    const broker = makeBroker();
-
-    const result = await runChatV2Turn({
-        snapshot: makeSnapshot('sell all usdc to eth', {
-            requestedTokenSymbols: ['USDC', 'ETH'],
-            runtime: {
-                chainId: 8453,
-                chainName: 'Base',
-                nativeBalance: '0.03823547',
-                userSettings: {
-                    showQuoteBeforeSwap: true,
-                },
-                toolContext: {
-                    chainId: 8453,
-                    chainName: 'Base',
-                    nativeBalance: '0.03823547',
-                    balance: [
-                        {
-                            symbol: 'USDC',
-                            balance: '4.797005',
-                            decimals: 6,
-                            contractAddress: '0x833589fCD6eDb6E08f4c7C32D4f71B54bdA02913',
-                        },
-                    ],
-                    toolConfig: {
-                        showQuoteBeforeSwap: true,
-                        customSlippage: '0.5',
-                    },
-                },
-            },
-        }),
-        task: {
-            id: 'task-runner',
-            sessionId: 'session-runner',
-            assistantMessageId: 'assistant-runner',
-            model: 'gpt-5.4-mini',
-            toolContext: {
-                toolConfig: {
-                    showQuoteBeforeSwap: true,
-                    customSlippage: '0.5',
-                },
-            },
-        },
-        userId: 'user-runner',
-        broker: broker as any,
-        generationClient,
-        toolExecutionEngine: {
-            async execute(call: any) {
-                executedTools.push({ name: call.name, arguments: call.arguments || {} });
-                return {
-                    id: call.id,
-                    name: call.name,
-                    arguments: call.arguments,
-                    ok: true,
-                    result: {
-                        expected_out_human: '0.002054',
-                        price_impact: '0.76%',
-                    },
-                    metadata: { source: 'tool_runtime' },
-                };
-            },
-        } as any,
-    });
-
-    assert.deepEqual(taskIds, []);
-    assert.equal(result.snapshot.taskRoute?.owner, 'swap');
-    assert.equal(result.snapshot.taskRoute?.phase, 'execute');
-    assert.deepEqual(executedTools.map((tool) => tool.name), ['simulate_swap']);
-    assert.equal(executedTools[0]?.arguments.amount_in, '4.797005');
-    assert.match(broker.getContent(), /Fast quote ready|已获取快速报价/);
-    assert.match(broker.getContent(), /4\.797005 USDC/);
+    assert.match(broker.getContent(), /quote this swap/i);
 });
 
 test('runChatV2Turn puts image execute turns into forced image tool work mode', async () => {
@@ -490,9 +412,10 @@ test('runChatV2Turn puts image execute turns into forced image tool work mode', 
     assert.match(seenRounds[0]!.content, /\[IMAGE_EXECUTION_WORK_MODE\]/);
 });
 
-test('runChatV2Turn updates control policy after a mid-turn image reroute', async () => {
+test('runChatV2Turn does not enforce intent allowlist after the first model round', async () => {
     let routeSelectionCount = 0;
     const toolPolicyAllowedTools: string[][] = [];
+    const toolPolicyIntentAllowlistFlags: Array<boolean | undefined> = [];
     const generationClient = {
         async generate(params: {
             taskId: string;
@@ -593,6 +516,7 @@ test('runChatV2Turn updates control policy after a mid-turn image reroute', asyn
             async execute(call: { id?: string; name: string }, toolContext: Record<string, any>) {
                 executedTools.push(call.name);
                 toolPolicyAllowedTools.push([...(toolContext.__controlPolicy?.allowedTools || [])]);
+                toolPolicyIntentAllowlistFlags.push(toolContext.__controlPolicy?.enforceIntentAllowlist);
                 if (call.name === 'generate_image_from_intent') {
                     return {
                         id: call.id || 'call-image',
@@ -633,7 +557,10 @@ test('runChatV2Turn updates control policy after a mid-turn image reroute', asyn
     assert.equal(result.terminal, true);
     assert.deepEqual(executedTools, ['read_user_context', 'generate_image_from_intent']);
     assert.equal(routeSelectionCount, 2);
+    assert.equal(toolPolicyAllowedTools[0]?.includes('generate_image_from_intent'), false);
     assert.ok(toolPolicyAllowedTools.at(-1)?.includes('generate_image_from_intent'));
+    assert.equal(toolPolicyIntentAllowlistFlags[0], true);
+    assert.equal(toolPolicyIntentAllowlistFlags[1], false);
 });
 
 test('runChatV2Turn normalizes unnormalized turns with the same session model before orchestration', async () => {

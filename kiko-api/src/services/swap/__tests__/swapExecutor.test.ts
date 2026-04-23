@@ -79,6 +79,19 @@ test('requiresExplicitApprovalQuote rejects permit2 and non-holder 0x quotes whe
   } as any), false);
 });
 
+test('requiresExplicitApprovalQuote recognizes allowance-holder spender on supported EVM chains', () => {
+  for (const chainId of [1, 10, 56, 137, 8453, 42161]) {
+    assert.equal(__swapExecutorTest.requiresExplicitApprovalQuote({
+      chainId,
+      preferPermit2: false,
+      quote: makeQuote({
+        approvalKind: 'exact_approve_fallback',
+        allowanceTarget: '0x0000000000001fF3684f28c67538d4D072C22734',
+      }),
+    } as any), false, `chain ${chainId} should accept official AllowanceHolder spender`);
+  }
+});
+
 test('finalizeApprovedSellQuote accepts compatible refresh when dex stays on 0x', () => {
   const original = makeQuote({ dex: '0x', dexName: '0x Aggregator' });
   const refreshed = makeQuote({ dex: '0x', dexName: '0x Aggregator' });

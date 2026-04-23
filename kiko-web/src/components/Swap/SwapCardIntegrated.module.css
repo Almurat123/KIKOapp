@@ -52,6 +52,11 @@
     background: var(--bg-hover);
 }
 
+.swapSettings:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+}
+
 /* Main Area */
 .swapMain {
     padding: 12px 16px;
@@ -113,6 +118,11 @@
     background: var(--bg-hover);
     color: var(--text-primary);
     border-color: var(--border-color);
+}
+
+.maxButton:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
 }
 
 .maxButton:active {
@@ -311,6 +321,11 @@
     background: var(--button-secondary-hover-bg, #3f3f46);
 }
 
+.swapRouteBtn:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
 .swapRouteBtn:active {
     transform: scale(0.95);
 }
@@ -373,6 +388,11 @@
 .routeItem:hover {
     border-color: var(--border-color);
     background: var(--bg-hover);
+}
+
+.routeItem:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
 }
 
 .routeItemHeader {
@@ -479,6 +499,11 @@
     background: var(--input-hover-bg, #3f3f46);
 }
 
+.settingsOption:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
 .settingsOptionActive {
     background: var(--text-primary);
     color: var(--bg-primary);
@@ -500,6 +525,11 @@
     border-color: var(--text-primary);
 }
 
+.settingsInput:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
 /* Warnings & Errors */
 .errorBox {
     background: var(--error-bg, rgba(239, 68, 68, 0.1));
@@ -517,6 +547,209 @@
     padding: 8px;
     color: var(--warning-color, #fbbf24);
     font-size: 11px;
+}
+
+.executionPanel {
+    position: relative;
+    overflow: hidden;
+    border-radius: 16px;
+    border: 1px solid var(--border-color);
+    background:
+        radial-gradient(circle at 12% 0%, rgba(74, 222, 128, 0.16), transparent 38%),
+        linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+    padding: 12px;
+}
+
+.executionPanel::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+    transform: translateX(-100%);
+    animation: executionSweep 1.6s ease-in-out infinite;
+    pointer-events: none;
+}
+
+.executionPanel_success {
+    border-color: rgba(74, 222, 128, 0.35);
+    background:
+        radial-gradient(circle at 12% 0%, rgba(74, 222, 128, 0.18), transparent 38%),
+        rgba(74, 222, 128, 0.06);
+}
+
+.executionPanel_failed {
+    border-color: var(--error-border, rgba(239, 68, 68, 0.25));
+    background:
+        radial-gradient(circle at 12% 0%, rgba(239, 68, 68, 0.16), transparent 38%),
+        var(--error-bg, rgba(239, 68, 68, 0.08));
+}
+
+.executionPanel_indeterminate {
+    border-color: var(--warning-border, rgba(234, 179, 8, 0.24));
+    background:
+        radial-gradient(circle at 12% 0%, rgba(234, 179, 8, 0.16), transparent 38%),
+        var(--warning-bg, rgba(234, 179, 8, 0.08));
+}
+
+.executionPanel_idle::before,
+.executionPanel_success::before,
+.executionPanel_failed::before,
+.executionPanel_indeterminate::before {
+    display: none;
+}
+
+.executionPanelHeader {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+.executionEyebrow {
+    color: var(--text-tertiary);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.executionTitle {
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 700;
+    margin-top: 2px;
+}
+
+.executionBadge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--text-primary);
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    padding: 5px 8px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.executionSpinner {
+    animation: spin 1s linear infinite;
+}
+
+.executionSteps {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    margin-top: 12px;
+}
+
+.executionStep {
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid transparent;
+    padding: 8px 6px;
+    min-width: 0;
+}
+
+.executionStepActive {
+    border-color: rgba(74, 222, 128, 0.32);
+    background: rgba(74, 222, 128, 0.09);
+}
+
+.executionStepDone {
+    color: var(--success-color, #4ade80);
+}
+
+.executionStepDot {
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+    color: var(--bg-primary, #000);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 6px;
+}
+
+.executionStepActive .executionStepDot {
+    border-color: var(--success-color, #4ade80);
+    box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.12);
+}
+
+.executionStepDone .executionStepDot {
+    background: var(--success-color, #4ade80);
+    border-color: var(--success-color, #4ade80);
+}
+
+.executionStepLabel {
+    color: var(--text-primary);
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.executionStepDetail {
+    color: var(--text-tertiary);
+    font-size: 9px;
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.executionMessage {
+    position: relative;
+    z-index: 1;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.4;
+    margin-top: 10px;
+}
+
+.executionLockNote {
+    position: relative;
+    z-index: 1;
+    margin-top: 8px;
+    color: var(--text-tertiary);
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.executionMeta {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.executionMeta span {
+    color: var(--text-tertiary);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    padding: 4px 7px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10px;
+}
+
+@keyframes executionSweep {
+    0% {
+        transform: translateX(-100%);
+    }
+
+    60%,
+    100% {
+        transform: translateX(100%);
+    }
 }
 
 /* Token Selector Modal */

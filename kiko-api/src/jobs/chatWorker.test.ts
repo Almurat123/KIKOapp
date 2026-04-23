@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test, { mock } from 'node:test';
 import { moderationClient } from '../services/moderationClient.js';
-import { ChatWorker, isEmptyAssistantCompletion } from './chatWorker.js';
+import {
+    ChatWorker,
+    hasCurrentChainBalanceEvidence,
+    isEmptyAssistantCompletion,
+    isExplicitSingleChainSwapHydrationRequest,
+} from './chatWorker.js';
 import { ChatStreamBroker } from './chat/streamBroker.js';
 
 test('ChatWorker starts the broker and emits progress before wallet hydration begins', async () => {
@@ -102,4 +107,22 @@ test('empty assistant completion is always rejected for orchestrated assistant t
     assert.equal(isEmptyAssistantCompletion(''), true);
     assert.equal(isEmptyAssistantCompletion('   '), true);
     assert.equal(isEmptyAssistantCompletion('answer'), false);
+});
+
+test('explicit numeric same-chain swap requests can skip all-chain wallet hydration when current-chain balance exists', () => {
+    assert.equal(isExplicitSingleChainSwapHydrationRequest('Sell all usdc to eth'), false);
+    assert.equal(isExplicitSingleChainSwapHydrationRequest('swap 0.001 ETH to USDC'), true);
+    assert.equal(isExplicitSingleChainSwapHydrationRequest('sell 4.797005 USDC to ETH'), true);
+    assert.equal(isExplicitSingleChainSwapHydrationRequest('buy CAKE for 0.01 BNB on BSC'), true);
+    assert.equal(isExplicitSingleChainSwapHydrationRequest('bridge 10 USDC to Base'), false);
+    assert.equal(isExplicitSingleChainSwapHydrationRequest('cross-chain swap 10 USDC to ETH'), false);
+
+    assert.equal(hasCurrentChainBalanceEvidence({
+        nativeBalance: '0.038',
+        balance: {
+            USDC: '4.797005',
+        },
+    }), true);
+    assert.equal(hasCurrentChainBalanceEvidence({}, { USDC: '4.797005' }), true);
+    assert.equal(hasCurrentChainBalanceEvidence({ balance: {} }), false);
 });

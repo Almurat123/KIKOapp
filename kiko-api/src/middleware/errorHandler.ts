@@ -107,6 +107,10 @@ export async function errorHandler(error: any, request: any, reply: any) {
     // Log the error
     logError(error, request);
 
+    if (reply.sent) {
+        return;
+    }
+
     // Format error response
     const isDevelopment = env.nodeEnv === 'development';
     const response = formatErrorResponse(error, request, isDevelopment);
@@ -116,16 +120,19 @@ export async function errorHandler(error: any, request: any, reply: any) {
 
     // Send error response
     applyCorsResponseHeaders(request, reply);
-    reply.status(statusCode).send(response);
+    return reply.status(statusCode).send(response);
 }
 
 /**
  * Not found handler
  */
 export async function notFoundHandler(request: any, reply: any) {
+    if (reply.sent) {
+        return;
+    }
     const requestId = getRequestId(request);
     applyCorsResponseHeaders(request, reply);
-    reply.status(404).send({
+    return reply.status(404).send({
         success: false,
         error: 'Route not found',
         code: 'NOT_FOUND',

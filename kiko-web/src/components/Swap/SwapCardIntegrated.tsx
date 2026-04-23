@@ -6,7 +6,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom';
-import { ArrowDown, X, Settings2, Zap, ChevronDown, Search, Check } from 'lucide-react';
+import { ArrowDown, X, Settings2, Zap, ChevronDown, Search, Check, Loader2 } from 'lucide-react';
 import { usePrivy } from '@privy-io/react-auth';
 import { useSwap } from '@/hooks/useSwap';
 import { useSolanaSwap } from '@/hooks/useSolanaSwap';
@@ -67,10 +67,12 @@ interface SwapCardIntegratedProps {
   userHoldings?: UserHolding[];
   // Pre-calculated quote for instant display
   initialQuote?: any;
+  onExecutionBusyChange?: (busy: boolean) => void;
 }
 
 type SwapExecutionPhase =
   | 'idle'
+  | 'authorizing'
   | 'submitting'
   | 'broadcast'
   | 'confirming'
@@ -87,7 +89,15 @@ interface SwapExecutionState {
 }
 
 const isSwapExecutionBusy = (phase: SwapExecutionPhase) =>
-  phase === 'submitting' || phase === 'broadcast' || phase === 'confirming';
+  phase === 'authorizing' || phase === 'submitting' || phase === 'broadcast' || phase === 'confirming';
+
+const getExecutionStepIndex = (phase: SwapExecutionPhase) => {
+  if (phase === 'authorizing' || phase === 'submitting') return 1;
+  if (phase === 'broadcast') return 2;
+  if (phase === 'confirming') return 3;
+  if (phase === 'success') return 4;
+  return -1;
+};
 
 export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   userAddress,
@@ -105,6 +115,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   executionMode = 'instant',
   userHoldings = [],
   initialQuote,
+  onExecutionBusyChange,
 }) => {
   const mapTokenDataToToken = React.useCallback((tokenData: TokenData): Token => ({
     address: tokenData.address,
@@ -447,8 +458,10 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
         }
 
         setExecutionState({
-          phase: 'submitting',
-          message: 'Submitting swap to execution service...',
+          phase: needsApproval ? 'authorizing' : 'submitting',
+          message: needsApproval
+            ? 'Checking allowance and preparing token authorization...'
+            : 'Validating quote and preparing transaction...',
         });
 
         const result = await executeSwapInstant({
@@ -472,6 +485,8 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
             txHash: result.txHash,
             tradeId: result.tradeId,
           });
+
+          await new Promise((resolve) => window.setTimeout(resolve, 320));
 
           setExecutionState({
             phase: 'confirming',
@@ -552,8 +567,10 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
       }
 
       setExecutionState({
-        phase: 'submitting',
-        message: 'Submitting swap...',
+        phase: needsApproval ? 'authorizing' : 'submitting',
+        message: needsApproval
+          ? 'Preparing approval and transaction...'
+          : 'Submitting swap...',
       });
 
       const result = isSolana && solanaSwapTyped
@@ -668,8 +685,38 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   }
 
   const needsApproval = displayInfo?.needsApproval || false;
+  const executionStepIndex = getExecutionStepIndex(executionState.phase);
+  const executionSteps = React.useMemo(() => [
+    { key: 'prepare', label: 'Prepare', detail: 'Locking quote' },
+    { key: 'authorize', label: needsApproval ? 'Authorize' : 'Validate', detail: needsApproval ? 'AllowanceHolder' : 'No approval' },
+    { key: 'broadcast', label: 'Broadcast', detail: 'Send tx' },
+    { key: 'confirm', label: 'Confirm', detail: 'On-chain' },
+  ], [needsApproval]);
+  const executionTone =
+    executionState.phase === 'failed'
+      ? 'failed'
+      : executionState.phase === 'success'
+        ? 'success'
+        : executionState.phase === 'indeterminate'
+          ? 'indeterminate'
+          : isExecutionBusy
+            ? 'busy'
+            : 'idle';
+
+  useEffect(() => {
+    if (!isExecutionBusy) return;
+    setShowSettings(false);
+    setShowRouteSelector(false);
+    setShowTokenSelector(null);
+    setSearchQuery('');
+  }, [isExecutionBusy]);
+
+  useEffect(() => {
+    onExecutionBusyChange?.(isExecutionBusy);
+  }, [isExecutionBusy, onExecutionBusyChange]);
 
   const actionButtonLabel = React.useMemo(() => {
+    if (executionState.phase === 'authorizing') return 'Authorizing...';
     if (executionState.phase === 'submitting') return 'Submitting...';
     if (executionState.phase === 'broadcast') return 'Broadcasted';
     if (executionState.phase === 'confirming') return 'Confirming...';
@@ -1089,7 +1136,10 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
             {onClose && (
               <button
                 className={styles.swapSettings}
-                onClick={onClose}
+                onClick={() => {
+                  if (!isExecutionBusy) onClose();
+                }}
+                disabled={isExecutionBusy}
                 title="Close"
               >
                 <X size={20} />
@@ -1097,7 +1147,10 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
             )}
             <button
               className={styles.swapSettings}
-              onClick={() => setShowSettings(!showSettings)}
+              onClick={() => {
+                if (!isExecutionBusy) setShowSettings(!showSettings);
+              }}
+              disabled={isExecutionBusy}
             >
               <Settings2 size={20} />
             </button>
@@ -1115,6 +1168,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
                   <button
                     key={val}
                     className={`${styles.settingsOption} ${slippage === val ? styles.settingsOptionActive : ''}`}
+                    disabled={isExecutionBusy}
                     onClick={() => setSlippage(val)}
                   >
                     {val}%
@@ -1133,6 +1187,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
                     type="number"
                     placeholder="Custom"
                     value={slippage}
+                    disabled={isExecutionBusy}
                     onChange={(e) => {
                       const val = parseFloat(e.target.value);
                       setSlippage(isNaN(val) ? 0 : val);
@@ -1162,6 +1217,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
                 {!isBalanceLoading && parseFloat(displayInfo.userBalance) > 0 && (
                   <button
                     className={styles.maxButton}
+                    disabled={isExecutionBusy}
                     onClick={() => {
                       // IMPROVED MAX LOGIC:
                       // 1. For Native Tokens (ETH, SOL): Subtract gas buffer
@@ -1314,6 +1370,81 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
               {error}
             </div>
           )}
+
+          {executionState.phase !== 'idle' && (
+            <div className={`${styles.executionPanel} ${styles[`executionPanel_${executionTone}`]}`}>
+              <div className={styles.executionPanelHeader}>
+                <div>
+                  <div className={styles.executionEyebrow}>Execution</div>
+                  <div className={styles.executionTitle}>
+                    {executionState.phase === 'success'
+                      ? 'Swap completed'
+                      : executionState.phase === 'authorizing'
+                        ? 'Authorizing swap'
+                      : executionState.phase === 'failed'
+                        ? 'Swap stopped'
+                        : executionState.phase === 'indeterminate'
+                          ? 'Status pending'
+                          : 'Swap in progress'}
+                  </div>
+                </div>
+                <div className={styles.executionBadge}>
+                  {isExecutionBusy ? <Loader2 size={14} className={styles.executionSpinner} /> : null}
+                  <span>
+                    {executionState.phase === 'success'
+                      ? 'Done'
+                      : executionState.phase === 'authorizing'
+                        ? 'Auth'
+                      : executionState.phase === 'failed'
+                        ? 'Failed'
+                        : executionState.phase === 'indeterminate'
+                          ? 'Check'
+                          : 'Live'}
+                  </span>
+                </div>
+              </div>
+
+              <div className={styles.executionSteps}>
+                {executionSteps.map((step, index) => {
+                  const isDone = executionState.phase === 'success' || (executionStepIndex >= 0 && index < executionStepIndex);
+                  const isActive = executionStepIndex === index && isExecutionBusy;
+                  return (
+                    <div
+                      key={step.key}
+                      className={`${styles.executionStep} ${isDone ? styles.executionStepDone : ''} ${isActive ? styles.executionStepActive : ''}`}
+                    >
+                      <div className={styles.executionStepDot}>
+                        {isDone ? <Check size={11} /> : null}
+                      </div>
+                      <div>
+                        <div className={styles.executionStepLabel}>{step.label}</div>
+                        <div className={styles.executionStepDetail}>{step.detail}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {executionState.message && (
+                <div className={styles.executionMessage}>
+                  {executionState.message}
+                </div>
+              )}
+              {isExecutionBusy && (
+                <div className={styles.executionLockNote}>
+                  Inputs are locked until execution reaches a terminal state.
+                </div>
+              )}
+              <div className={styles.executionMeta}>
+                {executionState.txHash && (
+                  <span>Tx {executionState.txHash.slice(0, 10)}...{executionState.txHash.slice(-6)}</span>
+                )}
+                {executionState.tradeId && (
+                  <span>Order {executionState.tradeId.slice(0, 8)}...</span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* MEV Protection Badge */}
@@ -1333,9 +1464,10 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
           <button
             onClick={(e) => {
               e.preventDefault();
-              setShowRouteSelector(!showRouteSelector);
+              if (!isExecutionBusy) setShowRouteSelector(!showRouteSelector);
             }}
             className={styles.swapRouteBtn}
+            disabled={isExecutionBusy}
           >
             <span className={styles.routeBtnLabel}>
               <ChevronDown size={18} />
@@ -1370,6 +1502,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
               <button
                 key={q.dex || q.dexName}
                 className={styles.routeItem}
+                disabled={isExecutionBusy}
                 onClick={() => handleSelectRoute(q.dex || q.dexName)}
               >
                 <div className={styles.routeItemHeader}>
@@ -1568,30 +1701,6 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
           document.body
         )}
 
-        {executionState.message && (
-          <div style={{
-            marginTop: '10px',
-            fontSize: '12px',
-            color: executionState.phase === 'failed'
-              ? 'var(--error-color, #ef4444)'
-              : executionState.phase === 'success'
-                ? 'var(--success-color, #16a34a)'
-                : 'var(--text-secondary)',
-            textAlign: 'center',
-          }}>
-            {executionState.message}
-            {executionState.txHash && (
-              <div style={{ marginTop: '4px', color: 'var(--text-tertiary)' }}>
-                Tx: {executionState.txHash.slice(0, 10)}...{executionState.txHash.slice(-6)}
-              </div>
-            )}
-            {executionState.tradeId && (
-              <div style={{ marginTop: '2px', color: 'var(--text-tertiary)' }}>
-                Order: {executionState.tradeId.slice(0, 8)}...
-              </div>
-            )}
-          </div>
-        )}
       </div>
     </CardWrapper>
   );

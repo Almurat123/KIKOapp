@@ -7,7 +7,8 @@ export interface EvmSellReliabilityDecision {
   reasonCode?:
   | 'copytrade_exit_explicit_approval_preferred'
   | 'confirmed_sell_explicit_approval_preferred'
-  | 'wallet_erc20_input_explicit_approval_preferred';
+  | 'wallet_erc20_input_explicit_approval_preferred'
+  | 'native_input_allowance_holder_preferred';
 }
 
 export function scoreEvmSellReliability(params: {

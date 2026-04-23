@@ -32,7 +32,7 @@ test('copytrade exit keeps its stricter explicit approval reason', () => {
   assert.equal(decision.reasonCode, 'copytrade_exit_explicit_approval_preferred');
 });
 
-test('buy flows still allow permit2', () => {
+test('native-input buys use allowance-holder instead of permit2', () => {
   const decision = resolveEvmApprovalPolicy({
     chainId: 8453,
     isSellTx: false,
@@ -40,8 +40,9 @@ test('buy flows still allow permit2', () => {
     waitForConfirmation: true,
   });
 
-  assert.equal(decision.preferPermit2, true);
-  assert.equal(decision.allowSignedPermit, true);
+  assert.equal(decision.preferPermit2, false);
+  assert.equal(decision.allowSignedPermit, false);
+  assert.equal(decision.reasonCode, 'native_input_allowance_holder_preferred');
 });
 
 test('wallet ERC20 input buys prefer explicit approval over permit2', () => {

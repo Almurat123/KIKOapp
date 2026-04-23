@@ -438,6 +438,8 @@ export async function getZeroExQuote(
 
     const normalizeSellToken = normalizeToken(sellToken);
     const normalizeBuyToken = normalizeToken(buyToken);
+    const isNativeSellToken = normalizeSellToken.toLowerCase() === NATIVE_TOKEN_PLACEHOLDER.toLowerCase();
+    const effectivePreferPermit2 = preferPermit2 && !isNativeSellToken;
 
     // v1 endpoint uses slippagePercentage (as decimal, e.g., 0.5 for 0.5%)
     // permit2 endpoint uses slippageBps (in basis points, e.g., 50 for 0.5%)
@@ -467,10 +469,10 @@ export async function getZeroExQuote(
     // Standard wallet swaps should prefer AllowanceHolder; Permit2 remains available for advanced paths.
     const endpoint = useLegacyEndpoint
       ? '/swap/v1/quote'
-      : (preferPermit2 ? '/swap/permit2/quote' : '/swap/allowance-holder/quote');
+      : (effectivePreferPermit2 ? '/swap/permit2/quote' : '/swap/allowance-holder/quote');
     let usedEndpoint: 'v1' | 'permit2' | 'allowance-holder' = useLegacyEndpoint
       ? 'v1'
-      : (preferPermit2 ? 'permit2' : 'allowance-holder');
+      : (effectivePreferPermit2 ? 'permit2' : 'allowance-holder');
 
     // CRITICAL: taker parameter is REQUIRED for allowance-holder endpoint
     // At this point, takerAddress is guaranteed to be valid (checked above)
@@ -507,7 +509,7 @@ export async function getZeroExQuote(
 
     // Debug logging
     logger.debug(LogCode.API_FETCH_SUCCESS, '0x API Quote requesting', {
-      endpoint: useLegacyEndpoint ? 'v1' : (preferPermit2 ? 'permit2' : 'allowance-holder'),
+      endpoint: useLegacyEndpoint ? 'v1' : (effectivePreferPermit2 ? 'permit2' : 'allowance-holder'),
       chainId,
       sellToken: normalizeSellToken,
       buyToken: normalizeBuyToken,
@@ -518,7 +520,7 @@ export async function getZeroExQuote(
       sellToken: `${normalizeSellToken.slice(0, 6)}...${normalizeSellToken.slice(-4)}`,
       buyToken: `${normalizeBuyToken.slice(0, 6)}...${normalizeBuyToken.slice(-4)}`,
       amount: sellAmount,
-      endpoint: useLegacyEndpoint ? 'v1' : (preferPermit2 ? 'permit2' : 'allowance-holder')
+      endpoint: useLegacyEndpoint ? 'v1' : (effectivePreferPermit2 ? 'permit2' : 'allowance-holder')
     });
 
     const headers: Record<string, string> = {
@@ -541,7 +543,7 @@ export async function getZeroExQuote(
       slippageBps: Math.round(slippageBps),
       chainId,
       takerAddress: takerAddress || 'not-specified',
-      endpoint: useLegacyEndpoint ? 'v1' : (preferPermit2 ? 'permit2' : 'allowance-holder'),
+      endpoint: useLegacyEndpoint ? 'v1' : (effectivePreferPermit2 ? 'permit2' : 'allowance-holder'),
     });
 
     // Fetch quote from 0x API using unified service
@@ -590,7 +592,7 @@ export async function getZeroExQuote(
     let hasValidData = quoteHasValidData(rawData);
 
     // If Permit2 endpoint fails/invalid, try allowance-holder first.
-    if ((!responseWasOk || !hasValidData) && !useLegacyEndpoint && preferPermit2) {
+    if ((!responseWasOk || !hasValidData) && !useLegacyEndpoint && effectivePreferPermit2) {
       const allowanceUrl = isChainSpecificBaseUrl
         ? `${baseUrl}/swap/allowance-holder/quote?${params.toString()}`
         : `${baseUrl}/swap/allowance-holder/quote?chainId=${chainId}&${params.toString()}`;
@@ -636,7 +638,7 @@ export async function getZeroExQuote(
         status: httpStatus,
         chainId,
         hasValidData,
-        attemptedEndpoint: preferPermit2 ? 'permit2_then_allowance_holder' : 'allowance-holder',
+        attemptedEndpoint: effectivePreferPermit2 ? 'permit2_then_allowance_holder' : 'allowance-holder',
         sellToken: normalizeSellToken.slice(0, 10) + '...',
         buyToken: normalizeBuyToken.slice(0, 10) + '...',
         reason: !responseWasOk ? 'HTTP error' : 'Invalid response data',
@@ -780,9 +782,7 @@ export async function getZeroExQuote(
 
     // CRITICAL: For native token sell, ensure value is set to sellAmount
     // The API should return this, but we validate it for safety
-    const isNativeSell = sellToken.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ||
-      sellToken.toLowerCase() === '0x0000000000000000000000000000000000000000';
-    if (isNativeSell && (!quoteValue || quoteValue === '0')) {
+    if (isNativeSellToken && (!quoteValue || quoteValue === '0')) {
       quoteValue = sellAmount; // Force value to match sellAmount for native token
     }
 
@@ -1272,4 +1272,8 @@ export async function getTokenPriceUSD(
 
 export const __testOnly = {
   normalizeNativeTokenFor0x,
+  shouldUsePermit2Endpoint: (sellToken: string, chainId: number, preferPermit2: boolean): boolean => {
+    const normalizedSellToken = normalizeNativeTokenFor0x(sellToken, chainId);
+    return preferPermit2 && normalizedSellToken.toLowerCase() !== NATIVE_TOKEN_PLACEHOLDER.toLowerCase();
+  },
 };

@@ -153,6 +153,29 @@ export function isEmptyAssistantCompletion(
     return String(content || '').trim().length === 0;
 }
 
+export function isExplicitSingleChainSwapHydrationRequest(message: string): boolean {
+    const raw = String(message || '').trim();
+    if (!raw) return false;
+    if (/\b(bridge|cross[\s-]?chain)\b/i.test(raw) || /跨链/.test(raw)) return false;
+    const asset = '[A-Za-z0-9$._-]+|0x[a-fA-F0-9]{40}';
+    return new RegExp(`^\\s*swap\\s+\\d+(?:\\.\\d+)?\\s+(?:${asset})\\s+(?:to|for)\\s+(?:${asset})(?:\\s+(?:on|in)\\s+.+?)?\\s*$`, 'i').test(raw)
+        || new RegExp(`^\\s*sell\\s+\\d+(?:\\.\\d+)?\\s+(?:${asset})\\s+(?:to|for)\\s+(?:${asset})(?:\\s+(?:on|in)\\s+.+?)?\\s*$`, 'i').test(raw)
+        || new RegExp(`^\\s*buy\\s+.+?\\s+for\\s+\\d+(?:\\.\\d+)?\\s+(?:${asset})(?:\\s+(?:on|in)\\s+.+?)?\\s*$`, 'i').test(raw);
+}
+
+export function hasCurrentChainBalanceEvidence(
+    toolContext: Record<string, any> | null | undefined,
+    hydratedBalance: Record<string, string> | null | undefined = null,
+): boolean {
+    const balance = toolContext?.balance;
+    const hasBalance = Array.isArray(balance)
+        ? balance.length > 0
+        : Boolean(balance && typeof balance === 'object' && Object.keys(balance).length > 0);
+    return hasBalance
+        || toolContext?.nativeBalance !== undefined
+        || Boolean(hydratedBalance && Object.keys(hydratedBalance).length > 0);
+}
+
 function mergeRuntimeSocialInput(
     existing: Record<string, any> | null | undefined,
     uploadedImages: Array<{ url: string; sourceLabel: string }>,
@@ -567,7 +590,9 @@ export class ChatWorker {
 
             let allChainBalances = toolContext.allChainBalances;
             const hasAllChainSnapshot = !!allChainBalances && typeof allChainBalances === 'object' && Object.keys(allChainBalances).length > 0;
-            if (!hasAllChainSnapshot) {
+            const skipAllChainForSingleChainSwap = isExplicitSingleChainSwapHydrationRequest(lastUserMessage)
+                && hasCurrentChainBalanceEvidence(toolContext, hydratedBalance);
+            if (!hasAllChainSnapshot && !skipAllChainForSingleChainSwap) {
                 const solanaAddress = toolContext.solanaWalletAddress || toolContext.solanaAddress || toolContext.userSolanaAddress;
                 const fetchedAllBalances = await walletService.getAllChainBalances(walletAddress, solanaAddress, {
                     forceRefresh: false,
@@ -575,6 +600,12 @@ export class ChatWorker {
                 if (fetchedAllBalances && Object.keys(fetchedAllBalances).length > 0) {
                     allChainBalances = fetchedAllBalances;
                 }
+            } else if (!hasAllChainSnapshot && skipAllChainForSingleChainSwap) {
+                logger.info(LogCode.AI_ORCHESTRATOR, 'ChatWorker: skipped all-chain wallet hydration for explicit single-chain swap', {
+                    taskId: task.id,
+                    sessionId: task.sessionId,
+                    chainId,
+                });
             }
 
             if (Object.keys(hydratedBalance).length > 0) {

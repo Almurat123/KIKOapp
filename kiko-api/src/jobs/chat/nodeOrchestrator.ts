@@ -184,7 +184,6 @@ import {
 import type { CanonicalIntent } from './canonicalIntent.js';
 import { applyConversationActionState } from './conversationStateResolver.js';
 import { selectTaskRoute } from './taskRouteSelector.js';
-import { tryBuildFastLaneSwapIntent, tryRunFastSwapLane } from './swapFastLane.js';
 import { ChatAiTraceLogger } from './chatAiTraceLogger.js';
 import { isModelLedToolOrchestrationEnabled } from './modelLedToolOrchestration.js';
 import { buildExecutionReceiptDecision } from './executionReceiptAnswer.js';
@@ -272,7 +271,7 @@ export async function runNodeOrchestration(params: {
         if (!modelLedTools) {
             await params.broker.bootstrapRuntime(buildWarmupPlan(params.snapshot.lastUserMessage));
         }
-    let normalizedSnapshot = tryBuildFastLaneSwapIntent(params.snapshot).snapshot;
+    let normalizedSnapshot = params.snapshot;
     if (!normalizedSnapshot.taskRoute && !normalizedSnapshot.taskRouteSelectionState) {
         const routeSelection = await selectTaskRoute({
             snapshot: normalizedSnapshot,
@@ -312,22 +311,6 @@ export async function runNodeOrchestration(params: {
             normalizedSnapshot.normalizedIntent,
         )
         : null;
-    if (await tryRunFastSwapLane({
-        snapshot: normalizedSnapshot,
-        tradingIntent,
-        broker: params.broker,
-        task: {
-            sessionId: normalizedSnapshot.sessionId,
-            assistantMessageId: normalizedSnapshot.assistantMessageId,
-            toolContext: params.toolContext,
-        },
-        userId: normalizedSnapshot.runtime.userId || null,
-        toolExecutionEngine: params.toolExecutionEngine,
-    })) {
-        chatAiTrace.markTerminal('fast_swap_lane');
-        chatAiTrace.emit();
-        return { terminal: false };
-    }
     let skillResolution = resolveNodeSkills(normalizedSnapshot, tradingIntent, normalizedSnapshot.normalizedIntent);
     chatAiTrace.recordSkillResolution(skillResolution);
     chatAiTrace.recordCanonicalIntentSelection({
@@ -391,6 +374,7 @@ export async function runNodeOrchestration(params: {
 
     updateChatContextRuntime(params.toolContext, {
         snapshot: params.snapshot,
+        executionPolicy: params.snapshot.policySnapshot || null,
         executionPlan: plan,
         skillPrompts: skillResolution.skillPrompts,
         providerNativeEvidence,
@@ -467,6 +451,7 @@ export async function runNodeOrchestration(params: {
         lastRoundPolicyMessage = '';
         updateChatContextRuntime(params.toolContext, {
             snapshot: normalizedSnapshot,
+            executionPolicy: null,
             executionPlan: plan,
             skillPrompts: skillResolution.skillPrompts,
             providerNativeEvidence,
@@ -722,6 +707,7 @@ export async function runNodeOrchestration(params: {
         }
         updateChatContextRuntime(params.toolContext, {
             snapshot: params.snapshot,
+            executionPolicy: params.snapshot.policySnapshot || null,
             executionPlan: plan,
             skillPrompts: skillResolution.skillPrompts,
             providerNativeEvidence,
@@ -948,16 +934,20 @@ export async function runNodeOrchestration(params: {
                 params.snapshot.taskRoute || null,
             )
         );
-        for (const call of normalizedToolCalls) {
-            const policyViolation = checkToolAgainstPolicy({
-                call,
-                policy: params.snapshot.policySnapshot || null,
-                knownToolNames,
-            });
-            if (policyViolation) {
-                throw createOrchestrationError(policyViolation.code, policyViolation.message);
+        const toolExecutionPolicy = buildRoundToolExecutionPolicy(params.snapshot.policySnapshot || null, round);
+        if (round === 1) {
+            for (const call of normalizedToolCalls) {
+                const policyViolation = checkToolAgainstPolicy({
+                    call,
+                    policy: toolExecutionPolicy,
+                    knownToolNames,
+                });
+                if (policyViolation) {
+                    throw createOrchestrationError(policyViolation.code, policyViolation.message);
+                }
             }
         }
+        params.toolContext.__controlPolicy = toolExecutionPolicy;
         const actionableToolCalls = normalizedToolCalls.filter((call) => !isProviderManagedNativeTool(call.name, providerInfo.provider));
         const providerManagedOnlyRound = normalizedToolCalls.length > 0 && actionableToolCalls.length === 0;
 
@@ -1481,17 +1471,32 @@ function updateChatContextRuntime(
     toolContext: Record<string, any>,
     runtime: {
         snapshot: ChatContextSnapshot;
+        executionPolicy?: import('./controlPolicy.js').ControlPolicySnapshot | null;
         executionPlan: any;
         skillPrompts: string[];
         providerNativeEvidence: ProviderNativeEvidenceSnapshot[];
     },
 ) {
     toolContext.__snapshot = runtime.snapshot;
-    toolContext.__controlPolicy = runtime.snapshot.policySnapshot || null;
+    toolContext.__controlPolicy = runtime.executionPolicy === undefined
+        ? runtime.snapshot.policySnapshot || null
+        : runtime.executionPolicy;
     toolContext.__chatContextRuntime = {
         executionPlan: runtime.executionPlan || null,
         skillPrompts: Array.isArray(runtime.skillPrompts) ? runtime.skillPrompts : [],
         providerNativeEvidence: Array.isArray(runtime.providerNativeEvidence) ? runtime.providerNativeEvidence : [],
+    };
+}
+
+function buildRoundToolExecutionPolicy(
+    policy: import('./controlPolicy.js').ControlPolicySnapshot | null | undefined,
+    round: number,
+): import('./controlPolicy.js').ControlPolicySnapshot | null {
+    if (!policy) return null;
+    if (round <= 1) return policy;
+    return {
+        ...policy,
+        enforceIntentAllowlist: false,
     };
 }
 
