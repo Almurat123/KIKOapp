@@ -206,7 +206,14 @@ function parseSimulateSwapTraceArgs(rawArgs: any): SwapArgs | null {
     };
 }
 
-function findRecentSimulatedSwap(messages: any[], windowMs: number): SwapArgs | null {
+function isSwapPrecheckToolCall(call: any): boolean {
+    const tool = String(call?.tool || '');
+    if (tool === 'simulate_swap') return true;
+    if (tool !== 'prepare_swap_transaction') return false;
+    return call?.args?.execute !== true;
+}
+
+function findRecentSwapPrecheck(messages: any[], windowMs: number): SwapArgs | null {
     const now = Date.now();
     const sorted = [...messages].sort((a, b) => (a.messageIndex || 0) - (b.messageIndex || 0));
     for (let i = sorted.length - 1; i >= 0; i -= 1) {
@@ -218,7 +225,7 @@ function findRecentSimulatedSwap(messages: any[], windowMs: number): SwapArgs | 
         const toolCalls = msg.data?.toolTrace?.toolCalls || [];
         for (let j = toolCalls.length - 1; j >= 0; j -= 1) {
             const call = toolCalls[j];
-            if (call?.tool !== 'simulate_swap' || call?.status !== 'success') continue;
+            if (!isSwapPrecheckToolCall(call) || call?.status !== 'success') continue;
             const parsed = parseSimulateSwapArgs(call?.argsKey || '') || parseSimulateSwapTraceArgs(call?.args);
             if (!parsed?.token_in || !parsed?.token_out || !parsed?.amount_in || !parsed?.chain_id) continue;
             return parsed;
@@ -227,12 +234,12 @@ function findRecentSimulatedSwap(messages: any[], windowMs: number): SwapArgs | 
     return null;
 }
 
-function findRecentSimulatedSwapFromTrace(trace: RecentToolTrace | null | undefined, windowMs: number): SwapArgs | null {
+function findRecentSwapPrecheckFromTrace(trace: RecentToolTrace | null | undefined, windowMs: number): SwapArgs | null {
     const now = Date.now();
     const toolCalls = Array.isArray(trace?.toolCalls) ? trace.toolCalls : [];
     for (let i = toolCalls.length - 1; i >= 0; i -= 1) {
         const call = toolCalls[i];
-        if (call?.tool !== 'simulate_swap') continue;
+        if (!isSwapPrecheckToolCall(call)) continue;
         if (!['success', 'cached'].includes(String(call?.status || ''))) continue;
         const finishedAt = (call as any)?.finishedAt
             || call?.result?.finishedAt
@@ -450,29 +457,29 @@ When show-quote-before-swap is enabled (default), execution must follow:
     handler: async (args, context) => {
         try {
             console.log('[PrepareSwapTransaction] Preparing swap:', args);
-            let recentSimulatedSwap: SwapArgs | null = null;
+            let recentSwapPrecheck: SwapArgs | null = null;
             const simulationReuseWindowMs = 2 * 60 * 1000;
 
-            // Guard confirmation flow: load latest successful simulate_swap for the same pair/chain.
+            // Guard confirmation flow: load the latest successful quote/precheck for the same pair/chain.
             if (context?.sessionId && (args.execute === true || context?.allowanceMode === 'instant')) {
                 try {
-                    const tracedSimulation = findRecentSimulatedSwapFromTrace(
+                    const tracedSimulation = findRecentSwapPrecheckFromTrace(
                         (context as any)?.__snapshot?.recentToolTrace,
                         simulationReuseWindowMs,
                     );
                     if (tracedSimulation) {
-                        recentSimulatedSwap = tracedSimulation;
+                        recentSwapPrecheck = tracedSimulation;
                     }
                     const { getSessionMessages } = await import('../../../repositories/chatRepository.js');
                     const sessionMessages = await getSessionMessages(context.sessionId);
                     args.token_in = repairTruncatedEvmAddressFromMessages(args.token_in, sessionMessages);
                     args.token_out = repairTruncatedEvmAddressFromMessages(args.token_out, sessionMessages);
-                    if (recentSimulatedSwap) {
-                        recentSimulatedSwap = repairSwapArgsFromMessages(recentSimulatedSwap, sessionMessages);
+                    if (recentSwapPrecheck) {
+                        recentSwapPrecheck = repairSwapArgsFromMessages(recentSwapPrecheck, sessionMessages);
                     }
-                    const simulated = findRecentSimulatedSwap(sessionMessages, simulationReuseWindowMs);
+                    const simulated = findRecentSwapPrecheck(sessionMessages, simulationReuseWindowMs);
                     if (simulated) {
-                        recentSimulatedSwap = repairSwapArgsFromMessages(simulated, sessionMessages);
+                        recentSwapPrecheck = repairSwapArgsFromMessages(simulated, sessionMessages);
                     }
                     if (simulated && args.execute === true) {
                         const pinnedSimulation = repairSwapArgsFromMessages(simulated, sessionMessages);
@@ -715,7 +722,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
                 finalDecision: shouldExecute,
                 quoteBeforeSwapEnabled,
                 hasExplicitExecutionAuthorization,
-                matchedRecentSimulation: matchesSimulatedSwap(recentSimulatedSwap, args),
+                matchedRecentSimulation: matchesSimulatedSwap(recentSwapPrecheck, args),
             });
 
             if (executionRequested && quoteBeforeSwapEnabled && !hasExplicitExecutionAuthorization) {
@@ -727,7 +734,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
                 });
             }
 
-            if (shouldExecute && requireSimulationBeforeExecute && !matchesSimulatedSwap(recentSimulatedSwap, args)) {
+            if (shouldExecute && requireSimulationBeforeExecute && !matchesSimulatedSwap(recentSwapPrecheck, args)) {
                 return {
                     error: 'SIMULATION_REQUIRED_BEFORE_EXECUTION',
                     code: 'SIMULATION_REQUIRED_BEFORE_EXECUTION',
@@ -1348,6 +1355,6 @@ export const __prepareSwapTest = {
     buildSocketRecoveryResult,
     hasQuoteModeExecutionAuthorization,
     repairTruncatedEvmAddressFromMessages,
-    findRecentSimulatedSwapFromTrace,
+    findRecentSwapPrecheckFromTrace,
     repairSwapArgsFromMessages,
 };

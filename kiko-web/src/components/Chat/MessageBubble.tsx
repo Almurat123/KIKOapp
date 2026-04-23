@@ -778,7 +778,13 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({
                 className={styles.tokenUsage}
                 title={`Total: ${message.usage.total_tokens} tokens (Prompt: ${message.usage.prompt_tokens}, Completion: ${message.usage.completion_tokens})`}
               >
-                <Flame size={13} className={styles.tokenIcon} />
+                <Flame
+                  size={13}
+                  className={styles.tokenIcon}
+                  color="#f97316"
+                  fill="currentColor"
+                  stroke="currentColor"
+                />
                 {(() => {
                   const cost = calculateCost(
                     modelId,

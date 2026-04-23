@@ -143,7 +143,7 @@ test('repairTruncatedEvmAddressFromMessages leaves ambiguous partial addresses u
 });
 
 test('findRecentSimulatedSwapFromTrace reuses the latest matching successful simulation from snapshot trace', () => {
-  const simulated = __prepareSwapTest.findRecentSimulatedSwapFromTrace({
+  const simulated = __prepareSwapTest.findRecentSwapPrecheckFromTrace({
     toolCalls: [
       {
         tool: 'simulate_swap',
@@ -167,6 +167,58 @@ test('findRecentSimulatedSwapFromTrace reuses the latest matching successful sim
     amount_in: '0.001',
     chain_id: 56,
   });
+});
+
+test('findRecentSwapPrecheckFromTrace accepts prepare_swap_transaction quote mode as execution evidence', () => {
+  const simulated = __prepareSwapTest.findRecentSwapPrecheckFromTrace({
+    toolCalls: [
+      {
+        tool: 'prepare_swap_transaction',
+        status: 'success',
+        args: {
+          token_in: 'ETH',
+          token_out: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+          amount_in: '0.001',
+          chain_id: 8453,
+          execute: false,
+        },
+        result: {
+          finishedAt: new Date().toISOString(),
+          requires_confirmation: true,
+        },
+      },
+    ],
+  }, 2 * 60 * 1000);
+
+  assert.deepEqual(simulated, {
+    token_in: 'ETH',
+    token_out: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+    amount_in: '0.001',
+    chain_id: 8453,
+  });
+});
+
+test('findRecentSwapPrecheckFromTrace ignores execute=true prepare_swap_transaction calls', () => {
+  const simulated = __prepareSwapTest.findRecentSwapPrecheckFromTrace({
+    toolCalls: [
+      {
+        tool: 'prepare_swap_transaction',
+        status: 'success',
+        args: {
+          token_in: 'ETH',
+          token_out: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+          amount_in: '0.001',
+          chain_id: 8453,
+          execute: true,
+        },
+        result: {
+          finishedAt: new Date().toISOString(),
+        },
+      },
+    ],
+  }, 2 * 60 * 1000);
+
+  assert.equal(simulated, null);
 });
 
 test('repairSwapArgsFromMessages upgrades truncated simulated token addresses using session content', () => {
