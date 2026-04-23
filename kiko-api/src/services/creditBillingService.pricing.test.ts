@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+    DEFAULT_GENERATED_IMAGE_CREDIT_MARKUP_MULTIPLIER,
+    buildDefaultCreditImagePricing,
+} from '../config/creditPricingDefaults.js';
+import {
     computeGeneratedImageCreditsCharge,
     computePremiumTextCreditsCharge,
 } from './creditBillingService.js';
@@ -13,7 +17,7 @@ test('premium text pricing uses the recommended default credits table for gpt-5.
         completionTokens: 1000,
     });
 
-    assert.equal(credits, 0.68);
+    assert.equal(credits, 0.19);
 });
 
 test('premium text pricing uses the recommended default credits table for grok fast reasoning', () => {
@@ -23,10 +27,32 @@ test('premium text pricing uses the recommended default credits table for grok f
         completionTokens: 1000,
     });
 
-    assert.equal(credits, 0.327);
+    assert.equal(credits, 0.0635);
 });
 
 test('generated image pricing uses the credits image table', () => {
+    const defaultImagePricing = buildDefaultCreditImagePricing(10);
+
+    assert.deepEqual(defaultImagePricing, {
+        'gpt-image-1-mini': {
+            low: 0.15,
+            medium: 0.33,
+            high: 1.08,
+        },
+        'gpt-image-2': {
+            low: 0.18,
+            medium: 1.59,
+            high: 6.33,
+        },
+        'grok-imagine-image': {
+            normal: 0.6,
+        },
+        'grok-imagine-image-pro': {
+            pro: 2.1,
+        },
+    });
+    assert.equal(DEFAULT_GENERATED_IMAGE_CREDIT_MARKUP_MULTIPLIER, 3);
+
     assert.equal(
         computeGeneratedImageCreditsCharge({
             model: 'gpt-image-2',

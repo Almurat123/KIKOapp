@@ -429,6 +429,8 @@
 
 .tokenIcon {
   color: #f97316;
+  stroke: #f97316;
+  flex-shrink: 0;
 }
 
 /* Sources Button - Align with others */

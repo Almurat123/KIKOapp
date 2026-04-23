@@ -148,6 +148,8 @@ export interface UsageLimitTier {
     premiumLimit: number;
 }
 
+import { buildDefaultCreditImagePricing } from './creditPricingDefaults.js';
+
 export interface EnvConfig {
     port: number;
     nodeEnv: string;
@@ -585,19 +587,19 @@ function validateEnv(): EnvConfig {
         outputCreditsPer1kTokens: number;
     }> = {
         'gpt-5.4-mini-2026-03-17': {
-            baseCreditsPerMessage: 0.5,
-            inputCreditsPer1kTokens: 0.0225,
-            outputCreditsPer1kTokens: 0.135,
+            baseCreditsPerMessage: 0.1,
+            inputCreditsPer1kTokens: 0.01125,
+            outputCreditsPer1kTokens: 0.0675,
         },
         'grok-4-1-fast-reasoning': {
-            baseCreditsPerMessage: 0.3,
-            inputCreditsPer1kTokens: 0.006,
-            outputCreditsPer1kTokens: 0.015,
+            baseCreditsPerMessage: 0.05,
+            inputCreditsPer1kTokens: 0.003,
+            outputCreditsPer1kTokens: 0.0075,
         },
         'grok-4-1-fast-non-reasoning': {
-            baseCreditsPerMessage: 0.3,
-            inputCreditsPer1kTokens: 0.006,
-            outputCreditsPer1kTokens: 0.015,
+            baseCreditsPerMessage: 0.05,
+            inputCreditsPer1kTokens: 0.003,
+            outputCreditsPer1kTokens: 0.0075,
         },
     };
     if (process.env.CREDITS_TEXT_PRICING_JSON) {
@@ -607,21 +609,9 @@ function validateEnv(): EnvConfig {
             console.warn('[Env] Failed to parse CREDITS_TEXT_PRICING_JSON, falling back to default text pricing map.');
         }
     }
-    let creditImagePricing: Record<string, Record<string, number>> = {
-        'gpt-image-1-mini': {
-            low: 0.15,
-            medium: 0.33,
-            high: 1.08,
-        },
-        'gpt-image-2': {
-            low: 0.18,
-            medium: 1.59,
-            high: 6.33,
-        },
-        'grok-imagine-image': {
-            normal: 0.6,
-        },
-    };
+    let creditImagePricing: Record<string, Record<string, number>> = buildDefaultCreditImagePricing(
+        Number.isFinite(creditsPerUsd) ? creditsPerUsd : 10,
+    );
     if (process.env.CREDITS_IMAGE_PRICING_JSON) {
         try {
             creditImagePricing = JSON.parse(process.env.CREDITS_IMAGE_PRICING_JSON);

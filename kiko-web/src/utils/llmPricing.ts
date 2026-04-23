@@ -1,19 +1,19 @@
 /**
- * Utility for calculating LLM token costs
- * Based on official pricing
- * GPT pricing is configurable and can be overridden from backend billing config.
- * Grok 4.1 Fast (USD): https://x.ai/api/
+ * Utility for calculating user-facing LLM message charges.
+ * This should mirror the backend credits pricing table, converted to USD at
+ * 1 USD = 10 credits, instead of showing raw provider cost.
  */
 // CONTEXT MEMORY
 // Updated: 2026-04-23
 // Author: Almurat
 // Reason: chat message-bubble cost display must recognize the same real model
-//         ids as the selector and backend billing layer. The selector now uses
-//         Fast/Thinking labels instead of a synthetic Extra High tier, so the
-//         pricing helper must stay keyed to those actual ids.
-// Goal: keep displayed per-message cost aligned with backend-billed model ids.
-// Owns: frontend-only cost lookup used in chat bubbles.
-// Does Not Own: quota enforcement, provider pricing policy, or backend billing.
+// ids and user-facing text price table as the backend credits ledger. Showing
+// provider USD cost in the bubble while the backend deducts credits causes
+// visible price mismatch and user confusion.
+// Goal: keep displayed per-message charge aligned with backend-billed model ids
+// and the actual credits pricing policy.
+// Owns: frontend-only user charge lookup used in chat bubbles.
+// Does Not Own: quota enforcement, free-message application, or backend billing.
 // Design Language:
 // - Price actual model ids, not synthetic effort labels.
 // - GPT and Grok entries mirror backend billing ids exactly.
@@ -31,35 +31,34 @@
 type Currency = 'USD';
 type ToolCallLike = string | { name?: string; function?: { name?: string } } | null | undefined;
 
-// Pricing per 1M tokens (USD)
-const PRICING: Record<string, { input: number; output: number; currency: Currency }> = {
-    // Grok 4.1 Fast (USD)
-    'grok-4-1-fast-reasoning': { input: 0.20, output: 0.50, currency: 'USD' },
-    'grok-4-1-fast-non-reasoning': { input: 0.20, output: 0.50, currency: 'USD' },
-    // GPT (USD)
-    'gpt-5.4-mini-2026-03-17': { input: 0.75, output: 4.50, currency: 'USD' },
+const CREDITS_PER_USD = 10;
+
+// Backend-aligned user pricing, expressed in credits and converted to USD here.
+const USER_TEXT_PRICING: Record<string, {
+    baseCreditsPerMessage: number;
+    inputCreditsPer1kTokens: number;
+    outputCreditsPer1kTokens: number;
+    currency: Currency;
+}> = {
+    'grok-4-1-fast-reasoning': {
+        baseCreditsPerMessage: 0.05,
+        inputCreditsPer1kTokens: 0.003,
+        outputCreditsPer1kTokens: 0.0075,
+        currency: 'USD',
+    },
+    'grok-4-1-fast-non-reasoning': {
+        baseCreditsPerMessage: 0.05,
+        inputCreditsPer1kTokens: 0.003,
+        outputCreditsPer1kTokens: 0.0075,
+        currency: 'USD',
+    },
+    'gpt-5.4-mini-2026-03-17': {
+        baseCreditsPerMessage: 0.1,
+        inputCreditsPer1kTokens: 0.01125,
+        outputCreditsPer1kTokens: 0.0675,
+        currency: 'USD',
+    },
 };
-
-// xAI official tool invocation pricing (USD per 1 call)
-// Source: https://docs.x.ai/developers/models#tool-invocation-costs
-const XAI_TOOL_PRICE_PER_CALL: Record<string, number> = {
-    web_search: 0.005,          // $5 / 1k
-    x_search: 0.005,            // $5 / 1k
-    code_execution: 0.005,      // $5 / 1k
-    code_interpreter: 0.005,    // $5 / 1k
-    attachment_search: 0.01,    // $10 / 1k
-    collections_search: 0.0025, // $2.50 / 1k
-    file_search: 0.0025,        // $2.50 / 1k
-    view_image: 0,              // token-based only
-    view_x_video: 0,            // token-based only
-};
-
-// Legacy fallback for call-count-only paths (no tool names available).
-const LEGACY_TOOL_PRICE_PER_CALL = 0.005;
-
-// Default fallback pricing
-const DEFAULT_GPT_PRICING = { input: 0.15, output: 0.60, currency: 'USD' as const };
-const DEFAULT_GROK_PRICING = { input: 0.20, output: 0.50, currency: 'USD' as const };
 
 function normalizePricingModelId(model?: string): string {
     return String(model || '').trim().toLowerCase();
@@ -79,34 +78,17 @@ export function calculateCost(
     completionTokens: number,
     toolCallsCountOrList: number | ToolCallLike[] = 0
 ): { amount: number; currency: Currency } {
+    void toolCallsCountOrList;
     if (!model) return { amount: 0, currency: 'USD' };
 
     const normalizedModel = normalizePricingModelId(model);
-    const isGrok = normalizedModel.includes('grok');
-    const pricing = PRICING[normalizedModel] || (isGrok ? DEFAULT_GROK_PRICING : DEFAULT_GPT_PRICING);
-    const tokenCost = (promptTokens * pricing.input + completionTokens * pricing.output) / 1_000_000;
-    let total = tokenCost;
+    const pricing = USER_TEXT_PRICING[normalizedModel];
+    if (!pricing) return { amount: 0, currency: 'USD' };
 
-    // Add tool invocation costs for Grok based on xAI official tool pricing.
-    if (normalizedModel.includes('grok')) {
-        if (Array.isArray(toolCallsCountOrList)) {
-            for (const toolCall of toolCallsCountOrList) {
-                let name = '';
-                if (typeof toolCall === 'string') {
-                    name = toolCall;
-                } else if (toolCall?.function?.name) {
-                    name = toolCall.function.name;
-                } else if (toolCall?.name) {
-                    name = toolCall.name;
-                }
-                const normalized = name.trim().toLowerCase();
-                if (!normalized) continue;
-                total += XAI_TOOL_PRICE_PER_CALL[normalized] || 0;
-            }
-        } else if (toolCallsCountOrList > 0) {
-            total += toolCallsCountOrList * LEGACY_TOOL_PRICE_PER_CALL;
-        }
-    }
+    const totalCredits = pricing.baseCreditsPerMessage
+        + (promptTokens * pricing.inputCreditsPer1kTokens) / 1000
+        + (completionTokens * pricing.outputCreditsPer1kTokens) / 1000;
+    const total = totalCredits / CREDITS_PER_USD;
 
     return { amount: total, currency: pricing.currency };
 }

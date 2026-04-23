@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { acquireLock, releaseLock } from '../cache/cacheClient.js';
 import { env } from '../config/env.js';
+import { getDefaultGeneratedImageUsdPrice } from '../config/creditPricingDefaults.js';
 import {
     findGeneratedImageUsageRecord,
     insertGeneratedImageUsageReservation,
@@ -34,14 +35,6 @@ import {
 // - Showing one product price while reserve/capture uses a different credits table.
 
 const GENERATED_IMAGE_RESERVATION_LOCK_TTL_SECONDS = 8;
-const GPT_IMAGE_2_LOW_PRICE_USD_PER_OUTPUT = 0.006;
-const GPT_IMAGE_2_MEDIUM_PRICE_USD_PER_OUTPUT = 0.053;
-const GPT_IMAGE_2_HIGH_PRICE_USD_PER_OUTPUT = 0.211;
-const GPT_IMAGE_1_MINI_LOW_PRICE_USD_PER_OUTPUT = 0.005;
-const GPT_IMAGE_1_MINI_MEDIUM_PRICE_USD_PER_OUTPUT = 0.011;
-const GPT_IMAGE_1_MINI_HIGH_PRICE_USD_PER_OUTPUT = 0.036;
-const GROK_IMAGE_PRICE_USD_PER_OUTPUT = 0.02;
-const GROK_IMAGE_PRO_PRICE_USD_PER_OUTPUT = 0.07;
 function getGeneratedImageLifetimeFreeRequestLimit(): number {
     return Math.max(0, Number(env.credits.lifetimeImageFreeRequests || 0));
 }
@@ -208,7 +201,7 @@ function normalizeGeneratedImageRequest(model: string, quality?: string | null):
             quality: 'pro',
             enabled: false,
             freeOutputImageLimit: 0,
-            pricePerOutputImageUsd: GROK_IMAGE_PRO_PRICE_USD_PER_OUTPUT,
+            pricePerOutputImageUsd: getDefaultGeneratedImageUsdPrice('grok-imagine-image-pro', 'pro') || 0,
         };
     }
 
@@ -221,7 +214,7 @@ function normalizeGeneratedImageRequest(model: string, quality?: string | null):
             quality: 'normal',
             enabled: true,
             freeOutputImageLimit: getGeneratedImageLifetimeFreeRequestLimit(),
-            pricePerOutputImageUsd: GROK_IMAGE_PRICE_USD_PER_OUTPUT,
+            pricePerOutputImageUsd: getDefaultGeneratedImageUsdPrice('grok-imagine-image', 'normal') || 0,
         };
     }
 
@@ -229,11 +222,7 @@ function normalizeGeneratedImageRequest(model: string, quality?: string | null):
         const normalizedMiniQuality = normalizedQuality === 'low' || normalizedQuality === 'high'
             ? normalizedQuality
             : 'medium';
-        const pricePerOutputImageUsd = normalizedMiniQuality === 'low'
-            ? GPT_IMAGE_1_MINI_LOW_PRICE_USD_PER_OUTPUT
-            : normalizedMiniQuality === 'high'
-                ? GPT_IMAGE_1_MINI_HIGH_PRICE_USD_PER_OUTPUT
-                : GPT_IMAGE_1_MINI_MEDIUM_PRICE_USD_PER_OUTPUT;
+        const pricePerOutputImageUsd = getDefaultGeneratedImageUsdPrice('gpt-image-1-mini', normalizedMiniQuality) || 0;
         return {
             requestedModel,
             provider: 'openai',
@@ -250,11 +239,7 @@ function normalizeGeneratedImageRequest(model: string, quality?: string | null):
         const normalizedGptQuality = normalizedQuality === 'low' || normalizedQuality === 'high'
             ? normalizedQuality
             : 'medium';
-        const pricePerOutputImageUsd = normalizedGptQuality === 'low'
-            ? GPT_IMAGE_2_LOW_PRICE_USD_PER_OUTPUT
-            : normalizedGptQuality === 'high'
-                ? GPT_IMAGE_2_HIGH_PRICE_USD_PER_OUTPUT
-                : GPT_IMAGE_2_MEDIUM_PRICE_USD_PER_OUTPUT;
+        const pricePerOutputImageUsd = getDefaultGeneratedImageUsdPrice('gpt-image-2', normalizedGptQuality) || 0;
         return {
             requestedModel,
             provider: 'openai',
