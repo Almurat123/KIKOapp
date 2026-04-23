@@ -25,9 +25,13 @@ let reconciliationTimer: ReturnType<typeof setInterval> | null = null;
 // - Webhook and reconciliation both call `ingestCreditDeposit` with the same deposit identity.
 // - Reconciliation may replay old transfers safely because deposit ingestion is idempotent.
 // - If confirmation count is unknown, watcher must not invent a fully confirmed state.
+// - Fallback log indexes must fit Postgres INT4 because Prisma `Int` maps to signed 32-bit.
 // Failure Modes:
 // - Treating every webhook transfer as fully confirmed will credit deposits too early.
 // - Divergent webhook/poller confirmation math will cause deposits to flap between states.
+// - Hash-derived uint32 log indexes can exceed INT4 and make valid deposits fail before insert.
+
+const MAX_POSTGRES_INT4 = 2_147_483_647;
 
 function createStats(): DepositWatchStats {
     return {
@@ -62,9 +66,9 @@ function supportedAssetByToken(tokenAddress?: string | null, assetSymbol?: strin
     }) || null;
 }
 
-function stableLogIndex(activity: any): number {
+export function stableLogIndex(activity: any): number {
     const direct = Number(activity?.logIndex ?? activity?.log?.index ?? activity?.eventIndex ?? activity?.transactionIndex);
-    if (Number.isInteger(direct) && direct >= 0) return direct;
+    if (Number.isInteger(direct) && direct >= 0) return direct % MAX_POSTGRES_INT4;
 
     const uniqueId = String(
         activity?.uniqueId
@@ -72,7 +76,7 @@ function stableLogIndex(activity: any): number {
         || `${activity?.hash || ''}:${activity?.rawContract?.address || ''}:${activity?.fromAddress || activity?.from || ''}:${activity?.toAddress || activity?.to || ''}:${activity?.rawContract?.value || activity?.value || ''}`,
     );
     const hex = createHash('sha256').update(uniqueId).digest('hex').slice(0, 8);
-    return parseInt(hex, 16) >>> 0;
+    return (parseInt(hex, 16) >>> 0) % MAX_POSTGRES_INT4;
 }
 
 function parseBlockNumber(value: unknown): number | null {

@@ -89,6 +89,8 @@ services:
     container_name: kiko-api
     volumes:
       - ./kiko-api/.env:/app/.env:ro
+    env_file:
+      - ./kiko-api/.env
     environment:
       - NODE_ENV=production
       - PORT=3001
@@ -98,17 +100,7 @@ services:
       - GROK_SERVICE_URL=http://grok-service:8001
       - MODERATION_SERVICE_URL=http://moderation-service:8003
       - RAG_SERVICE_URL=http://rag-service:8002
-      # API Keys (从 .env 读取)
-      - COINGECKO_API_KEY=${COINGECKO_API_KEY}
-      - DUNE_API_KEY=${DUNE_API_KEY}
-      - NEYNAR_API_KEY=${NEYNAR_API_KEY}
-      - ZEROX_API_KEY=${ZEROX_API_KEY}
-      - JUPITER_API_KEY=${JUPITER_API_KEY}
-      - ALCHEMY_API_KEY=${ALCHEMY_API_KEY}
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - XAI_API_KEY=${XAI_API_KEY}
+      # API keys are loaded from ./kiko-api/.env via env_file above.
     ports:
       - "127.0.0.1:3001:3001"
     depends_on:

@@ -4,8 +4,7 @@
  */
 
 // CONTEXT MEMORY
-// Updated: 2026-04-20
-// Author: Rowan
+// Updated: 2026-04-23
 // Reason: token browse reads were still being charged against the trading bucket,
 //         which let a normal token-page navigation inherit protection limits
 //         meant for swap and mutation traffic. Farcaster web also fetches
@@ -13,11 +12,16 @@
 //         2026-04-20 production repro showed the direct public image URL still
 //         returning `429 Too Many Requests` before the public route could serve
 //         the image, which can surface as Farcaster web ERROR 9408 / 403 on
-//         origin cache misses.
+//         origin cache misses. A 2026-04-23 production wallet-page trace showed
+//         billing summary, wallet, and order reads returning 429 together; this
+//         middleware runs before auth, so IP-only buckets can collapse many
+//         Cloudflare/Railway users into one limiter key unless a bearer-token
+//         fingerprint is used first.
 // Goal: keep database-backed token reads in a read-burst bucket while preserving
 //       the tighter trading bucket for real swap and mutation paths, and treat
 //       read-only public generated-image media as static-like fetches so social
-//       CDN proxies do not burn shared API limiter buckets.
+//       CDN proxies do not burn shared API limiter buckets. Authenticated reads
+//       should not share a proxy-IP limiter bucket across users.
 // Owns: request throttling categories, bypass rules, and fail-open behavior for
 //       limiter backend faults.
 // Does Not Own: endpoint-level authorization, request shaping, or downstream token cache policy.
@@ -30,8 +34,11 @@
 // - Prefer separate buckets for read bursts vs mutation traffic.
 // - Keep global limits on by default.
 // - Treat limiter backend faults as non-fatal to request handling.
+// - On authenticated requests, use a hash of the bearer token before falling
+//   back to Cloudflare/X-Forwarded-For client IP headers.
 // - Forbidden local patch patterns: classifying every `/api/tokens/*` request as trading,
-//   or adding broad user-agent allowlists for social crawlers.
+//   adding broad user-agent allowlists for social crawlers, or keying production
+//   API users only by Fastify `request.ip`.
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-14-copytrade-strategy-list-read-write-decoupling.md
 // - Kind: repo doc
@@ -61,6 +68,7 @@
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { createHash } from 'node:crypto';
 import { redis } from '../cache/cacheClient.js';
 import prisma from '../db/prisma.js';
 import { isPublicGeneratedImageProxyRequest } from './originRestriction.js';
@@ -71,6 +79,31 @@ const MAX_REQUESTS_PER_WINDOW = Math.max(
     parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '500', 10) || 500
 ); // Align with env default (500/min) and keep sane lower bound
 const REDIS_ENABLED = process.env.REDIS_URL && process.env.REDIS_ENABLED !== 'false';
+
+function firstHeaderValue(value: string | string[] | undefined): string {
+    if (Array.isArray(value)) return String(value[0] || '').trim();
+    return String(value || '').trim();
+}
+
+function resolveRateLimitClientIp(request: FastifyRequest): string {
+    const cfIp = firstHeaderValue(request.headers['cf-connecting-ip']);
+    if (cfIp) return cfIp;
+
+    const forwardedFor = firstHeaderValue(request.headers['x-forwarded-for']);
+    const firstForwardedIp = forwardedFor.split(',').map((part) => part.trim()).find(Boolean);
+    if (firstForwardedIp) return firstForwardedIp;
+
+    const realIp = firstHeaderValue(request.headers['x-real-ip']);
+    return realIp || request.ip;
+}
+
+function resolveAuthRateLimitKey(request: FastifyRequest): string | null {
+    const authorization = firstHeaderValue(request.headers.authorization);
+    const match = authorization.match(/^Bearer\s+(.+)$/i);
+    const token = match?.[1]?.trim();
+    if (!token) return null;
+    return createHash('sha256').update(token).digest('hex').slice(0, 24);
+}
 
 export async function rateLimiterMiddleware(
     request: FastifyRequest,
@@ -117,10 +150,11 @@ export async function rateLimiterMiddleware(
         return;
     }
 
-    const ip = request.ip;
+    const ip = resolveRateLimitClientIp(request);
     const url = request.url;
     const authUser = (request as any).user;
     const userId = authUser?.sub;
+    const authKey = resolveAuthRateLimitKey(request);
 
     // Determine limit based on endpoint - more generous limits
     let maxRequests = MAX_REQUESTS_PER_WINDOW;
@@ -163,6 +197,7 @@ export async function rateLimiterMiddleware(
     } else if (
         request.method === 'GET' &&
         (
+            url.includes('/api/billing/') ||
             url.includes('/api/social/') ||
             url.includes('/api/wallets/') ||
             url.includes('/api/market/') ||
@@ -177,7 +212,7 @@ export async function rateLimiterMiddleware(
 
     // Key prioritization: userId > ip
     // Using userId prevents rate-limit bypass via IP rotation
-    const identifier = userId ? `u:${userId.slice(-12)}` : `i:${ip}`;
+    const identifier = userId ? `u:${userId.slice(-12)}` : authKey ? `a:${authKey}` : `i:${ip}`;
     const key = `ratelimit:${category}:${identifier}`;
 
     try {

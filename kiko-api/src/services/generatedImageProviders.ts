@@ -1,4 +1,6 @@
 import { Buffer } from 'node:buffer';
+import { LogCode } from '../config/logRegistry.js';
+import { logger } from '../utils/logger.js';
 
 // CONTEXT MEMORY
 // Updated: 2026-04-23
@@ -112,7 +114,13 @@ export interface GeneratedImageProviderProgressEvent {
     partialImageCount: number;
 }
 
-const PROVIDER_TIMEOUT_MS = Math.max(15_000, Number(process.env.GENERATED_IMAGE_PROVIDER_TIMEOUT_MS || '120000'));
+function resolveProviderTimeoutMs(): number {
+    const configured = Number(process.env.GENERATED_IMAGE_PROVIDER_TIMEOUT_MS || '300000');
+    if (!Number.isFinite(configured)) return 300_000;
+    return Math.max(300_000, configured);
+}
+
+const PROVIDER_TIMEOUT_MS = resolveProviderTimeoutMs();
 const OPENAI_IMAGE_ENDPOINT = 'https://api.openai.com/v1/images/generations';
 const OPENAI_IMAGE_EDIT_ENDPOINT = 'https://api.openai.com/v1/images/edits';
 const OPENROUTER_IMAGE_ENDPOINT = String(process.env.OPENROUTER_API_URL || 'https://openrouter.ai/api/v1/chat/completions').trim();
@@ -272,6 +280,12 @@ function resolveOpenRouterImageSize(quality: GeneratedImageProviderQuality): '1K
     return '2K';
 }
 
+function resolveOpenRouterReasoningEffort(quality: GeneratedImageProviderQuality): 'low' | 'medium' | 'high' {
+    if (quality === 'low') return 'low';
+    if (quality === 'high') return 'high';
+    return 'medium';
+}
+
 function buildOpenRouterImageContent(prompt: string, inputImages: GeneratedImageProviderInputImage[]): string | Array<{
     type: 'text' | 'image_url';
     text?: string;
@@ -356,6 +370,11 @@ async function generateOpenRouterImage(
                 aspect_ratio: '1:1',
                 image_size: resolveOpenRouterImageSize(quality),
             },
+            ...(model === 'gpt-image-2' ? {
+                reasoning: {
+                    effort: resolveOpenRouterReasoningEffort(quality),
+                },
+            } : {}),
         }),
         signal: controller.signal,
     });
@@ -456,18 +475,23 @@ async function generateOpenRouterImage(
 
 // CONTEXT MEMORY
 // Updated: 2026-04-23
-// Status: inferred
+// Status: verified
 // Why: GPT image models can now be routed through OpenRouter's OpenAI-compatible
 //      chat/completions transport when the OpenRouter key is configured, while
-//      preserving the legacy OpenAI images endpoint as a fallback.
+//      preserving the legacy OpenAI images endpoint as a fallback. OpenRouter's
+//      GPT Image 2 route also needs the selected low/medium/high level passed
+//      as `reasoning.effort`, not only as image size.
 // Debug Goal: keep GPT image requests on OpenRouter chat/completions with
-//             `image_url` message parts and data URL decoding.
-// Search Tags: openrouter gpt image chat completions image_url data url
+//             `image_url` message parts, `reasoning.effort`, and data URL decoding.
+// Search Tags: openrouter gpt image chat completions reasoning effort image_url data url
 // Invariants:
 // - OpenRouter transport is only used when `OPENROUTER_API_KEY` is present.
 // - OpenAI images endpoints remain the fallback when OpenRouter is not configured.
+// - Provider-selection logs must identify OpenRouter vs OpenAI fallback without leaking secrets.
+// - OpenRouter GPT Image 2 requests must pass low/medium/high as `reasoning.effort`.
 // Failure Modes:
 // - Sending GPT image requests to `/images/generations` on OpenRouter breaks the call.
+// - Omitting `reasoning.effort` from GPT Image 2 can leave OpenRouter without the selected effort level.
 // - Returning OpenRouter data URLs without decoding leaves the transcript with empty images.
 async function* iterateSseBlocks(stream: ReadableStream<Uint8Array>): AsyncGenerator<{ event: string; data: string }> {
     const reader = stream.getReader();
@@ -741,19 +765,37 @@ export async function generateImageWithProvider(params: GeneratedImageProviderRe
 
     if (params.provider === 'openai' || isOpenAiGeneratedImageModel(params.model)) {
         const useOpenRouter = Boolean(String(process.env.OPENROUTER_API_KEY || '').trim());
+        const model = isOpenAiGeneratedImageModel(params.model) ? params.model : 'gpt-image-1-mini';
+        const quality = params.quality === 'low' || params.quality === 'high' ? params.quality : 'medium';
+        logger.info(LogCode.AI_API_CALL, 'Generated image provider selected', {
+            provider: useOpenRouter ? 'openrouter' : 'openai',
+            model,
+            routerModel: useOpenRouter
+                ? (model === 'gpt-image-2' ? OPENROUTER_GPT_IMAGE_2_MODEL : OPENROUTER_GPT_IMAGE_1_MINI_MODEL)
+                : undefined,
+            endpoint: useOpenRouter
+                ? OPENROUTER_IMAGE_ENDPOINT
+                : (inputImages.length > 0 ? OPENAI_IMAGE_EDIT_ENDPOINT : OPENAI_IMAGE_ENDPOINT),
+            inputImageCount: inputImages.length,
+            stream: Boolean(params.onProgress),
+            timeoutMs: PROVIDER_TIMEOUT_MS,
+            reasoningEffort: useOpenRouter && model === 'gpt-image-2'
+                ? resolveOpenRouterReasoningEffort(quality)
+                : undefined,
+        });
         if (useOpenRouter) {
             return generateOpenRouterImage(
-                isOpenAiGeneratedImageModel(params.model) ? params.model : 'gpt-image-1-mini',
+                model,
                 prompt,
-                params.quality === 'low' || params.quality === 'high' ? params.quality : 'medium',
+                quality,
                 inputImages,
                 params.onProgress,
             );
         }
         return generateOpenAiImage(
-            isOpenAiGeneratedImageModel(params.model) ? params.model : 'gpt-image-1-mini',
+            model,
             prompt,
-            params.quality === 'low' || params.quality === 'high' ? params.quality : 'medium',
+            quality,
             inputImages,
             params.onProgress,
         );
@@ -768,6 +810,14 @@ export async function generateImageWithProvider(params: GeneratedImageProviderRe
     }
 
     if (params.provider === 'xai' || params.model === 'grok-imagine-image') {
+        logger.info(LogCode.AI_API_CALL, 'Generated image provider selected', {
+            provider: 'xai',
+            model: 'grok-imagine-image',
+            endpoint: XAI_IMAGE_ENDPOINT,
+            inputImageCount: inputImages.length,
+            stream: false,
+            timeoutMs: PROVIDER_TIMEOUT_MS,
+        });
         return generateXaiImage(prompt);
     }
 

@@ -184,6 +184,9 @@ test('OpenRouter gpt-image-2 image requests use chat completions with image_url 
                 aspect_ratio: '1:1',
                 image_size: '2K',
             });
+            assert.deepEqual(calls[0].body.reasoning, {
+                effort: 'medium',
+            });
             assert.deepEqual(calls[0].body.messages, [
                 {
                     role: 'user',
@@ -251,6 +254,9 @@ test('OpenRouter streamed GPT image responses decode delta.images', async () => 
             assert.deepEqual(calls[0].body.image_config, {
                 aspect_ratio: '1:1',
                 image_size: '4K',
+            });
+            assert.deepEqual(calls[0].body.reasoning, {
+                effort: 'high',
             });
             assert.equal(result.imageBuffer.toString('utf8'), 'streamed-router-image');
             assert.equal(result.supportsProgressiveReveal, true);
