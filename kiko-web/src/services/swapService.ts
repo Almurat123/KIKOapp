@@ -127,15 +127,18 @@ function findMatchingRecentTrade(
 }
 
 function isAmbiguousSwapFailure(statusCode: number | null, error: unknown): boolean {
-    if (statusCode !== null && statusCode >= 500) return true;
     const message = error instanceof Error ? error.message : String(error || '');
     const normalized = message.toLowerCase();
-    return normalized.includes('load failed')
+    const networkLike = normalized.includes('load failed')
         || normalized.includes('failed to fetch')
         || normalized.includes('networkerror')
         || normalized.includes('fetch failed')
         || normalized.includes('bad gateway')
         || normalized.includes('502');
+    if (networkLike) return true;
+
+    const parseFailure = normalized.includes('unexpected token') || normalized.includes('json');
+    return Boolean(statusCode && statusCode >= 502 && parseFailure);
 }
 
 async function reconcileRecentInstantSwap(params: {

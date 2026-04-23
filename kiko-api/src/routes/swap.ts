@@ -701,7 +701,15 @@ export async function swapRoutes(fastify: FastifyInstance) {
                     throw new AppError(503, 'Instant trading not configured. Set PRIVY_APP_SECRET.', 'NOT_CONFIGURED');
                 }
 
-                const { tokenIn: rawTokenIn, tokenOut: rawTokenOut, amountIn, chainId, slippageBps = 1000, messageId } = request.body;
+                const {
+                    tokenIn: rawTokenIn,
+                    tokenOut: rawTokenOut,
+                    amountIn,
+                    chainId,
+                    slippageBps = 1000,
+                    messageId,
+                    nativeBalanceEvidence,
+                } = request.body;
 
                 // Extract messageId from header if provided (for WebSocket updates)
                 const transactionMessageId = messageId || request.headers['x-transaction-message-id'];
@@ -873,6 +881,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
                     chainId: validatedChainId,
                     slippageBps,
                     transactionMessageId: transactionMessageId as string,
+                    nativeBalanceEvidence,
                 }, reply);
             } catch (error) {
                 console.error('[Swap Execute Instant] Error:', error);

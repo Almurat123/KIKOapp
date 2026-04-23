@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { __evmExecuteInstantTest } from './evmExecuteInstantHandler.js';
+import { AppError } from '../../middleware/errorHandler.js';
 import type { MainSwapResult } from '../../services/MainSwapService.js';
 import type { ZeroExTokenMetadata } from '../../services/zeroEx.js';
 
@@ -187,4 +188,90 @@ test('executeEvmInstantWithDeps does not block swap execution on slow USD price 
     assert.equal(calls.updateSwapHistory.length, 1);
     assert.equal(calls.updateSwapHistory[0][1].status, 'pending');
     assert.ok(elapsedMs < 4_000, `expected execution to continue without waiting 10s for prices, got ${elapsedMs}ms`);
+});
+
+test('executeEvmInstantWithDeps forwards native balance evidence into swap execution context', async () => {
+    let capturedParams: any = null;
+    const { deps } = buildDeps({
+        executeSwap: async (params: any) => {
+            capturedParams = params;
+            return {
+                success: true,
+                txHash: '0xevidence',
+                amountOut: '7',
+                txLifecycle: {
+                    status: 'visible_pending',
+                    txHash: '0xevidence',
+                    attempts: 1,
+                    chainId: 8453,
+                },
+                metadata: { provider: '0x', mode: 'allowance' },
+            } satisfies MainSwapResult;
+        },
+    });
+
+    await __evmExecuteInstantTest.executeEvmInstantWithDeps({
+        userId: 'u1',
+        walletAddress: '0x1111111111111111111111111111111111111111',
+        accessToken: 'token',
+        tokenIn: 'ETH',
+        tokenOut: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+        amountIn: '0.001',
+        chainId: 8453,
+        slippageBps: 50,
+        transactionMessageId: 'msg1',
+        executionSource: 'chat',
+        routePolicy: 'external_only',
+        nativeBalanceEvidence: {
+            chainId: 8453,
+            walletAddress: '0x1111111111111111111111111111111111111111',
+            balanceWei: '38235470000000000',
+            observedAtMs: Date.now(),
+            source: 'main_swap_native_precheck',
+        },
+    }, deps);
+
+    assert.equal(
+        capturedParams?.executionContext?.nativeBalanceEvidence?.balanceWei,
+        '38235470000000000',
+    );
+});
+
+test('executeEvmInstantWithDeps surfaces execution rejections as business conflicts instead of 500s', async () => {
+    const { deps, calls } = buildDeps({
+        executeSwap: async () => ({
+            success: false,
+            reasonCode: 'execution_reverted',
+            userMessage: 'The swap transaction reverted on-chain before settlement.',
+            error: 'Transaction reverted: 0x0',
+            txHash: '0xreverted',
+            metadata: { provider: '0x', mode: 'swap-card' },
+        } satisfies MainSwapResult),
+    });
+
+    await assert.rejects(
+        __evmExecuteInstantTest.executeEvmInstantWithDeps({
+            userId: 'u1',
+            walletAddress: '0x1111111111111111111111111111111111111111',
+            accessToken: 'token',
+            tokenIn: 'BNB',
+            tokenOut: '0x0bc61768132aa1484e2b09301284b7def78a4444',
+            amountIn: '0.001',
+            chainId: 56,
+            slippageBps: 1000,
+            transactionMessageId: 'msg1',
+            executionSource: 'chat',
+            routePolicy: 'external_only',
+        }, deps),
+        (error: unknown) => {
+            assert.ok(error instanceof AppError);
+            assert.equal(error.statusCode, 409);
+            assert.equal(error.message, 'The swap transaction reverted on-chain before settlement.');
+            return true;
+        }
+    );
+
+    assert.equal(calls.updateSwapHistory.length, 1);
+    assert.equal(calls.updateSwapHistory[0][1].status, 'failed');
+    assert.equal(calls.updateSwapHistory[0][1].txHash, '0xreverted');
 });

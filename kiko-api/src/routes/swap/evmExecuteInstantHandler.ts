@@ -15,6 +15,7 @@ import {
 import { callRpc } from '../../services/rpcManager.js';
 import { getTransactionReceipt } from '../../services/rpcManager.js';
 import { MainSwapService, type MainSwapResult } from '../../services/MainSwapService.js';
+import type { NativeBalanceEvidence } from '../../services/swap/nativeBalanceEvidence.js';
 
 export interface EvmExecuteInstantParams {
     userId: string;
@@ -28,6 +29,7 @@ export interface EvmExecuteInstantParams {
     transactionMessageId?: string;
     executionSource?: 'chat' | 'wallet_page' | 'copytrade' | 'system';
     routePolicy?: 'external_only' | 'legacy_allowed';
+    nativeBalanceEvidence?: NativeBalanceEvidence;
 }
 
 type TokenMetadata = {
@@ -116,6 +118,39 @@ type InstantExecutionOutcome = {
 
 const NATIVE_TOKEN_PLACEHOLDER = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
 const SWAP_AUX_PRICE_TIMEOUT_MS = 2_500;
+
+function resolveSwapFailureStatusCode(reasonCode?: string, message?: string): number {
+    const normalizedReason = String(reasonCode || '').toLowerCase();
+    const normalizedMessage = String(message || '').toLowerCase();
+
+    if (
+        normalizedReason === 'invalid_token'
+        || normalizedReason === 'unsupported_token_or_chain'
+        || normalizedReason === 'insufficient_balance'
+        || normalizedMessage.includes('insufficient native balance')
+    ) {
+        return 400;
+    }
+
+    if (
+        normalizedReason === 'rpc_unavailable'
+        || normalizedMessage.includes('all rpc endpoints failed')
+    ) {
+        return 503;
+    }
+
+    if (
+        normalizedReason === 'execution_reverted'
+        || normalizedReason === 'execution_rejected'
+        || normalizedReason === 'slippage_exceeded'
+        || normalizedReason === 'quote_unavailable'
+        || normalizedMessage.includes('transaction reverted')
+    ) {
+        return 409;
+    }
+
+    return 500;
+}
 
 function resolveInstantExecutionOutcome(params: {
     requireConfirmedTx: boolean;
@@ -490,6 +525,11 @@ async function executeEvmInstantWithDeps(
             messageId: params.transactionMessageId,
             userSettings: effectiveUserSettings,
             requireConfirmedTx,
+            executionContext: params.nativeBalanceEvidence
+                ? {
+                    nativeBalanceEvidence: params.nativeBalanceEvidence,
+                }
+                : undefined,
         });
     } catch (error: any) {
         await deps.updateSwapHistory(pendingTrade.id, {
@@ -515,7 +555,7 @@ async function executeEvmInstantWithDeps(
             );
         }
         throw new AppError(
-            500,
+            resolveSwapFailureStatusCode(swapResult.reasonCode, rawError),
             swapResult.userMessage || rawError,
             swapResult.reasonCode || 'SWAP_FAILED'
         );

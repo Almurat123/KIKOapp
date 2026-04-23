@@ -32,8 +32,10 @@ import { resolveTokenDisplayMetadata } from '../../../services/tokens.js';
 import { isTruncatedEvmAddressLike, repairTruncatedEvmAddressFromMessages } from '../../../services/addressRecovery.js';
 import { resolveDisplayedAmountOut } from '../../../services/swapCardAmount.js';
 import { validateSwapExecutionChain } from './chainExecutionGuard.js';
+import type { NativeBalanceEvidence } from '../../../services/swap/nativeBalanceEvidence.js';
 import type { RecentToolTrace } from '../../../jobs/chat/contracts.js';
 import { buildTransactionExplorerUrl } from '../../../utils/executionLinks.js';
+import { ethers } from 'ethers';
 // Note: swapAggregator import removed - using internal API call instead
 
 interface SwapArgs {
@@ -48,6 +50,14 @@ interface SwapArgs {
 const NATIVE_PLACEHOLDER = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 const CHAT_EXECUTION_PENDING_HANDOFF_MS = 8000;
 const PENDING_HANDOFF_SENTINEL = { __pending_handoff: true } as const;
+const CHAIN_BALANCE_KEYS: Record<number, string> = {
+    1: 'ethereum',
+    10: 'optimism',
+    56: 'bnb',
+    137: 'polygon',
+    8453: 'base',
+    42161: 'arbitrum',
+};
 
 const SAFE_TOKEN_SYMBOLS = new Set([
     'ETH', 'WETH', 'USDC', 'USDT', 'DAI', 'SOL', 'BTC', 'WBTC', 'BNB', 'WBNB', 'POL', 'MATIC',
@@ -292,6 +302,53 @@ function raceExecutionWithPendingHandoff<T>(
         }),
         pendingHandoffPromise,
     ]);
+}
+
+function buildNativeBalanceEvidenceForExecution(params: {
+    args: SwapArgs;
+    context: ToolContext | undefined;
+    walletAddress?: string;
+}): NativeBalanceEvidence | undefined {
+    const walletAddress = String(params.walletAddress || '').trim();
+    if (!walletAddress) return undefined;
+
+    const runtime = (params.context as any)?.__snapshot?.runtime;
+    if (!runtime || typeof runtime !== 'object') return undefined;
+
+    const chainKey = CHAIN_BALANCE_KEYS[Number(params.args.chain_id)];
+    const chainSnapshot = chainKey && runtime.allChainBalances && typeof runtime.allChainBalances === 'object'
+        ? runtime.allChainBalances[chainKey]
+        : null;
+    const rawBalance =
+        chainSnapshot?.ethBalanceFormatted
+        ?? chainSnapshot?.ethBalance
+        ?? chainSnapshot?.nativeBalance
+        ?? runtime.nativeBalance;
+    if (rawBalance == null) return undefined;
+
+    try {
+        const balanceText = String(rawBalance).trim();
+        const balanceWei = balanceText.startsWith('0x')
+            ? BigInt(balanceText)
+            : ethers.parseUnits(balanceText, 18);
+        const gasReserveWei = ethers.parseUnits(String(getChainConfig(params.args.chain_id).gasReserve || '0'), 18);
+        const tradeCostWei = ethers.parseUnits(String(params.args.amount_in), 18);
+        const observedAtRaw = runtime.allChainBalancesSnapshotAt || runtime.balanceSnapshotAt;
+        const observedAtMs = observedAtRaw ? Date.parse(String(observedAtRaw)) : NaN;
+        return {
+            chainId: Number(params.args.chain_id),
+            walletAddress,
+            balanceWei: balanceWei.toString(),
+            observedAtMs: Number.isFinite(observedAtMs) && observedAtMs > 0 ? observedAtMs : Date.now(),
+            source: 'main_swap_native_precheck',
+            gasReserveWei: gasReserveWei.toString(),
+            tradeCostWei: tradeCostWei.toString(),
+            requiredWei: (tradeCostWei + gasReserveWei).toString(),
+        };
+    } catch (error) {
+        console.warn('[PrepareSwapTransaction] Failed to build native balance evidence:', (error as Error).message);
+        return undefined;
+    }
 }
 
 function hasQuoteModeExecutionAuthorization(context: ToolContext | undefined, args: SwapArgs): boolean {
@@ -551,11 +608,11 @@ When show-quote-before-swap is enabled (default), execution must follow:
 
             // Get user's wallet address for quote (required by 0x API)
             let userWalletAddress: string | undefined = context?.walletAddress || context?.userAddress;
-            try {
-                const userId = context?.userId;
-                if (userId && accessToken) {
-                    const { getEmbeddedWalletAddress } = await import('../../../services/privyWallet.js');
-                    userWalletAddress = (await getEmbeddedWalletAddress(userId)) || userWalletAddress;
+                try {
+                    const userId = context?.userId;
+                    if (userId && accessToken) {
+                        const { getEmbeddedWalletAddress } = await import('../../../services/privyWallet.js');
+                        userWalletAddress = (await getEmbeddedWalletAddress(userId)) || userWalletAddress;
                     console.log('[PrepareSwapTransaction] User wallet address:', userWalletAddress?.slice(0, 10) + '...');
                 }
             } catch (err) {
@@ -946,6 +1003,11 @@ When show-quote-before-swap is enabled (default), execution must follow:
                     },
                     _final: true,
                 });
+                const nativeBalanceEvidence = buildNativeBalanceEvidenceForExecution({
+                    args,
+                    context,
+                    walletAddress: userWalletAddress,
+                });
 
                 const executionPromise = (async (): Promise<any> => {
                     const controller = new AbortController();
@@ -960,12 +1022,13 @@ When show-quote-before-swap is enabled (default), execution must follow:
                                 ...(appKey ? { 'X-App-Key': appKey } : {}),
                                 ...buildSignedHeaders('POST', '/api/swap/execute-instant', JSON.stringify({
                                     tokenIn: args.token_in,
-                                    tokenOut: args.token_out,
-                                    amountIn: args.amount_in,
-                                    chainId: args.chain_id,
-                                    slippageBps: Math.round((args.slippage || 10) * 100),
-                                    messageId: transactionMessage.id
-                                })),
+                                tokenOut: args.token_out,
+                                amountIn: args.amount_in,
+                                chainId: args.chain_id,
+                                slippageBps: Math.round((args.slippage || 10) * 100),
+                                messageId: transactionMessage.id,
+                                nativeBalanceEvidence,
+                            })),
                                 'X-Transaction-Message-Id': transactionMessage.id
                             },
                             body: JSON.stringify({
@@ -974,7 +1037,8 @@ When show-quote-before-swap is enabled (default), execution must follow:
                                 amountIn: args.amount_in,
                                 chainId: args.chain_id,
                                 slippageBps: Math.round((args.slippage || 10) * 100),
-                                messageId: transactionMessage.id
+                                messageId: transactionMessage.id,
+                                nativeBalanceEvidence,
                             }),
                             signal: controller.signal
                         });

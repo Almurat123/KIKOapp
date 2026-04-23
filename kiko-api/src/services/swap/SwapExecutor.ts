@@ -84,6 +84,7 @@ export interface SwapParams {
     waitForConfirmation?: boolean; // Wait for on-chain confirmation before returning (for copytrade)
     confirmationTimeoutMs?: number; // Override confirmation wait timeout
     returnOnConfirmTimeout?: boolean; // If true, return success on timeout and monitor in background
+    allowPostBroadcastRetry?: boolean; // If false, visible on-chain failures stop after the first broadcast attempt
     speedUpAfterMs?: number; // Attempt replacement if tx is still pending
     speedUpBumpBps?: number; // Gas bump in bps for replacement
     transferRetry?: boolean; // Internal: prevent repeat retry after transfer failure
@@ -235,6 +236,7 @@ type ApprovalBoundExecutionDecision = {
     quoteToExecute: QuoteResult;
     refreshApplied: boolean;
     refreshFailureCode?: string;
+    mustAbortExecution?: boolean;
 };
 
 function finalizeApprovedSellQuote(params: {
@@ -265,6 +267,7 @@ function finalizeApprovedSellQuote(params: {
             quoteToExecute: originalQuote,
             refreshApplied: false,
             refreshFailureCode: 'fresh_quote_allowance_changed_after_approval',
+            mustAbortExecution: true,
         };
     }
 
@@ -1054,6 +1057,9 @@ export class SwapExecutor {
                         }
 
                         if (!refreshDecision.refreshApplied) {
+                            if (refreshDecision.mustAbortExecution) {
+                                throw new Error('Approved spender no longer matches the executable quote. Please retry the swap.');
+                            }
                             logger.warn(LogCode.SYS_INFO, 'Proceeding with approved original quote after refresh fallback', {
                                 dex: originalQuote.dexName,
                                 reasonCode: refreshDecision.refreshFailureCode,
@@ -1466,13 +1472,14 @@ export class SwapExecutor {
                     // ⚡ RETRY LOGIC FOR REVERTED TRANSACTIONS
                     // When waitForConfirmation is enabled and tx reverts, we should retry with higher slippage
                     // NOTE: autoTradeService has its own multi-step retry, so we only do 1 internal retry here
+                    const allowPostBroadcastRetry = params.allowPostBroadcastRetry !== false;
                     const MAX_INTERNAL_RETRY_SLIPPAGE = 1000; // 10% internal max (autoTradeService handles higher)
                     const INCREMENT_STEP = 300;  // 3% step for internal retry
                     const nextSlippage = slippageBps + INCREMENT_STEP;
 
                     // Only do internal retry if we're below internal max AND this is first internal retry
                     const isFirstInternalRetry = !params.excludeDex; // excludeDex is set on retry
-                    if (isFirstInternalRetry && best?.dex) {
+                    if (allowPostBroadcastRetry && isFirstInternalRetry && best?.dex) {
                         logger.warn(LogCode.EXE_TX_REVERTED, 'Fast failover: switching DEX after confirmed on-chain revert', {
                             failedDex: best.dexName,
                             failedDexId: best.dex,
@@ -1489,7 +1496,7 @@ export class SwapExecutor {
                             })
                         });
                     }
-                    if (isFirstInternalRetry && nextSlippage <= MAX_INTERNAL_RETRY_SLIPPAGE) {
+                    if (allowPostBroadcastRetry && isFirstInternalRetry && nextSlippage <= MAX_INTERNAL_RETRY_SLIPPAGE) {
                         logger.warn(LogCode.EXE_TX_REVERTED, `On-chain revert. Quick retry with slippage: ${nextSlippage / 100}%`, {
                             original: slippageBps,
                             next: nextSlippage,

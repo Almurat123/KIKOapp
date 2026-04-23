@@ -206,13 +206,17 @@ async function executeReadOnlyTool(params: {
     broker: ChatStreamBroker;
     toolExecutionEngine: ToolExecutionEngine;
 }) {
+    const inheritedPolicy = params.snapshot.policySnapshot || null;
+    const controlPolicy = inheritedPolicy?.allowedTools?.includes(params.call.name)
+        ? inheritedPolicy
+        : null;
     const result = await params.toolExecutionEngine.execute(params.call, {
         ...(params.task.toolContext || {}),
         sessionId: params.task.sessionId,
         messageId: params.task.assistantMessageId,
         userId: params.userId,
         recentToolTrace: params.snapshot.recentToolTrace,
-        __controlPolicy: params.snapshot.policySnapshot || null,
+        __controlPolicy: controlPolicy,
         __snapshot: params.snapshot,
     });
     await params.broker.recordToolResult({

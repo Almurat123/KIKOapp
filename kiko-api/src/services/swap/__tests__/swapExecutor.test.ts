@@ -39,6 +39,7 @@ test('finalizeApprovedSellQuote keeps original quote when refreshed spender drif
 
   assert.equal(decision.refreshApplied, false);
   assert.equal(decision.refreshFailureCode, 'fresh_quote_allowance_changed_after_approval');
+  assert.equal(decision.mustAbortExecution, true);
   assert.equal(decision.quoteToExecute.allowanceTarget, original.allowanceTarget);
   assert.equal(decision.quoteToExecute.data, original.data);
 });

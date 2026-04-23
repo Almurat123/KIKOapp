@@ -410,6 +410,7 @@ export function shouldDeferAcceptedCopytradeBuyFeeCollection(params: {
 export function inferSwapReasonCode(message?: string): string {
   const normalized = String(message || '').toLowerCase();
   if (!normalized) return 'swap_failed';
+  if (normalized.includes('transaction reverted') || normalized.includes(' reverted')) return 'execution_reverted';
   if (
     normalized.includes('all rpc endpoints failed')
     || normalized.includes('http 401')
@@ -429,6 +430,8 @@ export function inferSwapReasonCode(message?: string): string {
 export function buildUserFacingSwapError(message?: string, routePolicy?: RoutePolicy): string {
   const reasonCode = inferSwapReasonCode(message);
   switch (reasonCode) {
+    case 'execution_reverted':
+      return 'The swap transaction reverted on-chain before settlement.';
     case 'rpc_unavailable':
       return 'Trade execution RPC is temporarily unavailable on this chain. Please retry shortly.';
     case 'fallback_blocked':
@@ -2549,6 +2552,7 @@ export class MainSwapService {
       isSell: isSellDirection,
       messageId: request.messageId, // For WebSocket progress updates
       accessToken: request.accessToken,
+      allowPostBroadcastRetry: request.mode !== 'swap-card',
       // CRITICAL: Wait for on-chain confirmation to ensure accurate status reporting
       // - fast-swap: AI-driven chat swaps need accurate status for user feedback
       // - swap-card: API/UI swaps need real confirmation before reporting success
