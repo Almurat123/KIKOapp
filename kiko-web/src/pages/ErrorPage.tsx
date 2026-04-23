@@ -2,9 +2,36 @@ import React from 'react';
 import { useRouteError, isRouteErrorResponse, useNavigate } from 'react-router-dom';
 import { PageContainer } from '../components/Layout/PageContainer';
 
+const CHUNK_RECOVERY_KEY = 'kiko.error-page.chunk-recovery';
+
+function isRecoverableChunkError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error || '');
+    return /failed to fetch dynamically imported module/i.test(message)
+        || /importing a module script failed/i.test(message)
+        || /loading chunk [\d]+ failed/i.test(message)
+        || /not a valid javascript mime type/i.test(message)
+        || /text\/html/i.test(message);
+}
+
 export const ErrorPage: React.FC = () => {
     const error = useRouteError();
     const navigate = useNavigate();
+    const canRecoverByReload = isRecoverableChunkError(error);
+
+    React.useEffect(() => {
+        if (!canRecoverByReload) return;
+        if (typeof window === 'undefined') return;
+        if (window.sessionStorage.getItem(CHUNK_RECOVERY_KEY) === '1') return;
+        window.sessionStorage.setItem(CHUNK_RECOVERY_KEY, '1');
+        window.location.reload();
+    }, [canRecoverByReload]);
+
+    React.useEffect(() => {
+        if (!canRecoverByReload || typeof window === 'undefined') return;
+        return () => {
+            window.sessionStorage.removeItem(CHUNK_RECOVERY_KEY);
+        };
+    }, [canRecoverByReload]);
 
     let title = "An unexpected error occurred";
     let message = "Something went wrong.";
@@ -24,6 +51,11 @@ export const ErrorPage: React.FC = () => {
         message = error.message;
     }
 
+    if (canRecoverByReload) {
+        title = 'App Update Detected';
+        message = 'A stale app bundle or missing route chunk was detected. Reload to fetch the latest version.';
+    }
+
     return (
         <PageContainer>
             <div style={{
@@ -38,7 +70,16 @@ export const ErrorPage: React.FC = () => {
                 <h1 style={{ fontSize: '2rem', fontWeight: 'bold' }}>{title}</h1>
                 <p style={{ fontSize: '1.1rem', opacity: 0.8 }}>{message}</p>
                 <button
-                    onClick={() => navigate('/')}
+                    onClick={() => {
+                        if (canRecoverByReload) {
+                            if (typeof window !== 'undefined') {
+                                window.sessionStorage.removeItem(CHUNK_RECOVERY_KEY);
+                                window.location.reload();
+                            }
+                            return;
+                        }
+                        navigate('/');
+                    }}
                     style={{
                         padding: '10px 20px',
                         background: 'var(--accent-primary)',
@@ -49,7 +90,7 @@ export const ErrorPage: React.FC = () => {
                         fontSize: '1rem'
                     }}
                 >
-                    Return Home
+                    {canRecoverByReload ? 'Reload App' : 'Return Home'}
                 </button>
             </div>
         </PageContainer>

@@ -9,6 +9,8 @@ const RETRYABLE_PATTERNS = [
   /Loading chunk [\d]+ failed/i,
   /route chunk load timed out/i,
   /networkerror/i,
+  /not a valid javascript mime type/i,
+  /text\/html/i,
 ];
 
 type ModuleLoader<T extends React.ComponentType<any>> = () => Promise<{ default: T }>;
