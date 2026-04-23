@@ -376,7 +376,7 @@ function buildIntentName(route: TaskRoute): CanonicalIntentName {
         case 'general_answer':
             return 'general_answer';
         case 'image':
-            return hasFacet(route, 'prompt_only') ? 'image_prompting' : 'image_generation';
+            return 'image_generation';
         case 'social':
             return 'social_discovery';
         case 'token':

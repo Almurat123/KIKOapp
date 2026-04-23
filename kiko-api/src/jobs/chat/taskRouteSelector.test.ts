@@ -104,6 +104,65 @@ test('selectTaskRoute keeps long social reference-image prompts on the image own
     assert.ok(resolution.allowedTools.includes('generate_image_from_intent'));
 });
 
+test('selectTaskRoute keeps generate_image_from_intent visible for image prompt_only routes', async () => {
+    const snapshot = makeSnapshot('Rewrite this image prompt if needed, but if it is clear enough just generate the poster now.', {
+        runtime: {
+            currentPage: 'farcaster',
+            pageContext: 'farcaster_agent',
+            socialInput: {
+                text: 'Current @almurat cast',
+                images: [{ url: 'https://example.com/kiko-ref.png', sourceLabel: 'cast image' }],
+            },
+        } as any,
+    });
+
+    const result = await selectTaskRoute({
+        snapshot,
+        generationClient: {
+            async generate() {
+                return {
+                    text: JSON.stringify({
+                        owner: 'image',
+                        phase: 'execute',
+                        facets: ['prompt_only', 'reference_image', 'social_images'],
+                        confidence: 0.96,
+                        explanation: 'The user is in the image lane and may still want direct generation after prompt cleanup.',
+                        entities: {
+                            token_addresses: [],
+                            token_symbols: [],
+                            wallet_addresses: [],
+                            market_identifiers: [],
+                            image_refs: ['https://example.com/kiko-ref.png'],
+                        },
+                        requested_chain: null,
+                        requested_time_window: null,
+                        row_count: null,
+                        inherit_entities_from_context: true,
+                        locale: 'en',
+                        needs_clarification: false,
+                        clarification_question: null,
+                    }),
+                    reasoning: '',
+                    toolCalls: [],
+                };
+            },
+        } as any,
+    });
+
+    assert.equal(result.snapshot.taskRoute?.owner, 'image');
+    assert.ok(result.snapshot.taskRoute?.facets.includes('prompt_only'));
+    assert.equal(result.snapshot.normalizedIntent?.intent, 'image_generation');
+
+    const resolution = resolveNodeSkills(result.snapshot, null, result.snapshot.normalizedIntent);
+    assert.equal(resolution.toolPackageSource, 'task_route');
+    assert.equal(resolution.selectedSkills[0], 'image_generation');
+    assert.ok(resolution.selectedSkills.includes('image_prompting'));
+    assert.ok(resolution.allowedTools.includes('generate_image_from_intent'));
+    assert.ok(resolution.preferredTools.includes('generate_image_from_intent'));
+    assert.equal(resolution.intentEnvelope.primary_intent, 'image_generation');
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('prompt_only is only a prompt-guidance hint')));
+});
+
 test('selectTaskRoute clears stale token carry-over for assistant_meta debug turns', async () => {
     const snapshot = makeSnapshot('Why did you answer with prompt advice instead of generating the image?', {
         requestedTokenSymbols: ['KIKO', 'WHAT'],

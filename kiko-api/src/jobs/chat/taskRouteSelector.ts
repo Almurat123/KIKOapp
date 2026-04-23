@@ -197,7 +197,7 @@ function buildRouteSelectionMessages(snapshot: ChatContextSnapshot): GenerationM
                 'For long prompts, prefer the concrete deliverable or action the user wants most now.',
                 'Attached images, @mentions, social thread wrappers, and transport metadata are context only.',
                 'If the user wants an output image now, owner=image even when token/social context exists.',
-                'If the user only wants image prompt help or rewriting, owner=image with facet=prompt_only.',
+                'If the user only wants image prompt help or rewriting, owner=image with facet=prompt_only; this facet is only an advisory hint inside the image lane.',
                 'If the user asks about the assistant, previous reply, runtime, fallback, or why the system behaved a certain way, owner=assistant_meta.',
                 'If the user wants token early buyers, creator analysis, token risk, or token evidence, owner=token and use facets to specify subfocus.',
                 'If the user wants wallet PnL or wallet-specific analysis, owner=wallet.',

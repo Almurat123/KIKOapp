@@ -10,7 +10,7 @@ export type OnboardingStep = 'idle' | 'funding' | 'farcaster' | 'complete';
 // CONTEXT MEMORY
 // Updated: 2026-04-13
 // Author: Codex
-// Reason: Farcaster Mini App auth uses Farcaster/social login plus Privy
+// Reason: Farcaster Mini App auth uses browser social login plus Privy
 //         embedded wallets; the automatic funding prompt can open Privy
 //         external funding surfaces that are outside the Mini App product
 //         scope and may trigger WalletConnect CSP failures.

@@ -113,6 +113,7 @@ export function buildWorkerConversationState(
 ): WorkerConversationState {
   const actionState = snapshot.conversationActionState || null;
   const confirmation = snapshot.confirmationState || null;
+  const reuseRecentTradeArtifacts = shouldReuseRecentTradeArtifacts(snapshot);
   const requiredEvidence =
     snapshot.taskRoute
       ? resolveTaskRouteEvidenceRequirements(snapshot.taskRoute)
@@ -124,9 +125,12 @@ export function buildWorkerConversationState(
     (item) => !gatheredEvidence.includes(item),
   );
   const confirmationBinding = buildExecutionBinding(confirmation);
-  const pendingQuote = confirmation?.quote || extractLatestTradeQuote(snapshot);
+  const pendingQuote =
+    confirmation?.quote ||
+    (reuseRecentTradeArtifacts ? extractLatestTradeQuote(snapshot) : null);
   const latestReceipt =
-    confirmation?.receipt || extractLatestExecutionReceipt(snapshot);
+    confirmation?.receipt ||
+    (reuseRecentTradeArtifacts ? extractLatestExecutionReceipt(snapshot) : null);
   const taskScope = resolveTaskScope(snapshot);
 
   return stripEmptyEntries({
@@ -300,6 +304,12 @@ function resolveTaskScope(snapshot: ChatContextSnapshot): {
       source: "confirmation_state",
     };
   }
+  if (isFreshTradeRequestTurn(snapshot)) {
+    return {
+      scope: "fresh_request",
+      source: "fresh_turn_no_carry_forward",
+    };
+  }
   if (looksLikeTokenTurn(snapshot) || snapshot.polymarketSelection) {
     return {
       scope: "carry_forward_session",
@@ -329,6 +339,9 @@ function buildCurrentGoal(snapshot: ChatContextSnapshot): string {
   if (snapshot.polymarketSelection?.preparedSelection?.tokenId) {
     return "Continue from the prepared Polymarket selection instead of rediscovering the market.";
   }
+  if (isFreshTradeRequestTurn(snapshot)) {
+    return "Handle the latest trade request as a new action. Do not treat any prior quote or receipt as fulfillment for this turn.";
+  }
   return "Answer the current user request from carry-forward state plus only the missing evidence needed for this turn.";
 }
 
@@ -342,6 +355,9 @@ function buildCompletionRule(
   }
   if (snapshot.confirmationState?.kind) {
     return "Do not restart discovery; wait for the user to confirm or clarify the prepared action.";
+  }
+  if (isFreshTradeRequestTurn(snapshot)) {
+    return "Do not claim quote or execution from prior turns. Gather the current trade evidence or prepare the current trade action for this request first.";
   }
   if (missingEvidence.length > 0) {
     return `Gather only the missing evidence types before concluding: ${missingEvidence.join(", ")}.`;
@@ -464,6 +480,34 @@ function buildModeProgressState(params: {
       mode: "swap_quote",
       internal_state: pendingQuote.stale ? "quote_needed" : "quote_ready",
       state_source: "recent_tool_trace",
+      completed,
+      pending,
+      missing,
+    });
+  }
+
+  if (isFreshTradeRequestTurn(snapshot)) {
+    completed.add("identify_intent");
+    if (
+      (snapshot.requestedTokenAddresses || []).length > 0 ||
+      (snapshot.requestedTokenSymbols || []).length > 0
+    ) {
+      completed.add("identify_target");
+    } else {
+      pending.add("identify_target");
+      missing.add("target");
+    }
+    if (resolveEffectiveChain(snapshot)) {
+      completed.add("identify_chain");
+    } else {
+      pending.add("identify_chain");
+      missing.add("chain");
+    }
+    pending.add("quote_or_prepare");
+    return normalizeModeProgress({
+      mode: inferTradeRequestMode(snapshot),
+      internal_state: "quote_needed",
+      state_source: inferModeStateSource(snapshot),
       completed,
       pending,
       missing,
@@ -1011,6 +1055,13 @@ function buildNextActionState(
         null,
     } as const;
   }
+  if (isFreshTradeRequestTurn(snapshot)) {
+    return {
+      kind: "call_tool",
+      reason:
+        "The latest user turn is a new trade request. Gather current trade evidence or prepare the current trade action before answering.",
+    } as const;
+  }
   if (missingEvidence.length > 0) {
     return {
       kind: "call_tool",
@@ -1175,6 +1226,49 @@ function looksLikeContinuationTurn(query: string): boolean {
   return /(^|\b)(this|that|it|them|those|same one|sell it|buy it)(\b|$)|这个|那个|它|他们|这些|就这个|卖它|买它/i.test(
     query,
   );
+}
+
+function shouldReuseRecentTradeArtifacts(
+  snapshot: ChatContextSnapshot,
+): boolean {
+  if (snapshot.confirmationState?.kind) return true;
+  return !isFreshTradeRequestTurn(snapshot);
+}
+
+function isFreshTradeRequestTurn(snapshot: ChatContextSnapshot): boolean {
+  const query = String(snapshot.lastUserMessage || "").trim();
+  if (!query) return false;
+  if (looksLikeTradeConfirmationOnlyTurn(query)) return false;
+  if (looksLikeTradeStatusFollowup(query)) return false;
+  const routeOwner = String(snapshot.taskRoute?.owner || "").trim();
+  if (routeOwner === "swap" || routeOwner === "copy_trade") return true;
+  const intent = String(snapshot.normalizedIntent?.intent || "")
+    .trim()
+    .toLowerCase();
+  if (["swap", "cross_chain_swap", "copy_trade"].includes(intent)) return true;
+  return /(\b(buy|sell|swap|trade|bridge|copy trade|mirror)\b|买|卖|换|交换|跨链|跟单)/i.test(
+    query,
+  );
+}
+
+function looksLikeTradeConfirmationOnlyTurn(query: string): boolean {
+  return /^\s*(confirm|execute|do it|go ahead|yes|ok|okay|继续|执行|确认|下单|成交|可以|好)\s*[.!?]*\s*$/i.test(
+    query,
+  );
+}
+
+function looksLikeTradeStatusFollowup(query: string): boolean {
+  return /(\b(tx hash|hash|receipt|status|explorer|submitted|confirmed|confirmation|did it go through|did it execute|did it sell|did it buy|show (me )?(the )?(tx|hash|receipt)|what happened|price impact|slippage|route|output amount|quote amount)\b|交易哈希|哈希|回执|状态|浏览器|提交了|确认了|执行了吗|卖了吗|买了吗|发生了什么|价格影响|滑点|路径|输出数量|报价)/i.test(
+    query,
+  );
+}
+
+function inferTradeRequestMode(
+  snapshot: ChatContextSnapshot,
+): WorkerModeProgressState["mode"] {
+  return inferModeFromSnapshot(snapshot) === "polymarket"
+    ? "polymarket"
+    : "swap_quote";
 }
 
 function escapeRegExp(value: string): string {

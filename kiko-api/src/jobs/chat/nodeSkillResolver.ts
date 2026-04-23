@@ -439,12 +439,8 @@ function mapTaskRouteToSkillIds(snapshot: ChatContextSnapshot, querySignals: Que
             }
             break;
         case 'image':
-            if (hasTaskRouteFacet(taskRoute, 'prompt_only')) {
-                push('image_prompting');
-            } else {
-                push('image_generation');
-                push('image_prompting');
-            }
+            push('image_generation');
+            push('image_prompting');
             break;
         case 'swap':
             push(hasTaskRouteFacet(taskRoute, 'cross_chain') ? 'cross_chain_swap' : 'swap');
@@ -568,7 +564,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const asksWalletPnl = querySignals.pnl;
     const hasRequestedToken = querySignals.hasRequestedToken;
     const requiresSocialChainEvidence = querySignals.socialChainEvidence;
-    const routeImageGeneration = Boolean(taskRoute && taskRoute.owner === 'image' && !hasTaskRouteFacet(taskRoute, 'prompt_only'));
+    const routeImageGeneration = Boolean(taskRoute && taskRoute.owner === 'image');
     const routeImagePrompting = Boolean(taskRoute && taskRoute.owner === 'image' && hasTaskRouteFacet(taskRoute, 'prompt_only'));
     const routeClankerDeploy = Boolean(taskRoute && taskRoute.owner === 'token_deploy');
     const imageGenerationTurn = taskRoute
@@ -588,9 +584,13 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         strategyNotes.push('When generate_image_from_intent is visible and the user is asking to generate or edit an image now, do not answer with a packaged prompt draft in assistant text. Call the tool and let it package the optimized prompt for the image model.');
     }
     if (imagePromptingTurn) {
-        strategyNotes.push('This turn is asking for image prompt guidance, not automatic image execution. Call read_skill_prompts before answering so the rewrite follows the OpenAI-aligned image prompting playbook.');
-        strategyNotes.push('Return one copy-ready prompt, the negative constraints, and a few single-variable refinements. Do not call generate_image_from_intent unless the user explicitly asks to generate now.');
-        strategyNotes.push('Do not volunteer Midjourney, Stable Diffusion, or other non-OpenAI prompt variants unless the user explicitly asks for another model.');
+        if (routeImageGeneration) {
+            strategyNotes.push('Task-route prompt_only is only a prompt-guidance hint inside the image lane. Keep generate_image_from_intent visible and let the main model decide from the latest user request whether to generate now, ask one precise clarification, or return prompt-only guidance.');
+        } else {
+            strategyNotes.push('This turn is asking for image prompt guidance, not automatic image execution. Call read_skill_prompts before answering so the rewrite follows the OpenAI-aligned image prompting playbook.');
+            strategyNotes.push('Return one copy-ready prompt, the negative constraints, and a few single-variable refinements. Do not call generate_image_from_intent unless the user explicitly asks to generate now.');
+            strategyNotes.push('Do not volunteer Midjourney, Stable Diffusion, or other non-OpenAI prompt variants unless the user explicitly asks for another model.');
+        }
     }
     if (clankerDeployTurn) {
         strategyNotes.push('This is a Clanker launch or Clanker history request. Follow the Clanker launch safety template: collect only hard-missing launch inputs, keep optional defaults implicit, prepare a dry-run preview first, and wait for explicit user confirmation before any real deploy. Do not restate this internal checklist to the user.');
@@ -1061,9 +1061,7 @@ function buildIntentEnvelope(params: {
                 case 'general_answer':
                     return 'general_answer' as const;
                 case 'image':
-                    return hasTaskRouteFacet(taskRoute, 'prompt_only')
-                        ? 'image_prompting' as const
-                        : 'image_generation' as const;
+                    return 'image_generation' as const;
                 case 'social':
                     return 'social_discovery' as const;
                 case 'token':

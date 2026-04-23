@@ -522,7 +522,7 @@ function deriveQuerySignalsFromTaskRoute(
         social: taskRoute.owner === 'social',
         market: taskRoute.owner === 'market',
         clankerDeploy: clankerDeploy || taskRoute.owner === 'token_deploy',
-        imageGeneration: imageGeneration || (taskRoute.owner === 'image' && !hasTaskRouteFacet(taskRoute, 'prompt_only')),
+        imageGeneration: imageGeneration || taskRoute.owner === 'image',
         imagePrompting: imagePrompting || (taskRoute.owner === 'image' && hasTaskRouteFacet(taskRoute, 'prompt_only')),
         hasRequestedToken,
         socialChainEvidence: requiredEvidence.has('native_search_results')

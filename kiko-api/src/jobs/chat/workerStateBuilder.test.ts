@@ -181,6 +181,82 @@ test('buildWorkerConversationState keeps stale carry-forward entities from pollu
     assert.equal(state.mode_progress_state.internal_state, 'fresh_answer');
 });
 
+test('buildWorkerConversationState does not treat a fresh trade request as already executed from the previous receipt', () => {
+    const snapshot = makeSnapshot({
+        lastUserMessage: 'Sell all USDC to ETH',
+        requestedTokenSymbols: ['USDC', 'ETH'],
+        taskRoute: {
+            owner: 'swap',
+            phase: 'execute',
+            facets: [],
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: ['USDC', 'ETH'],
+                walletAddresses: [],
+                marketIdentifiers: [],
+                imageRefs: [],
+            },
+            requestedChain: {
+                chainId: 8453,
+                chainName: 'Base',
+            },
+            timeContext: null,
+            rowCount: null,
+            inheritEntitiesFromContext: false,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            explanation: 'Fresh sell request.',
+            confidence: 0.98,
+            source: 'llm',
+        } as any,
+        recentToolTrace: {
+            messageId: 'assistant-1',
+            toolCalls: [
+                {
+                    tool: 'prepare_swap_transaction',
+                    status: 'success',
+                    args: {
+                        token_in: 'ETH',
+                        token_out: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+                        amount_in: '0.001',
+                        chain_id: 8453,
+                    },
+                    result: {
+                        txHash: '0xb1b9f8340dabebbc366e33334155575b4c519cb6575f88eae35cc2b591bae57d',
+                        chainId: 8453,
+                        status: 'success',
+                        finishedAt: '2026-04-23T13:32:18.972Z',
+                    },
+                },
+            ],
+        },
+        runtime: {
+            walletAddress: '0xabc',
+            chainId: 8453,
+            chainName: 'Base',
+        },
+    });
+
+    const state = buildWorkerConversationState(snapshot);
+    assert.equal(state.task_state.scope, 'fresh_request');
+    assert.equal(
+        state.task_state.current_goal,
+        'Handle the latest trade request as a new action. Do not treat any prior quote or receipt as fulfillment for this turn.',
+    );
+    assert.equal(
+        state.task_state.completion_rule,
+        'Do not claim quote or execution from prior turns. Gather the current trade evidence or prepare the current trade action for this request first.',
+    );
+    assert.equal(state.mode_progress_state.mode, 'swap_quote');
+    assert.equal(state.mode_progress_state.internal_state, 'quote_needed');
+    assert.equal(state.mode_progress_state.completed_steps.includes('identify_intent'), true);
+    assert.equal(state.mode_progress_state.pending_steps.includes('quote_or_prepare'), true);
+    assert.equal(state.execution_state.latest_receipt, undefined);
+    assert.equal(state.execution_state.pending_quote, undefined);
+    assert.equal(state.next_action_state.kind, 'call_tool');
+});
+
 test('buildWorkerConversationState prefers task route over stale canonical token carry-forward', () => {
     const snapshot = makeSnapshot({
         lastUserMessage: 'Explain quantum entanglement.',

@@ -24,7 +24,7 @@ export const PrivyConfigError: React.FC = () => {
           ⚠️ Privy App ID Not Configured
         </h1>
         <p style={{ margin: '0 0 24px 0', color: '#666', lineHeight: 1.6 }}>
-          Please set your Privy App ID to use embedded wallet features.
+          Please set your Privy App ID to use authentication and wallet features.
         </p>
         <div style={{
           background: '#f8f9fa',
