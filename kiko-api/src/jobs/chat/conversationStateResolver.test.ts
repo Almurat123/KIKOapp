@@ -410,6 +410,7 @@ test('resolveTradeConfirmationState extracts order confirmation from a prepared 
 });
 
 test('resolveTradeConfirmationState preserves swap quote metadata on confirmation state', () => {
+    const freshTimestamp = new Date(Date.now() - 30_000).toISOString();
     const state = resolveTradeConfirmationState([
         {
             role: 'assistant',
@@ -432,7 +433,7 @@ test('resolveTradeConfirmationState preserves swap quote metadata on confirmatio
                                 price_impact: '0%',
                                 quoteExpiresAt: '2099-01-01T00:00:00.000Z',
                             },
-                            finishedAt: '2026-04-18T00:00:00.000Z',
+                            finishedAt: freshTimestamp,
                         },
                     ],
                 },
@@ -448,6 +449,46 @@ test('resolveTradeConfirmationState preserves swap quote metadata on confirmatio
     assert.equal(state?.quote?.tool_name, 'simulate_swap');
     assert.equal(state?.quote?.expected_out, '8779.58');
     assert.equal(state?.quote?.stale, false);
+});
+
+test('resolveTradeConfirmationState ignores swap confirmation quotes outside the reusable window', () => {
+    const staleTimestamp = new Date(Date.now() - (5 * 60 * 1000)).toISOString();
+    const state = resolveTradeConfirmationState([
+        {
+            role: 'assistant',
+            id: 'a-old-quote',
+            message_index: 1,
+            data: {
+                toolTrace: {
+                    toolCalls: [
+                        {
+                            tool: 'prepare_swap_transaction',
+                            status: 'success',
+                            args: {
+                                token_in: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+                                token_out: 'ETH',
+                                amount_in: '2.322311',
+                                chain_id: 8453,
+                                execute: false,
+                            },
+                            result: {
+                                requires_confirmation: true,
+                                quoteExpiresAt: '2099-01-01T00:00:00.000Z',
+                                finishedAt: staleTimestamp,
+                            },
+                            finishedAt: staleTimestamp,
+                        },
+                    ],
+                },
+            },
+        },
+    ], 'confirm', {
+        domain: 'token',
+        intent: 'swap',
+        taskMode: 'confirm',
+    } as any);
+
+    assert.equal(state, null);
 });
 
 test('resolveTradeConfirmationState preserves token deploy mutation action class', () => {

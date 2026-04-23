@@ -89,6 +89,7 @@ import { computeConfirmationToken } from './executionGate.js';
 const EVM_ADDR_RE = /\b0x[a-fA-F0-9]{40}\b/g;
 const SOL_ADDR_RE = /\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/g;
 const FARCASTER_CURRENT_LINE_RE = /(?:^|\n)Current\s+(?:@\S+|fid:\d+):\s*([\s\S]*)$/i;
+export const SWAP_CONFIRMATION_REPLAY_WINDOW_MS = 2 * 60 * 1000;
 
 export function extractEffectiveUserQuery(text: string): string {
     const raw = String(text || '').trim();
@@ -325,6 +326,7 @@ function resolveSwapConfirmationFromToolTrace(trace: RecentToolTrace | null): Tr
         if (!['simulate_swap', 'prepare_swap_transaction', 'get_cross_chain_quote', 'prepare_cross_chain_tx'].includes(toolName)) {
             continue;
         }
+        if (!isReusableSwapPrecheckCall(call, SWAP_CONFIRMATION_REPLAY_WINDOW_MS)) continue;
         const args = (call?.args && typeof call.args === 'object') ? call.args as Record<string, any> : {};
         if (toolName === 'get_cross_chain_quote' || toolName === 'prepare_cross_chain_tx') {
             if (!args.fromToken || !args.toToken || !args.fromAmount) continue;
@@ -375,6 +377,23 @@ function resolveSwapConfirmationFromToolTrace(trace: RecentToolTrace | null): Tr
         };
     }
     return null;
+}
+
+export function hasReusableSwapConfirmationEvidence(
+    snapshot: Pick<ChatContextSnapshot, 'confirmationState' | 'recentToolTrace'> | null | undefined,
+    windowMs = SWAP_CONFIRMATION_REPLAY_WINDOW_MS,
+): boolean {
+    const confirmation = snapshot?.confirmationState;
+    if (confirmation?.kind !== 'swap_confirmation' || !confirmation.swap) return false;
+    const calls = snapshot?.recentToolTrace?.toolCalls || [];
+    for (let idx = calls.length - 1; idx >= 0; idx -= 1) {
+        const call = calls[idx];
+        if (!isReusableSwapPrecheckCall(call, windowMs)) continue;
+        if (swapPrecheckCallMatchesConfirmation(call, confirmation)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 function resolveOrderConfirmationFromToolTrace(trace: RecentToolTrace | null): TradeConfirmationState | null {
@@ -544,6 +563,60 @@ function extractCallTimestamp(call: any): string | null {
         || '',
     ).trim();
     return value || null;
+}
+
+function isReusableSwapPrecheckCall(call: any, windowMs: number): boolean {
+    const toolName = String(call?.tool || '');
+    if (!['simulate_swap', 'prepare_swap_transaction', 'get_cross_chain_quote', 'prepare_cross_chain_tx'].includes(toolName)) {
+        return false;
+    }
+    if (toolName === 'prepare_swap_transaction' && call?.args?.execute === true) {
+        return false;
+    }
+    if (!['success', 'cached'].includes(String(call?.status || ''))) return false;
+    const result = call?.result && typeof call.result === 'object' ? call.result as Record<string, any> : {};
+    if (result.expired === true || result.stale === true || result.quote?.stale === true) return false;
+    const expiresAt = normalizeTimestamp(
+        result.expiresAt
+        || result.expires_at
+        || result.quoteExpiresAt
+        || result.validUntil
+        || result.quote?.expires_at
+        || result.quote?.expiresAt,
+    );
+    if (expiresAt) {
+        const expiresMs = Date.parse(expiresAt);
+        if (Number.isFinite(expiresMs) && expiresMs <= Date.now()) return false;
+    }
+    const capturedAt = extractCallTimestamp(call);
+    if (!capturedAt) return false;
+    const capturedMs = Date.parse(capturedAt);
+    if (!Number.isFinite(capturedMs)) return false;
+    return Date.now() - capturedMs <= windowMs;
+}
+
+function swapPrecheckCallMatchesConfirmation(call: any, confirmation: TradeConfirmationState): boolean {
+    if (confirmation.kind !== 'swap_confirmation' || !confirmation.swap) return false;
+    const swap = confirmation.swap;
+    const toolName = String(call?.tool || '');
+    const args = (call?.args && typeof call.args === 'object') ? call.args as Record<string, any> : {};
+    if (toolName === 'get_cross_chain_quote' || toolName === 'prepare_cross_chain_tx') {
+        return swap.isCrossChain === true
+            && normalizeSwapField(args.fromToken) === normalizeSwapField(swap.tokenIn)
+            && normalizeSwapField(args.toToken) === normalizeSwapField(swap.tokenOut)
+            && normalizeSwapField(args.fromAmount) === normalizeSwapField(swap.amountIn)
+            && normalizeSwapField(args.fromChain) === normalizeSwapField(swap.chainId)
+            && normalizeSwapField(args.toChain) === normalizeSwapField(swap.toChain);
+    }
+    return swap.isCrossChain !== true
+        && normalizeSwapField(args.token_in) === normalizeSwapField(swap.tokenIn)
+        && normalizeSwapField(args.token_out) === normalizeSwapField(swap.tokenOut)
+        && normalizeSwapField(args.amount_in) === normalizeSwapField(swap.amountIn)
+        && normalizeSwapField(args.chain_id) === normalizeSwapField(swap.chainId);
+}
+
+function normalizeSwapField(value: unknown): string {
+    return String(value || '').trim().toLowerCase();
 }
 
 function buildTradeQuoteState(

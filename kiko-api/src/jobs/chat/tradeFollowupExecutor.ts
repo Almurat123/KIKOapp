@@ -73,6 +73,7 @@ import { ChatStreamBroker } from './streamBroker.js';
 import type { ToolExecutionEngine } from './toolExecutionEngine.js';
 import { buildDirectFollowupExecutionPlan } from './workerStateBuilder.js';
 import { buildExecutionReceiptAnswer } from './executionReceiptAnswer.js';
+import { hasReusableSwapConfirmationEvidence } from './conversationStateResolver.js';
 
 export async function executeDirectTradeFollowup(params: {
     snapshot: ChatContextSnapshot;
@@ -88,6 +89,9 @@ export async function executeDirectTradeFollowup(params: {
 
     const confirmation = params.snapshot.confirmationState;
     if (!confirmation?.kind) return { handled: false };
+    if (confirmation.kind === 'swap_confirmation' && !hasReusableSwapConfirmationEvidence(params.snapshot)) {
+        return { handled: false };
+    }
     const plan = buildDirectFollowupExecutionPlan({
         snapshot: params.snapshot,
         taskToolContext: params.task.toolContext || null,

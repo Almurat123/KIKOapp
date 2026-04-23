@@ -95,9 +95,9 @@ test('swap confirmation accepts prepare_swap_transaction as the confirmation anc
     );
 });
 
-test('swap confirmation still executes when the prior quote timestamp is old', async () => {
-    const completed: Array<{ content?: string }> = [];
+test('swap confirmation with an old quote falls back to the model path', async () => {
     const executed: any[] = [];
+    const completed: Array<{ content?: string }> = [];
 
     const snapshot: any = {
         sessionId: 'session-1',
@@ -129,7 +129,7 @@ test('swap confirmation still executes when the prior quote timestamp is old', a
                         chain_id: 56,
                     },
                     result: {
-                        finishedAt: '2026-03-26T13:04:13.000Z',
+                        finishedAt: new Date(Date.now() - (5 * 60 * 1000)).toISOString(),
                     },
                 },
             ],
@@ -174,14 +174,9 @@ test('swap confirmation still executes when the prior quote timestamp is old', a
         } as any,
     });
 
-    assert.equal(result.handled, true);
-    assert.equal(executed.length, 1);
-    assert.equal(executed[0]?.name, 'prepare_swap_transaction');
-    assert.equal(result.toolResult?.ok, true);
-    assert.equal(
-        String(completed[0]?.content || ''),
-        'Swap 已提交。\n交易哈希: 0xabc\n浏览器: 不可用',
-    );
+    assert.equal(result.handled, false);
+    assert.equal(executed.length, 0);
+    assert.equal(completed.length, 0);
 });
 
 test('non-confirm analysis turns do not execute from stale swap confirmation', async () => {
@@ -259,6 +254,7 @@ test('non-confirm analysis turns do not execute from stale swap confirmation', a
 test('task-route-only confirm turns execute direct follow-up without canonical taskMode', async () => {
     const completed: Array<{ content?: string }> = [];
     const executed: any[] = [];
+    const now = new Date().toISOString();
     const snapshot: any = {
         sessionId: 'session-1',
         taskId: 'task-1',
@@ -300,7 +296,22 @@ test('task-route-only confirm turns execute direct follow-up without canonical t
         },
         recentToolTrace: {
             messageId: 'assistant-1',
-            toolCalls: [],
+            toolCalls: [
+                {
+                    tool: 'simulate_swap',
+                    status: 'success',
+                    args: {
+                        token_in: 'BNB',
+                        token_out: '0x0bc61768132aa1484e2b09301284b7def78a4444',
+                        amount_in: '0.001',
+                        chain_id: 56,
+                    },
+                    result: {
+                        finishedAt: now,
+                    },
+                    finishedAt: now,
+                },
+            ],
         },
         policySnapshot: {
             policyDecisionId: 'policy-1',
