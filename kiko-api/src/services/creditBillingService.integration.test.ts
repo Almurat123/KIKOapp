@@ -13,6 +13,7 @@ import {
 import { evaluateTextUsageAccess } from './creditBillingService.js';
 import { getUtcDateString } from './billing/billingService.js';
 import { markGeneratedImageUsageCompleted } from './generatedImageBilling.js';
+import { env } from '../config/env.js';
 
 test('credits billing closes the local loop without calling paid providers', async () => {
     const suffix = randomUUID().slice(0, 12);
@@ -52,9 +53,11 @@ test('credits billing closes the local loop without calling paid providers', asy
         assert.equal(balanceAfterDeposit.reservedCredits, 0);
         assert.equal(balanceAfterDeposit.generatedImageFreeUsed, 0);
 
+        const originalFreeModels = [...env.billing.freeModels];
+        env.billing.freeModels = ['free-model-example'];
         const freeTextDecision = await evaluateTextUsageAccess({
             userId,
-            model: 'kimi-k2-5-instant',
+            model: 'free-model-example',
         });
         assert.equal(freeTextDecision.allowed, true);
         assert.equal(freeTextDecision.isFree, true);
@@ -63,7 +66,7 @@ test('credits billing closes the local loop without calling paid providers', asy
         const inserted = await insertUsageRecord({
             assistantMessageId: freeAssistantMessageId,
             userId,
-            model: 'kimi-k2-5-instant',
+            model: 'free-model-example',
             modelCategory: 'free',
             promptTokens: 120,
             completionTokens: 80,
@@ -78,7 +81,7 @@ test('credits billing closes the local loop without calling paid providers', asy
         await settleChatUsageCharge({
             assistantMessageId: freeAssistantMessageId,
             userId,
-            model: 'kimi-k2-5-instant',
+            model: 'free-model-example',
             promptTokens: 120,
             completionTokens: 80,
             totalTokens: 200,
@@ -86,6 +89,8 @@ test('credits billing closes the local loop without calling paid providers', asy
             modelCategory: 'free',
             isFree: true,
         });
+
+        env.billing.freeModels = originalFreeModels;
 
         const balanceAfterFreeText = await getCreditBalanceSummary(userId);
         assert.equal(balanceAfterFreeText.availableCredits, 10);

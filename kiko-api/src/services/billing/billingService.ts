@@ -3,50 +3,35 @@ import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-18
+// Updated: 2026-04-23
 // Author: Rowan
-// Reason: DeepSeek was removed from the product model catalog. NVIDIA-hosted
-//         GLM/Kimi models are now free-model traffic with one optional shared
-//         cap, while GPT and Grok share one premium daily free quota. Billing
-//         classification must no longer expose Normal/Advanced or DeepSeek/Grok
-//         quota buckets. Official NVIDIA doc verification later removed the
-//         synthetic GLM Fast/Reasoning split, so historical `glm-5-reasoning`
-//         rows now need to normalize back to the one canonical GLM id instead
-//         of preserving duplicate billing keys forever.
+// Reason: the billing layer now only needs to classify GPT, Grok, and any
+//         traffic has been removed from the active product catalog, so billing
+//         classification should no longer special-case those model names.
 // Goal: keep quota/billing classification stable around the product policy:
 //       free models share one optional cap, premium models share one quota.
 // Owns: model-family pricing classification, quota lookup helpers, and token/cost aggregation helpers.
 // Does Not Own: UI model lists, provider routing, or external vendor pricing policy.
 // Design Language:
 // - Quota buckets are product policy, not vendor-brand names.
-// - NVIDIA GLM/Kimi models belong to the shared free bucket.
 // - GPT and Grok models belong to one shared premium quota bucket.
 // - Do not reintroduce separate Normal/Advanced free-count buckets.
 // - Reasoning-token handling must remain provider-aware.
 // - Historical removed model ids should normalize to the surviving canonical id.
 // Document Provenance:
-// - Source: operator quota-policy correction after DeepSeek removal
-// - Kind: product doc
-// - Retrieved: 2026-04-16
-// - Applied To: classifying GLM/Kimi as free and GPT/Grok as one premium bucket
-// - Verification: verified in code
 // - Source: operator quota-policy correction for optional free-model cap
 // - Kind: product doc
 // - Retrieved: 2026-04-16
 // - Applied To: returning one env-driven shared limit for free-model traffic
 // - Verification: verified in code
-// - Source: NVIDIA NIM model page for z-ai/glm5
-// - Kind: official API doc
-// - Retrieved: 2026-04-18
-// - Applied To: collapsing removed GLM reasoning aliases into the canonical
-//   `glm-5` billing id
-// - Verification: verified in docs and code
+// - Kind: product doc
+// - Retrieved: 2026-04-23
+// - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/design-language/chat-usage-quota-policy.md
 // - /Users/almurat/KiKo/system-journal/owner-map/chat-usage-quota.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-free-premium-chat-usage-quota-rework.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 export type BillingCategory = 'free' | 'premium' | 'other';
@@ -67,7 +52,6 @@ export function getBillingCategory(model: string): BillingCategory {
     const normalized = normalizeModelForPricing(model);
 
     if (env.billing.freeModels.includes(normalized)) return 'free';
-    if (normalized.includes('kimi') || normalized.includes('moonshotai/')) return 'free';
     if (env.billing.premiumModels.includes(normalized)) return 'premium';
     if (normalized.includes('grok')) return 'premium';
     if (normalized.startsWith('gpt') || normalized.startsWith('o1') || normalized.startsWith('o3') || normalized.startsWith('o4')) return 'premium';

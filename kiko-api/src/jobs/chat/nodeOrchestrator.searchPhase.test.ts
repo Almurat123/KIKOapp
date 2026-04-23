@@ -151,7 +151,7 @@ test('buildGenerationTools no longer hides non-execution tools in execution phas
 
 test('execution turns expose only missing required read tools before wider local analysis tools', async () => {
     const snapshot = makeSnapshot('Deploy a Clanker token named TG with symbol TG', {
-        model: 'kimi-k2-5-reasoning',
+        model: 'gpt-5.4-mini-2026-03-17',
         normalizedIntent: {
             domain: 'token',
             intent: 'clanker_deploy',

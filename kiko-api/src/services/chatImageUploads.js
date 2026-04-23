@@ -713,7 +713,7 @@ function supportsChatImageModel(model) {
         return true;
     if (normalized.includes('grok'))
         return true;
-    return normalized.includes('kimi');
+    return false;
 }
 function prepareChatImageUploads(params) {
     return __awaiter(this, void 0, void 0, function () {

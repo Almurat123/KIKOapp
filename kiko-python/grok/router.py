@@ -18,7 +18,6 @@ Supports streaming responses and tool use (web_search, x_search, custom tools)
 #       normalization, and Grok-specific provider safety gates, including
 #       hard mutation policy passthrough.
 # Does Not Own: Node-side provider selection, social webhook hydration, or
-#               NVIDIA/OpenAI multimodal request shaping.
 # Design Language:
 # - Grok receives the same upstream `text` + `image_url` shape as other
 #   OpenAI-compatible providers, then adapts it at the xAI boundary.
@@ -44,7 +43,6 @@ Supports streaming responses and tool use (web_search, x_search, custom tools)
 # - /Users/almurat/KiKo/system-journal/INDEX.md
 # - /Users/almurat/KiKo/system-journal/design-language/social-agent-multimodal-input.md
 # - /Users/almurat/KiKo/system-journal/owner-map/social-agent-multimodal-input.md
-# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-kimi-grok-social-image-input.md
 # - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
 # - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
 import os

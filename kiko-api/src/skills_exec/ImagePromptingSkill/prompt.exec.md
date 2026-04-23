@@ -1,11 +1,14 @@
 # CONTEXT MEMORY
-Updated: 2026-04-22
+Updated: 2026-04-23
 Author: Rowan
 Reason: KiKo needs image prompt coaching to follow OpenAI's image prompting
 playbook directly. The previous version mixed OpenAI, Google Imagen, and xAI
 rules; product now requires OpenAI-only guidance so prompt-help turns behave
 like a ChatGPT image expert and generated-image turns decompose requests in the
 same style before tool execution.
+Generated-image execution should follow OpenAI Responses image-generation tool
+semantics: `action:auto` by default, `action:generate` for forced new images,
+and `action:edit` only when usable source/reference images exist.
 Goal: help the model write copy-ready OpenAI image prompts and separate prompt
 coaching from actual image execution.
 Owns: model-facing image prompt-writing guidance, prompt advice, edit/reference
@@ -79,8 +82,13 @@ as permission to auto-generate an image.
 - If the user explicitly wants the image now, use this playbook silently to
   structure the request, then let the image-generation skill decide whether the
   request is clear enough to execute.
-- If one critical visual decision is missing, ask exactly one precise
-  clarification.
+- If the user explicitly wants an image and the subject/action/use case is
+  knowable, do not ask for confirmation or optional styling details; structure
+  the prompt and call the image-generation tool.
+- Ask exactly one precise clarification only when the missing information is a
+  core subject, deliverable, use case, or visual action and generation would be
+  arbitrary.
+- Use `action:auto` unless the user clearly forces a new image or an edit.
 
 ## OpenAI Prompt Order
 

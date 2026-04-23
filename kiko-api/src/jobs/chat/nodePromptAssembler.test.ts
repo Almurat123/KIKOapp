@@ -819,11 +819,11 @@ test("assembleGenerationMessages emits multimodal current-turn content for OpenA
   );
 });
 
-test("assembleGenerationMessages emits multimodal current-turn content for NVIDIA Kimi social-agent inputs", () => {
+test("assembleGenerationMessages emits multimodal current-turn content for OpenAI social-agent inputs", () => {
   const snapshot: ChatContextSnapshot = {
-    sessionId: "session-social-nvidia",
-    taskId: "task-social-nvidia",
-    model: "kimi-k2-5-instant",
+    sessionId: "session-social-openai",
+    taskId: "task-social-openai",
+    model: "gpt-5.4-mini-2026-03-17",
     history: [],
     lastUserMessage: "what is happening in this cast",
     runtime: {
@@ -849,7 +849,7 @@ test("assembleGenerationMessages emits multimodal current-turn content for NVIDI
   };
 
   const providerInfo: ProviderInfo = {
-    provider: "nvidia",
+    provider: "openai",
     model: snapshot.model,
     supportsNativeSearch: false,
     supportsPreviousResponse: true,
@@ -916,11 +916,11 @@ test("assembleGenerationMessages emits multimodal current-turn content for Grok 
   assert.equal(content[1]?.image_url?.url, "https://example.com/x-image.png");
 });
 
-test("assembleGenerationMessages emits multimodal current-turn content for NVIDIA reasoning social-agent inputs", () => {
+test("assembleGenerationMessages emits multimodal current-turn content for openai reasoning social-agent inputs", () => {
   const snapshot: ChatContextSnapshot = {
     sessionId: "session-social-glm",
     taskId: "task-social-glm",
-    model: "kimi-k2-5-reasoning",
+    model: "gpt-5.4-mini-2026-03-17",
     history: [],
     lastUserMessage: "what is happening in this cast",
     runtime: {
@@ -946,7 +946,7 @@ test("assembleGenerationMessages emits multimodal current-turn content for NVIDI
   };
 
   const providerInfo: ProviderInfo = {
-    provider: "nvidia",
+    provider: "openai",
     model: snapshot.model,
     supportsNativeSearch: false,
     supportsPreviousResponse: true,
@@ -1201,7 +1201,7 @@ test("assembleGenerationMessages tells non-native-search providers to use local 
   const snapshot: ChatContextSnapshot = {
     sessionId: "session-4",
     taskId: "task-4",
-    model: "kimi-k2-5-reasoning",
+    model: "gpt-5.4-mini-2026-03-17",
     history: [],
     lastUserMessage:
       "Search X for 0x1111111111111111111111111111111111111111 around yesterday's announcement",
@@ -1215,7 +1215,7 @@ test("assembleGenerationMessages tells non-native-search providers to use local 
   };
 
   const providerInfo: ProviderInfo = {
-    provider: "nvidia",
+    provider: "openai",
     model: snapshot.model,
     supportsNativeSearch: false,
     supportsPreviousResponse: false,
@@ -1263,7 +1263,7 @@ test("assembleGenerationMessages carries early-buyer evidence requirements throu
   const snapshot: ChatContextSnapshot = {
     sessionId: "session-5",
     taskId: "task-5",
-    model: "kimi-k2-5-reasoning",
+    model: "gpt-5.4-mini-2026-03-17",
     history: [],
     lastUserMessage:
       "Find early buyers around 2026-03-10 12:00 UTC for 0xeCCBb861c0dda7eFd964010085488B69317e4444",
@@ -1277,7 +1277,7 @@ test("assembleGenerationMessages carries early-buyer evidence requirements throu
   };
 
   const providerInfo: ProviderInfo = {
-    provider: "nvidia",
+    provider: "openai",
     model: snapshot.model,
     supportsNativeSearch: false,
     supportsPreviousResponse: false,
@@ -1709,11 +1709,11 @@ test("assembleGenerationMessages keeps fast swap preference in read_user_setting
   );
 });
 
-test("assembleGenerationMessages replays stored reasoning_content back to NVIDIA thinking-model history", () => {
+test("assembleGenerationMessages replays stored reasoning_content back to openai thinking-model history", () => {
   const snapshot: ChatContextSnapshot = {
     sessionId: "session-2",
     taskId: "task-2",
-    model: "kimi-k2-5-reasoning",
+    model: "gpt-5.4-mini-2026-03-17",
     history: [
       {
         role: "assistant",
@@ -1736,7 +1736,7 @@ test("assembleGenerationMessages replays stored reasoning_content back to NVIDIA
   };
 
   const providerInfo: ProviderInfo = {
-    provider: "nvidia",
+    provider: "openai",
     model: snapshot.model,
     supportsNativeSearch: false,
     supportsPreviousResponse: false,
@@ -1757,7 +1757,7 @@ test("assembleGenerationMessages marks strategy notes and required context label
   const snapshot: ChatContextSnapshot = {
     sessionId: "session-internal-only",
     taskId: "task-internal-only",
-    model: "kimi-k2-5-reasoning",
+    model: "gpt-5.4-mini-2026-03-17",
     history: [],
     lastUserMessage: "Deploy a Clanker token named TG with symbol TG",
     runtime: {
@@ -1770,7 +1770,7 @@ test("assembleGenerationMessages marks strategy notes and required context label
   };
 
   const providerInfo: ProviderInfo = {
-    provider: "nvidia",
+    provider: "openai",
     model: snapshot.model,
     supportsNativeSearch: false,
     supportsPreviousResponse: false,
@@ -1800,11 +1800,11 @@ test("assembleGenerationMessages marks strategy notes and required context label
   );
 });
 
-test("assembleGenerationMessages strips stored reasoning_content for NVIDIA Kimi instant history", () => {
+test("assembleGenerationMessages strips stored reasoning_content for OpenAI instant history", () => {
   const snapshot: ChatContextSnapshot = {
     sessionId: "session-3",
     taskId: "task-3",
-    model: "kimi-k2-5-instant",
+    model: "gpt-5.4-mini-2026-03-17",
     history: [
       {
         role: "assistant",
@@ -1827,7 +1827,7 @@ test("assembleGenerationMessages strips stored reasoning_content for NVIDIA Kimi
   };
 
   const providerInfo: ProviderInfo = {
-    provider: "nvidia",
+    provider: "openai",
     model: snapshot.model,
     supportsNativeSearch: false,
     supportsPreviousResponse: false,

@@ -1,164 +1,21 @@
 from __future__ import annotations
 
 # CONTEXT MEMORY
-# Updated: 2026-04-20
-# Author: Rowan
-# Reason: KiKo is removing the old DeepSeek gateway path and replacing it with
-#         NVIDIA-hosted Kimi and GLM models while keeping the existing internal
-#         streaming contract (`delta_text`, `delta_reasoning`, tool deltas,
-#         usage, citations) stable for downstream orchestration. NVIDIA's
-#         official hosted Kimi API requires different model ids and instant-mode
-#         parameters than the self-hosted vLLM examples, and GLM reasoning can
-#         arrive through more than one response field shape. A later regression
-#         also showed that generic `content` strings must never be promoted into
-#         the reasoning channel, or assistant text gets duplicated into both
-#         visible output surfaces. Runtime inspection also showed that GLM
-#         welcome/meta turns were returning plain assistant text without any
-#         preserved reasoning trace, so the gateway now has to request
-#         preserved thinking explicitly for NVIDIA-hosted GLM aliases. Later
-#         official NVIDIA doc verification showed the hosted GLM-5 page only
-#         documents thinking-mode support, not a Fast/Instant product mode, so
-#         the synthetic GLM Fast path has to be removed while older
-#         `glm-5-reasoning` aliases continue normalizing to the same canonical
-#         preserved-thinking request. Runtime failures also showed upstream
-#         stream read timeouts can collapse into raw `terminated` errors, so the
-#         gateway now has to classify timeout/transport failures into stable
-#         error codes instead of leaking provider transport strings downstream.
-#         Kimi and Grok
-#         social-agent image turns also need provider-specific handling:
-#         NVIDIA Kimi can receive OpenAI-style `image_url` content arrays
-#         directly, while xAI image turns must be routed through the Grok SDK
-#         adapter that converts those arrays to xAI image inputs. OpenAI chat
-#         completions now also needs an explicit `reasoning_effort` when KiKo
-#         passes GPT-5-family effort hints through the shared tool context. A
-#         live GLM-5 regression showed no `reasoning_delta` reached Node because
-#         the raw HTTP gateway serialized SDK-only `extra_body` as a nested JSON
-#         field; NVIDIA expects those provider-specific options in the actual
-#         request body when KiKo is not using the OpenAI SDK. OpenAI 400
-#         incidents now also need provider-side request-shape diagnostics so
-#         local and production logs can identify rejected request fields without
-#         changing model-led intent or tool exposure policy. The raw OpenAI
-#         error later proved GPT-5.4 chat/completions rejects function tools
-#         when `reasoning_effort` is present, so this adapter must omit that
-#         unsupported parameter combination while preserving the existing full
-#         tool catalog.
-# Goal: normalize NVIDIA Kimi/GLM requests and reasoning deltas into the same
-#       gateway event protocol already consumed by KiKo's Node/Python runtimes.
-# Owns: provider-family resolution, provider request shaping, SSE normalization,
-#       and provider request-id promotion inside the Python llm gateway.
-# Does Not Own: orchestration policy, model allowlists, or UI-facing model names.
-# Design Language:
-# - The gateway must normalize provider differences at the edge.
-# - Kimi Reasoning/Instant are aliases over one NVIDIA model plus request flags.
-# - GLM/Kimi reasoning deltas must reuse the existing `delta_reasoning` event.
-# - Generic assistant content must never be mirrored into the reasoning channel.
-# - Official NVIDIA-hosted API conventions take precedence over self-hosted examples.
-# - GLM preserved thinking should be requested explicitly instead of relying on
-#   hosted-runtime defaults.
-# - Everyday agent defaults should prefer colder temperatures and lighter
-#   thinking than provider showcase examples where the docs define such modes.
-# - OpenAI reasoning effort must be forwarded from shared tool context instead
-#   of being guessed from the selected model string.
-# - Removed DeepSeek fallbacks must not silently remain the default provider path.
-# - Kimi image arrays may pass through NVIDIA chat/completions unchanged.
-# - xAI image turns must use the SDK gateway, not unverified direct chat-completions.
-# - Upstream timeout and transport failures must surface stable codes, not raw
-#   `terminated` strings.
-# - SDK-only `extra_body` wrappers must be flattened before direct HTTP calls.
-# - OpenAI diagnostics may log request keys and tool schema summaries, but must
-#   not log prompt text, image URLs, secrets, or full tool schemas.
-# - GPT-5.4 chat/completions with function tools must not include
-#   `reasoning_effort`; Responses API is the future path for tool+reasoning.
-# - Removed model ids should normalize to a surviving product model at the
-#   gateway boundary.
-# Document Provenance:
-# - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
-# - Kind: official API doc
-# - Retrieved: 2026-04-16
-# - Applied To: NVIDIA request routing and Kimi/GLM reasoning normalization
-# - Verification: verified in code
-# - Source: /Users/almurat/KiKo/test.txt
-# - Kind: runtime observation
-# - Retrieved: 2026-04-16
-# - Applied To: preventing assistant text from being duplicated into reasoning deltas
-# - Verification: verified in code
-# - Source: NVIDIA GLM-4.7 model reference and Z.AI GLM-5 API guide
-# - Kind: official API doc
-# - Retrieved: 2026-04-16
-# - Applied To: enabling preserved thinking for NVIDIA-hosted GLM requests
-# - Verification: verified in docs, applied in code
-# - Source: NVIDIA NIM moonshotai/kimi-k2.5 inference docs
-# - Kind: official API doc
-# - Retrieved: 2026-04-16
-# - Applied To: forwarding structured Kimi `image_url` message content through
-#   the NVIDIA chat/completions request body
-# - Verification: verified in docs and code
-# - Source: operator request to make Kimi faster and less exploratory for
-#   routine KiKo instant tasks
-# - Kind: product doc
-# - Retrieved: 2026-04-16
-# - Applied To: lowering Kimi instant temperature while preserving GLM thinking
-#   for the canonical hosted GLM alias
-# - Verification: verified in code
-# - Source: xAI Image Understanding docs
-# - Kind: official API doc
-# - Retrieved: 2026-04-16
-# - Applied To: forcing xAI image requests through the SDK gateway where image
-#   content is converted to xAI SDK inputs
-# - Verification: verified in docs and code
-# - Source: NVIDIA NIM model page for z-ai/glm5
-# - Kind: official API doc
-# - Retrieved: 2026-04-18
-# - Applied To: removing the synthetic GLM Fast alias and collapsing legacy GLM
-#   reasoning aliases into one preserved-thinking profile
-# - Verification: verified in docs and code
-# - Source: /Users/almurat/Downloads/logs.1776446315561.json
-# - Kind: runtime observation
-# - Retrieved: 2026-04-18
-# - Applied To: classifying upstream stream timeout failures so downstream users
-#   no longer see raw `terminated`
-# - Verification: verified in runtime and code
-# - Source: /Users/almurat/KiKo/test.txt
-# - Kind: runtime observation
-# - Retrieved: 2026-04-18
-# - Applied To: flattening NVIDIA `extra_body` SDK options into direct HTTP body
-#   fields so GLM/Kimi reasoning-mode controls can take effect
-# - Verification: verified in code and targeted tests
-# - Source: NVIDIA NIM reasoning model docs and moonshotai/kimi-k2.5 model page
-# - Kind: official API doc
-# - Retrieved: 2026-04-18
-# - Applied To: distinguishing SDK `extra_body` examples from raw HTTP body
-#   shaping for `chat_template_kwargs` and Kimi `thinking` controls
-# - Verification: verified in docs and targeted tests
-# - Source: /Users/almurat/Downloads/logs.1776615188393.json
-# - Kind: runtime observation
-# - Retrieved: 2026-04-20
-# - Applied To: adding OpenAI request-shape diagnostics for HTTP 400s that
-#   previously logged only provider status and raw body length downstream
-# - Verification: verified from existing runtime logs and local request-shape tests
-# - Source: OpenAI Chat Completions API reference and GPT-5.4 latest-model guide
-# - Kind: official API doc
-# - Retrieved: 2026-04-20
-# - Applied To: logging tool schema and reasoning parameter shape instead of
-#   changing KiKo tool exposure policy
-# - Verification: verified in docs, applied in code
-# - Source: /Users/almurat/KiKo/test.txt
-# - Kind: runtime observation
-# - Retrieved: 2026-04-20
-# - Applied To: omitting `reasoning_effort` for GPT-5.4 chat/completions
-#   requests that include function tools
-# - Verification: verified from raw OpenAI error excerpt and local unit tests
-# See also:
-# - /Users/almurat/KiKo/system-journal/INDEX.md
-# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-openai-400-request-shape-diagnostics.md
-# - /Users/almurat/KiKo/system-journal/design-language/social-agent-multimodal-input.md
-# - /Users/almurat/KiKo/system-journal/owner-map/social-agent-multimodal-input.md
-# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-kimi-grok-social-image-input.md
-# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
-# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-glm-preserved-thinking-on-nvidia.md
-# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-glm-mode-alignment-and-stream-timeout-hardening.md
-# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-nvidia-extra-body-flattening.md
-# - /Users/almurat/KiKo/system-journal/conflicts.md
+# Updated: 2026-04-23
+# Status: mixed
+# Why: This gateway normalizes OpenAI and xAI streaming responses into KiKo's
+#   internal event protocol while preserving reasoning, tool, usage, and
+#   citation events for downstream orchestration.
+# Debug Goal: Keep provider-specific request shaping isolated here and keep the
+#   public event stream stable across OpenAI and xAI.
+# Search Tags: openai request shape diagnostics, xai image gateway, reasoning delta extraction, provider request id promotion
+# Invariants:
+# - Plain assistant text must not be promoted into reasoning deltas.
+# - GPT-5.4 tool calls with reasoning effort must keep the current omission rule.
+# - xAI image turns should prefer the SDK gateway when needed.
+# Failure Modes:
+# - Provider request ids regress to suspicious chunk ids.
+# - Tool schema logging leaks prompt text or unsupported request fields.
 
 import asyncio
 import json
@@ -177,13 +34,11 @@ from ..schemas import GatewayEvent, GenerateRequest
 logger = logging.getLogger(__name__)
 
 OPENAI_API_URL = os.getenv("OPENAI_API_URL", "https://api.openai.com/v1/chat/completions")
-NVIDIA_API_URL = os.getenv("NVIDIA_API_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
 GROK_SERVICE_URL = os.getenv("GROK_SERVICE_URL", "http://localhost:8000/grok")
 XAI_API_URL = os.getenv("XAI_API_URL", "https://api.x.ai/v1/chat/completions")
 GROK_PREFER_SDK_GATEWAY = os.getenv("GROK_PREFER_SDK_GATEWAY", "true").lower() not in {"0", "false", "no"}
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
 INTERNAL_SERVICE_KEY = os.getenv("INTERNAL_SERVICE_KEY", "")
 XAI_API_KEY = os.getenv("XAI_API_KEY", "")
 
@@ -195,18 +50,6 @@ def _normalized_model(model: str) -> str:
 OPENAI_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 OPENAI_TOOL_DESCRIPTION_WARN_LIMIT = 1024
 OPENAI_TOOL_LOG_SAMPLE_LIMIT = 12
-NVIDIA_KIMI_REASONING_TEMPERATURE = 0.6
-NVIDIA_KIMI_INSTANT_TEMPERATURE = 0.4
-REMOVED_NVIDIA_MODEL_ALIASES = {
-    "glm-5",
-    "glm5",
-    "z-ai/glm5",
-    "z-ai/glm-5",
-    "glm-5-reasoning",
-    "glm5-reasoning",
-    "z-ai/glm5-reasoning",
-    "z-ai/glm-5-reasoning",
-}
 STREAM_CONNECT_TIMEOUT_SEC = max(1.0, float(os.getenv("LLM_GATEWAY_STREAM_CONNECT_TIMEOUT_SEC", "8")))
 STREAM_READ_TIMEOUT_SEC = max(30.0, float(os.getenv("LLM_GATEWAY_STREAM_READ_TIMEOUT_SEC", "180")))
 STREAM_WRITE_TIMEOUT_SEC = max(5.0, float(os.getenv("LLM_GATEWAY_STREAM_WRITE_TIMEOUT_SEC", "20")))
@@ -317,69 +160,6 @@ def _summarize_openai_request_shape(body: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _resolve_nvidia_request_profile(model: str) -> tuple[str, float | None, dict[str, Any] | None]:
-    normalized = _normalized_model(model)
-    kimi_reasoning_aliases = {
-        "kimi-k2-5",
-        "kimi-k2-5-reasoning",
-        "kimi-k2-5-thinking",
-        "kimi-k2.5",
-        "kimi-k2.5-reasoning",
-        "kimi-k2.5-thinking",
-        "moonshotai/kimi-k2-5",
-        "moonshotai/kimi-k2.5",
-        "moonshotai/kimi-k2-5-reasoning",
-        "moonshotai/kimi-k2.5-reasoning",
-        "moonshotai/kimi-k2-5-thinking",
-        "moonshotai/kimi-k2.5-thinking",
-    }
-    kimi_instant_aliases = {
-        "kimi-k2-5-fast",
-        "kimi-k2-5-instant",
-        "kimi-k2.5-fast",
-        "kimi-k2.5-instant",
-        "moonshotai/kimi-k2-5-fast",
-        "moonshotai/kimi-k2-5-instant",
-        "moonshotai/kimi-k2.5-fast",
-        "moonshotai/kimi-k2.5-instant",
-    }
-    if normalized in kimi_reasoning_aliases:
-        return "moonshotai/kimi-k2.5", NVIDIA_KIMI_REASONING_TEMPERATURE, None
-    if normalized in kimi_instant_aliases:
-        return "moonshotai/kimi-k2.5", NVIDIA_KIMI_INSTANT_TEMPERATURE, {"thinking": {"type": "disabled"}}
-    if normalized in REMOVED_NVIDIA_MODEL_ALIASES:
-        raise ValueError(f"Removed NVIDIA model alias: {model}")
-    return model, None, None
-
-
-def _resolve_nvidia_model(model: str) -> tuple[str, dict[str, Any] | None]:
-    resolved_model, _, extra_body = _resolve_nvidia_request_profile(model)
-    return resolved_model, extra_body
-
-
-def _merge_extra_body_into_request_body(body: dict[str, Any], extra_body: dict[str, Any] | None) -> None:
-    if not extra_body:
-        return
-    body.update(extra_body)
-
-
-def _build_nvidia_request_body(req: GenerateRequest) -> dict[str, Any]:
-    resolved_model, resolved_temperature, extra_body = _resolve_nvidia_request_profile(req.model)
-    tools = req.tools or []
-    body: dict[str, Any] = {
-        "model": resolved_model,
-        "messages": [m.model_dump(exclude_none=True) for m in req.messages],
-        "stream": True,
-    }
-    if resolved_temperature is not None:
-        body["temperature"] = resolved_temperature
-    if tools:
-        body["tools"] = tools
-        body["tool_choice"] = "auto"
-    _merge_extra_body_into_request_body(body, extra_body)
-    return body
-
-
 def _coerce_text_content(value: Any) -> str:
     if isinstance(value, str):
         return value
@@ -466,11 +246,11 @@ def _extract_reasoning_delta(data: dict[str, Any], choice: dict[str, Any], delta
 
 def resolve_provider(model: str) -> str:
     m = _normalized_model(model)
-    if m.startswith("gpt") or m.startswith("o"):
-        return "openai"
     if "grok" in m:
         return "xai"
-    return "nvidia"
+    if m.startswith("gpt") or m.startswith("o"):
+        return "openai"
+    return "openai"
 
 
 def normalize_metadata(metadata: dict[str, Any] | None) -> dict[str, str]:
@@ -488,9 +268,6 @@ async def stream_generate(req: GenerateRequest) -> AsyncGenerator[GatewayEvent, 
     provider = resolve_provider(req.model)
     if provider == "openai":
         async for ev in _stream_openai(req, provider):
-            yield ev
-    elif provider == "nvidia":
-        async for ev in _stream_nvidia(req, provider):
             yield ev
     else:
         async for ev in _stream_xai(req, provider):
@@ -524,30 +301,6 @@ async def _stream_openai(req: GenerateRequest, provider: str):
         provider=provider,
         url=OPENAI_API_URL,
         headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
-        body=body,
-    ):
-        yield ev
-
-
-async def _stream_nvidia(req: GenerateRequest, provider: str):
-    if not NVIDIA_API_KEY:
-        yield GatewayEvent(event_type="error", provider="nvidia", payload={"message": "NVIDIA_API_KEY missing"})
-        return
-
-    try:
-        body = _build_nvidia_request_body(req)
-    except ValueError as exc:
-        yield GatewayEvent(
-            event_type="error",
-            provider="nvidia",
-            payload={"message": str(exc), "code": "MODEL_REMOVED"},
-        )
-        return
-
-    async for ev in _stream_sse(
-        provider=provider,
-        url=NVIDIA_API_URL,
-        headers={"Authorization": f"Bearer {NVIDIA_API_KEY}", "Content-Type": "application/json"},
         body=body,
     ):
         yield ev

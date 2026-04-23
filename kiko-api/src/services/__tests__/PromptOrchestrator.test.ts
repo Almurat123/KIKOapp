@@ -4,7 +4,7 @@ import test from 'node:test';
 import { promptOrchestrator } from '../ai/PromptOrchestrator.js';
 
 test('shared system prompt no longer forces conclusion-evidence-next-step formatting', () => {
-  const prompt = promptOrchestrator.getSystemPrompt('nvidia', 'TRADING', { routingMode: 'execution' });
+  const prompt = promptOrchestrator.getSystemPrompt('openai', 'TRADING', { routingMode: 'execution' });
 
   assert.ok(!prompt.includes('Structure output as: conclusion, evidence, next step.'));
   assert.match(prompt, /Do NOT force a fixed template such as "Conclusion \/ Evidence \/ Next step"/);
@@ -19,7 +19,7 @@ test('grok system prompt inherits the same adaptive output-style guidance', () =
 });
 
 test('trading system prompt includes the Clanker deploy skill prompt', () => {
-  const prompt = promptOrchestrator.getSystemPrompt('nvidia', 'TRADING', { routingMode: 'execution' });
+  const prompt = promptOrchestrator.getSystemPrompt('openai', 'TRADING', { routingMode: 'execution' });
 
   assert.match(prompt, /Deploy Token via Clanker/);
   assert.match(prompt, /confirmDeploy=true/);

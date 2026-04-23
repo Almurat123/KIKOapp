@@ -48,7 +48,7 @@ test('isCurrentRequestFree returns false for credits-paid premium traffic', () =
 test('buildUsageDecision maps free text models to the free_text_model source', () => {
     const decision = buildUsageDecision({
         allowed: true,
-        requestedModel: 'kimi-k2-5-instant',
+        requestedModel: 'free-model-example',
         modelCategory: 'free',
         dateUtc: '2026-04-22',
         isFree: true,

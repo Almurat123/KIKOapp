@@ -11,6 +11,7 @@ import {
 } from '../../../services/generatedImageChatTask.js';
 import {
     normalizeGeneratedImageIntentInput,
+    normalizeGeneratedImageToolAction,
     optimizeGeneratedImagePrompt,
     type GeneratedImageIntentInput,
 } from '../../../services/generatedImagePromptOptimizer.js';
@@ -23,7 +24,7 @@ import {
 import { normalizeSocialImageUrl } from '../../../services/socialAgentInput.js';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-21
+// Updated: 2026-04-23
 // Author: Rowan
 // Reason: chat v2 now needs an internal image-generation skill that the main
 //         model can call directly from the ordinary chat surface. Product
@@ -39,7 +40,10 @@ import { normalizeSocialImageUrl } from '../../../services/socialAgentInput.js';
 //         Later runtime logs also showed NVIDIA/GLM image-tool calls can omit
 //         `user_intent` while still providing structured fields like `subject`
 //         and `scene`, so this tool now has to normalize the intent payload
-//         before delegating into the optimizer.
+//         before delegating into the optimizer. The OpenAI Responses image
+//         generation tool separates `action:auto/generate/edit` from direct
+//         image-model execution, so this tool now preserves that action concept
+//         while still delegating provider execution into KiKo's image task owner.
 // Goal: expose one intent-level `generate_image_from_intent` tool that rewrites
 //       image direction into a controlled provider prompt and then converts the
 //       current assistant turn into a generated-image task inside the same transcript.
@@ -59,11 +63,10 @@ import { normalizeSocialImageUrl } from '../../../services/socialAgentInput.js';
 // - structured image fields may recover missing user_intent before optimizer
 //   handoff, but this tool still must not invent new user-facing intent beyond
 //   the provided image fields
-// - Default image-model family should prefer GPT Image 1 Mini for all chats,
-//   but it must still fall back to the first enabled image model instead of
-//   selecting a disabled provider. Farcaster ingress is model-led again: it may
-//   carry saved image-model preferences in tool context, but the text model
-//   still decides whether this tool is called.
+// - Model-led image generation must honor saved image-model preferences in tool
+//   context before any fallback. Farcaster, X, and Web chat all carry the
+//   preference in tool context, but the text model still decides whether this
+//   tool is called.
 // - current task images are real reference/edit inputs, not just prompt
 //   decoration; when present they must be passed into generated-image execution
 //   so the OpenAI provider can use the edits endpoint with image references.
@@ -74,6 +77,10 @@ import { normalizeSocialImageUrl } from '../../../services/socialAgentInput.js';
 // - after deterministic prompt compilation, an optional GPT refiner may rewrite
 //   the provider prompt into a final OpenAI image prompt. Refiner failure must
 //   fall back to the deterministic prompt so image execution still proceeds.
+// - `action:auto` follows the official Responses tool mental model: generate
+//   without source images and edit when usable source/reference images exist.
+//   Forced `generate` must not pass source images as edit inputs; forced `edit`
+//   needs source/reference images.
 // Document Provenance:
 // - Source: operator requirement on 2026-04-18 for model-owned image generation inside main chat
 // - Kind: product doc
@@ -386,9 +393,14 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
                     description: 'Optional safety posture. Use strict for conservative brand-safe visuals, otherwise standard.',
                     enum: ['standard', 'strict'],
                 },
+                action: {
+                    type: 'string',
+                    description: 'OpenAI Responses-style image action. Use auto by default so the tool generates without source images and edits when source/reference images are in context; use generate to force a new image; use edit only when a source/reference image exists.',
+                    enum: ['auto', 'generate', 'edit'],
+                },
                 edit_or_generate: {
                     type: 'string',
-                    description: 'Use edit when source/reference images should guide the output; use generate when creating without source images.',
+                    description: 'Legacy compatibility field. Prefer action. Use edit when source/reference images should guide the output; use generate when creating without source images.',
                     enum: ['generate', 'edit'],
                 },
                 subject: {
@@ -463,7 +475,8 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
         const uploadedTaskImages = await hasTaskChatImageInputs(taskId)
             ? await loadTaskChatImageInputs(taskId).catch(() => [])
             : [];
-        const { mergedReferenceImages, providerReferenceImages } = buildImplicitImageReferenceInputs({
+        const requestedAction = normalizeGeneratedImageToolAction(args.action);
+        const builtReferenceInputs = buildImplicitImageReferenceInputs({
             explicitReferenceImages: args.reference_images,
             uploadedTaskImages: uploadedTaskImages.map((image) => ({
                 url: image.url,
@@ -471,8 +484,19 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
             })),
             context,
         });
+        const mergedReferenceImages = requestedAction === 'generate'
+            ? []
+            : builtReferenceInputs.mergedReferenceImages;
+        const providerReferenceImages = requestedAction === 'generate'
+            ? []
+            : builtReferenceInputs.providerReferenceImages;
+        if (requestedAction === 'edit' && providerReferenceImages.length === 0) {
+            throw new Error('generate_image_from_intent action=edit requires a source or reference image input.');
+        }
         const normalizedArgs = normalizeGeneratedImageIntentInput({
             ...args,
+            action: requestedAction,
+            edit_or_generate: requestedAction === 'auto' ? args.edit_or_generate : requestedAction,
             reference_images: mergedReferenceImages,
         });
         const hasReferenceInputs = providerReferenceImages.length > 0;
@@ -508,6 +532,7 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
                     errorMessage: refinedPrompt.errorMessage || null,
                 },
                 promptOptimizer: {
+                    action: optimized.spec.action,
                     artifactType: optimized.spec.artifactType,
                     aspectRatio: optimized.spec.aspectRatio,
                     subject: optimized.spec.subject,

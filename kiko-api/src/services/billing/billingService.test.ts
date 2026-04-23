@@ -17,9 +17,14 @@ test('getBillingCategory classifies OpenAI GPT variants as premium quota bucket'
     assert.equal(getBillingCategory('gpt-5.4-mini-2026-03-17'), 'premium');
 });
 
-test('getBillingCategory classifies NVIDIA Kimi variants as free quota bucket', () => {
-    assert.equal(getBillingCategory('kimi-k2-5-reasoning'), 'free');
-    assert.equal(getBillingCategory('kimi-k2-5-instant'), 'free');
+test('getBillingCategory classifies explicitly allowlisted free models as free quota bucket', () => {
+    const original = [...env.billing.freeModels];
+    env.billing.freeModels = ['free-model-example'];
+    try {
+        assert.equal(getBillingCategory('free-model-example'), 'free');
+    } finally {
+        env.billing.freeModels = original;
+    }
 });
 
 test('computeUsdCost prefers xAI exact cost_in_usd_ticks and still adds tool invocation fees', () => {
@@ -66,20 +71,6 @@ test('computeUsdCost applies OpenAI cached input pricing and does not double-cou
     assert.equal(usdCost, 9.48);
 });
 
-test('computeUsdCost defaults NVIDIA Kimi trial-hosted models to zero until pricing is pinned', () => {
-    const usdCost = computeUsdCost(
-        {
-            prompt_tokens: 1_000_000,
-            completion_tokens: 2_000_000,
-            completion_tokens_details: { reasoning_tokens: 500_000 },
-        },
-        'kimi-k2-5-instant',
-        [],
-    );
-
-    assert.equal(usdCost, 0);
-});
-
 test('computeTotalTokens only adds reasoning fallback for Grok', () => {
     const usage = {
         prompt_tokens: 100,
@@ -93,13 +84,15 @@ test('computeTotalTokens only adds reasoning fallback for Grok', () => {
 });
 
 test('getDailyFreeQuotaForModel returns shared free and premium model quota knobs', () => {
-    const original = env.billing.dailyFreeModelLimit;
+    const originalFreeModels = [...env.billing.freeModels];
+    const originalFreeLimit = env.billing.dailyFreeModelLimit;
+    env.billing.freeModels = ['free-model-example'];
     env.billing.dailyFreeModelLimit = 20;
     try {
-        assert.equal(getDailyFreeQuotaForModel('kimi-k2-5-reasoning'), 20);
-        assert.equal(getDailyFreeQuotaForModel('kimi-k2-5-instant'), 20);
+        assert.equal(getDailyFreeQuotaForModel('free-model-example'), 20);
     } finally {
-        env.billing.dailyFreeModelLimit = original;
+        env.billing.freeModels = originalFreeModels;
+        env.billing.dailyFreeModelLimit = originalFreeLimit;
     }
     assert.equal(getDailyFreeQuotaForModel('gpt-5.4-mini-2026-03-17'), env.billing.dailyFreePremium);
     assert.equal(getDailyFreeQuotaForModel('grok-4-1-fast-reasoning'), env.billing.dailyFreePremium);

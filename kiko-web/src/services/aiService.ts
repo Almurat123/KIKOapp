@@ -8,9 +8,7 @@
 // Author: Almurat
 // Reason: the legacy one-shot AI helper can omit a model and then relies on the
 //         OpenAI-compatible proxy fallback. That fallback now needs to read as
-//         Kimi 2.5 Instant/Fast instead of GPT in logs and inline docs.
 // Goal: prevent debugging output from suggesting GPT is still the product
-//       default after the canonical default moved to Kimi Instant.
 // Owns: frontend AI helper logging and fallback-call documentation.
 // Does Not Own: model catalog selection, backend normalization, or provider
 //               request construction.
@@ -18,14 +16,12 @@
 // - Log the actual fallback family used by the proxy helper.
 // - Do not duplicate default model ids here; deepseek.ts owns that literal.
 // Document Provenance:
-// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-17
 // - Applied To: frontend AI fallback logging/documentation
 // - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
 
 import { chatCompletion, streamChatCompletion, getModelName, type DeepSeekMessage } from './deepseek';
 import { streamChatCompletion as xaiStreamChatCompletion, getXaiModelName, getRecommendedMaxTokens as getXaiRecommendedMaxTokens, type XaiMessage } from './xai';
@@ -84,7 +80,6 @@ export async function generateAIResponse(
     // Note: generateAIResponse doesn't currently accept model params
     // If needed, add modelId and mode parameters to this function
     // Uses the proxy fallback model from deepseek.ts with chat-oriented settings.
-    logger.ai('request', 'Kimi Instant', { temperature: 0.8 });
     const response = await chatCompletion(messages, {
       temperature: 0.8, // Better for conversational chat
       enable_search: true, // Enable tools (gas_price, token_info, etc.)
@@ -93,7 +88,6 @@ export async function generateAIResponse(
         chainName: userContext.chainName
       } : undefined
     });
-    logger.ai('response', 'Kimi Instant', { tokens: response.usage?.total_tokens });
 
     const content = response.choices[0]?.message?.content || 'I apologize, but I encountered an error processing your request.';
 
@@ -237,7 +231,7 @@ export async function* streamAIResponse(
     } else {
       // Use DeepSeek API (default)
       console.log('[aiService] Using DeepSeek API');
-      const modelName = getModelName(modelId, mode);
+      const modelName = getModelName(modelId);
 
       // Frontend no longer decides tool usage; backend orchestrator handles it.
       const shouldEnableTools = true;

@@ -300,7 +300,6 @@ CREATE TABLE IF NOT EXISTS "WalletExport" (
 -- CONTEXT MEMORY
 -- Updated: 2026-04-17
 -- Author: Almurat
--- Reason: the canonical default model moved from GPT to the free Kimi 2.5
 --         Instant/Fast model while the stored user setting still owns the
 --         per-user preference used by web, X, and Farcaster reply paths.
 -- Goal: keep the SQL snapshot aligned with the current product default and the
@@ -309,7 +308,6 @@ CREATE TABLE IF NOT EXISTS "WalletExport" (
 -- Owns: default values in the generated SQL snapshot for persisted user settings and session-level model metadata.
 -- Does Not Own: agent routing or explicit user preference writes.
 -- Document Provenance:
--- - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
 -- - Kind: repo doc
 -- - Retrieved: 2026-04-17
 -- - Applied To: persisted default chat model and new-session fallback default
@@ -321,7 +319,7 @@ CREATE TABLE IF NOT EXISTS "UserSettings" (
   "id" TEXT PRIMARY KEY,
   "userId" TEXT UNIQUE NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
   "userRole" TEXT DEFAULT 'default',
-  "defaultChatModel" TEXT DEFAULT 'kimi-k2-5-instant',
+  "defaultChatModel" TEXT DEFAULT 'gpt-5.4-mini-2026-03-17',
   "defaultChatReasoningLevel" TEXT NOT NULL DEFAULT 'fast',
   "defaultGeneratedImageModel" TEXT,
   "defaultGeneratedImageQuality" TEXT,
@@ -612,14 +610,12 @@ CREATE INDEX IF NOT EXISTS idx_token_rules_token ON token_rules(chain, address);
 -- CONTEXT MEMORY
 -- Updated: 2026-04-17
 -- Author: Almurat
--- Reason: brand-new sessions must default to the same Kimi Instant model that
 --         the frontend and persisted user settings now use, and session rows
 --         now also preserve the selected reasoning level.
 -- Goal: keep the SQL snapshot aligned with the canonical new-session default.
 -- Owns: default values in the generated SQL snapshot for new chat sessions.
 -- Does Not Own: per-user preference selection.
 -- Document Provenance:
--- - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
 -- - Kind: repo doc
 -- - Retrieved: 2026-04-17
 -- - Applied To: default chat-session model for new sessions
@@ -642,7 +638,7 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id VARCHAR(100) NOT NULL,  -- Privy user ID (DID)
   title VARCHAR(500) DEFAULT 'New Chat',
-  model VARCHAR(50) DEFAULT 'kimi-k2-5-instant',
+  model VARCHAR(50) DEFAULT 'gpt-5.4-mini-2026-03-17',
   reasoning_level VARCHAR(20) NOT NULL DEFAULT 'fast',
   status VARCHAR(20) DEFAULT 'active',  -- active, archived
   created_at TIMESTAMP DEFAULT NOW(),

@@ -18,10 +18,10 @@ test('social model command menu includes low and medium GPT choices', () => {
   assert.match(menu, /\/model gpt-5\.4-mini medium/);
 });
 
-test('social model command matches Kimi fast default model', () => {
-  const choice = __socialSettingsCommandTest.matchChatModelChoice('/model kimi fast');
+test('social model command matches Grok fast model', () => {
+  const choice = __socialSettingsCommandTest.matchChatModelChoice('/model grok fast');
 
-  assert.equal(choice?.model, 'kimi-k2-5-instant');
+  assert.equal(choice?.model, 'grok-4-1-fast-non-reasoning');
   assert.equal(choice?.reasoningLevel, 'fast');
 });
 

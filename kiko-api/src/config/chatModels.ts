@@ -1,15 +1,10 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-18
+// Updated: 2026-04-23
 // Author: Almurat
-// Reason: product policy changed the canonical default from GPT to the free
-//         Kimi 2.5 Instant/Fast model while keeping X and Farcaster replies
-//         bound to each user's saved preference. The backend must still
-//         normalize every user-selected model against one shared allowlist, and
-//         DeepSeek ids are being replaced by NVIDIA-hosted GLM/Kimi ids. Later
-//         official NVIDIA doc verification showed GLM-5 does not define a
-//         documented Fast/Instant hosted mode, so the allowlist must collapse
-//         GLM back to one canonical id while still normalizing removed legacy
-//         aliases from stored user settings.
+// Reason: product policy moved the canonical default back to GPT-5.4 Mini
+//         while keeping X and Farcaster replies bound to each user's saved
+//         preference. The backend must still normalize every user-selected
+//         model against one shared allowlist, but the allowlist now stays on the
 // Goal: preserve a single canonical chat-model default and normalization rule
 //       across web chat, persisted user settings, X mention sessions, and
 //       Farcaster mention sessions, while also providing a stable reasoning
@@ -25,38 +20,31 @@
 // - Persisted model preferences must also carry a normalized reasoning level
 //   so split-effort families can reopen with the same control choice.
 // - Provider replacement must happen through model allowlists, not ad hoc aliases in callers.
-// - Remove provider modes that are not documented by the current official model page.
+// - Removed provider modes must not remain active allowlisted options.
 // - Legacy removed ids may normalize to a surviving canonical id at the
 //   boundary, but must not remain active allowlisted options.
 // Document Provenance:
-// - Source: operator request to switch the product default from GPT to free Kimi
-//           2.5 Instant while preserving the user's saved model for X/Farcaster replies
 // - Kind: product doc
-// - Retrieved: 2026-04-17
+// - Retrieved: 2026-04-23
 // - Applied To: canonical default model and persisted user model preference
 // - Verification: verified in code
 // - Source: current repo model catalog in kiko-web/src/components/Chat/chatConstants.ts
 // - Kind: repo doc
-// - Retrieved: 2026-04-16
-// - Applied To: supported model allowlist used by backend normalization after NVIDIA model replacement
+// - Retrieved: 2026-04-23
 // - Verification: verified in code
-// - Source: operator decision on 2026-04-22 to remove GLM-5 from the active
-//   product model catalog after repeated NVIDIA hosted tool-call failures
+//   from the active product model catalog
 // - Kind: product doc
-// - Retrieved: 2026-04-22
-// - Applied To: removing GLM from the active allowlist and treating old GLM
-//   ids as unsupported product input
+// - Retrieved: 2026-04-23
+//   treating old ids as unsupported product input
 // - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-default-chat-model-switch-to-gpt.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-model-thinking-label-correction.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-x-verified-mentions-only.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
-export const DEFAULT_CHAT_MODEL = 'kimi-k2-5-instant';
+export const DEFAULT_CHAT_MODEL = 'gpt-5.4-mini-2026-03-17';
 
 export type SupportedChatReasoningLevel =
   | 'none'
@@ -78,8 +66,6 @@ const SUPPORTED_CHAT_REASONING_LEVELS = new Set<SupportedChatReasoningLevel>([
 ]);
 
 export const SUPPORTED_CHAT_MODELS = new Set([
-  'kimi-k2-5-reasoning',
-  'kimi-k2-5-instant',
   'gpt-5.4-mini-2026-03-17',
   'grok-4-1-fast-reasoning',
   'grok-4-1-fast-non-reasoning',
@@ -104,7 +90,6 @@ export function normalizeSupportedChatReasoningLevel(
 export function inferSupportedChatReasoningLevel(model?: string | null): SupportedChatReasoningLevel {
   const normalized = normalizeSupportedChatModel(model);
   if (
-    normalized === 'kimi-k2-5-reasoning' ||
     normalized === 'grok-4-1-fast-reasoning'
   ) {
     return 'thinking';

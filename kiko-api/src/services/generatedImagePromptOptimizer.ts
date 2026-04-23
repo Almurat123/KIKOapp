@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-20
+// Updated: 2026-04-23
 // Author: Rowan
 // Reason: model-owned image generation needs one server-owned optimizer boundary
 //         between the chat model's intent-level tool call and the provider
@@ -31,7 +31,10 @@
 //   inventing new creative direction
 // - OpenAI image prompting should preserve the official method shape:
 //   deliverable/use case, scene, subject, key details, composition, style,
-//   lighting/camera, exact text, change, preserve, constraints, and avoid list
+//   lighting/camera, exact text, change, preserve, constraints, and avoid list.
+//   Official Responses image-generation tool behavior also distinguishes
+//   action:auto/generate/edit, so this optimizer keeps `action` as the
+//   model-facing decision and derives the effective provider mode from it.
 // - forbidden local patch pattern: letting provider-specific prompt strings leak directly into visible assistant history
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-generated-image-chat-execution-and-ui.md
@@ -73,6 +76,7 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-generated-image-tool-call-repair-and-farcaster-wait-window.md
 
 export type GeneratedImageIntentMode = 'generate' | 'edit';
+export type GeneratedImageToolAction = 'auto' | 'generate' | 'edit';
 
 export interface GeneratedImageReferenceImage {
     url?: string | null;
@@ -87,6 +91,7 @@ export interface GeneratedImageIntentInput {
     aspect_ratio?: string | null;
     reference_images?: GeneratedImageReferenceImage[] | null;
     safety_level?: string | null;
+    action?: GeneratedImageToolAction | string | null;
     edit_or_generate?: GeneratedImageIntentMode | string | null;
     subject?: string | null;
     scene?: string | null;
@@ -105,6 +110,7 @@ export interface GeneratedImageIntentInput {
 }
 
 export interface OptimizedGeneratedImagePromptSpec {
+    action: GeneratedImageToolAction;
     editOrGenerate: GeneratedImageIntentMode;
     artifactType: string;
     subject: string;
@@ -162,7 +168,16 @@ function normalizeSafetyLevel(value: unknown): 'standard' | 'strict' {
     return 'standard';
 }
 
+export function normalizeGeneratedImageToolAction(value: unknown): GeneratedImageToolAction {
+    const normalized = normalizeText(value).toLowerCase();
+    if (normalized === 'generate' || normalized === 'edit') return normalized;
+    return 'auto';
+}
+
 function inferIntentMode(params: GeneratedImageIntentInput): GeneratedImageIntentMode {
+    const action = normalizeGeneratedImageToolAction(params.action);
+    if (action === 'generate') return 'generate';
+    if (action === 'edit') return 'edit';
     const declared = normalizeText(params.edit_or_generate).toLowerCase();
     if (declared === 'edit') return 'edit';
     if (Array.isArray(params.reference_images) && params.reference_images.length > 0) {
@@ -364,7 +379,9 @@ export function optimizeGeneratedImagePrompt(input: GeneratedImageIntentInput): 
     }
 
     const safetyLevel = normalizeSafetyLevel(normalizedInput.safety_level);
+    const action = normalizeGeneratedImageToolAction(normalizedInput.action);
     const spec: OptimizedGeneratedImagePromptSpec = {
+        action,
         editOrGenerate: inferIntentMode(normalizedInput),
         artifactType: inferArtifactType(normalizedInput),
         subject: inferSubject(normalizedInput),

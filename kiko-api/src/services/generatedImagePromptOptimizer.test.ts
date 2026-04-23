@@ -36,8 +36,27 @@ test('optimizeGeneratedImagePrompt infers edit mode from reference images', () =
         reference_images: [{ description: 'the existing uploaded visual' }],
     });
 
+    assert.equal(optimized.spec.action, 'auto');
     assert.equal(optimized.spec.editOrGenerate, 'edit');
     assert.equal(optimized.spec.referenceImages.length, 1);
+});
+
+test('optimizeGeneratedImagePrompt honors Responses-style forced image actions', () => {
+    const forcedGenerate = optimizeGeneratedImagePrompt({
+        user_intent: 'Create a new poster inspired by the previous image',
+        action: 'generate',
+        edit_or_generate: 'edit',
+        reference_images: [{ description: 'previous image' }],
+    });
+    assert.equal(forcedGenerate.spec.action, 'generate');
+    assert.equal(forcedGenerate.spec.editOrGenerate, 'generate');
+
+    const forcedEdit = optimizeGeneratedImagePrompt({
+        user_intent: 'Make this look realistic',
+        action: 'edit',
+    });
+    assert.equal(forcedEdit.spec.action, 'edit');
+    assert.equal(forcedEdit.spec.editOrGenerate, 'edit');
 });
 
 test('optimizeGeneratedImagePrompt synthesizes user_intent from structured image fields when missing', () => {

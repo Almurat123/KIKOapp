@@ -1,9 +1,9 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-23
 // Author: Rowan
 // Reason: token-context helper text still treated the normal-model path as
 //         `deepseek`, which left stale provider wording in the snapshot context
-//         after KiKo switched that path to NVIDIA-hosted GLM/Kimi.
+//         after KiKo switched that path to OpenAI.
 // Goal: preserve the cached-token-context rules for the normal-model family
 //       while removing vendor-specific wording from the active path.
 // Owns: token and launchpad context block rendering for chat orchestration.
@@ -13,18 +13,15 @@
 // - Grok remains the only path with native-search seed hints in token context.
 // - Legacy DeepSeek wording may remain only as a compatibility alias, not the active branch.
 // Document Provenance:
-// - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
-// - Kind: official API doc
-// - Retrieved: 2026-04-16
-// - Applied To: normal-provider token-context wording after NVIDIA replacement
+// - Kind: product doc
+// - Retrieved: 2026-04-23
 // - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 type BuildTokenContextParams = {
-    mode: 'deepseek' | 'nvidia' | 'grok';
+    mode: 'deepseek' | 'openai' | 'grok';
     tokenInfo: any | null;
     contractAddress?: string;
     cacheStatusLabel?: string;
@@ -37,7 +34,7 @@ export function buildTokenContextBlock(params: BuildTokenContextParams): {
     tokenContextAvailable: boolean;
 } {
     const { mode, tokenInfo, contractAddress } = params;
-    const isCachedLocalMode = mode === 'deepseek' || mode === 'nvidia';
+    const isCachedLocalMode = mode === 'deepseek';
     if (tokenInfo) {
         const base = [
             `[TOKEN_CONTEXT]${isCachedLocalMode && params.cacheStatusLabel ? ` ${params.cacheStatusLabel}` : ''}`,

@@ -15,12 +15,10 @@ from __future__ import annotations
 # Does Not Own: xAI SDK object creation, model routing, tool execution, or
 #               persistence.
 # Design Language:
-# - OpenAI/NVIDIA `text` + `image_url` parts are the canonical upstream shape.
 # - xAI `input_text` + `input_image` parts are accepted at the adapter boundary.
 # - Image URLs must be extracted, not stringified into prompt text.
 # - Empty image URLs are ignored before provider calls.
 # Document Provenance:
-# - Source: NVIDIA NIM moonshotai/kimi-k2.5 inference docs
 # - Kind: official API doc
 # - Retrieved: 2026-04-16
 # - Applied To: accepting `content` object lists with `image_url` entries
@@ -34,7 +32,6 @@ from __future__ import annotations
 # - /Users/almurat/KiKo/system-journal/INDEX.md
 # - /Users/almurat/KiKo/system-journal/design-language/social-agent-multimodal-input.md
 # - /Users/almurat/KiKo/system-journal/owner-map/social-agent-multimodal-input.md
-# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-kimi-grok-social-image-input.md
 # - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
 
 from typing import Any

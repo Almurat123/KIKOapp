@@ -11,7 +11,6 @@
 //         same saved default model a user selected on the website. Farcaster
 //         linkage now also has to come from verified Privy identity instead of
 //         accepting client-supplied FIDs. The persisted model policy now falls
-//         back to free Kimi 2.5 Instant/Fast when no explicit model is supplied.
 //         Farcaster image-generation requests now also need a separate saved
 //         generated-image preference so website image-model picks survive
 //         outside the local browser session.
@@ -42,7 +41,6 @@
 // - Retrieved: 2026-04-10
 // - Applied To: adding UserSettings.defaultChatModel and exposing it through authenticated settings routes
 // - Verification: verified in code
-// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-17
 // - Applied To: using backend model normalization as the create-time settings fallback
@@ -50,7 +48,6 @@
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/owner-map/backend-swap-validation.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-chat-model-reasoning-database-persistence.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-09-user-username-foundation.md

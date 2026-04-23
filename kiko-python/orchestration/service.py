@@ -228,7 +228,7 @@ class OrchestrationService:
     async def _run(self, state: RunState):
         try:
             snapshot = state.snapshot.model_dump()
-            provider_info = resolve_provider(snapshot.get("model") or "kimi-k2-5-instant")
+            provider_info = resolve_provider(snapshot.get("model") or "gpt-5.4-mini-2026-03-17")
             trading_intent = None
             skill_resolution = resolve_skills(snapshot, trading_intent)
             logger.info(

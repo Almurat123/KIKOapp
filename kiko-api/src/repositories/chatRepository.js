@@ -77,7 +77,6 @@ exports.getLatestChunkIndex = getLatestChunkIndex;
 // Reason: session creation previously defaulted to `deepseek-chat`, which
 //         drifted from the website default selector and from X mention reply
 //         expectations. New sessions now need one canonical default model,
-//         currently free Kimi 2.5 Instant/Fast. The chat-image upload flow also
 //         exposed a task-claim race: tasks were inserted as `queued`, so the
 //         worker could claim them before upload binding finished and then
 //         generate without images.
@@ -99,7 +98,6 @@ exports.getLatestChunkIndex = getLatestChunkIndex;
 // - Retrieved: 2026-04-10
 // - Applied To: aligning new ChatSession defaults with website and X mention model policy
 // - Verification: verified in code
-// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-17
 // - Applied To: preserving repository session defaults through backend model normalization
@@ -111,7 +109,6 @@ exports.getLatestChunkIndex = getLatestChunkIndex;
 // - Verification: verified in runtime log and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-10-user-default-chat-model-for-x-mentions.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md

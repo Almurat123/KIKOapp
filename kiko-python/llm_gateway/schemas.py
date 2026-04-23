@@ -1,11 +1,11 @@
 # CONTEXT MEMORY
-# Updated: 2026-04-16
+# Updated: 2026-04-23
 # Author: Rowan
 # Reason: the gateway schema previously forced every chat message content field
 #         to plain text, which prevented current-turn multimodal social-agent
 #         inputs from reaching providers that support image-aware content arrays.
-#         The same permissive boundary now carries NVIDIA Kimi image arrays and
-#         xAI Grok image turns to their provider adapters.
+#         The same permissive boundary now carries OpenAI and xAI image turns to
+#         their provider adapters.
 # Goal: let provider adapters receive structured message content when the
 #       upstream orchestrator intentionally emits it.
 # Owns: llm-gateway message/event schemas.
@@ -20,16 +20,15 @@
 # - Retrieved: 2026-04-16
 # - Applied To: allowing structured multimodal `content` values in gateway requests
 # - Verification: verified in docs and code
-# - Source: NVIDIA NIM moonshotai/kimi-k2.5 inference docs and xAI Image Understanding docs
+# - Source: OpenAI Images and Vision docs and xAI Image Understanding docs
 # - Kind: official API doc
-# - Retrieved: 2026-04-16
-# - Applied To: preserving structured Kimi/Grok image content until provider adapters shape it
+# - Retrieved: 2026-04-23
+# - Applied To: preserving structured OpenAI/xAI image content until provider adapters shape it
 # - Verification: verified in docs and code
 # See also:
 # - /Users/almurat/KiKo/system-journal/INDEX.md
 # - /Users/almurat/KiKo/system-journal/design-language/social-agent-multimodal-input.md
 # - /Users/almurat/KiKo/system-journal/owner-map/social-agent-multimodal-input.md
-# - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-kimi-grok-social-image-input.md
 # - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
 # - /Users/almurat/KiKo/system-journal/conflicts.md
 
@@ -75,6 +74,6 @@ class GatewayEvent(BaseModel):
         "error",
         "latency_metrics",
     ]
-    provider: Literal["openai", "nvidia", "xai"]
+    provider: Literal["openai", "xai"]
     provider_request_id: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)

@@ -4,10 +4,10 @@ import type { IntentEnvelope, SkillResolution, ToolPhase } from './nodeSkillReso
 import { taskRouteNeedsOnchainEvidence } from './taskRoute.js';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-17
+// Updated: 2026-04-23
 // Author: Renata
-// Reason: KiKo replaced the legacy DeepSeek provider family with NVIDIA-hosted
-//         GLM/Kimi models, but the orchestration layer still depends on one
+// Reason: KiKo replaced the legacy DeepSeek provider family with OpenAI for the
+//         normal-model path, but the orchestration layer still depends on one
 //         canonical provider-capability map. Clanker deploys now add a
 //         TOKEN_DEPLOY_MUTATION action class that provider policy must pass
 //         through without reopening provider-native tools. The same owner now
@@ -20,16 +20,13 @@ import { taskRouteNeedsOnchainEvidence } from './taskRoute.js';
 // Does Not Own: Python gateway request shaping, billing, or frontend model labels.
 // Design Language:
 // - Provider families are capability buckets, not vendor names sprinkled in callers.
-// - Kimi and GLM are NVIDIA-family models with no native search or previous-response support.
 // - Unknown non-Grok, non-OpenAI model ids must not fall back to removed DeepSeek behavior.
 // - TOKEN_DEPLOY_MUTATION is a hard node-controlled mutation class and must
 //   keep provider-native search disabled like swap/order mutations.
 // - GPT reasoning-effort hints belong in task context and must be normalized before provider handoff.
 // Document Provenance:
-// - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
-// - Kind: official API doc
-// - Retrieved: 2026-04-16
-// - Applied To: provider-family routing for Kimi/GLM model ids
+// - Kind: product doc
+// - Retrieved: 2026-04-23
 // - Verification: verified in code
 // - Source: OpenAI GPT-5.4 model page and reasoning guide
 // - Kind: official API doc
@@ -43,12 +40,11 @@ import { taskRouteNeedsOnchainEvidence } from './taskRoute.js';
 // - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 export interface ProviderInfo {
-    provider: 'openai' | 'nvidia' | 'grok';
+    provider: 'openai' | 'grok';
     model: string;
     supportsNativeSearch: boolean;
     supportsPreviousResponse: boolean;
@@ -98,15 +94,6 @@ export function normalizeOpenAIReasoningEffort(value: unknown): string | undefin
     return undefined;
 }
 
-function isNvidiaModel(model: string): boolean {
-    const normalized = String(model || '').trim().toLowerCase();
-    if (!normalized) return false;
-    return normalized.includes('kimi')
-        || normalized.includes('glm')
-        || normalized.includes('moonshotai/')
-        || normalized.includes('z-ai/');
-}
-
 export function resolveProviderInfo(model: string): ProviderInfo {
     const normalized = String(model || '').toLowerCase();
     if (normalized.includes('grok')) {
@@ -125,16 +112,8 @@ export function resolveProviderInfo(model: string): ProviderInfo {
             supportsPreviousResponse: false,
         };
     }
-    if (isNvidiaModel(normalized)) {
-        return {
-            provider: 'nvidia',
-            model,
-            supportsNativeSearch: false,
-            supportsPreviousResponse: false,
-        };
-    }
     return {
-        provider: 'nvidia',
+        provider: 'openai',
         model,
         supportsNativeSearch: false,
         supportsPreviousResponse: false,

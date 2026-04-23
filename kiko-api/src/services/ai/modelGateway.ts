@@ -1,32 +1,30 @@
 import type { ToolDefinition } from '../../tooling/registry.js';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-23
 // Author: Rowan
 // Reason: the request-preparation boundary still defines provider families for
 //         downstream model calls, and the normal provider family has moved from
-//         DeepSeek to NVIDIA-hosted GLM/Kimi.
+//         DeepSeek to OpenAI.
 // Goal: preserve one canonical provider enum for request preparation while the
 //       normal-model vendor changes underneath.
 // Owns: provider enum and provider-specific request shaping in the legacy model gateway.
 // Does Not Own: runtime routing decisions, pricing, or UI model selection.
 // Design Language:
 // - Provider families are stable internal contracts.
-// - OpenAI keeps stream usage hints; NVIDIA inherits the generic OpenAI-compatible path.
+// - OpenAI keeps stream usage hints.
 // - Removed providers must not survive as default enum values.
 // - Legacy compatibility values may remain in type unions until old workers are removed.
 // Document Provenance:
-// - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
-// - Kind: official API doc
-// - Retrieved: 2026-04-16
-// - Applied To: replacing the normal provider enum from DeepSeek to NVIDIA
+// - Kind: product doc
+// - Retrieved: 2026-04-23
+// - Applied To: replacing the normal provider enum from DeepSeek to OpenAI
 // - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
-export type Provider = 'openai' | 'nvidia' | 'grok' | 'deepseek';
+export type Provider = 'openai' | 'grok' | 'deepseek';
 
 export interface ConversationStateRef {
     previousResponseId?: string;

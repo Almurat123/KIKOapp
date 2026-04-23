@@ -1,26 +1,21 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-23
 // Author: Rowan
-// Reason: the shared AI prompt-orchestration types still carried `deepseek` as
-//         the canonical normal-model family even after KiKo moved normal-model
-//         traffic to NVIDIA-hosted GLM/Kimi.
 // Goal: keep one explicit model-family contract for prompt assembly while
 //       preserving legacy compatibility during the migration window.
 // Owns: prompt-orchestration type contracts shared by system-prompt assembly.
 // Does Not Own: provider routing, billing buckets, or frontend model labels.
 // Design Language:
-// - `nvidia` is the active normal-model family for current routing.
+// - `openai` is the active normal-model family for current routing.
 // - `deepseek` remains a legacy compatibility value until old workers are removed.
 // - Shared types should reflect migration state instead of hiding it in callers.
 // Document Provenance:
-// - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
-// - Kind: official API doc
-// - Retrieved: 2026-04-16
-// - Applied To: prompt-layer model family typing for NVIDIA GLM/Kimi
+// - Kind: product doc
+// - Retrieved: 2026-04-23
 // - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-default-chat-model-switch-to-gpt.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 export type IntentType =
@@ -30,7 +25,7 @@ export type IntentType =
     | 'RISK_SCAN'
     | 'GENERAL_QUERY';
 
-export type ModelType = 'deepseek' | 'nvidia' | 'grok';
+export type ModelType = 'deepseek' | 'openai' | 'grok';
 
 export interface UserContext {
     userAddress?: string;

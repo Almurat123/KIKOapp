@@ -5,7 +5,7 @@
  * Grok 4.1 Fast (USD): https://x.ai/api/
  */
 // CONTEXT MEMORY
-// Updated: 2026-04-22
+// Updated: 2026-04-23
 // Author: Almurat
 // Reason: chat message-bubble cost display must recognize the same real model
 //         ids as the selector and backend billing layer. The selector now uses
@@ -16,7 +16,6 @@
 // Does Not Own: quota enforcement, provider pricing policy, or backend billing.
 // Design Language:
 // - Price actual model ids, not synthetic effort labels.
-// - Free Kimi aliases remain zero until production pricing exists.
 // - GPT and Grok entries mirror backend billing ids exactly.
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-model-thinking-label-correction.md
@@ -37,9 +36,6 @@ const PRICING: Record<string, { input: number; output: number; currency: Currenc
     // Grok 4.1 Fast (USD)
     'grok-4-1-fast-reasoning': { input: 0.20, output: 0.50, currency: 'USD' },
     'grok-4-1-fast-non-reasoning': { input: 0.20, output: 0.50, currency: 'USD' },
-    // Trial-hosted Kimi defaults to zero here until production pricing is pinned.
-    'kimi-k2-5-reasoning': { input: 0, output: 0, currency: 'USD' },
-    'kimi-k2-5-instant': { input: 0, output: 0, currency: 'USD' },
     // GPT (USD)
     'gpt-5.4-mini-2026-03-17': { input: 0.75, output: 4.50, currency: 'USD' },
 };

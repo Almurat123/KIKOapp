@@ -43,7 +43,6 @@ exports.env = void 0;
 // - Polling cadence defaults to 10 seconds and must remain env-driven so ops
 //   can raise it to 15 minutes or 1 hour without code changes.
 // - Public X share links must have an explicit base URL and must not be inferred from private session paths.
-// - NVIDIA GLM/Kimi are free-model traffic and can share one optional KIKO cap.
 // - GLM must stay on one canonical product id unless the official hosted docs add another documented mode.
 // - GPT and Grok are premium-model traffic and share one daily free quota.
 // - Generated-image free allowance is backend-owned, env-driven, and must not
@@ -73,16 +72,10 @@ exports.env = void 0;
 // - Retrieved: 2026-04-11
 // - Applied To: explicit `X_SHARE_BASE_URL` env boundary for public crawler-safe reply shares
 // - Verification: verified in code
-// - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
-// - Kind: official API doc
-// - Retrieved: 2026-04-16
-// - Applied To: env-driven free-model allowlist and default pricing stubs after DeepSeek removal
+// - Kind: product doc
+// - Retrieved: 2026-04-23
+// - Applied To: env-driven free-model allowlist and default pricing stubs
 // - Verification: verified in code
-// - Source: NVIDIA NIM model page for z-ai/glm5
-// - Kind: official API doc
-// - Retrieved: 2026-04-18
-// - Applied To: collapsing env billing defaults back to one canonical GLM id
-// - Verification: verified in docs and code
 // - Source: /Users/almurat/KiKo/docker-compose.yml
 // - Kind: repo doc
 // - Retrieved: 2026-04-16
@@ -127,7 +120,6 @@ exports.env = void 0;
 // - system-journal/fix-log/2026-04-09-x-webhook-crc-secret-boundary.md
 // - system-journal/fix-log/2026-04-10-farcaster-polling-agent-ingress.md
 // - system-journal/fix-log/2026-04-11-x-reply-share-pages.md
-// - system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
 // - system-journal/fix-log/2026-04-17-chat-model-thinking-label-correction.md
 // - system-journal/conflicts.md
 var dotenv_1 = require("dotenv");
@@ -304,7 +296,7 @@ function validateEnv() {
         }
     }
     var freeModels = (process.env.BILLING_FREE_MODELS ||
-        'kimi-k2-5-reasoning,kimi-k2-5-instant')
+        '')
         .split(',')
         .map(function (v) { return v.trim().toLowerCase(); })
         .filter(Boolean);
@@ -319,10 +311,6 @@ function validateEnv() {
     var modelPricing = {
         'grok-4-1-fast-reasoning': { promptUsdPer1M: 0.20, completionUsdPer1M: 0.50 },
         'grok-4-1-fast-non-reasoning': { promptUsdPer1M: 0.20, completionUsdPer1M: 0.50 },
-        // NVIDIA trial-hosted models are typically rate-limited rather than token-billed.
-        // Override via BILLING_MODEL_PRICING_JSON when production pricing is known.
-        'kimi-k2-5-reasoning': { promptUsdPer1M: 0, completionUsdPer1M: 0 },
-        'kimi-k2-5-instant': { promptUsdPer1M: 0, completionUsdPer1M: 0 },
         'gpt-5.4-mini-2026-03-17': { promptUsdPer1M: 0.75, cachedPromptUsdPer1M: 0.075, completionUsdPer1M: 4.50 },
     };
     if (process.env.BILLING_MODEL_PRICING_JSON) {

@@ -769,7 +769,7 @@ export function supportsChatImageModel(model: string): boolean {
     if (!normalized) return false;
     if (normalized.startsWith('gpt') || normalized.startsWith('o')) return true;
     if (normalized.includes('grok')) return true;
-    return normalized.includes('kimi');
+    return false;
 }
 
 export async function prepareChatImageUploads(params: {

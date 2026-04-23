@@ -223,7 +223,7 @@ test("freezes visible reasoning once visible answer text has started", async () 
     const result = await client.generate({
       sessionId: "session-answer-fence",
       taskId: "task-answer-fence",
-      model: "kimi-k2-5-instant",
+      model: "gpt-5.4-mini-2026-03-17",
       messages: [],
       tools: [],
       providerOptions: {},
@@ -270,7 +270,7 @@ test("suppresses reasoning that arrives after content from the same provider tur
     const result = await client.generate({
       sessionId: "session-same-turn-fence",
       taskId: "task-same-turn-fence",
-      model: "kimi-k2-5-reasoning",
+      model: "gpt-5.4-mini-2026-03-17",
       messages: [],
       tools: [],
       providerOptions: {},

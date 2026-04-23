@@ -68,18 +68,6 @@ const CHAT_MODEL_CHOICES: ChatModelChoice[] = [
     reasoningLevel: 'medium',
   },
   {
-    label: 'Kimi K2.5 Instant / fast',
-    command: '/model kimi fast',
-    model: 'kimi-k2-5-instant',
-    reasoningLevel: 'fast',
-  },
-  {
-    label: 'Kimi K2.5 Reasoning / thinking',
-    command: '/model kimi thinking',
-    model: 'kimi-k2-5-reasoning',
-    reasoningLevel: 'thinking',
-  },
-  {
     label: 'Grok 4.1 Fast / fast',
     command: '/model grok fast',
     model: 'grok-4-1-fast-non-reasoning',
@@ -180,15 +168,11 @@ function matchChatModelChoice(command: string): ChatModelChoice | null {
   const inferredModel =
     compact.includes('gpt-5.4-mini') || compact.includes('gpt-54-mini') || compact.includes('gpt5.4-mini')
       ? 'gpt-5.4-mini-2026-03-17'
-      : compact.includes('kimi') && (reasoningLevel === 'thinking' || compact.includes('reason'))
-        ? 'kimi-k2-5-reasoning'
-        : compact.includes('kimi')
-          ? 'kimi-k2-5-instant'
-          : compact.includes('grok') && (reasoningLevel === 'thinking' || compact.includes('reason'))
-            ? 'grok-4-1-fast-reasoning'
-          : compact.includes('grok')
-            ? 'grok-4-1-fast-non-reasoning'
-              : null;
+      : compact.includes('grok') && (reasoningLevel === 'thinking' || compact.includes('reason'))
+        ? 'grok-4-1-fast-reasoning'
+        : compact.includes('grok')
+          ? 'grok-4-1-fast-non-reasoning'
+          : null;
   if (!inferredModel) return null;
   const normalizedModel = normalizeSupportedChatModel(inferredModel);
   const normalizedReasoningLevel = reasoningLevel || inferSupportedChatReasoningLevel(normalizedModel);

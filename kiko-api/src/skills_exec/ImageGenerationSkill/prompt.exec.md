@@ -1,5 +1,5 @@
 # CONTEXT MEMORY
-Updated: 2026-04-22
+Updated: 2026-04-23
 Author: Rowan
 Reason: KiKo chat now exposes image generation as a model-owned skill instead
 of a user-picked image-only model path. The main model must decide when the
@@ -9,7 +9,10 @@ Farcaster social-agent turns may include attached images as model-visible
 context; reference-image and edit-style requests are product image-generation
 requests. When provider-level source-image inputs are available, use them for
 the generated-image tool; if unavailable, summarize the reference image into
-generation direction instead of falling back to prompt-only text.
+generation direction instead of falling back to prompt-only text. The model-led
+path follows OpenAI Responses image-generation tool semantics: the chat model
+decides whether to answer in text or call the image tool, and the tool action is
+`auto`, `generate`, or `edit`.
 Goal: keep image-generation turns decisive and controlled: optimize first,
 generate immediately when constraints are sufficient, and stay in text mode
 when the user is only discussing ideas or prompt-writing.
@@ -19,7 +22,10 @@ Does Not Own: provider prompt compilation, billing, safety, or task execution.
 Design Language:
 - use this skill only for real image requests, not for abstract prompt coaching
 - optimize the image direction into structured fields before the tool call
-- if one critical visual field is missing, ask exactly one precise clarification
+- ask a clarification only when the core subject/action/use case is missing and
+  generating would be arbitrary
+- when the user clearly wants an image and the subject/action is knowable, call
+  the image tool immediately and let defaults fill non-critical choices
 - once the request is clear enough, do not ask for a second confirmation before generating
 - do not expose provider-specific parameters to the user
 - reference/edit/restyle requests are image-generation requests when the user
@@ -100,7 +106,8 @@ Do not use this skill when the user is:
   - `constraints`
   - `negative_constraints`
 - Then call `generate_image_from_intent`.
-- If exactly one critical visual field is missing, ask one precise clarification.
+- Ask one precise clarification only when the core subject, visual action, or
+  deliverable/use case is missing and generation would be arbitrary.
 - If the request is already clear enough, generate immediately. Do not ask “Do you want me to generate it now?”
 - If the request uses reference/edit wording, treat that as an execution request
   when the user wants an output image. Convert the requested edits and visible
@@ -112,6 +119,31 @@ Do not use this skill when the user is:
   prompt unless the user explicitly asked for prompt advice.
 - Set `edit_or_generate` to `edit` when attached/source/reference images should
   guide the output. Set it to `generate` when creating without source images.
+- Set `action` to `auto` unless the user clearly forces a new image or an edit.
+  Use `action: "generate"` for a new image without source-image dependence.
+  Use `action: "edit"` only when a usable source/reference image is in context.
+  With `action: "auto"`, treat source/reference images as edit context and
+  ordinary visual requests as generation.
+- Direct image-model selection is not this decision path; if this skill is
+  loaded, you are the chat model deciding whether to call the internal image
+  tool.
+
+## Clarification boundary
+
+Ask one precise question only for requests like:
+
+- "生成一张图"
+- "做个海报"
+- "make it cooler"
+- "来张照片"
+- "帮我画一下"
+
+Do not ask a clarification for requests like:
+
+- "做一张赛博朋克风的产品海报"
+- "Generate a 16:9 hero image of a gray tabby cat hugging an otter"
+- "把这张图改成写实风格"
+- "做一张咖啡店开业横幅，文字写 Grand Opening"
 
 ## Output discipline
 

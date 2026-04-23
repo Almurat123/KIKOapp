@@ -463,10 +463,7 @@ test('normalizeCanonicalIntent forwards requested address classifications to the
 test('resolveNormalizationModel uses the active session model unchanged', () => {
     assert.equal(resolveNormalizationModel('grok-4-1-fast-reasoning'), 'grok-4-1-fast-reasoning');
     assert.equal(resolveNormalizationModel('grok-4-1-fast-non-reasoning'), 'grok-4-1-fast-non-reasoning');
-    assert.equal(resolveNormalizationModel('kimi-k2-5-reasoning'), 'kimi-k2-5-reasoning');
-    assert.equal(resolveNormalizationModel('moonshotai/kimi-k2.5-reasoning'), 'moonshotai/kimi-k2.5-reasoning');
-    assert.equal(resolveNormalizationModel('kimi-k2-5-instant'), 'kimi-k2-5-instant');
-    assert.equal(resolveNormalizationModel('kimi-k2-5-reasoning'), 'kimi-k2-5-reasoning');
+    assert.equal(resolveNormalizationModel('gpt-5.4-mini-2026-03-17'), 'gpt-5.4-mini-2026-03-17');
     assert.equal(resolveNormalizationModel('deepseek-reasoner'), 'deepseek-reasoner');
     assert.equal(resolveNormalizationModel('deepseek-chat'), 'deepseek-chat');
     assert.equal(resolveNormalizationModel('gpt-5-mini'), 'gpt-5-mini');
@@ -475,7 +472,7 @@ test('resolveNormalizationModel uses the active session model unchanged', () => 
 test('normalizeCanonicalIntent sends greetings through the same-model canonical stage', async () => {
     let called = false;
     const snapshot = makeSnapshot('Hi, who are you?');
-    snapshot.model = 'kimi-k2-5-reasoning';
+    snapshot.model = 'gpt-5.4-mini-2026-03-17';
 
     const result = await normalizeCanonicalIntent({
         snapshot,

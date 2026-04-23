@@ -1,11 +1,11 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-23
 // Author: Rowan
 // Reason: transport wrappers from Farcaster mention ingress were leaking
 //         scaffolding words like "Farcaster" and "Current" into token-symbol
 //         extraction and canonical intent routing because this owner used the
 //         persisted wrapper text as if it were the literal user query. This
-//         owner also now passes the active normal-model family as `nvidia`
+//         owner now passes the active normal-model family as `openai`
 //         instead of the retired `deepseek` label when constructing token
 //         context blocks.
 // Goal: assemble chat snapshots from the effective user query while preserving
@@ -28,10 +28,9 @@
 // - Retrieved: 2026-04-15
 // - Applied To: unwrapping last-user Farcaster mention text before snapshot assembly
 // - Verification: verified in runtime and targeted tests
-// - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
-// - Kind: official API doc
-// - Retrieved: 2026-04-16
-// - Applied To: using the NVIDIA normal-provider label for Node token context blocks
+// - Kind: product doc
+// - Retrieved: 2026-04-23
+// - Applied To: using the OpenAI normal-provider label for Node token context blocks
 // - Verification: verified in code
 // - Source: X expansions/media docs + Neynar cast lookup docs
 // - Kind: official API doc
@@ -44,7 +43,6 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
 // - /Users/almurat/KiKo/system-journal/owner-map/farcaster-neynar-webhook-ingress.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-farcaster-query-unwrapping-and-wallet-guard.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 import type { ToolDefinition } from '../../tooling/registry.js';
 import { contextBudgetManager } from '../../services/ai/contextBudgetManager.js';
@@ -163,7 +161,7 @@ export function assembleChatContext(params: {
         requestedTokenAddress: requestedAddressSet.values().next().value,
     });
     const tokenBlock = buildTokenContextBlock({
-        mode: 'nvidia',
+        mode: 'openai',
         tokenInfo: toolContext.tokenSnapshot || toolContext.tokenContext || toolContext.tokenInfo || null,
         contractAddress: requestedAddressSet.values().next().value,
         cacheStatusLabel: 'FROM NODE CONTEXT',

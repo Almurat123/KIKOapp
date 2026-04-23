@@ -180,10 +180,7 @@ test('OpenRouter gpt-image-2 image requests use chat completions with image_url 
             assert.equal(calls[0].url, 'https://openrouter.ai/api/v1/chat/completions');
             assert.equal(calls[0].body.model, 'openai/gpt-5.4-image-2');
             assert.deepEqual(calls[0].body.modalities, ['image', 'text']);
-            assert.deepEqual(calls[0].body.image_config, {
-                aspect_ratio: '1:1',
-                image_size: '2K',
-            });
+            assert.equal(Object.hasOwn(calls[0].body, 'image_config'), false);
             assert.deepEqual(calls[0].body.reasoning, {
                 effort: 'medium',
             });
@@ -251,10 +248,7 @@ test('OpenRouter streamed GPT image responses decode delta.images', async () => 
             assert.equal(calls[0].url, 'https://openrouter.ai/api/v1/chat/completions');
             assert.equal(calls[0].body.stream, true);
             assert.equal(calls[0].body.model, 'openai/gpt-5.4-image-2');
-            assert.deepEqual(calls[0].body.image_config, {
-                aspect_ratio: '1:1',
-                image_size: '4K',
-            });
+            assert.equal(Object.hasOwn(calls[0].body, 'image_config'), false);
             assert.deepEqual(calls[0].body.reasoning, {
                 effort: 'high',
             });

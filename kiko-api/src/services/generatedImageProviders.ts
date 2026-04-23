@@ -366,10 +366,12 @@ async function generateOpenRouterImage(
             ],
             modalities: ['image', 'text'],
             stream: Boolean(onProgress),
-            image_config: {
-                aspect_ratio: '1:1',
-                image_size: resolveOpenRouterImageSize(quality),
-            },
+            ...(model === 'gpt-image-2' ? {} : {
+                image_config: {
+                    aspect_ratio: '1:1',
+                    image_size: resolveOpenRouterImageSize(quality),
+                },
+            }),
             ...(model === 'gpt-image-2' ? {
                 reasoning: {
                     effort: resolveOpenRouterReasoningEffort(quality),
@@ -480,18 +482,24 @@ async function generateOpenRouterImage(
 //      chat/completions transport when the OpenRouter key is configured, while
 //      preserving the legacy OpenAI images endpoint as a fallback. OpenRouter's
 //      GPT Image 2 route also needs the selected low/medium/high level passed
-//      as `reasoning.effort`, not only as image size.
+//      as `reasoning.effort`, while leaving image dimensions to the user's
+//      prompt instead of forcing a local 1:1 image_config.
 // Debug Goal: keep GPT image requests on OpenRouter chat/completions with
-//             `image_url` message parts, `reasoning.effort`, and data URL decoding.
-// Search Tags: openrouter gpt image chat completions reasoning effort image_url data url
+//             `image_url` message parts, `reasoning.effort`, prompt-owned
+//             dimensions, and data URL decoding.
+// Search Tags: openrouter gpt image chat completions reasoning effort prompt dimensions image_url data url
 // Invariants:
 // - OpenRouter transport is only used when `OPENROUTER_API_KEY` is present.
 // - OpenAI images endpoints remain the fallback when OpenRouter is not configured.
 // - Provider-selection logs must identify OpenRouter vs OpenAI fallback without leaking secrets.
 // - OpenRouter GPT Image 2 requests must pass low/medium/high as `reasoning.effort`.
+// - OpenRouter GPT Image 2 requests must not force `image_config`; prompt text owns dimensions.
+// - OpenRouter does not document `reasoning.effort: "auto"` for this route; do not send a fake auto value.
 // Failure Modes:
 // - Sending GPT image requests to `/images/generations` on OpenRouter breaks the call.
 // - Omitting `reasoning.effort` from GPT Image 2 can leave OpenRouter without the selected effort level.
+// - Forcing 1:1 image_config ignores user prompts that ask for vertical, wide, or poster-like output.
+// - Treating OpenAI Responses `quality:auto` as OpenRouter `reasoning.effort:auto` can make requests invalid.
 // - Returning OpenRouter data URLs without decoding leaves the transcript with empty images.
 async function* iterateSseBlocks(stream: ReadableStream<Uint8Array>): AsyncGenerator<{ event: string; data: string }> {
     const reader = stream.getReader();

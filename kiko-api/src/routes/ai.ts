@@ -1,12 +1,12 @@
 /**
  * AI Routes
  * Proxy for AI API calls to avoid CORS issues
- * Supports NVIDIA/OpenAI/Grok tool calls for web search with real-time streaming
+ * Supports OpenAI/Grok tool calls for web search with real-time streaming
  */
 // CONTEXT MEMORY
-// Updated: 2026-04-18
+// Updated: 2026-04-23
 // Author: Rowan
-// Reason: the direct backend AI proxy still used the old NVIDIA Kimi model id
+// Reason: the direct backend AI proxy still used the old hosted-model path
 //         and self-hosted thinking flag shape even after the Python gateway was
 //         corrected to the official hosted API convention. A later regression
 //         also showed that plain assistant `content` must not be promoted into
@@ -14,33 +14,24 @@
 //         text in both the thinking surface and the final answer. The route also
 //         surfaces usage-limit decisions, so its 429 shape must follow the
 //         current free/premium quota contract instead of legacy token-tier fields.
-//         Free-model traffic can now have one optional shared daily cap, so 429
-//         payloads must include both free and premium quota state. Later product
-//         tuning also required colder, lighter NVIDIA defaults so routine KiKo
-//         agent turns do not inherit provider showcase temperatures or long
-//         reasoning by default. Official NVIDIA doc verification later showed
-//         GLM-5 later proved unreliable for tool-using KiKo turns, so the
-//         direct route now removes GLM from active normalization and maps old
-//         GLM ids onto Kimi Instant for compatibility.
-// Goal: keep the fallback/direct AI route aligned with the same NVIDIA hosted
+//         The direct route now stays on the OpenAI API contract for all
+//         non-Grok models.
+// Goal: keep the fallback/direct AI route aligned with the same OpenAI hosted
 //       API contract used by the main generation gateway so local tests behave
 //       the same across both paths.
 // Owns: direct backend proxy request shaping and stream parsing for `/api/ai/chat`.
 // Does Not Own: worker orchestration, model catalog policy, or UI rendering.
 // Design Language:
-// - Direct proxy and worker gateway must agree on NVIDIA request semantics.
-// - Hosted Kimi uses `moonshotai/kimi-k2.5`.
-// - Hosted Kimi instant mode disables thinking via the official hosted payload shape.
-// - Reasoning extraction must accept NVIDIA typed content parts as well as flat fields.
+// - Direct proxy and worker gateway must agree on OpenAI request semantics.
+// - Reasoning extraction must accept structured content parts as well as flat fields.
 // - Plain assistant content must never be mirrored into reasoning output.
 // - Usage-limit errors expose free/premium quota state, not legacy token-tier caps.
-// - Direct-route NVIDIA defaults must stay colder and lighter for routine agent turns.
 // - Removed models must normalize to a surviving product model at the route boundary.
 // Document Provenance:
-// - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
+// - Source: OpenAI Chat Completions API reference
 // - Kind: official API doc
-// - Retrieved: 2026-04-16
-// - Applied To: direct-route NVIDIA model mapping and reasoning extraction
+// - Retrieved: 2026-04-23
+// - Applied To: direct-route model mapping and reasoning extraction
 // - Verification: verified in code
 // - Source: /Users/almurat/KiKo/test.txt
 // - Kind: runtime observation
@@ -55,23 +46,17 @@
 // - Source: operator quota-policy correction for optional free-model cap
 // - Kind: product doc
 // - Retrieved: 2026-04-16
-// - Applied To: direct-route 429 payload for shared GLM/Kimi free quota
+// - Applied To: direct-route 429 payload for shared free quota
 // - Verification: verified in code
-// - Source: operator request to make GLM/Kimi faster and less exploratory for
-//           routine KiKo tasks
+// - Source: operator request to remove NVIDIA-hosted models from the product
 // - Kind: product doc
-// - Retrieved: 2026-04-16
-// - Applied To: direct-route NVIDIA default temperature and thinking profiles
+// - Retrieved: 2026-04-23
+// - Applied To: removing NVIDIA defaults from the direct route
 // - Verification: verified in code
-// - Source: NVIDIA NIM model page for z-ai/glm5
-// - Kind: official API doc
-// - Retrieved: 2026-04-18
-// - Applied To: collapsing direct-route GLM aliases into one preserved-thinking profile
-// - Verification: verified in docs and code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-free-premium-chat-usage-quota-rework.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-default-chat-model-switch-to-gpt.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-glm-mode-alignment-and-stream-timeout-hardening.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
@@ -86,6 +71,7 @@ import { fetchJson } from '../config/unifiedApiService.js';
 import { resolveGeoFromIp } from '../services/ipGeo.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { DEFAULT_CHAT_MODEL, SUPPORTED_CHAT_MODELS } from '../config/chatModels.js';
 import { evaluateUsageAccess, isCurrentRequestFree } from '../services/usageAccess.js';
 import { insertUsageRecord } from '../repositories/billingRepository.js';
 import { computeTotalTokens, computeUsdCost, getBillingCategory, getUtcDateString } from '../services/billing/billingService.js';
@@ -132,58 +118,12 @@ interface ChatRequest {
     };
 }
 
-const NVIDIA_API_URL = process.env.NVIDIA_API_URL || 'https://integrate.api.nvidia.com/v1/chat/completions';
 const OPENAI_API_URL = process.env.OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions';
-const NVIDIA_KIMI_REASONING_TEMPERATURE = 0.6;
-const NVIDIA_KIMI_INSTANT_TEMPERATURE = 0.4;
-const REMOVED_MODEL_ALIASES = new Set([
-    'glm-5',
-    'glm-5-reasoning',
-    'glm5',
-    'glm5-reasoning',
-    'z-ai/glm5',
-    'z-ai/glm-5',
-    'z-ai/glm5-reasoning',
-    'z-ai/glm-5-reasoning',
-]);
-
-function isRemovedModel(model?: string): boolean {
-    return REMOVED_MODEL_ALIASES.has((model || '').toLowerCase().trim());
-}
 
 function normalizeModel(model?: string): string {
     const normalized = (model || '').toLowerCase().trim();
-    if (!normalized) return 'kimi-k2-5-instant';
+    if (!normalized) return DEFAULT_CHAT_MODEL;
     return normalized;
-}
-
-function resolveNvidiaUpstreamModel(model: string): {
-    model: string;
-    extraBody?: Record<string, any>;
-    defaultTemperature?: number;
-} {
-    const normalized = normalizeModel(model);
-    if (
-        normalized === 'kimi-k2-5-reasoning'
-        || normalized === 'kimi-k2-5-thinking'
-        || normalized === 'kimi-k2.5-reasoning'
-        || normalized === 'kimi-k2.5-thinking'
-    ) {
-        return { model: 'moonshotai/kimi-k2.5', defaultTemperature: NVIDIA_KIMI_REASONING_TEMPERATURE };
-    }
-    if (
-        normalized === 'kimi-k2-5-instant'
-        || normalized === 'kimi-k2-5-fast'
-        || normalized === 'kimi-k2.5-instant'
-        || normalized === 'kimi-k2.5-fast'
-    ) {
-        return {
-            model: 'moonshotai/kimi-k2.5',
-            extraBody: { thinking: { type: 'disabled' } },
-            defaultTemperature: NVIDIA_KIMI_INSTANT_TEMPERATURE,
-        };
-    }
-    return { model: normalized };
 }
 
 function coerceTextContent(value: any): string {
@@ -245,13 +185,11 @@ function extractReasoningDelta(choice: any, data: any): string {
     );
 }
 
-// Helper to get API Key by model provider
-function getApiKey(model: string): string {
-    const normalized = normalizeModel(model);
-    const useOpenAI = normalized.startsWith('gpt');
-    const key = useOpenAI ? process.env.OPENAI_API_KEY : process.env.NVIDIA_API_KEY;
+// Helper to get the OpenAI API key for the direct route.
+function getApiKey(): string {
+    const key = process.env.OPENAI_API_KEY;
     if (!key) {
-        throw new Error(useOpenAI ? 'OPENAI_API_KEY is not set in environment variables' : 'NVIDIA_API_KEY is not set in environment variables');
+        throw new Error('OPENAI_API_KEY is not set in environment variables');
     }
     return key;
 }
@@ -487,7 +425,7 @@ async function processStreamResponse(
                 id: 'sanitized-tail',
                 object: 'chat.completion.chunk',
                 created: Math.floor(Date.now() / 1000),
-                model: streamModel || 'kimi-k2-5-instant',
+                model: streamModel || DEFAULT_CHAT_MODEL,
                 choices: [{
                     index: 0,
                     delta: { content: trailingVisibleContent },
@@ -580,7 +518,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
             try {
                 const {
                     messages,
-                    model = 'kimi-k2-5-instant',
+                    model = DEFAULT_CHAT_MODEL,
                     temperature: requestedTemperature,
                     max_tokens,
                     stream = false,
@@ -600,7 +538,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     return reply.code(401).send({ error: 'Unauthorized' });
                 }
 
-                if (isRemovedModel(model)) {
+                if (!SUPPORTED_CHAT_MODELS.has(normalizedModel)) {
                     return reply.code(400).send({
                         error: 'Unsupported model',
                         reason: 'MODEL_REMOVED',
@@ -912,8 +850,8 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     });
                 }
 
-                const apiKey = getApiKey(normalizedModel);
-                const targetUrl = normalizedModel.startsWith('gpt') ? OPENAI_API_URL : NVIDIA_API_URL;
+                const apiKey = getApiKey();
+                const targetUrl = OPENAI_API_URL;
                 const origin = request.headers.origin || 'http://localhost:5173';
                 let conversationMessages = [...messages];
 
@@ -931,7 +869,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     routingMode,
                     model: normalizedModel,
                 });
-                const systemPrompt = promptOrchestrator.getSystemPrompt('nvidia', intentType, { routingMode });
+                const systemPrompt = promptOrchestrator.getSystemPrompt('openai', intentType, { routingMode });
 
                 const dailyMarketContext: string | null = null;
 
@@ -978,12 +916,8 @@ export async function aiRoutes(fastify: FastifyInstance) {
                 while (iteration < maxIterations) {
                     iteration++;
 
-                    const upstreamModel = normalizedModel.startsWith('gpt')
-                        ? { model: normalizedModel }
-                        : resolveNvidiaUpstreamModel(normalizedModel);
-                    const resolvedTemperature = requestedTemperature
-                        ?? upstreamModel.defaultTemperature
-                        ?? (normalizedModel.startsWith('gpt') ? 0.8 : 0.5);
+                    const upstreamModel = { model: normalizedModel };
+                    const resolvedTemperature = requestedTemperature ?? 0.8;
                     const requestBody: any = {
                         model: upstreamModel.model,
                         messages: conversationMessages,
@@ -991,13 +925,8 @@ export async function aiRoutes(fastify: FastifyInstance) {
                         max_tokens,
                         stream: true, // Always use streaming for real-time output
                     };
-                    if (upstreamModel.extraBody) {
-                        requestBody.extra_body = upstreamModel.extraBody;
-                    }
-                    if (normalizedModel.startsWith('gpt')) {
-                        // OpenAI streaming requires include_usage to emit token usage chunks.
-                        requestBody.stream_options = { include_usage: true };
-                    }
+                    // OpenAI streaming requires include_usage to emit token usage chunks.
+                    requestBody.stream_options = { include_usage: true };
 
                     if (enable_search) {
                         const intentStr = String(intentType).toUpperCase();

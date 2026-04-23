@@ -4,7 +4,7 @@
  */
 
 // CONTEXT MEMORY
-// Updated: 2026-04-20
+// Updated: 2026-04-23
 // Author: Rowan
 // Reason: chat message creation now also has to accept image uploads and keep
 //         sent image bubbles visible after refresh. Generated-image replies now
@@ -17,7 +17,10 @@
 //         GPT-family thinking strength across the worker and gateway chain. A
 //         2026-04-19 runtime trace showed text turns emitted `message_start`
 //         both here and in ChatStreamBroker, so normal text start ownership was
-//         moved back to the worker/broker boundary.
+//         moved back to the worker/broker boundary. Model-led image generation
+//         now also needs the user's saved generated-image model preference in
+//         tool context so GPT-5.4-mini can decide to call the image tool while
+//         execution still honors the user's default image model and quality.
 // Goal: preserve the existing chat session/task flow while allowing image
 //       inputs to be uploaded, validated, bound to one text task, and
 //       rehydrated into refreshed chat history without persisting image binaries
@@ -47,6 +50,8 @@
 //   owners, not this route owner.
 // - Hydrate signed preview URLs at response time and never expose R2 object keys.
 // - Preserve selected GPT reasoning effort in task context instead of inferring it later.
+// - Preserve the user's saved generated-image model preference in task context
+//   so model-led image tool calls do not fall back to a hardcoded image model.
 // - Persist the user-facing reasoning level on new chat sessions so refreshes
 //   can restore GPT-family strength instead of collapsing to the default.
 // - Generated-image turns reuse the chat transcript but must not be normalized into text model ids.
@@ -153,6 +158,7 @@ import {
 } from '../services/chatImageUploads.js';
 import { buildGeneratedImagePendingData, startGeneratedImageChatTask } from '../services/generatedImageChatTask.js';
 import { supportsGeneratedImageReferenceInputModel } from '../services/generatedImageProviders.js';
+import { normalizeGeneratedImagePreference } from '../services/generatedImageBilling.js';
 
 // Request body types
 interface CreateSessionBody {
@@ -669,7 +675,10 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 });
 
                 // Track user activity (using privyDid as required by UserActivity schema)
-                const userRecord = await prisma.user.findUnique({ where: { privyDid: userId } });
+                const userRecord = await prisma.user.findUnique({
+                    where: { privyDid: userId },
+                    include: { settings: true },
+                });
                 if (userRecord) {
                     trackChatMessage(userRecord.privyDid);
                 }
@@ -867,6 +876,10 @@ export async function chatRoutes(fastify: FastifyInstance) {
                         ),
                     }
                     : null;
+                const generatedImagePreference = normalizeGeneratedImagePreference(
+                    userRecord?.settings?.defaultGeneratedImageModel,
+                    userRecord?.settings?.defaultGeneratedImageQuality,
+                );
 
                 let task = await chatRepo.createTask(
                     sessionId,
@@ -894,6 +907,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                         currentPage,
                         pageContext: normalizedPageContext,
                         billing: billingContext,
+                        generatedImagePreference,
                     },
                     {
                         status: normalizedImageUploadIds.length > 0 ? 'pending' : 'queued',

@@ -398,9 +398,8 @@ type ProfessionalToolRoutingCase = {
     snapshotOverrides?: Partial<ChatContextSnapshot>;
 };
 
-const NVIDIA_FREE_MODEL_IDS = [
-    'kimi-k2-5-instant',
-    'kimi-k2-5-reasoning',
+const OPENAI_MODEL_IDS = [
+    'gpt-5.4-mini-2026-03-17',
 ];
 
 const PROFESSIONAL_TOOL_ROUTING_CASES: ProfessionalToolRoutingCase[] = [
@@ -747,9 +746,9 @@ const PROFESSIONAL_TOOL_ROUTING_CASES: ProfessionalToolRoutingCase[] = [
     },
 ];
 
-test('NVIDIA free models expose matching tools after model-selected professional intents', () => {
-    for (const model of NVIDIA_FREE_MODEL_IDS) {
-        assert.equal(resolveProviderInfo(model).provider, 'nvidia');
+test('OpenAI models expose matching tools after model-selected professional intents', () => {
+    for (const model of OPENAI_MODEL_IDS) {
+        assert.equal(resolveProviderInfo(model).provider, 'openai');
 
         for (const item of PROFESSIONAL_TOOL_ROUTING_CASES) {
             const resolution = resolveNodeSkills(makeSnapshot(item.message, {

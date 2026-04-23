@@ -49,20 +49,20 @@ test('generated image source uses Farcaster from snapshot page context', () => {
     assert.equal(source, 'farcaster');
 });
 
-test('generated image tool prefers GPT Image 1 Mini for OpenAI chat sessions', () => {
+test('generated image tool uses product fallback only when no saved image preference exists', () => {
     assert.equal(
         __generateImageFromIntentTest.pickDefaultGeneratedImageModel('gpt-5.4-mini-2026-03-17'),
         'gpt-image-1-mini',
     );
 });
 
-test('generated image tool still defaults to GPT Image 1 Mini for non-OpenAI chat sessions', () => {
+test('generated image tool uses the same product fallback for non-OpenAI chat sessions', () => {
     assert.equal(
         __generateImageFromIntentTest.pickDefaultGeneratedImageModel('grok-4-1-fast-non-reasoning'),
         'gpt-image-1-mini',
     );
     assert.equal(
-        __generateImageFromIntentTest.pickDefaultGeneratedImageModel('kimi-k2-5-instant'),
+        __generateImageFromIntentTest.pickDefaultGeneratedImageModel('gpt-5.4-mini-2026-03-17'),
         'gpt-image-1-mini',
     );
 });

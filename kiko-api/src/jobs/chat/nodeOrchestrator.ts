@@ -2,7 +2,6 @@
 // Updated: 2026-04-22
 // Author: Rowan
 // Reason: Node orchestration now needs to persist reasoning content for
-//         NVIDIA-hosted GLM and Kimi reasoning models using the same internal
 //         contract previously reserved for DeepSeek reasoning turns. Runtime
 //         traces also showed that trivial onboarding/meta turns were paying for
 //         an extra hidden plan-model call even though the answer should have
@@ -22,7 +21,6 @@
 //         synthetic text answer. Product architecture review on 2026-04-19
 //         moved tool choice to the main GPT path by default: this owner must
 //         stop creating fake plan-card work after model-selected task routing.
-//         Live NVIDIA evals on 2026-04-20 then showed that passing the full
 //         registered tool catalog into provider generation after task
 //         selection caused long planning loops, so tool visibility now returns
 //         to resolver-matched skill packages plus explicit context reads.
@@ -31,7 +29,6 @@
 //         post-tool runtime hook. A 2026-04-19 deploy-token loop incident also
 //         showed this owner must log each local tool result and receipt-hook
 //         decision before any follow-up generation round starts. A later
-//         NVIDIA/GLM runtime trace showed execution turns could still expose
 //         the entire tool catalog before any required context was read, which
 //         made heavy thinking models spend tens of seconds planning against 70+
 //         tools, answer prematurely, then get forced into extra rounds when
@@ -76,10 +73,8 @@
 // - backend-prefetched context belongs in system context blocks, never as raw
 //   provider tool messages without a preceding assistant tool call
 // Document Provenance:
-// - Source: NVIDIA NIM model pages for moonshotai/kimi-k2-5 and z-ai/glm5
 // - Kind: official API doc
 // - Retrieved: 2026-04-16
-// - Applied To: persisting reasoning content for GLM/Kimi reasoning-capable models
 // - Verification: verified in code
 // - Source: /Users/almurat/KiKo/test.txt
 // - Kind: runtime observation
@@ -122,7 +117,6 @@
 // - Retrieved: 2026-04-19
 // - Applied To: suppressing runtime scaffold cards after model-selected task routing
 // - Verification: verified in code and later narrowed for tool visibility
-// - Source: local live NVIDIA evals plus product-owner correction on 2026-04-20
 // - Kind: runtime observation / product instruction
 // - Retrieved: 2026-04-20
 // - Applied To: keeping tool visibility scoped to the resolver package instead of the full registry
@@ -140,7 +134,6 @@
 // - Source: /Users/almurat/Downloads/logs.1776695132347.json
 // - Kind: runtime observation
 // - Retrieved: 2026-04-20
-// - Applied To: front-loading required-context tool gating for slow NVIDIA
 //   execution turns that were looping after premature answers
 // - Verification: verified in runtime trace and applied in code
 // - Source: local live execution evals plus product-owner correction on 2026-04-20
@@ -150,7 +143,6 @@
 // - Verification: verified in runtime and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-direct-answer-tool-pruning.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-non-chain-normalization-bypass.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-work-protocol-refactor.md
@@ -213,18 +205,11 @@ export type NodeOrchestrationResult = {
 function supportsStoredReasoning(model: string): boolean {
     const normalized = String(model || '').trim().toLowerCase();
     return normalized === 'deepseek-reasoner'
-        || normalized === 'kimi-k2.5'
-        || normalized === 'kimi-k2.5-reasoning'
-        || normalized === 'kimi-k2.5-thinking'
-        || normalized === 'kimi-k2-5'
-        || normalized === 'kimi-k2-5-reasoning'
-        || normalized === 'kimi-k2-5-thinking'
-        || normalized === 'moonshotai/kimi-k2.5'
-        || normalized === 'moonshotai/kimi-k2.5-reasoning'
-        || normalized === 'moonshotai/kimi-k2.5-thinking'
-        || normalized === 'moonshotai/kimi-k2-5'
-        || normalized === 'moonshotai/kimi-k2-5-reasoning'
-        || normalized === 'moonshotai/kimi-k2-5-thinking';
+        || normalized.startsWith('gpt')
+        || normalized.startsWith('o1')
+        || normalized.startsWith('o3')
+        || normalized.startsWith('o4')
+        || normalized.includes('grok');
 }
 
 function summarizeToolResultForLog(result: {
@@ -1618,7 +1603,7 @@ function buildTruncationContinuationInstruction(locale: 'en' | 'zh'): string {
 
 function buildEvidenceOnlyProviderOptions(
     snapshot: ChatContextSnapshot,
-    providerInfo: { provider: 'openai' | 'nvidia' | 'grok' | 'deepseek' },
+    providerInfo: { provider: 'openai' | 'grok' | 'deepseek' },
     options?: { previousResponseId?: string | null; bufferVisibleOutput?: boolean },
 ) {
     const reasoningEffort = normalizeOpenAIReasoningEffort(snapshot.runtime.toolContext?.reasoningEffort);
@@ -1669,7 +1654,7 @@ function buildEvidenceOnlyProviderOptions(
 
 function shouldContinueTruncatedProviderAnswer(
     providerState: GenerationProviderState | undefined,
-    provider: 'openai' | 'nvidia' | 'grok' | 'deepseek',
+    provider: 'openai' | 'grok' | 'deepseek',
 ): boolean {
     if (provider !== 'grok') {
         return false;
@@ -1709,7 +1694,7 @@ function isStalePreviousResponseError(message: string): boolean {
 
 export function normalizeToolCallForProvider(
     call: { id: string; name: string; arguments: Record<string, any> },
-    provider: 'openai' | 'nvidia' | 'grok' | 'deepseek',
+    provider: 'openai' | 'grok' | 'deepseek',
 ) {
     // Hard-policy mode does not perform provider fallback tool remapping.
     // Tool names must be validated as-is by the policy layer.
@@ -1793,7 +1778,7 @@ export function applyCanonicalIntentOverridesToToolCall(
     };
 }
 
-function isProviderManagedNativeTool(toolName: string, provider: 'openai' | 'nvidia' | 'grok' | 'deepseek') {
+function isProviderManagedNativeTool(toolName: string, provider: 'openai' | 'grok' | 'deepseek') {
     if (provider !== 'grok') return false;
     return isProviderNativeTool(toolName, null);
 }
@@ -2026,7 +2011,7 @@ export function buildGenerationTools(
     blockedTools: string[] = [],
     preferredTools: string[] = [],
     allowAllTools = true,
-    provider: 'openai' | 'nvidia' | 'grok' | 'deepseek' = 'nvidia',
+    provider: 'openai' | 'grok' | 'deepseek' = 'openai',
     phase: 'native_search_only' | 'local_analysis' | 'execution' = 'local_analysis',
 ) {
     const allowedSet = new Set(allowedTools);
@@ -2054,7 +2039,7 @@ export function buildGenerationTools(
 function resolvePhaseAllowedTools(
     allowedTools: string[],
     skillResolution: ReturnType<typeof resolveNodeSkills>,
-    provider: 'openai' | 'nvidia' | 'grok' | 'deepseek',
+    provider: 'openai' | 'grok' | 'deepseek',
     phase: 'native_search_only' | 'local_analysis' | 'execution',
 ): string[] {
     if (provider === 'grok' && phase === 'native_search_only') {
@@ -2065,7 +2050,7 @@ function resolvePhaseAllowedTools(
 
 function resolvePhaseAllowAllTools(
     skillResolution: ReturnType<typeof resolveNodeSkills>,
-    provider: 'openai' | 'nvidia' | 'grok' | 'deepseek',
+    provider: 'openai' | 'grok' | 'deepseek',
     phase: 'native_search_only' | 'local_analysis' | 'execution',
     defaultAllowAllTools: boolean,
 ): boolean {
@@ -2136,7 +2121,7 @@ async function recordProviderManagedToolRound(params: {
     skillResolution: ReturnType<typeof resolveNodeSkills>;
     query: string;
     round: number;
-    provider: 'openai' | 'nvidia' | 'grok' | 'deepseek';
+    provider: 'openai' | 'grok' | 'deepseek';
     evidenceSnapshot: ProviderNativeEvidenceSnapshot | null;
 }) {
     if (params.provider !== 'grok' || params.toolCalls.length === 0) {

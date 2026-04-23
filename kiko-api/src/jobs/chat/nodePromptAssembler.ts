@@ -4,12 +4,10 @@
 // Reason: Farcaster agent replies need a surface-specific system prompt so the
 //         model recognizes the conversation as a social-agent mode instead of a
 //         full web chat session. The same generation owner now also needs a
-//         stable history policy for NVIDIA GLM/Kimi reasoning models so
 //         thinking-capable aliases replay prior `reasoning_content`, while
 //         Instant/Fast aliases still strip stored traces and assistant tool-call
 //         history keeps provider-safe content shapes. Social-agent turns now also need
 //         current-turn multimodal user messages so X/Farcaster post images can
-//         reach vision-capable OpenAI, NVIDIA Kimi, and xAI Grok paths without
 //         contaminating replayed text history. Runtime plan labels were later
 //         found to leak into model-visible prompt context as user-facing
 //         phrases, encouraging "I will..." and step-name narration in answers.
@@ -77,7 +75,6 @@
 // - provider history must drop empty placeholder assistant/user rows that have no replayable content
 // - social multimodal inputs belong only on the current user turn, not replayed history
 // - use real image parts only on provider/model paths verified to support them
-// - NVIDIA GLM stays text-only until its active endpoint documents image input
 // - runtime plan state may guide tool routing, but its titles and summaries are not answer content
 // - never expose "I will..." plan summaries or localized step labels inside generation prompt blocks
 // - ordinary direct-answer turns should stay lean and must not inherit wallet/token/workflow skill blocks by default
@@ -126,10 +123,8 @@
 // - Retrieved: 2026-04-16
 // - Applied To: Farcaster agent system-prompt overlay for concise replies
 // - Verification: verified in code and targeted tests
-// - Source: NVIDIA NIM model pages for moonshotai/kimi-k2.5 and z-ai/glm5
 // - Kind: official API doc
 // - Retrieved: 2026-04-18
-// - Applied To: replaying assistant `reasoning_content` for NVIDIA thinking-mode Kimi/GLM history while keeping Kimi Instant stripped
 // - Verification: verified in docs and code
 // - Source: OpenAI Images and Vision / Chat Completions docs
 // - Kind: official API doc
@@ -137,10 +132,8 @@
 // - Applied To: current-turn social multimodal `content` arrays with `text`
 //   and `image_url` parts on OpenAI chat-completions paths
 // - Verification: verified in docs and code
-// - Source: NVIDIA NIM moonshotai/kimi-k2.5 model and inference docs
 // - Kind: official API doc
 // - Retrieved: 2026-04-16
-// - Applied To: enabling current-turn social image parts for Kimi over NVIDIA
 //   chat/completions while keeping GLM on fallback text
 // - Verification: verified in docs and code
 // - Source: xAI Image Understanding docs
@@ -259,16 +252,13 @@
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-v2-worker-context-contracts.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-model-selected-task-menu.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-work-protocol-refactor.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-runtime-plan-visibility-and-nvidia-reasoning-restore.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-v2-model-owned-image-generation-tool.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
 // - /Users/almurat/KiKo/system-journal/adr/2026-04-19-model-led-tool-orchestration.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-clanker-dry-run-confirmation-continuity.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-kimi-grok-social-image-input.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-social-agent-thread-context-and-image-input.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-reply-style-directive.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-farcaster-agent-mode-prompt.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-nvidia-glm-kimi-provider-replacement.md
 // - /Users/almurat/KiKo/system-journal/design-language/specialist-business-fast-path-template.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-specialist-business-fast-path-template.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
@@ -976,17 +966,10 @@ function buildContextSliceBlocks(
   return blocks.filter(Boolean);
 }
 
-function isKimiModel(model: string): boolean {
-  const normalized = String(model || "")
-    .trim()
-    .toLowerCase();
-  return normalized.includes("kimi") || normalized.includes("moonshotai/");
-}
-
 function supportsNativeSocialImages(providerInfo: ProviderInfo): boolean {
   if (providerInfo.provider === "openai") return true;
   if (providerInfo.provider === "grok") return true;
-  return providerInfo.provider === "nvidia" && isKimiModel(providerInfo.model);
+  return false;
 }
 
 function isLeanDirectAnswerTurn(guidance?: {
@@ -1232,6 +1215,9 @@ function buildToolGuidanceBlock(guidance?: {
       );
       lines.push(
         "- Use generate_image_from_intent as the business action once any strictly required context reads are complete. The image tool owns prompt optimization and generated-image task execution.",
+      );
+      lines.push(
+        "- Match OpenAI Responses image-generation tool semantics: pass action=auto by default, action=generate for forced new images, and action=edit only when a usable source/reference image exists.",
       );
       lines.push(
         "- Do not ask what the user wants to do when the latest user message already contains visual direction. Ask for clarification only when the actual image subject/action is missing.",
@@ -1999,17 +1985,11 @@ function replaysStoredReasoningHistory(model: string): boolean {
     .toLowerCase();
   return (
     normalized === "deepseek-reasoner" ||
-    normalized === "kimi-k2.5" ||
-    normalized === "kimi-k2.5-reasoning" ||
-    normalized === "kimi-k2.5-thinking" ||
-    normalized === "kimi-k2-5" ||
-    normalized === "kimi-k2-5-reasoning" ||
-    normalized === "kimi-k2-5-thinking" ||
-    normalized === "moonshotai/kimi-k2.5" ||
-    normalized === "moonshotai/kimi-k2.5-reasoning" ||
-    normalized === "moonshotai/kimi-k2.5-thinking" ||
-    normalized === "moonshotai/kimi-k2-5" ||
-    normalized === "moonshotai/kimi-k2-5-reasoning" ||
-    normalized === "moonshotai/kimi-k2-5-thinking"
+    normalized.startsWith("gpt-") ||
+    normalized.startsWith("gpt") ||
+    normalized.startsWith("o1") ||
+    normalized.startsWith("o3") ||
+    normalized.startsWith("o4") ||
+    normalized.includes("grok")
   );
 }

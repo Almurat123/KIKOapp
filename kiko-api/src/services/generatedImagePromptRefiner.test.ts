@@ -5,6 +5,7 @@ import { refineGeneratedImagePromptWithOpenAi } from './generatedImagePromptRefi
 import type { OptimizedGeneratedImagePromptSpec } from './generatedImagePromptOptimizer.js';
 
 const baseSpec: OptimizedGeneratedImagePromptSpec = {
+    action: 'edit',
     editOrGenerate: 'edit',
     artifactType: 'image edit',
     subject: 'the same horse with a KIKO badge',

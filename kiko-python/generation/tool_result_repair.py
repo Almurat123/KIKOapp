@@ -3,14 +3,12 @@ from __future__ import annotations
 # CONTEXT MEMORY
 # Updated: 2026-04-22
 # Status: verified
-# Why: NVIDIA live skill evals showed Kimi can consume a role=tool result and
 #      then stop with an empty visible assistant message while placing the
 #      tool-result marker in reasoning_content. Showing reasoning directly
 #      would leak hidden model text, so downstream loops retry once with a
 #      visible-answer repair instruction.
 # Debug Goal: Tool-result turns must produce user-visible final answers without
 #             exposing hidden reasoning_content as the answer.
-# Search Tags: nvidia empty visible answer after tool result, reasoning only tool result retry
 # Invariants:
 # - Retry only after a tool result is already in context.
 # - Do not promote reasoning_content directly into visible assistant content.

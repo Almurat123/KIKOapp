@@ -30,7 +30,7 @@ SET "defaultChatReasoningLevel" = CASE
     WHEN LOWER(COALESCE("defaultChatModel", '')) = 'gpt-5.4-mini-2026-03-17' THEN 'low'
     WHEN LOWER(COALESCE("defaultChatModel", '')) IN (
         'glm-5',
-        'kimi-k2-5-reasoning',
+        'gpt-5.4-mini-2026-03-17',
         'grok-4-1-fast-reasoning'
     ) THEN 'thinking'
     ELSE 'fast'
@@ -41,7 +41,7 @@ SET "reasoningLevel" = CASE
     WHEN LOWER(COALESCE("model", '')) = 'gpt-5.4-mini-2026-03-17' THEN 'low'
     WHEN LOWER(COALESCE("model", '')) IN (
         'glm-5',
-        'kimi-k2-5-reasoning',
+        'gpt-5.4-mini-2026-03-17',
         'grok-4-1-fast-reasoning'
     ) THEN 'thinking'
     ELSE 'fast'

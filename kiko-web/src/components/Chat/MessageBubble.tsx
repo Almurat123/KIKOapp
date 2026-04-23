@@ -50,8 +50,6 @@ import type { Message } from '../../hooks/useConversations';
 // Updated: 2026-04-22
 // Author: Rowan
 // Reason: runtime plan cards and assistant reasoning were previously rendered
-//         through the same surface, which caused live reasoning from NVIDIA
-//         Kimi turns to appear inside the plan card instead of the normal
 //         reasoning area. A later streaming review also showed that the bubble
 //         was reparsing markdown on every incoming chunk, while the interim
 //         reveal style also changed the apparent chunk timing instead of only
@@ -106,7 +104,6 @@ import type { Message } from '../../hooks/useConversations';
 // - Retrieved: 2026-04-16
 // - Applied To: separating runtime plan rendering from live reasoning rendering
 // - Verification: verified in code
-// - Source: NVIDIA hosted Kimi runtime test using moonshotai/kimi-k2.5
 // - Kind: runtime observation
 // - Retrieved: 2026-04-16
 // - Applied To: enabling fade-in streaming on messages that also carry runtime plans
@@ -164,7 +161,6 @@ import type { Message } from '../../hooks/useConversations';
 // - /Users/almurat/KiKo/system-journal/owner-map/chat-runtime-planning.md
 // - /Users/almurat/KiKo/system-journal/owner-map/frontend-data-loading.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-streaming-markdown-restore.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-runtime-plan-visibility-and-nvidia-reasoning-restore.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-plan-card-internal-scaffold-filter.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-runtime-plan-user-visible-hardcoding-fix.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-runtime-plan-card-reasoning-separation.md

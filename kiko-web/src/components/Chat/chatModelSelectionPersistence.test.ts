@@ -18,13 +18,13 @@ test('parseStoredChatModelSelection preserves saved reasoning strength', () => {
   assert.equal(result?.reasoningLabel, 'Medium');
 });
 
-test('parseStoredChatModelSelection preserves a saved thinking variant id', () => {
+test('parseStoredChatModelSelection preserves a saved Grok reasoning variant id', () => {
   const result = parseStoredChatModelSelection({
-    id: 'kimi-k2-5-reasoning',
+    id: 'grok-4-1-fast-reasoning',
     reasoningLevel: 'thinking',
   });
 
-  assert.equal(result?.id, 'kimi-k2-5-reasoning');
+  assert.equal(result?.id, 'grok-4-1-fast-reasoning');
   assert.equal(result?.reasoningLevel, 'thinking');
   assert.equal(result?.reasoningLabel, 'Thinking');
 });
@@ -32,17 +32,16 @@ test('parseStoredChatModelSelection preserves a saved thinking variant id', () =
 test('parseStoredChatModelSelectionState preserves per-family control memory', () => {
   const result = parseStoredChatModelSelectionState({
     selectedModel: {
-      id: 'kimi-k2-5-reasoning',
-      reasoningLevel: 'thinking',
+      id: 'gpt-5.4-mini-2026-03-17',
+      reasoningEffort: 'medium',
+      reasoningLevel: 'medium',
     },
     familyControlLevelsByFamilyId: {
-      'kimi-k2-5': 'thinking',
       'gpt-5.4-mini': 'medium',
     },
   });
 
-  assert.equal(result?.selectedModel.id, 'kimi-k2-5-reasoning');
-  assert.equal(result?.selectedModel.reasoningLevel, 'thinking');
-  assert.equal(result?.familyControlLevelsByFamilyId['kimi-k2-5'], 'thinking');
+  assert.equal(result?.selectedModel.id, 'gpt-5.4-mini-2026-03-17');
+  assert.equal(result?.selectedModel.reasoningLevel, 'medium');
   assert.equal(result?.familyControlLevelsByFamilyId['gpt-5.4-mini'], 'medium');
 });

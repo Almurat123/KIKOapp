@@ -1,12 +1,11 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-22
+// Updated: 2026-04-23
 // Author: Almurat
 // Reason: web chat, X mentions, and Farcaster mentions still share one canonical
-//         default model. The product default moved from GPT to the free Kimi
-//         2.5 Instant/Fast model, and the UI must expose the same canonical
-//         default that the backend now uses for new sessions and persisted
-//         defaults. The selectable normal-model family has also moved from
-//         historical DeepSeek ids to the current Kimi/GPT/Grok catalog. The same
+//         default model. The product default is back on GPT-5.4 Mini, and the UI
+//         must expose the same canonical default that the backend now uses for
+//         new sessions and persisted defaults. The selectable normal-model family
+//         now stays on the GPT/Grok catalog. The same
 //         catalog now also
 //         needs a first-party vision capability flag so image-upload turns do
 //         not silently route into text-only models. The chat composer now
@@ -15,8 +14,8 @@
 //         saved model id into family and reasoning-strength controls without
 //         inventing a new backend field or a separate family-default table.
 //         GPT-5.4 mini now exposes only the product-visible Low/Medium subset
-//         of the documented reasoning-effort ladder while the NVIDIA/XAI
-//         families only expose the provider-documented choices. The selector also
+//         of the documented reasoning-effort ladder while the Grok family only
+//         exposes the provider-documented choices. The selector also
 //         has to expose image-generation models in a separate Image section, so
 //         the second inline control now represents either text reasoning or
 //         image quality depending on the selected model family. Product now
@@ -49,15 +48,10 @@
 // - Disabled image variants must stay visible for roadmap clarity but must not
 //   be restorable as the active selection from local storage.
 // Document Provenance:
-// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
+// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-default-chat-model-switch-to-gpt.md
 // - Kind: repo doc
-// - Retrieved: 2026-04-17
-// - Applied To: setting `kimi-k2-5-instant` as canonical frontend default
-// - Verification: verified in code
-// - Source: NVIDIA NIM model page for moonshotai/kimi-k2-5
-// - Kind: official API doc
-// - Retrieved: 2026-04-16
-// - Applied To: frontend-visible Kimi model ids and mode labels
+// - Retrieved: 2026-04-15
+// - Applied To: setting GPT-5.4 Mini as canonical frontend default
 // - Verification: verified in code
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
 // - Kind: repo doc
@@ -98,7 +92,7 @@
 // - Verification: verified in code
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
-// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-default-chat-model-switch-to-kimi-instant.md
+// - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-default-chat-model-switch-to-gpt.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-15-default-chat-model-switch-to-gpt.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-16-chat-image-upload-r2-and-model-input.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-chat-model-thinking-label-correction.md
@@ -113,7 +107,6 @@ export type ChatModelControlLevel = ChatReasoningLevel | ChatImageQualityLevel;
 export type ChatModelControlKind = 'reasoning' | 'quality';
 
 export type ChatModelFamilyId =
-  | 'kimi-k2-5'
   | 'gpt-5.4-mini'
   | 'grok-4-1-fast'
   | 'gpt-image-2'
@@ -183,24 +176,6 @@ function normalizeGpt54ReasoningLevel(level?: string | null): ChatReasoningEffor
 }
 
 export const MODEL_OPTIONS: ChatModelOption[] = [
-  {
-    id: 'kimi-k2-5-instant',
-    name: 'Kimi-K2.5',
-    mode: 'fast',
-    kind: 'text',
-    familyId: 'kimi-k2-5',
-    reasoningLevel: 'fast',
-    reasoningLabel: 'Fast',
-  },
-  {
-    id: 'kimi-k2-5-reasoning',
-    name: 'Kimi-K2.5',
-    mode: 'thinking',
-    kind: 'text',
-    familyId: 'kimi-k2-5',
-    reasoningLevel: 'thinking',
-    reasoningLabel: 'Thinking',
-  },
   {
     id: 'gpt-5.4-mini-2026-03-17',
     name: 'GPT-5.4-Mini',
@@ -313,7 +288,7 @@ export const MODEL_OPTIONS: ChatModelOption[] = [
   },
 ];
 
-export const DEFAULT_CHAT_MODEL_ID = 'kimi-k2-5-instant';
+export const DEFAULT_CHAT_MODEL_ID = 'gpt-5.4-mini-2026-03-17';
 
 export function findChatModelOption(modelId?: string | null): ChatModelOption | undefined {
   const normalized = String(modelId || '')
@@ -327,7 +302,6 @@ export function getDefaultChatModelOption(): ChatModelOption {
 }
 
 const MODEL_FAMILY_ORDER: ChatModelFamilyId[] = [
-  'kimi-k2-5',
   'gpt-5.4-mini',
   'grok-4-1-fast',
   'gpt-image-2',
@@ -336,7 +310,6 @@ const MODEL_FAMILY_ORDER: ChatModelFamilyId[] = [
 ];
 
 const FAMILY_REASONING_OPTIONS: Record<ChatModelFamilyId, ChatModelFamilyControlOption[]> = {
-  'kimi-k2-5': BINARY_REASONING_OPTIONS,
   'gpt-5.4-mini': GPT_54_MINI_REASONING_OPTIONS,
   'grok-4-1-fast': BINARY_REASONING_OPTIONS,
   'gpt-image-2': GPT_IMAGE_2_QUALITY_OPTIONS,
@@ -345,7 +318,6 @@ const FAMILY_REASONING_OPTIONS: Record<ChatModelFamilyId, ChatModelFamilyControl
 };
 
 const FAMILY_CONTROL_KIND: Record<ChatModelFamilyId, ChatModelControlKind> = {
-  'kimi-k2-5': 'reasoning',
   'gpt-5.4-mini': 'reasoning',
   'grok-4-1-fast': 'reasoning',
   'gpt-image-2': 'quality',
@@ -364,13 +336,6 @@ function normalizeModelFamilyId(modelId?: string | null): ChatModelFamilyId | un
   if (normalized.startsWith('grok-imagine-image')) return 'grok-imagine-image';
   if (normalized.startsWith('gpt-image-1-mini')) return 'gpt-image-1-mini';
   if (normalized.startsWith('gpt-image-2')) return 'gpt-image-2';
-  if (
-    normalized.startsWith('kimi-k2-5') ||
-    normalized.startsWith('moonshotai/kimi-k2-5') ||
-    normalized.startsWith('kimi-k2.5') ||
-    normalized.startsWith('moonshotai/kimi-k2.5')
-  )
-    return 'kimi-k2-5';
   if (normalized.startsWith('grok-4-1-fast')) return 'grok-4-1-fast';
   if (normalized.startsWith('gpt-5.4-mini')) return 'gpt-5.4-mini';
   return undefined;
@@ -584,7 +549,7 @@ export function supportsVisionChatModel(modelId?: string | null): boolean {
   if (!normalized) return false;
   if (normalized.startsWith('gpt') || normalized.startsWith('o')) return true;
   if (normalized.includes('grok')) return true;
-  return normalized.includes('kimi');
+  return false;
 }
 
 // CONTEXT MEMORY

@@ -28,8 +28,6 @@ function getBillingCategory(model) {
     var normalized = normalizeModelForPricing(model);
     if (env_js_1.env.billing.freeModels.includes(normalized))
         return 'free';
-    if (normalized.includes('kimi') || normalized.includes('moonshotai/'))
-        return 'free';
     if (env_js_1.env.billing.premiumModels.includes(normalized))
         return 'premium';
     if (normalized.includes('grok'))

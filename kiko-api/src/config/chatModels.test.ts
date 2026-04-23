@@ -31,11 +31,11 @@ test('inferSupportedChatReasoningLevel preserves GPT-5.4 mini low effort', () =>
   assert.equal(inferSupportedChatReasoningLevel('gpt-5.4-mini-2026-03-17'), 'low');
 });
 
-test('inferSupportedChatReasoningLevel preserves Kimi reasoning mode', () => {
-  assert.equal(inferSupportedChatReasoningLevel('kimi-k2-5-reasoning'), 'thinking');
+test('inferSupportedChatReasoningLevel preserves Grok reasoning mode', () => {
+  assert.equal(inferSupportedChatReasoningLevel('grok-4-1-fast-reasoning'), 'thinking');
 });
 
 test('normalizeSupportedChatModel keeps only active allowlisted models', () => {
-  assert.equal(normalizeSupportedChatModel('kimi-k2-5-instant'), 'kimi-k2-5-instant');
-  assert.equal(normalizeSupportedChatModel('not-a-real-model'), 'kimi-k2-5-instant');
+  assert.equal(normalizeSupportedChatModel('grok-4-1-fast-reasoning'), 'grok-4-1-fast-reasoning');
+  assert.equal(normalizeSupportedChatModel('not-a-real-model'), 'gpt-5.4-mini-2026-03-17');
 });
