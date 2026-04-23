@@ -562,12 +562,28 @@ test('resolveTradeConfirmationState treats a Clanker dry run as reusable deploy 
                                 success: true,
                                 dryRun: true,
                                 payload: {
-                                    name: 'Kiko Receipt Test',
-                                    symbol: 'KRT',
+                                    token: {
+                                        name: 'Kiko Receipt Test',
+                                        symbol: 'KRT',
+                                        description: 'Runtime receipt hook test token',
+                                        tokenAdmin: '0x1234567890123456789012345678901234567890',
+                                        requestKey: '1234567890abcdef1234567890abcdef',
+                                    },
                                     chainId: 8453,
-                                    description: 'Runtime receipt hook test token',
+                                    rewards: [
+                                        {
+                                            admin: '0x1234567890123456789012345678901234567890',
+                                            recipient: '0x1234567890123456789012345678901234567890',
+                                            allocation: 100,
+                                        },
+                                    ],
                                     pool: {
                                         type: 'standard',
+                                    },
+                                    fees: {
+                                        type: 'static',
+                                        clankerFee: 100,
+                                        pairedFee: 100,
                                     },
                                 },
                             },
@@ -586,6 +602,12 @@ test('resolveTradeConfirmationState treats a Clanker dry run as reusable deploy 
     assert.equal(state?.order?.toolName, 'deploy_clanker_token');
     assert.equal(state?.order?.args?.name, 'Kiko Receipt Test');
     assert.equal(state?.order?.args?.symbol, 'KRT');
+    assert.equal(state?.order?.args?.description, 'Runtime receipt hook test token');
+    assert.equal(state?.order?.args?.tokenAdmin, '0x1234567890123456789012345678901234567890');
+    assert.equal(state?.order?.args?.chainId, 8453);
+    assert.equal(state?.order?.args?.requestKey, '1234567890abcdef1234567890abcdef');
+    assert.equal(state?.order?.args?.pool?.type, 'standard');
+    assert.equal(state?.order?.args?.fees?.type, 'static');
     assert.equal(state?.order?.args?.confirmDeploy, true);
     assert.equal(state?.order?.actionClass, 'TOKEN_DEPLOY_MUTATION');
 });

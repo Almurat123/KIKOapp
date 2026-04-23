@@ -512,12 +512,24 @@ function extractClankerDeployLaunchArgs(call: any, result: Record<string, any>):
     if (confirmationPayload?.args && typeof confirmationPayload.args === 'object') {
         return confirmationPayload.args as Record<string, any>;
     }
+    const callArgs = (call?.args && typeof call.args === 'object')
+        ? call.args as Record<string, any>
+        : null;
     const dryRunPayload = (result?.payload && typeof result.payload === 'object')
         ? result.payload as Record<string, any>
         : null;
-    if (dryRunPayload) return dryRunPayload;
-    if (call?.args && typeof call.args === 'object') {
-        return call.args as Record<string, any>;
+    const normalizedDryRunArgs = dryRunPayload
+        ? convertClankerDryRunPayloadToToolArgs(dryRunPayload)
+        : null;
+    if (normalizedDryRunArgs && callArgs) {
+        return {
+            ...normalizedDryRunArgs,
+            ...callArgs,
+        };
+    }
+    if (normalizedDryRunArgs) return normalizedDryRunArgs;
+    if (callArgs) {
+        return callArgs;
     }
     return null;
 }
@@ -527,6 +539,48 @@ function buildClankerDeployExecutionArgs(args: Record<string, any>): Record<stri
         ...(args || {}),
         confirmDeploy: true,
     };
+}
+
+function convertClankerDryRunPayloadToToolArgs(payload: Record<string, any>): Record<string, any> | null {
+    const token = payload?.token && typeof payload.token === 'object'
+        ? payload.token as Record<string, any>
+        : null;
+    if (!token) {
+        if (typeof payload.name === 'string' || typeof payload.symbol === 'string') {
+            return payload;
+        }
+        return null;
+    }
+    const args: Record<string, any> = {};
+    if (typeof token.name === 'string' && token.name.trim()) args.name = token.name;
+    if (typeof token.symbol === 'string' && token.symbol.trim()) args.symbol = token.symbol;
+    if (typeof token.image === 'string' && token.image.trim()) args.image = token.image;
+    if (typeof token.description === 'string' && token.description.trim()) args.description = token.description;
+    if (typeof token.tokenAdmin === 'string' && token.tokenAdmin.trim()) args.tokenAdmin = token.tokenAdmin;
+    if (typeof payload.chainId === 'number' && Number.isFinite(payload.chainId)) args.chainId = payload.chainId;
+    if (typeof token.requestKey === 'string' && token.requestKey.trim()) args.requestKey = token.requestKey;
+    if (Array.isArray(token.socialMediaUrls) && token.socialMediaUrls.length > 0) {
+        args.socialMediaUrls = token.socialMediaUrls;
+    }
+    if (Array.isArray(token.auditUrls) && token.auditUrls.length > 0) {
+        args.auditUrls = token.auditUrls;
+    }
+    if (Array.isArray(payload.rewards) && payload.rewards.length > 0) {
+        args.rewards = payload.rewards;
+    }
+    if (payload.devBuy && typeof payload.devBuy === 'object') {
+        args.devBuy = payload.devBuy;
+    }
+    if (payload.pool && typeof payload.pool === 'object') {
+        args.pool = payload.pool;
+    }
+    if (payload.fees && typeof payload.fees === 'object') {
+        args.fees = payload.fees;
+    }
+    if (payload.context && typeof payload.context === 'object') {
+        args.context = payload.context;
+    }
+    return Object.keys(args).length > 0 ? args : null;
 }
 
 function isClankerDeployExecutionReceipt(result: Record<string, any>): boolean {
