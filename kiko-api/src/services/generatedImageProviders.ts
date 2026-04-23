@@ -78,8 +78,8 @@ import { logger } from '../utils/logger.js';
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 export type GeneratedImageProviderName = 'openai' | 'xai';
-export type GeneratedImageProviderModel = 'gpt-image-2' | 'gpt-image-1-mini' | 'grok-imagine-image';
-export type GeneratedImageProviderQuality = 'low' | 'medium' | 'high' | 'normal';
+export type GeneratedImageProviderModel = 'gpt-image-2' | 'gpt-image-1-mini' | 'grok-imagine-image' | 'grok-imagine-image-pro';
+export type GeneratedImageProviderQuality = 'low' | 'medium' | 'high' | 'normal' | 'pro';
 
 export interface GeneratedImageProviderInputImage {
     url: string;
@@ -127,6 +127,7 @@ const OPENROUTER_IMAGE_ENDPOINT = String(process.env.OPENROUTER_API_URL || 'http
 const OPENROUTER_GPT_IMAGE_1_MINI_MODEL = String(process.env.OPENROUTER_GPT_IMAGE_1_MINI_MODEL || 'openai/gpt-5-image-mini').trim();
 const OPENROUTER_GPT_IMAGE_2_MODEL = String(process.env.OPENROUTER_GPT_IMAGE_2_MODEL || 'openai/gpt-5.4-image-2').trim();
 const XAI_IMAGE_ENDPOINT = 'https://api.x.ai/v1/images/generations';
+const XAI_IMAGE_EDIT_ENDPOINT = 'https://api.x.ai/v1/images/edits';
 const OPENAI_PARTIAL_IMAGE_COUNT = 2;
 const OPENROUTER_PARTIAL_IMAGE_COUNT = 1;
 
@@ -135,8 +136,15 @@ function isOpenAiGeneratedImageModel(model?: string | null): model is 'gpt-image
     return normalized === 'gpt-image-2' || normalized === 'gpt-image-1-mini';
 }
 
-export function supportsGeneratedImageReferenceInputModel(model?: string | null): model is 'gpt-image-2' | 'gpt-image-1-mini' {
-    return isOpenAiGeneratedImageModel(model);
+function isXaiGeneratedImageModel(model?: string | null): model is 'grok-imagine-image' | 'grok-imagine-image-pro' {
+    const normalized = String(model || '').trim().toLowerCase();
+    return normalized === 'grok-imagine-image' || normalized === 'grok-imagine-image-pro';
+}
+
+export function supportsGeneratedImageReferenceInputModel(
+    model?: string | null,
+): model is 'gpt-image-2' | 'gpt-image-1-mini' | 'grok-imagine-image' | 'grok-imagine-image-pro' {
+    return isOpenAiGeneratedImageModel(model) || isXaiGeneratedImageModel(model);
 }
 
 function normalizeProviderInputImages(inputImages?: GeneratedImageProviderInputImage[] | null): GeneratedImageProviderInputImage[] {
@@ -284,6 +292,45 @@ function resolveOpenRouterReasoningEffort(quality: GeneratedImageProviderQuality
     if (quality === 'low') return 'low';
     if (quality === 'high') return 'high';
     return 'medium';
+}
+
+function resolveXaiImageResolution(quality: GeneratedImageProviderQuality): '1k' | '2k' {
+    return quality === 'pro' ? '2k' : '1k';
+}
+
+function buildXaiImageBody(params: {
+    prompt: string;
+    quality: GeneratedImageProviderQuality;
+    inputImages: GeneratedImageProviderInputImage[];
+}): Record<string, any> {
+    const normalizedInputImages = normalizeProviderInputImages(params.inputImages);
+    const body: Record<string, any> = {
+        model: 'grok-imagine-image',
+        prompt: params.prompt,
+        n: 1,
+        resolution: resolveXaiImageResolution(params.quality),
+        response_format: 'url',
+    };
+
+    if (normalizedInputImages.length === 0) {
+        body.aspect_ratio = 'auto';
+        return body;
+    }
+
+    if (normalizedInputImages.length === 1) {
+        body.image = {
+            type: 'image_url',
+            url: normalizedInputImages[0].url,
+        };
+        return body;
+    }
+
+    body.images = normalizedInputImages.map((image) => ({
+        type: 'image_url',
+        url: image.url,
+    }));
+    body.aspect_ratio = 'auto';
+    return body;
 }
 
 function buildOpenRouterImageContent(prompt: string, inputImages: GeneratedImageProviderInputImage[]): string | Array<{
@@ -704,26 +751,30 @@ async function generateOpenAiImage(
     };
 }
 
-async function generateXaiImage(prompt: string): Promise<GeneratedImageProviderResult> {
+async function generateXaiImage(params: {
+    prompt: string;
+    quality: 'normal' | 'pro';
+    inputImages?: GeneratedImageProviderInputImage[] | null;
+}): Promise<GeneratedImageProviderResult> {
     const apiKey = String(process.env.XAI_API_KEY || '').trim();
     if (!apiKey) {
         throw new GeneratedImageProviderError('xAI image generation is not configured on the server.', 'GENERATED_IMAGE_PROVIDER_NOT_CONFIGURED', 503);
     }
 
+    const inputImages = normalizeProviderInputImages(params.inputImages);
+    const endpoint = inputImages.length > 0 ? XAI_IMAGE_EDIT_ENDPOINT : XAI_IMAGE_ENDPOINT;
     const controller = createAbortController(PROVIDER_TIMEOUT_MS);
-    const response = await fetch(XAI_IMAGE_ENDPOINT, {
+    const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${apiKey}`,
         },
-        body: JSON.stringify({
-            model: 'grok-imagine-image',
-            prompt,
-            n: 1,
-            aspect_ratio: '1:1',
-            response_format: 'url',
-        }),
+        body: JSON.stringify(buildXaiImageBody({
+            prompt: params.prompt,
+            quality: params.quality,
+            inputImages,
+        })),
         signal: controller.signal,
     });
 
@@ -743,8 +794,8 @@ async function generateXaiImage(prompt: string): Promise<GeneratedImageProviderR
         }
         return {
             provider: 'xai',
-            model: 'grok-imagine-image',
-            quality: 'normal',
+            model: params.quality === 'pro' ? 'grok-imagine-image-pro' : 'grok-imagine-image',
+            quality: params.quality,
             imageBuffer: Buffer.from(b64, 'base64'),
             contentType: 'image/png',
             revisedPrompt: null,
@@ -755,8 +806,8 @@ async function generateXaiImage(prompt: string): Promise<GeneratedImageProviderR
     const downloaded = await fetchBinaryFromUrl(url);
     return {
         provider: 'xai',
-        model: 'grok-imagine-image',
-        quality: 'normal',
+        model: params.quality === 'pro' ? 'grok-imagine-image-pro' : 'grok-imagine-image',
+        quality: params.quality,
         imageBuffer: downloaded.buffer,
         contentType: downloaded.contentType,
         revisedPrompt: null,
@@ -809,24 +860,22 @@ export async function generateImageWithProvider(params: GeneratedImageProviderRe
         );
     }
 
-    if (inputImages.length > 0) {
-        throw new GeneratedImageProviderError(
-            'This image model does not support uploaded-image editing yet.',
-            'GENERATED_IMAGE_INPUT_NOT_SUPPORTED',
-            400,
-        );
-    }
-
-    if (params.provider === 'xai' || params.model === 'grok-imagine-image') {
+    if (params.provider === 'xai' || isXaiGeneratedImageModel(params.model)) {
+        const quality = params.quality === 'pro' ? 'pro' : 'normal';
         logger.info(LogCode.AI_API_CALL, 'Generated image provider selected', {
             provider: 'xai',
-            model: 'grok-imagine-image',
-            endpoint: XAI_IMAGE_ENDPOINT,
+            model: params.model,
+            endpoint: inputImages.length > 0 ? XAI_IMAGE_EDIT_ENDPOINT : XAI_IMAGE_ENDPOINT,
             inputImageCount: inputImages.length,
             stream: false,
             timeoutMs: PROVIDER_TIMEOUT_MS,
+            resolution: resolveXaiImageResolution(quality),
         });
-        return generateXaiImage(prompt);
+        return generateXaiImage({
+            prompt,
+            quality,
+            inputImages,
+        });
     }
 
     throw new GeneratedImageProviderError('Unsupported generated image provider model.', 'GENERATED_IMAGE_MODEL_NOT_SUPPORTED', 400);

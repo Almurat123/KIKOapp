@@ -10,6 +10,11 @@ function isCopytradeExit(runtimeContext?: OrderRuntimeContext): boolean {
   return String(runtimeContext?.metadata?.flow || '') === 'copytrade_exit';
 }
 
+function isWalletSellRuntime(runtimeContext?: OrderRuntimeContext): boolean {
+  const mode = String(runtimeContext?.mode || '').trim().toLowerCase();
+  return mode === 'allowance' || mode === 'swap-card' || mode === 'fast-swap';
+}
+
 export function resolveEvmApprovalPolicy(params: {
   chainId: number;
   isSellTx: boolean;
@@ -31,6 +36,8 @@ export function resolveEvmApprovalPolicy(params: {
   // Failure Modes:
   // - user sees Permit2 / uniswap-style spender on wallet-page sell approval.
   // - permit2 sell path succeeds on approval but fails on execution with limited diagnosis.
+  // - allowance-mode chat sells skip confirmation wait, accidentally re-enable Permit2,
+  //   and then broadcast a quote that still needs an off-chain signature.
   if (!params.isSellTx) {
     return {
       preferPermit2: true,
@@ -43,6 +50,14 @@ export function resolveEvmApprovalPolicy(params: {
       preferPermit2: false,
       allowSignedPermit: false,
       reasonCode: 'copytrade_exit_explicit_approval_preferred'
+    };
+  }
+
+  if (isWalletSellRuntime(params.runtimeContext)) {
+    return {
+      preferPermit2: false,
+      allowSignedPermit: false,
+      reasonCode: 'confirmed_sell_explicit_approval_preferred'
     };
   }
 

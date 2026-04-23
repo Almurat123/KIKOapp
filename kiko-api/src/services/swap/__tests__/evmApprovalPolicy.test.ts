@@ -42,3 +42,19 @@ test('buy flows still allow permit2', () => {
   assert.equal(decision.preferPermit2, true);
   assert.equal(decision.allowSignedPermit, true);
 });
+
+test('allowance-mode wallet sells also prefer explicit approval', () => {
+  const decision = resolveEvmApprovalPolicy({
+    chainId: 8453,
+    isSellTx: true,
+    waitForConfirmation: false,
+    runtimeContext: {
+      mode: 'allowance',
+      metadata: {},
+    } as any,
+  });
+
+  assert.equal(decision.preferPermit2, false);
+  assert.equal(decision.allowSignedPermit, false);
+  assert.equal(decision.reasonCode, 'confirmed_sell_explicit_approval_preferred');
+});

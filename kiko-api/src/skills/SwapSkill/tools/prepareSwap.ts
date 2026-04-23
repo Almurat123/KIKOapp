@@ -410,9 +410,12 @@ function buildSocketRecoveryResult(params: {
     recentSwap: SocketRecoveryTradeRecord;
     args: Pick<SwapArgs, 'amount_in' | 'token_in' | 'token_out'> & Partial<Pick<SwapArgs, 'chain_id'>>;
 }) {
-    const recoveredStatus = String(params.recentSwap.status || '').toLowerCase() === 'success'
+    const rawStatus = String(params.recentSwap.status || '').toLowerCase();
+    const recoveredStatus = rawStatus === 'success'
         ? 'success'
-        : 'pending';
+        : rawStatus === 'failed'
+            ? 'failed'
+            : 'pending';
     const txHash = params.recentSwap.txHash || undefined;
     const txUrl = buildTransactionExplorerUrl(params.args.chain_id, txHash);
     const completionData = {
@@ -431,21 +434,25 @@ function buildSocketRecoveryResult(params: {
         completedAt: Date.now(),
         message: recoveredStatus === 'success'
             ? `✅ Swap completed! Transaction: ${txHash?.slice(0, 10)}...`
-            : `⏳ Transaction submitted. Waiting for confirmation: ${txHash?.slice(0, 10)}...`,
+            : recoveredStatus === 'failed'
+                ? `Swap failed${txHash ? `: ${txHash.slice(0, 10)}...` : '.'}`
+                : `⏳ Transaction submitted. Waiting for confirmation: ${txHash?.slice(0, 10)}...`,
         isLoading: recoveredStatus === 'pending'
     };
 
     return {
         completionData,
         toolResult: {
-            success: true,
-            mode: recoveredStatus === 'success' ? 'executed' : 'pending',
+            success: recoveredStatus !== 'failed',
+            mode: recoveredStatus === 'success' ? 'executed' : recoveredStatus === 'failed' ? 'error' : 'pending',
             txHash,
             txUrl,
             explorerUrl: txUrl,
             summary: recoveredStatus === 'success'
                 ? `✅ Swap executed successfully! ${params.args.amount_in} ${params.args.token_in} → ${params.args.token_out}. Transaction: ${txHash}. Explorer: ${txUrl || 'unavailable'}`
-                : `⏳ Swap submitted: ${params.args.amount_in} ${params.args.token_in} → ${params.args.token_out}. Waiting for confirmation on-chain.`,
+                : recoveredStatus === 'failed'
+                    ? `Swap failed on-chain for ${params.args.amount_in} ${params.args.token_in} → ${params.args.token_out}.${txHash ? ` Transaction: ${txHash}.` : ''}`
+                    : `⏳ Swap submitted: ${params.args.amount_in} ${params.args.token_in} → ${params.args.token_out}. Waiting for confirmation on-chain.`,
             data: {
                 txHash,
                 txUrl,
@@ -1216,7 +1223,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
                                                 gte: new Date(searchStartMs)
                                             },
                                             status: {
-                                                in: ['pending', 'success']
+                                                in: ['pending', 'success', 'failed']
                                             },
                                             tokenInAddress: {
                                                 contains: args.token_in,
@@ -1232,7 +1239,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
                                         }
                                     });
 
-                                    if (recentSwap && recentSwap.txHash) {
+                                    if (recentSwap) {
                                         console.log(`[PrepareSwapTransaction] ✅ Found transaction after ${Math.round((Date.now() - startTime) / 1000)}s (${pollCount} polls):`, recentSwap.txHash);
                                         const recoveryResult = buildSocketRecoveryResult({
                                             currentData: latestCardData || {},

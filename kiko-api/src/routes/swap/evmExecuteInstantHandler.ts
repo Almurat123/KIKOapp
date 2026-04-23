@@ -140,6 +140,14 @@ function resolveSwapFailureStatusCode(reasonCode?: string, message?: string): nu
     }
 
     if (
+        normalizedReason === 'approval_quote_mismatch'
+        || normalizedMessage.includes('approved spender no longer matches')
+        || normalizedMessage.includes('quote changed after approval')
+    ) {
+        return 409;
+    }
+
+    if (
         normalizedReason === 'execution_reverted'
         || normalizedReason === 'execution_rejected'
         || normalizedReason === 'slippage_exceeded'

@@ -330,6 +330,7 @@ export function useSwap(options: UseSwapOptions = {}) {
   const [priceData, setPriceData] = useState<PriceData | null>(null);
   const [userBalance, setUserBalance] = useState<string>('0');
   const [isBalanceLoading, setIsBalanceLoading] = useState<boolean>(false);
+  const [quoteRefreshNonce, setQuoteRefreshNonce] = useState(0);
   const quoteTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const quoteRequestIdRef = useRef(0);
 
@@ -488,7 +489,7 @@ export function useSwap(options: UseSwapOptions = {}) {
         clearTimeout(quoteTimeoutRef.current);
       }
     };
-  }, [state.tokenIn?.address, state.tokenOut?.address, state.amountIn, chainId, slippageBps]); // Remove priceData from deps to avoid loop
+  }, [state.tokenIn?.address, state.tokenOut?.address, state.amountIn, chainId, slippageBps, quoteRefreshNonce]); // Remove priceData from deps to avoid loop
 
 
 
@@ -1133,6 +1134,12 @@ export function useSwap(options: UseSwapOptions = {}) {
     currentTokenInAddressRef.current = state.tokenIn.address;
     const fetchId = ++balanceFetchIdRef.current;
     setIsBalanceLoading(true);
+    setState(prev => ({
+      ...prev,
+      status: prev.amountIn && parseFloat(prev.amountIn) > 0 ? 'quoting' : prev.status,
+      error: null,
+    }));
+    setQuoteRefreshNonce(prev => prev + 1);
     await fetchUserBalance(state.tokenIn, fetchId);
     checkUserApprovalRef.current();
   }, [authenticated, userAddress, state.tokenIn, fetchUserBalance]);

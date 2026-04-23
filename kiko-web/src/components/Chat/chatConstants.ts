@@ -283,8 +283,6 @@ export const MODEL_OPTIONS: ChatModelOption[] = [
     reasoningLevel: 'pro',
     reasoningLabel: 'Pro',
     imageQuality: 'pro',
-    selectable: false,
-    disabledReason: IMAGE_UNAVAILABLE_REASON,
   },
 ];
 
@@ -558,12 +556,13 @@ export function supportsVisionChatModel(modelId?: string | null): boolean {
 // Why: composer image drafts now need two separate gates: text-chat vision
 // models that can read current-turn uploads, and GPT Image models that can use
 // uploads as edit/reference inputs.
-// Debug Goal: the upload button must stay enabled for GPT Image models while
-// still rejecting Grok image families that do not support uploaded-image edits.
-// Search Tags: composer image drafts gpt image upload support grok image no edit
+// Debug Goal: the upload button must stay enabled for image models that can
+// actually accept uploaded-image edits, including the Grok image family now
+// that the backend routes xAI edits through `/v1/images/edits`.
+// Search Tags: composer image drafts gpt image upload support grok image edit
 // Invariants:
-// - GPT Image 1 Mini and GPT Image 2 accept composer uploads for image-edit flows.
-// - Grok image families must not be treated as upload-edit capable.
+// - GPT Image 1 Mini, GPT Image 2, and Grok Imagine image models accept
+//   composer uploads for image-edit flows.
 // Failure Modes:
 // - Reusing text-only vision gating hides GPT image edit support in the composer.
 // - Treating all image models as upload-capable silently drops reference-image context.
@@ -571,7 +570,9 @@ export function supportsGeneratedImageInputModel(modelId?: string | null): boole
   const normalized = String(modelId || '')
     .trim()
     .toLowerCase();
-  return normalized.startsWith('gpt-image-1-mini') || normalized.startsWith('gpt-image-2');
+  return normalized.startsWith('gpt-image-1-mini')
+    || normalized.startsWith('gpt-image-2')
+    || normalized.startsWith('grok-imagine-image');
 }
 
 export const COMMON_TOKENS: Record<

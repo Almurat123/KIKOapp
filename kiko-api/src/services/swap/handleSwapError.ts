@@ -78,6 +78,14 @@ export function handleSwapError(error: any): string {
 
     // 4. Permission / Allowance Errors (EVM)
     if (
+        msgLower.includes('approved spender no longer matches') ||
+        msgLower.includes('quote changed after approval') ||
+        msgLower.includes('explicit approval quote')
+    ) {
+        return 'Swap failed: The route changed after token approval, so no swap transaction was sent. Please retry to get a fresh quote.';
+    }
+
+    if (
         msgLower.includes('allowance_too_low') ||
         msgLower.includes('insufficient allowance') ||
         (msgLower.includes('execution reverted') && msgLower.includes('allowance')) ||

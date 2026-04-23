@@ -364,6 +364,10 @@ export async function swapRoutes(fastify: FastifyInstance) {
                 slippageBps,
                 userAddress: userAddress || undefined,
                 refPrice,
+                // Wallet/UI quotes should match the production execution path.
+                // 0x currently recommends AllowanceHolder over Permit2 for standard swaps,
+                // and our frontend does not consume Permit2 signatures directly.
+                preferPermit2: false,
             });
 
             if (!best) {

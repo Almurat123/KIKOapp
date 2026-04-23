@@ -113,18 +113,22 @@ test('Grok normal charges credits after lifetime free requests are exhausted', (
     assert.equal(decision.usdCost, 0.02);
 });
 
-test('Grok pro remains disabled even though pricing is known', () => {
+test('Grok pro uses the shared lifetime free image request pool before charging credits', () => {
     const decision = buildGeneratedImageBillingDecision({
         dateUtc: '2026-04-22',
         model: 'grok-imagine-image-pro',
         quality: 'pro',
         imageCount: 1,
         freeOutputImagesUsed: 0,
-        availableCredits: 100,
+        availableCredits: 0,
     });
 
-    assert.equal(decision.allowed, false);
-    assert.equal(decision.reason, 'MODEL_DISABLED');
+    assert.equal(decision.allowed, true);
+    assert.equal(decision.freeRequestCount, 1);
+    assert.equal(decision.freeImageCount, 1);
+    assert.equal(decision.billedImageCount, 0);
+    assert.equal(decision.creditsCost, 2.1);
+    assert.equal(decision.usdCost, 0);
 });
 
 test('generated image preference normalization rejects disabled models', () => {
@@ -151,7 +155,7 @@ test('generated image preference normalization rejects disabled models', () => {
     );
 });
 
-test('available generated image preference falls through disabled candidates to the first enabled model', () => {
+test('available generated image preference returns the first enabled candidate', () => {
     assert.deepEqual(
         resolveAvailableGeneratedImagePreference([
             { model: 'gpt-image-2', quality: 'high' },
@@ -162,6 +166,16 @@ test('available generated image preference falls through disabled candidates to 
         {
             model: 'gpt-image-2',
             quality: 'high',
+        },
+    );
+});
+
+test('generated image preference normalization accepts Grok pro', () => {
+    assert.deepEqual(
+        normalizeGeneratedImagePreference('grok-imagine-image-pro', 'pro'),
+        {
+            model: 'grok-imagine-image-pro',
+            quality: 'pro',
         },
     );
 });

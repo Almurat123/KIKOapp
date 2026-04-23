@@ -9,6 +9,8 @@ function isRecoverableChunkError(error: unknown): boolean {
     return /failed to fetch dynamically imported module/i.test(message)
         || /importing a module script failed/i.test(message)
         || /loading chunk [\d]+ failed/i.test(message)
+        || /unable to preload css/i.test(message)
+        || /preload css/i.test(message)
         || /not a valid javascript mime type/i.test(message)
         || /text\/html/i.test(message);
 }

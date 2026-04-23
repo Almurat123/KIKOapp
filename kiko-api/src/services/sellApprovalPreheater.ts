@@ -171,7 +171,7 @@ async function refreshSpendersFromQuotes(params: {
       params.walletAddress,
       undefined,
       false,
-      true
+      false
     ).catch(() => null);
 
     const spenders = extractSpenders([

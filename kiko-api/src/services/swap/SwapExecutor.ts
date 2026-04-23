@@ -66,6 +66,10 @@ import {
 const ZEROX_ALLOWANCE_HOLDER_BY_CHAIN: Record<number, string> = {
     8453: '0x0000000000001ff3684f28c67538d4d072c22734'
 };
+const KNOWN_PERMIT2_SPENDERS = new Set([
+    '0x000000000022d473030f116ddee9f6b43ac78ba3',
+    '0x000000000022d473030f116ddee9dad608d18000',
+]);
 
 export interface SwapParams {
     userId: string;
@@ -239,6 +243,36 @@ type ApprovalBoundExecutionDecision = {
     mustAbortExecution?: boolean;
 };
 
+const EXECUTION_REF_PRICE_TIMEOUT_MS = Math.max(
+    150,
+    Number(process.env.SWAP_EXECUTION_REF_PRICE_TIMEOUT_MS || '900')
+);
+
+function isPermit2Quote(quote: QuoteResult | null | undefined): boolean {
+    if (!quote) return false;
+    const allowanceTarget = String(quote.allowanceTarget || '').toLowerCase();
+    const permit2Spender = String(quote.permit2Spender || '').toLowerCase();
+    return quote.approvalKind === 'permit2_24h'
+        || quote.requiresTypedSignature === true
+        || Boolean(quote.permit2Payload)
+        || KNOWN_PERMIT2_SPENDERS.has(allowanceTarget)
+        || KNOWN_PERMIT2_SPENDERS.has(permit2Spender);
+}
+
+function requiresExplicitApprovalQuote(params: {
+    chainId: number;
+    quote: QuoteResult | null | undefined;
+    preferPermit2: boolean;
+}): boolean {
+    if (params.preferPermit2) return false;
+    if (String(params.quote?.dex || '').toLowerCase() !== '0x') return false;
+    if (isPermit2Quote(params.quote)) return true;
+
+    const expectedAllowanceTarget = String(ZEROX_ALLOWANCE_HOLDER_BY_CHAIN[params.chainId] || '').toLowerCase();
+    const actualAllowanceTarget = String(params.quote?.allowanceTarget || '').toLowerCase();
+    return Boolean(expectedAllowanceTarget && actualAllowanceTarget && expectedAllowanceTarget !== actualAllowanceTarget);
+}
+
 function finalizeApprovedSellQuote(params: {
     originalQuote: QuoteResult;
     refreshedQuote: QuoteResult | null;
@@ -281,6 +315,13 @@ function shouldSkipCopytradeTokenInfoHotPath(params: Pick<SwapParams, 'feeContex
     return params.feeContext === 'copyTrade'
         && params.disableTokenInfo === true
         && params.isSell !== true;
+}
+
+async function withSoftTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {
+    return await Promise.race([
+        promise,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+    ]);
 }
 
 /**
@@ -550,8 +591,8 @@ export class SwapExecutor {
         if (!skipRefPriceFetch) {
             try {
                 const [tokenInPrice, tokenOutPrice] = await Promise.all([
-                    getDexPrice(actualTokenInFixed, chainId),
-                    getDexPrice(actualTokenOutFixed, chainId)
+                    withSoftTimeout(getDexPrice(actualTokenInFixed, chainId), EXECUTION_REF_PRICE_TIMEOUT_MS),
+                    withSoftTimeout(getDexPrice(actualTokenOutFixed, chainId), EXECUTION_REF_PRICE_TIMEOUT_MS)
                 ]);
 
                 if (tokenInPrice && tokenOutPrice && tokenOutPrice > 0) {
@@ -559,6 +600,13 @@ export class SwapExecutor {
                     refPrice = tokenInPrice / tokenOutPrice;
                     logger.debug(LogCode.SYS_INFO, 'SwapExecutor: refPrice calculated', {
                         tokenInPrice, tokenOutPrice, refPrice
+                    });
+                } else {
+                    logger.info(LogCode.SYS_INFO, '[SwapExecutor] Ref price fetch skipped after execution timeout budget', {
+                        chainId,
+                        tokenIn: actualTokenInFixed,
+                        tokenOut: actualTokenOutFixed,
+                        timeoutMs: EXECUTION_REF_PRICE_TIMEOUT_MS
                     });
                 }
             } catch (priceErr: any) {
@@ -672,6 +720,46 @@ export class SwapExecutor {
                 amountInBase
             });
         }
+
+        if (isSellTx && !isNativeIn && requiresExplicitApprovalQuote({
+            chainId,
+            quote: best,
+            preferPermit2,
+        })) {
+            const expectedAllowanceTarget = ZEROX_ALLOWANCE_HOLDER_BY_CHAIN[chainId] || null;
+            logger.warn(LogCode.SYS_INFO, 'Confirmed sell received non-explicit 0x approval quote; forcing allowance-holder requote', {
+                chainId,
+                currentApprovalKind: best.approvalKind || null,
+                currentAllowanceTarget: best.allowanceTarget || null,
+                expectedAllowanceTarget,
+                currentPermit2Spender: best.permit2Spender || null,
+            });
+
+            const { best: explicitApprovalQuote } = await getBestQuote({
+                ...quoteParams,
+                preferPermit2: false,
+                skipCache: true,
+            });
+            if (!explicitApprovalQuote) {
+                throw new Error('Could not obtain an explicit approval quote for this sell. No swap transaction was sent.');
+            }
+            if (requiresExplicitApprovalQuote({
+                chainId,
+                quote: explicitApprovalQuote,
+                preferPermit2: false,
+            })) {
+                throw new Error('Quote changed after approval policy enforcement. No swap transaction was sent. Please retry the swap.');
+            }
+
+            best = explicitApprovalQuote;
+            logger.info(LogCode.SYS_INFO, 'Using explicit approval quote for confirmed sell', {
+                chainId,
+                allowanceTarget: best.allowanceTarget || null,
+                approvalKind: best.approvalKind || null,
+                dex: best.dexName,
+            });
+        }
+
         const canonicalAnchorToken = (token: string | null | undefined): string => {
             const value = String(token || '').toLowerCase();
             if (!value) return '';
@@ -818,48 +906,44 @@ export class SwapExecutor {
                 chainId
             );
 
-            if (needsApproval) {
-                let permitApprovalCovered = false;
-                if (
-                    shouldUseSignedPermitForSell({
-                        dex: best.dex,
-                        allowSignedPermit: sellReliability.allowSignedPermit,
-                        isSellTx,
-                        isNativeIn,
-                    })
-                    && best.approvalKind === 'permit2_24h'
-                    && best.requiresTypedSignature
-                    && best.permit2Payload
-                ) {
-                    try {
-                        validatePermit2Payload(best.permit2Payload, chainId, best.permit2Expiry ?? null);
-                        const signature = await signTypedData(userId, best.permit2Payload as any, chainId);
-                        best.data = appendPermit2SignatureToCalldata(best.data, signature);
-                        permitApprovalCovered = true;
-                        logger.info(LogCode.EXE_TX_BROADCAST, '0x sell permit2 signature attached', {
-                            chainId,
-                            dex: best.dexName,
-                            permit2Expiry: best.permit2Expiry || null
-                        });
-                    } catch (permitErr: any) {
-                        logger.warn(LogCode.EXE_TX_BROADCAST, '0x permit2 sign failed, falling back to approve', {
-                            chainId,
-                            error: permitErr?.message || String(permitErr)
-                        });
-                    }
-                }
+            const signedPermitAllowed = shouldUseSignedPermitForSell({
+                dex: best.dex,
+                allowSignedPermit: sellReliability.allowSignedPermit,
+                isSellTx,
+                isNativeIn,
+            });
+            const requiresPermitSignature = signedPermitAllowed
+                && best.approvalKind === 'permit2_24h'
+                && best.requiresTypedSignature
+                && !!best.permit2Payload;
+            let permitApprovalCovered = false;
 
+            if (requiresPermitSignature) {
+                try {
+                    validatePermit2Payload(best.permit2Payload as any, chainId, best.permit2Expiry ?? null);
+                    const signature = await signTypedData(userId, best.permit2Payload as any, chainId);
+                    best.data = appendPermit2SignatureToCalldata(best.data, signature);
+                    permitApprovalCovered = true;
+                    logger.info(LogCode.EXE_TX_BROADCAST, '0x sell permit2 signature attached', {
+                        chainId,
+                        dex: best.dexName,
+                        permit2Expiry: best.permit2Expiry || null
+                    });
+                } catch (permitErr: any) {
+                    logger.warn(LogCode.EXE_TX_BROADCAST, '0x permit2 sign failed, falling back to approve', {
+                        chainId,
+                        error: permitErr?.message || String(permitErr)
+                    });
+                }
+            }
+
+            if (needsApproval) {
                 if (
                     !permitApprovalCovered
                     && isSellTx
                     && !isNativeIn
                     && best.dex === '0x'
-                    && !shouldUseSignedPermitForSell({
-                        dex: best.dex,
-                        allowSignedPermit: sellReliability.allowSignedPermit,
-                        isSellTx,
-                        isNativeIn,
-                    })
+                    && !signedPermitAllowed
                 ) {
                     logger.info(LogCode.EXE_TX_BROADCAST, 'Sell path prefers explicit approval over signed permit', {
                         chainId,
@@ -1038,7 +1122,19 @@ export class SwapExecutor {
                                 break;
                             }
 
-                            logger.warn(LogCode.SYS_INFO, 'Keeping approved quote after incompatible refresh attempt', {
+                            if (refreshDecision.mustAbortExecution) {
+                                logger.error(LogCode.EXE_TX_REVERTED, 'Approved quote invalidated by post-approval refresh; aborting execution', {
+                                    dex: originalQuote.dexName,
+                                    reasonCode: refreshDecision.refreshFailureCode,
+                                    approvedAllowanceTarget: originalQuote.allowanceTarget,
+                                    attemptedAllowanceTarget: freshQuote?.allowanceTarget || null,
+                                    attemptedDex: freshQuote?.dexName || null,
+                                    attempt: refreshAttempt
+                                });
+                                break;
+                            }
+
+                            logger.warn(LogCode.SYS_INFO, 'Approved quote refresh fell back to original quote', {
                                 dex: originalQuote.dexName,
                                 reasonCode: refreshDecision.refreshFailureCode,
                                 approvedAllowanceTarget: originalQuote.allowanceTarget,
@@ -1058,7 +1154,7 @@ export class SwapExecutor {
 
                         if (!refreshDecision.refreshApplied) {
                             if (refreshDecision.mustAbortExecution) {
-                                throw new Error('Approved spender no longer matches the executable quote. Please retry the swap.');
+                                throw new Error('Quote changed after approval. The approved spender no longer matches the executable route, so no swap transaction was sent. Please retry the swap.');
                             }
                             logger.warn(LogCode.SYS_INFO, 'Proceeding with approved original quote after refresh fallback', {
                                 dex: originalQuote.dexName,
@@ -1163,6 +1259,9 @@ export class SwapExecutor {
                 }
             } else {
                 logger.info(LogCode.EXE_TX_BROADCAST, 'Approval not needed or already set', { token: actualTokenIn, spender: best.allowanceTarget });
+                if (isPermit2Quote(best) && !permitApprovalCovered) {
+                    throw new Error('Permit2 quote is missing the required typed signature. No swap transaction was sent.');
+                }
             }
         } else {
             logger.info(LogCode.EXE_TX_BROADCAST, 'No allowance target, skipping approval check (likely native token swap)', { token: actualTokenIn });
@@ -1930,5 +2029,7 @@ export class SwapExecutor {
 
 export const __swapExecutorTest = {
     finalizeApprovedSellQuote,
+    isPermit2Quote,
+    requiresExplicitApprovalQuote,
     shouldSkipCopytradeTokenInfoHotPath,
 };

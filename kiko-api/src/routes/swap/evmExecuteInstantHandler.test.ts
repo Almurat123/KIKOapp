@@ -275,3 +275,41 @@ test('executeEvmInstantWithDeps surfaces execution rejections as business confli
     assert.equal(calls.updateSwapHistory[0][1].status, 'failed');
     assert.equal(calls.updateSwapHistory[0][1].txHash, '0xreverted');
 });
+
+test('executeEvmInstantWithDeps surfaces approval-quote mismatches as retryable business conflicts', async () => {
+    const { deps, calls } = buildDeps({
+        executeSwap: async () => ({
+            success: false,
+            reasonCode: 'approval_quote_mismatch',
+            userMessage: 'The swap route changed after token approval, so no swap transaction was sent. Please retry with a fresh quote.',
+            error: 'Swap failed: The route changed after token approval, so no swap transaction was sent. Please retry to get a fresh quote.',
+            txHash: '0xapproval',
+            metadata: { provider: '0x', mode: 'swap-card' },
+        } satisfies MainSwapResult),
+    });
+
+    await assert.rejects(
+        __evmExecuteInstantTest.executeEvmInstantWithDeps({
+            userId: 'u1',
+            walletAddress: '0x1111111111111111111111111111111111111111',
+            accessToken: 'token',
+            tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+            tokenOut: 'BNB',
+            amountIn: '4.797005',
+            chainId: 8453,
+            slippageBps: 1000,
+            executionSource: 'wallet_page',
+            routePolicy: 'legacy_allowed',
+        }, deps),
+        (error: unknown) => {
+            assert.ok(error instanceof AppError);
+            assert.equal(error.statusCode, 409);
+            assert.equal(error.message, 'The swap route changed after token approval, so no swap transaction was sent. Please retry with a fresh quote.');
+            return true;
+        }
+    );
+
+    assert.equal(calls.updateSwapHistory.length, 1);
+    assert.equal(calls.updateSwapHistory[0][1].status, 'failed');
+    assert.equal(calls.updateSwapHistory[0][1].txHash, '0xapproval');
+});

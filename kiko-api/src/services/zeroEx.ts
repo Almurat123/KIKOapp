@@ -178,16 +178,15 @@ const FALLBACK_TOKEN_METADATA: Record<number, Record<string, ZeroExTokenMetadata
   },
 };
 
-// Chain-specific base URLs for 0x API v2
-// Note: Most chains use the main API (api.0x.org) with chainId parameter
-// Polygon requires chain-specific URL for v1 endpoint
+// Chain-specific base URLs for 0x API v2.
+// Most chains use the main api.0x.org host with an explicit chainId query param.
 const CHAIN_BASE_URLS: Record<number, string> = {
   1: 'https://api.0x.org',           // Ethereum
-  8453: 'https://api.0x.org',         // Base - use main API with chainId param
-  42161: 'https://api.0x.org',        // Arbitrum - use main API with chainId param
-  56: 'https://api.0x.org',           // BSC - use main API with chainId param and permit2 endpoint
-  137: 'https://api.0x.org',          // Polygon - use main API with chainId param, try permit2 first
-  10: 'https://api.0x.org',           // Optimism - use main API with chainId param
+  8453: 'https://api.0x.org',         // Base
+  42161: 'https://api.0x.org',        // Arbitrum
+  56: 'https://api.0x.org',           // BSC
+  137: 'https://api.0x.org',          // Polygon
+  10: 'https://api.0x.org',           // Optimism
 };
 
 // 0x API v2 Response Interfaces (based on official examples)
@@ -430,9 +429,6 @@ export async function getZeroExQuote(
     // Get the appropriate base URL for the chain
     const baseUrl = CHAIN_BASE_URLS[chainId] || ZEROX_BASE_URL;
 
-    // Polygon: Try permit2 endpoint first (via main API), fallback to v1 if needed
-    // Other chains (Arbitrum, Optimism, Base, BSC) use permit2 endpoint via main API with chainId param
-
     const useLegacyEndpoint = false; // False = use V2 endpoints
     const isPolygon = chainId === 137;
 
@@ -467,7 +463,8 @@ export async function getZeroExQuote(
       params.append('slippageBps', Math.round(slippageBps).toString());
     }
 
-    // Prefer Permit2 endpoint for sell auth flow; allow fallback to allowance-holder.
+    // Callers choose whether Permit2 is worth the extra signature flow.
+    // Standard wallet swaps should prefer AllowanceHolder; Permit2 remains available for advanced paths.
     const endpoint = useLegacyEndpoint
       ? '/swap/v1/quote'
       : (preferPermit2 ? '/swap/permit2/quote' : '/swap/allowance-holder/quote');

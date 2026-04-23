@@ -199,8 +199,8 @@ function normalizeGeneratedImageRequest(model: string, quality?: string | null):
             providerModel: 'grok-imagine-image-pro',
             modelFamily: 'grok-imagine-image',
             quality: 'pro',
-            enabled: false,
-            freeOutputImageLimit: 0,
+            enabled: true,
+            freeOutputImageLimit: getGeneratedImageLifetimeFreeRequestLimit(),
             pricePerOutputImageUsd: getDefaultGeneratedImageUsdPrice('grok-imagine-image-pro', 'pro') || 0,
         };
     }

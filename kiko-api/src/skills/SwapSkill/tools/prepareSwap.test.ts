@@ -70,6 +70,33 @@ test('buildSocketRecoveryResult marks confirmed trades as success', () => {
   assert.equal(result.toolResult.data.status, 'success');
 });
 
+test('buildSocketRecoveryResult surfaces failed trades immediately', () => {
+  const result = __prepareSwapTest.buildSocketRecoveryResult({
+    currentData: {
+      amountOut: '0.1',
+      tokenInSymbol: 'USDC',
+      tokenOutSymbol: 'ETH',
+    },
+    recentSwap: {
+      id: 'trade-3',
+      txHash: '0xfail123',
+      status: 'failed',
+      tokenOutAmount: '0',
+    },
+    args: {
+      amount_in: '4.797005',
+      token_in: 'USDC',
+      token_out: 'ETH',
+    },
+  });
+
+  assert.equal(result.completionData.status, 'failed');
+  assert.equal(result.completionData.isLoading, false);
+  assert.equal(result.toolResult.success, false);
+  assert.equal(result.toolResult.mode, 'error');
+  assert.equal(result.toolResult.data.status, 'failed');
+});
+
 test('raceExecutionWithPendingHandoff returns the execution result when it finishes before the timeout', async () => {
   const result = await __prepareSwapTest.raceExecutionWithPendingHandoff(
     Promise.resolve('done'),

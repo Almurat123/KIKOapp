@@ -8,6 +8,8 @@ const RETRYABLE_PATTERNS = [
   /Importing a module script failed/i,
   /Loading chunk [\d]+ failed/i,
   /route chunk load timed out/i,
+  /Unable to preload CSS/i,
+  /preload css/i,
   /networkerror/i,
   /not a valid javascript mime type/i,
   /text\/html/i,

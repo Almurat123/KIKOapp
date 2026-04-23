@@ -410,6 +410,11 @@ export function shouldDeferAcceptedCopytradeBuyFeeCollection(params: {
 export function inferSwapReasonCode(message?: string): string {
   const normalized = String(message || '').toLowerCase();
   if (!normalized) return 'swap_failed';
+  if (
+    normalized.includes('approved spender no longer matches')
+    || normalized.includes('quote changed after approval')
+    || normalized.includes('explicit approval quote')
+  ) return 'approval_quote_mismatch';
   if (normalized.includes('transaction reverted') || normalized.includes(' reverted')) return 'execution_reverted';
   if (
     normalized.includes('all rpc endpoints failed')
@@ -430,6 +435,8 @@ export function inferSwapReasonCode(message?: string): string {
 export function buildUserFacingSwapError(message?: string, routePolicy?: RoutePolicy): string {
   const reasonCode = inferSwapReasonCode(message);
   switch (reasonCode) {
+    case 'approval_quote_mismatch':
+      return 'The swap route changed after token approval, so no swap transaction was sent. Please retry with a fresh quote.';
     case 'execution_reverted':
       return 'The swap transaction reverted on-chain before settlement.';
     case 'rpc_unavailable':

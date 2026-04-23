@@ -408,6 +408,14 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
     onSwapSuccess?.(txHash);
   }, [evmSwapTyped, isSolana, onSwapSuccess, solanaSwapTyped]);
 
+  const shouldRefreshQuoteAfterFailure = React.useCallback((message: string) => {
+    const normalized = String(message || '').toLowerCase();
+    return normalized.includes('route changed after token approval')
+      || normalized.includes('approved spender no longer matches')
+      || normalized.includes('fresh quote')
+      || normalized.includes('retry with a fresh quote');
+  }, []);
+
   const markSwapFailure = React.useCallback((message: string, tradeId?: string, txHash?: string) => {
     setExecutionState({
       phase: 'failed',
@@ -416,8 +424,11 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
       tradeId,
       txHash,
     });
+    if (!isSolana && evmSwapTyped?.refreshSwapState && shouldRefreshQuoteAfterFailure(message)) {
+      void evmSwapTyped.refreshSwapState();
+    }
     onSwapError?.(message);
-  }, [onSwapError]);
+  }, [evmSwapTyped, isSolana, onSwapError, shouldRefreshQuoteAfterFailure]);
 
   const executeSwapNow = async () => {
     // Always require auth for embedded wallet execution

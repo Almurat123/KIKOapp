@@ -69,10 +69,39 @@ async function withOpenRouterImageFetchMock(
     }
 }
 
-test('reference-image support is limited to GPT image models', () => {
+async function withXaiImageFetchMock(
+    handler: (calls: Array<{ url: string; body: any }>) => Promise<void>,
+    fetchImpl: typeof fetch,
+): Promise<void> {
+    const originalFetch = globalThis.fetch;
+    const originalApiKey = process.env.XAI_API_KEY;
+    const calls: Array<{ url: string; body: any }> = [];
+    process.env.XAI_API_KEY = 'test-xai-key';
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const rawBody = typeof init?.body === 'string' ? init.body : '';
+        calls.push({
+            url: String(input),
+            body: rawBody ? JSON.parse(rawBody) : null,
+        });
+        return fetchImpl(input, init);
+    }) as typeof fetch;
+    try {
+        await handler(calls);
+    } finally {
+        globalThis.fetch = originalFetch;
+        if (typeof originalApiKey === 'string') {
+            process.env.XAI_API_KEY = originalApiKey;
+        } else {
+            delete process.env.XAI_API_KEY;
+        }
+    }
+}
+
+test('reference-image support includes GPT and Grok image models', () => {
     assert.equal(supportsGeneratedImageReferenceInputModel('gpt-image-1-mini'), true);
     assert.equal(supportsGeneratedImageReferenceInputModel('gpt-image-2'), true);
-    assert.equal(supportsGeneratedImageReferenceInputModel('grok-imagine-image'), false);
+    assert.equal(supportsGeneratedImageReferenceInputModel('grok-imagine-image'), true);
+    assert.equal(supportsGeneratedImageReferenceInputModel('grok-imagine-image-pro'), true);
 });
 
 test('OpenAI gpt-image-2 uploaded-image requests use the edits endpoint with JSON image_url references', async () => {
@@ -271,6 +300,112 @@ test('OpenRouter streamed GPT image responses decode delta.images', async () => 
                 status: 200,
                 headers: {
                     'content-type': 'text/event-stream',
+                },
+            });
+        },
+    );
+});
+
+test('xAI Grok normal image requests use generation endpoint with auto aspect ratio and 1k resolution', async () => {
+    await withXaiImageFetchMock(
+        async (calls) => {
+            const result = await generateImageWithProvider({
+                provider: 'xai',
+                model: 'grok-imagine-image',
+                prompt: 'Epic mascot marching through a storm.',
+                quality: 'normal',
+            });
+
+            assert.equal(calls.length, 2);
+            assert.equal(calls[0].url, 'https://api.x.ai/v1/images/generations');
+            assert.deepEqual(calls[0].body, {
+                model: 'grok-imagine-image',
+                prompt: 'Epic mascot marching through a storm.',
+                n: 1,
+                resolution: '1k',
+                response_format: 'url',
+                aspect_ratio: 'auto',
+            });
+            assert.equal(result.model, 'grok-imagine-image');
+            assert.equal(result.quality, 'normal');
+            assert.equal(result.imageBuffer.toString('utf8'), 'xai-image');
+        },
+        async (input: RequestInfo | URL) => {
+            if (String(input) === 'https://api.x.ai/v1/images/generations') {
+                return new Response(
+                    JSON.stringify({
+                        data: [
+                            { url: 'https://example.com/generated-xai-image.png' },
+                        ],
+                    }),
+                    {
+                        status: 200,
+                        headers: {
+                            'content-type': 'application/json',
+                        },
+                    },
+                );
+            }
+            return new Response('xai-image', {
+                status: 200,
+                headers: {
+                    'content-type': 'image/png',
+                },
+            });
+        },
+    );
+});
+
+test('xAI Grok pro uploaded-image requests use edits endpoint with 2k resolution', async () => {
+    await withXaiImageFetchMock(
+        async (calls) => {
+            const result = await generateImageWithProvider({
+                provider: 'xai',
+                model: 'grok-imagine-image-pro',
+                prompt: 'Turn this mascot into a cinematic poster.',
+                quality: 'pro',
+                inputImages: [
+                    { url: 'https://example.com/mascot.png', sourceLabel: 'upload 1' },
+                ],
+            });
+
+            assert.equal(calls.length, 2);
+            assert.equal(calls[0].url, 'https://api.x.ai/v1/images/edits');
+            assert.deepEqual(calls[0].body, {
+                model: 'grok-imagine-image',
+                prompt: 'Turn this mascot into a cinematic poster.',
+                n: 1,
+                resolution: '2k',
+                response_format: 'url',
+                image: {
+                    type: 'image_url',
+                    url: 'https://example.com/mascot.png',
+                },
+            });
+            assert.equal(result.model, 'grok-imagine-image-pro');
+            assert.equal(result.quality, 'pro');
+            assert.equal(result.imageBuffer.toString('utf8'), 'xai-pro-image');
+        },
+        async (input: RequestInfo | URL) => {
+            if (String(input) === 'https://api.x.ai/v1/images/edits') {
+                return new Response(
+                    JSON.stringify({
+                        data: [
+                            { url: 'https://example.com/generated-xai-pro-image.png' },
+                        ],
+                    }),
+                    {
+                        status: 200,
+                        headers: {
+                            'content-type': 'application/json',
+                        },
+                    },
+                );
+            }
+            return new Response('xai-pro-image', {
+                status: 200,
+                headers: {
+                    'content-type': 'image/png',
                 },
             });
         },

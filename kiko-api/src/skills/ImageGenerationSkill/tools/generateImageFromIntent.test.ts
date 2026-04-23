@@ -112,7 +112,7 @@ test('generated image tool falls back when saved image preference is unsupported
     );
 });
 
-test('generated image tool falls back to GPT image when reference inputs are present and saved model cannot edit', () => {
+test('generated image tool keeps Grok image preference when reference inputs are present and the model can edit', () => {
     assert.deepEqual(
         __generateImageFromIntentTest.resolveGeneratedImageToolPreferenceWithOptions({
             generatedImagePreference: {
@@ -123,8 +123,8 @@ test('generated image tool falls back to GPT image when reference inputs are pre
             hasReferenceInputs: true,
         }),
         {
-            requestedModel: 'gpt-image-1-mini',
-            quality: 'medium',
+            requestedModel: 'grok-imagine-image',
+            quality: 'normal',
         },
     );
 });

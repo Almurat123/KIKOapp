@@ -25,6 +25,7 @@ import {
 import {
     generateImageWithProvider,
     isGeneratedImageProviderError,
+    supportsGeneratedImageReferenceInputModel,
     type GeneratedImageProviderInputImage,
 } from './generatedImageProviders.js';
 import { logger } from '../utils/logger.js';
@@ -540,7 +541,7 @@ async function runGeneratedImageChatTask(params: StartGeneratedImageChatTaskPara
             text: params.prompt,
         });
 
-        const taskInputImages = reservation.provider === 'openai'
+        const taskInputImages = supportsGeneratedImageReferenceInputModel(reservation.providerModel)
             ? await loadTaskChatImageInputs(params.taskId).catch((error) => {
                 logger.warn(LogCode.SYS_INFO, 'Generated image chat task: failed to load task input images', {
                     taskId: params.taskId,
@@ -567,9 +568,9 @@ async function runGeneratedImageChatTask(params: StartGeneratedImageChatTaskPara
 
         const providerResult = await generateImageWithProvider({
             provider: reservation.provider,
-            model: reservation.providerModel as 'gpt-image-2' | 'gpt-image-1-mini' | 'grok-imagine-image',
+            model: reservation.providerModel as 'gpt-image-2' | 'gpt-image-1-mini' | 'grok-imagine-image' | 'grok-imagine-image-pro',
             prompt: params.prompt,
-            quality: reservation.quality as 'low' | 'medium' | 'high' | 'normal',
+            quality: reservation.quality as 'low' | 'medium' | 'high' | 'normal' | 'pro',
             inputImages: providerInputImages,
             onProgress: reservation.provider === 'openai'
                 ? async (event) => {

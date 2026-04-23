@@ -44,6 +44,41 @@ test('finalizeApprovedSellQuote keeps original quote when refreshed spender drif
   assert.equal(decision.quoteToExecute.data, original.data);
 });
 
+test('isPermit2Quote detects permit2 approval metadata and spender', () => {
+  assert.equal(__swapExecutorTest.isPermit2Quote(makeQuote({
+    approvalKind: 'permit2_24h',
+  }) as any), true);
+
+  assert.equal(__swapExecutorTest.isPermit2Quote(makeQuote({
+    allowanceTarget: '0x000000000022d473030f116ddee9f6b43ac78ba3',
+  }) as any), true);
+
+  assert.equal(__swapExecutorTest.isPermit2Quote(makeQuote({
+    approvalKind: 'exact_approve_fallback',
+    allowanceTarget: '0x0000000000001ff3684f28c67538d4d072c22734',
+  }) as any), false);
+});
+
+test('requiresExplicitApprovalQuote rejects permit2 and non-holder 0x quotes when permit2 is disabled', () => {
+  assert.equal(__swapExecutorTest.requiresExplicitApprovalQuote({
+    chainId: 8453,
+    preferPermit2: false,
+    quote: makeQuote({
+      approvalKind: 'permit2_24h',
+      allowanceTarget: '0x000000000022d473030f116ddee9f6b43ac78ba3',
+    }),
+  } as any), true);
+
+  assert.equal(__swapExecutorTest.requiresExplicitApprovalQuote({
+    chainId: 8453,
+    preferPermit2: false,
+    quote: makeQuote({
+      approvalKind: 'exact_approve_fallback',
+      allowanceTarget: '0x0000000000001ff3684f28c67538d4d072c22734',
+    }),
+  } as any), false);
+});
+
 test('finalizeApprovedSellQuote accepts compatible refresh when dex stays on 0x', () => {
   const original = makeQuote({ dex: '0x', dexName: '0x Aggregator' });
   const refreshed = makeQuote({ dex: '0x', dexName: '0x Aggregator' });
@@ -75,6 +110,22 @@ test('finalizeApprovedSellQuote accepts compatible pinned refresh', () => {
   assert.equal(decision.refreshFailureCode, undefined);
   assert.equal(decision.quoteToExecute.amountOut, '1.2');
   assert.equal(decision.quoteToExecute.data, '0xfeedbeef');
+});
+
+test('requiresExplicitApprovalQuote rejects permit2 quotes when permit2 is disabled', () => {
+  const quote = makeQuote({
+    approvalKind: 'permit2_24h',
+    requiresTypedSignature: true,
+    permit2Payload: { domain: {}, types: {}, primaryType: 'PermitSingle', message: {} },
+    permit2Spender: '0x000000000022d473030f116ddee9dad608d18000',
+  });
+
+  assert.equal(__swapExecutorTest.isPermit2Quote(quote as any), true);
+  assert.equal(__swapExecutorTest.requiresExplicitApprovalQuote({
+    chainId: 8453,
+    quote: quote as any,
+    preferPermit2: false,
+  }), true);
 });
 
 test('native balance evidence is reusable only for matching fresh wallet scope', () => {

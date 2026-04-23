@@ -1,6 +1,8 @@
 import { env } from './env.js';
 import { getRpcUrlsArray } from './apiEndpoints.js';
 
+const UNISWAP_PERMIT2_ADDRESS = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
+
 export interface ChainConfig {
     id: number;
     name: string;
@@ -50,7 +52,7 @@ export const CHAINS: Record<number, ChainConfig> = {
         explorerUrl: 'https://etherscan.io',
         contracts: {
             zeroExProxy: '0xdef1c0ded9bec7f1a1670819833240faca6db2a2',
-            permit2: '0x000000000022d473030f116ddee9dad608d18000',
+            permit2: UNISWAP_PERMIT2_ADDRESS,
         },
         gasReserve: '0.01',
         slugs: { dexScreener: 'ethereum', geckoTerminal: 'eth' }
@@ -69,7 +71,7 @@ export const CHAINS: Record<number, ChainConfig> = {
         explorerUrl: 'https://basescan.org',
         contracts: {
             zeroExProxy: '0xdef1c0ded9bec7f1a1670819833240faca6db2a2',
-            permit2: '0x000000000022d473030f116ddee9dad608d18000',
+            permit2: UNISWAP_PERMIT2_ADDRESS,
         },
         apiUrl: process.env.ALCHEMY_BASE_URL,
         gasReserve: '0.0003',
@@ -93,7 +95,7 @@ export const CHAINS: Record<number, ChainConfig> = {
         explorerUrl: 'https://bscscan.com',
         contracts: {
             zeroExProxy: '0xdef1c0ded9bec7f1a1670819833240faca6db2a2',
-            permit2: '0x000000000022d473030f116ddee9dad608d18000',
+            permit2: UNISWAP_PERMIT2_ADDRESS,
         },
         apiUrl: 'https://bnb-mainnet.g.alchemy.com/v2',
         gasReserve: '0.0001',
@@ -133,7 +135,7 @@ export const CHAINS: Record<number, ChainConfig> = {
         explorerUrl: 'https://polygonscan.com',
         contracts: {
             zeroExProxy: '0xdef1c0ded9bec7f1a1670819833240faca6db2a2',
-            permit2: '0x000000000022d473030f116ddee9dad608d18000',
+            permit2: UNISWAP_PERMIT2_ADDRESS,
         },
         gasReserve: '0.01',
         slugs: { dexScreener: 'polygon', geckoTerminal: 'polygon_pos' }
@@ -153,7 +155,7 @@ export const CHAINS: Record<number, ChainConfig> = {
         explorerUrl: 'https://arbiscan.io',
         contracts: {
             zeroExProxy: '0xdef1c0ded9bec7f1a1670819833240faca6db2a2',
-            permit2: '0x000000000022d473030f116ddee9dad608d18000',
+            permit2: UNISWAP_PERMIT2_ADDRESS,
         },
         gasReserve: '0.002',
         slugs: { dexScreener: 'arbitrum', geckoTerminal: 'arbitrum' }
@@ -173,7 +175,7 @@ export const CHAINS: Record<number, ChainConfig> = {
         explorerUrl: 'https://optimistic.etherscan.io',
         contracts: {
             zeroExProxy: '0xdef1c0ded9bec7f1a1670819833240faca6db2a2',
-            permit2: '0x000000000022d473030f116ddee9dad608d18000',
+            permit2: UNISWAP_PERMIT2_ADDRESS,
         },
         gasReserve: '0.002',
         slugs: { dexScreener: 'optimism', geckoTerminal: 'optimism' }
