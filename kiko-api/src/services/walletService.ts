@@ -9,7 +9,7 @@ import {
     readSolanaTokenBalanceFast,
 } from './rpc/balanceRpcReader.js';
 import { getWalletTransactionsForWalletPage } from './walletTransactionHistoryService.js';
-import { getEmbeddedWalletAddress } from './privyWallet.js';
+import { getEmbeddedWalletAddress, getSolanaEmbeddedWalletAddress } from './privyWallet.js';
 
 const ALL_BALANCES_CACHE_TTL_MS = 60_000;
 // [Perf]: In-memory mirror of Redis cache for zero-latency repeat reads within same process.
@@ -228,11 +228,81 @@ export const walletService = {
     },
 
     /**
+     * Resolve the authenticated user's Solana embedded wallet from Privy and keep
+     * the local user row in sync. The optional client-supplied address is treated
+     * as a hint only; balances should use the server-verified address returned here.
+     */
+    async resolveVerifiedSolanaWalletAddress(userId: string, requestedSolanaAddress?: string | null): Promise<string | null> {
+        const requestedAddress = String(requestedSolanaAddress || '').trim();
+        const user = await prisma.user.findFirst({
+            where: {
+                OR: [
+                    { privyDid: userId },
+                    { id: userId }
+                ]
+            },
+            select: { id: true, privyDid: true, solanaWalletAddress: true }
+        });
+
+        if (user?.solanaWalletAddress && (!requestedAddress || requestedAddress === user.solanaWalletAddress)) {
+            return user.solanaWalletAddress;
+        }
+
+        const privySolanaAddress = await getSolanaEmbeddedWalletAddress(userId).catch((error: any) => {
+            console.warn('[resolveVerifiedSolanaWalletAddress] Failed to load Privy Solana wallet', {
+                userIdPrefix: userId?.substring(0, 20),
+                requestedAddress: requestedAddress || null,
+                error: error?.message || String(error),
+            });
+            return null;
+        });
+
+        if (privySolanaAddress) {
+            if (requestedAddress && requestedAddress !== privySolanaAddress) {
+                console.warn('[resolveVerifiedSolanaWalletAddress] Ignoring client Solana address mismatch', {
+                    requestedAddress,
+                    privySolanaAddress,
+                    userIdPrefix: userId?.substring(0, 20),
+                });
+            }
+
+            if (user && user.solanaWalletAddress !== privySolanaAddress) {
+                await prisma.user.update({
+                    where: { id: user.id },
+                    data: { solanaWalletAddress: privySolanaAddress },
+                });
+                console.log('[resolveVerifiedSolanaWalletAddress] ✅ Synced Privy Solana wallet', {
+                    userId: user.id,
+                    solanaWalletAddress: privySolanaAddress,
+                });
+            }
+
+            return privySolanaAddress;
+        }
+
+        return null;
+    },
+
+    /**
      * Verify if a user has access to a specific wallet address
      */
     async verifyAccess(userId: string, address: string): Promise<boolean> {
         const normalizedAddress = address.toLowerCase();
         const isEvmAddress = normalizedAddress.startsWith('0x') && normalizedAddress.length === 42;
+        let trustedEmbeddedEvmAddress: string | null | undefined;
+        const resolveTrustedEmbeddedEvmAddress = async () => {
+            if (!isEvmAddress) return null;
+            if (trustedEmbeddedEvmAddress !== undefined) return trustedEmbeddedEvmAddress;
+            trustedEmbeddedEvmAddress = await getEmbeddedWalletAddress(userId, 'ethereum').catch((error: any) => {
+                console.warn('[verifyAccess] Failed to load Privy embedded EVM wallet for repair', {
+                    userIdPrefix: userId?.substring(0, 20),
+                    requestedAddress: normalizedAddress,
+                    error: error?.message || String(error),
+                });
+                return null;
+            });
+            return trustedEmbeddedEvmAddress;
+        };
 
         const cacheKey = `${userId}::${normalizedAddress}`;
         const cached = accessCache.get(cacheKey);
@@ -309,14 +379,7 @@ export const walletService = {
             }
 
             if (isEvmAddress) {
-                const embeddedWalletAddress = await getEmbeddedWalletAddress(userId, 'ethereum').catch((error: any) => {
-                    console.warn('[verifyAccess] Failed to load Privy embedded EVM wallet for repair', {
-                        userIdPrefix: userId?.substring(0, 20),
-                        requestedAddress: normalizedAddress,
-                        error: error?.message || String(error),
-                    });
-                    return null;
-                });
+                const embeddedWalletAddress = await resolveTrustedEmbeddedEvmAddress();
                 const normalizedEmbeddedWallet = embeddedWalletAddress?.toLowerCase();
 
                 if (normalizedEmbeddedWallet === normalizedAddress) {
@@ -371,6 +434,18 @@ export const walletService = {
             console.log('[verifyAccess] ❌ User not found');
             if (!isEvmAddress) {
                 // User model requires walletAddress (EVM). We do not auto-create users from non-EVM addresses.
+                accessCache.set(cacheKey, { timestamp: Date.now(), allowed: false });
+                await cacheSet(accessRedisKey(cacheKey), '0', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
+                return false;
+            }
+            const embeddedWalletAddress = await resolveTrustedEmbeddedEvmAddress();
+            const normalizedEmbeddedWallet = embeddedWalletAddress?.toLowerCase();
+            if (normalizedEmbeddedWallet !== normalizedAddress) {
+                console.warn('[verifyAccess] ❌ User creation blocked; requested EVM address is not the Privy embedded wallet', {
+                    requestedAddress: normalizedAddress,
+                    embeddedWalletAddress: normalizedEmbeddedWallet || null,
+                    userIdPrefix: userId?.substring(0, 20),
+                });
                 accessCache.set(cacheKey, { timestamp: Date.now(), allowed: false });
                 await cacheSet(accessRedisKey(cacheKey), '0', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
                 return false;

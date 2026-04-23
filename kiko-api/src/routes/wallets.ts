@@ -106,7 +106,12 @@ export default async function walletRoutes(fastify: FastifyInstance, options: Fa
                 });
             }
 
-            const balances = await walletService.getAllChainBalances(address, solanaAddress, {
+            const verifiedSolanaAddress = await walletService.resolveVerifiedSolanaWalletAddress(
+                userId,
+                typeof solanaAddress === 'string' ? solanaAddress : undefined
+            );
+
+            const balances = await walletService.getAllChainBalances(address, verifiedSolanaAddress || undefined, {
                 forceRefresh: forceRefresh === '1' || forceRefresh === 'true' || forceRefresh === 1 || forceRefresh === true
             });
 
