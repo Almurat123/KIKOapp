@@ -12,9 +12,12 @@
 // Invariants:
 // - worker lifecycle and v2 turn execution remain separate owner layers
 // - direct trade confirmation and fast swap remain pre-generation branches
+// - explicit swap syntax can short-circuit task-route LLM selection when the
+//   request is already structurally complete
 // - new turns attempt task route selection before canonical normalization
 // - legacy canonical intent is a compatibility bridge, not the routing source
 // Failure Modes:
+// - explicit swap quotes spend seconds in route selection before deterministic parsing
 // - runtime silently restores canonical-first routing
 // - greetings or image turns lose their route owner before resolver/tool scope
 
@@ -41,6 +44,7 @@ import { ChatAiTraceLogger } from './chatAiTraceLogger.js';
 import { resolveProviderInfo } from './providerPolicyBuilder.js';
 import { isModelLedToolOrchestrationEnabled } from './modelLedToolOrchestration.js';
 import { selectTaskRoute } from './taskRouteSelector.js';
+import { tryBuildFastLaneSwapIntent } from './swapFastLane.js';
 
 export type ChatV2TurnRunnerResult = {
     terminal: boolean;
@@ -66,7 +70,7 @@ export async function runChatV2Turn(params: {
     ) => boolean;
     isSuspiciousProviderResponseId?: (value: string) => boolean;
 }): Promise<ChatV2TurnRunnerResult> {
-    let snapshot = params.snapshot;
+    let snapshot = tryBuildFastLaneSwapIntent(params.snapshot).snapshot;
     const exposeNormalizationReasoning = shouldExposeNormalizationReasoning();
     let normalizationReasoningStarted = false;
     let streamedNormalizationReasoningLength = 0;
@@ -81,6 +85,26 @@ export async function runChatV2Turn(params: {
         streamedNormalizationReasoningLength += text.length;
         await params.broker.pushReasoning(text);
     };
+
+    if (
+        preNormalizationTradingIntent?.kind === 'trade_confirmation'
+        && snapshot.confirmationState?.kind
+        && !isExplicitChainSwitchRequest(snapshot.lastUserMessage, snapshot.normalizedIntent, snapshot.taskRoute || null)
+    ) {
+        const directFollowup = await executeDirectTradeFollowup({
+            snapshot,
+            task: params.task,
+            userId: params.userId,
+            broker: params.broker,
+            toolExecutionEngine: params.toolExecutionEngine,
+        });
+        if (directFollowup.handled) {
+            const preOrchestratorTrace = new ChatAiTraceLogger(snapshot, resolveProviderInfo(snapshot.model).provider);
+            preOrchestratorTrace.markTerminal('direct_trade_followup');
+            preOrchestratorTrace.emit({ finalReason: 'direct_trade_followup' });
+            return { terminal: true, terminalOwner: 'worker', snapshot };
+        }
+    }
 
     if (!snapshot.taskRoute && !snapshot.taskRouteSelectionState) {
         const routeSelection = await selectTaskRoute({

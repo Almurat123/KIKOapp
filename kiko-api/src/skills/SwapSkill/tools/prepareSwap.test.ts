@@ -70,6 +70,24 @@ test('buildSocketRecoveryResult marks confirmed trades as success', () => {
   assert.equal(result.toolResult.data.status, 'success');
 });
 
+test('raceExecutionWithPendingHandoff returns the execution result when it finishes before the timeout', async () => {
+  const result = await __prepareSwapTest.raceExecutionWithPendingHandoff(
+    Promise.resolve('done'),
+    25,
+  );
+
+  assert.equal(result, 'done');
+});
+
+test('raceExecutionWithPendingHandoff hands chat back a pending sentinel when execution is slow', async () => {
+  const result = await __prepareSwapTest.raceExecutionWithPendingHandoff(
+    new Promise<string>((resolve) => setTimeout(() => resolve('late'), 20)),
+    1,
+  );
+
+  assert.deepEqual(result, { __pending_handoff: true });
+});
+
 test('hasQuoteModeExecutionAuthorization requires explicit execute gate or matching confirmation state', () => {
   assert.equal(__prepareSwapTest.hasQuoteModeExecutionAuthorization({
     __executionGate: { phase: 'execute' },

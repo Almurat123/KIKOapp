@@ -239,14 +239,6 @@ export async function tryRunFastSwapLane(params: {
     if (params.snapshot.confirmationState?.kind) return false;
 
     const locale = detectLocale(params.snapshot);
-    const tokenInfoCall: OrchestratorToolCall = {
-        id: `fast:get_token_info:${Date.now()}`,
-        name: 'get_token_info',
-        arguments: {
-            address: parsed.tokenOut,
-            chain_id: parsed.chainId,
-        },
-    };
     const simulateCall: OrchestratorToolCall = {
         id: `fast:simulate_swap:${Date.now()}`,
         name: 'simulate_swap',
@@ -261,24 +253,14 @@ export async function tryRunFastSwapLane(params: {
         },
     };
 
-    const [tokenInfoResult, simulateResult] = await Promise.all([
-        executeReadOnlyTool({
-            call: tokenInfoCall,
-            task: params.task,
-            snapshot: params.snapshot,
-            userId: params.userId,
-            broker: params.broker,
-            toolExecutionEngine: params.toolExecutionEngine,
-        }),
-        executeReadOnlyTool({
-            call: simulateCall,
-            task: params.task,
-            snapshot: params.snapshot,
-            userId: params.userId,
-            broker: params.broker,
-            toolExecutionEngine: params.toolExecutionEngine,
-        }),
-    ]);
+    const simulateResult = await executeReadOnlyTool({
+        call: simulateCall,
+        task: params.task,
+        snapshot: params.snapshot,
+        userId: params.userId,
+        broker: params.broker,
+        toolExecutionEngine: params.toolExecutionEngine,
+    });
 
     if (!simulateResult.ok) {
         return false;
@@ -293,7 +275,7 @@ export async function tryRunFastSwapLane(params: {
             tokenOut: parsed.tokenOut,
             amountIn: parsed.amountIn,
             nativeBalance: params.snapshot.runtime?.nativeBalance,
-            tokenInfo: tokenInfoResult.ok ? tokenInfoResult.result : null,
+            tokenInfo: null,
             quote: simulateResult.result,
         }),
     });

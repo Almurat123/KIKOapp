@@ -115,6 +115,7 @@ type InstantExecutionOutcome = {
 };
 
 const NATIVE_TOKEN_PLACEHOLDER = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
+const SWAP_AUX_PRICE_TIMEOUT_MS = 2_500;
 
 function resolveInstantExecutionOutcome(params: {
     requireConfirmedTx: boolean;
@@ -154,6 +155,44 @@ function toDec(value: number | string | null | undefined): string | null {
     if (!Number.isFinite(n)) return null;
     return String(n);
 }
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+    return await new Promise((resolve) => {
+        let settled = false;
+        const timer = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            resolve(fallback);
+        }, timeoutMs);
+
+        promise
+            .then((value) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                resolve(value);
+            })
+            .catch(() => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                resolve(fallback);
+            });
+    });
+}
+
+// CONTEXT MEMORY
+// Updated: 2026-04-23
+// Status: verified
+// Why: wallet-page instant swaps were blocking on auxiliary USD pricing before tx broadcast.
+// Debug Goal: slow pricing providers must not delay quote-to-send execution.
+// Search Tags: wallet swap stuck submitting before tx price lookup blocks execution
+// Invariants:
+// - Missing USD annotations must not prevent creating a pending trade or sending the swap.
+// - Slow token USD lookups degrade to null/0 metadata instead of blocking execution.
+// Failure Modes:
+// - Swap UI sits on submitting for tens of seconds before tx hash appears.
+// - Price source outage looks like swap execution failure.
 
 const defaultDeps: EvmExecuteInstantDeps = {
     getTokenPriceUSD,
@@ -395,8 +434,16 @@ async function executeEvmInstantWithDeps(
     }
 
     const [tokenInUsd, tokenOutUsd] = await Promise.all([
-        deps.getTokenPriceUSD(actualTokenIn, params.chainId),
-        deps.getTokenPriceUSD(actualTokenOut, params.chainId),
+        withTimeout(
+            deps.getTokenPriceUSD(actualTokenIn, params.chainId),
+            SWAP_AUX_PRICE_TIMEOUT_MS,
+            null
+        ),
+        withTimeout(
+            deps.getTokenPriceUSD(actualTokenOut, params.chainId),
+            SWAP_AUX_PRICE_TIMEOUT_MS,
+            null
+        ),
     ]);
     const amountInUsd = tokenInUsd ? parseFloat(resolvedAmountIn) * tokenInUsd : 0;
 

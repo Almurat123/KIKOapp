@@ -12,6 +12,7 @@ import {
   getUserBalance,
   calculatePriceImpact,
   executeSwapInstant,
+  getPriceData,
   waitForSwapTradeSettlement,
 } from '@/services/swapService';
 import {
@@ -34,6 +35,7 @@ import {
 } from '@/services/priceValidation';
 
 const DEFAULT_CHAIN_ID = 1;
+const STABLECOIN_SYMBOLS = new Set(['USDC', 'USDT', 'DAI', 'USDC.E']);
 
 function tokenDataToToken(tokenData: TokenData): Token {
   return {
@@ -101,6 +103,57 @@ function isTokenAvailableOnChain(token: Token | null | undefined, chainTokens: T
   }
   const tokenAddress = token.address.toLowerCase();
   return chainTokens.some(chainToken => chainToken.address.toLowerCase() === tokenAddress);
+}
+
+function isStablecoinSymbol(symbol?: string | null): boolean {
+  return STABLECOIN_SYMBOLS.has(String(symbol || '').toUpperCase());
+}
+
+function derivePriceDataFromQuote(params: {
+  tokenIn: Token | null;
+  tokenOut: Token | null;
+  amountIn: string;
+  amountOut: string;
+}): PriceData | null {
+  const amountInNum = Number(params.amountIn);
+  const amountOutNum = Number(params.amountOut);
+
+  if (!params.tokenIn || !params.tokenOut) return null;
+  if (!Number.isFinite(amountInNum) || !Number.isFinite(amountOutNum)) return null;
+  if (amountInNum <= 0 || amountOutNum <= 0) return null;
+
+  const tokenInIsStable = isStablecoinSymbol(params.tokenIn.symbol);
+  const tokenOutIsStable = isStablecoinSymbol(params.tokenOut.symbol);
+
+  if (tokenInIsStable && tokenOutIsStable) {
+    return {
+      tokenInPrice: 1,
+      tokenOutPrice: 1,
+      nativeTokenPrice: 1,
+    };
+  }
+
+  if (tokenInIsStable) {
+    const tokenOutPrice = amountInNum / amountOutNum;
+    if (!(tokenOutPrice > 0)) return null;
+    return {
+      tokenInPrice: 1,
+      tokenOutPrice,
+      nativeTokenPrice: isNativeTokenAddress(params.tokenOut.address) ? tokenOutPrice : 1,
+    };
+  }
+
+  if (tokenOutIsStable) {
+    const tokenInPrice = amountOutNum / amountInNum;
+    if (!(tokenInPrice > 0)) return null;
+    return {
+      tokenInPrice,
+      tokenOutPrice: 1,
+      nativeTokenPrice: isNativeTokenAddress(params.tokenIn.address) ? tokenInPrice : 1,
+    };
+  }
+
+  return null;
 }
 
 export interface UseSwapOptions {
@@ -288,6 +341,7 @@ export function useSwap(options: UseSwapOptions = {}) {
     const amountVal = parseFloat(state.amountIn);
     if (!state.tokenIn || !state.tokenOut || !state.amountIn || isNaN(amountVal) || amountVal <= 0) {
       quoteRequestIdRef.current += 1;
+      setPriceData(null);
       setState(prev => ({
         ...prev,
         status: 'idle',
@@ -304,6 +358,7 @@ export function useSwap(options: UseSwapOptions = {}) {
       // Early return if tokens are the same (prevents invalid API calls)
       if (state.tokenIn!.address.toLowerCase() === state.tokenOut!.address.toLowerCase()) {
         console.warn('[useSwap] tokenIn and tokenOut are the same, skipping quote fetch');
+        setPriceData(null);
         setState(prev => ({
           ...prev,
           status: 'error',
@@ -369,6 +424,27 @@ export function useSwap(options: UseSwapOptions = {}) {
           priceImpactUSD: normalizedBest.priceImpact,
         }));
 
+        const optimisticPriceData = derivePriceDataFromQuote({
+          tokenIn: state.tokenIn,
+          tokenOut: state.tokenOut,
+          amountIn: state.amountIn,
+          amountOut: rawAmountOut,
+        });
+
+        if (optimisticPriceData) {
+          setPriceData(optimisticPriceData);
+        }
+
+        void (async () => {
+          const freshPriceData = await getPriceData(
+            state.tokenIn!.address,
+            state.tokenOut!.address,
+            chainId,
+          );
+          if (requestId !== quoteRequestIdRef.current || !freshPriceData) return;
+          setPriceData(freshPriceData);
+        })();
+
         if (priceData) {
           const impact = calculatePriceImpact(state.amountIn, normalizedBest.amountOut, priceData);
           setState(prev => ({ ...prev, priceImpactUSD: impact }));
@@ -394,6 +470,7 @@ export function useSwap(options: UseSwapOptions = {}) {
           : message;
         if (requestId !== quoteRequestIdRef.current) return;
 
+        setPriceData(null);
         setState(prev => ({
           ...prev,
           status: 'error',

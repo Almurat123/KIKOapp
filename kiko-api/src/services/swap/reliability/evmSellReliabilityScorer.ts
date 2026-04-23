@@ -4,7 +4,7 @@ import { resolveEvmApprovalPolicy } from '../capabilities/evmApprovalPolicy.js';
 export interface EvmSellReliabilityDecision {
   preferPermit2: boolean;
   allowSignedPermit: boolean;
-  reasonCode?: 'copytrade_exit_explicit_approval_preferred' | 'bsc_confirmed_sell_explicit_approval_preferred';
+  reasonCode?: 'copytrade_exit_explicit_approval_preferred' | 'confirmed_sell_explicit_approval_preferred';
 }
 
 export function scoreEvmSellReliability(params: {

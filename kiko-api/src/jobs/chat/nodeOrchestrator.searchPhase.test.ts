@@ -583,10 +583,10 @@ test('explicit structured swap requests use the fast swap lane without generatio
         toolContext: snapshot.runtime.toolContext || {},
     });
 
-    assert.deepEqual(seenCalls.sort(), ['get_token_info', 'simulate_swap']);
+    assert.deepEqual(seenCalls.sort(), ['simulate_swap']);
     assert.match(broker.getContent(), /Fast quote ready|已获取快速报价/);
     assert.match(broker.getContent(), /0\.001 BNB/);
-    assert.match(broker.getContent(), /BENJI/);
+    assert.match(broker.getContent(), /0x0bc61768132aa1484e2b09301284b7def78a4444/i);
 });
 
 test('explicit swap syntax without chain name uses current chain fast quote lane without generation', async () => {
@@ -653,7 +653,7 @@ test('explicit swap syntax without chain name uses current chain fast quote lane
         toolContext: snapshot.runtime.toolContext || {},
     });
 
-    assert.deepEqual(seenCalls.map((call) => call.name).sort(), ['get_token_info', 'simulate_swap']);
+    assert.deepEqual(seenCalls.map((call) => call.name).sort(), ['simulate_swap']);
     assert.equal(seenCalls.find((call) => call.name === 'simulate_swap')?.arguments.chain_id, 8453);
     assert.equal(seenCalls.find((call) => call.name === 'simulate_swap')?.arguments.token_in, 'ETH');
     assert.equal(seenCalls.find((call) => call.name === 'simulate_swap')?.arguments.token_out, 'USDC');

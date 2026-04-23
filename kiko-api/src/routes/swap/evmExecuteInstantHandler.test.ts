@@ -146,3 +146,45 @@ test('executeEvmInstantWithDeps keeps pending chat swaps pending until settlemen
     assert.equal(calls.updateSwapHistory.length, 1);
     assert.equal(calls.updateSwapHistory[0][1].status, 'pending');
 });
+
+test('executeEvmInstantWithDeps does not block swap execution on slow USD price lookups', async () => {
+    const { deps, calls } = buildDeps({
+        getTokenPriceUSD: async () => await new Promise<number>((resolve) => {
+            setTimeout(() => resolve(1), 10_000);
+        }),
+        executeSwap: async () => ({
+            success: true,
+            txHash: '0xslowprice',
+            amountOut: '42',
+            txLifecycle: {
+                status: 'visible_pending',
+                txHash: '0xslowprice',
+                attempts: 1,
+                chainId: 56,
+            },
+            metadata: { provider: '0x', mode: 'swap-card' },
+        } satisfies MainSwapResult),
+    });
+
+    const startedAt = Date.now();
+    const result = await __evmExecuteInstantTest.executeEvmInstantWithDeps({
+        userId: 'u1',
+        walletAddress: '0x1111111111111111111111111111111111111111',
+        accessToken: 'token',
+        tokenIn: 'BNB',
+        tokenOut: '0x0bc61768132aa1484e2b09301284b7def78a4444',
+        amountIn: '0.001',
+        chainId: 56,
+        slippageBps: 1000,
+        transactionMessageId: 'msg1',
+        executionSource: 'chat',
+        routePolicy: 'external_only',
+    }, deps);
+    const elapsedMs = Date.now() - startedAt;
+
+    assert.equal(result.status, 'PENDING');
+    assert.equal(calls.scheduleTradeSettlement, 1);
+    assert.equal(calls.updateSwapHistory.length, 1);
+    assert.equal(calls.updateSwapHistory[0][1].status, 'pending');
+    assert.ok(elapsedMs < 4_000, `expected execution to continue without waiting 10s for prices, got ${elapsedMs}ms`);
+});

@@ -1,16 +1,19 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-19
+// Updated: 2026-04-23
 // Author: Renata
 // Reason: Agent-mode swap receipts must expose full transaction hashes and
 //         explorer URLs in tool results and summaries, not only short card text.
+//         Chat execution also must hand the user back a pending card quickly
+//         instead of blocking the whole turn on slow backend/socket recovery.
 // Goal: keep swap execution receipts user-verifiable while preserving existing
-//       quote, confirmation, card, and socket-recovery flows.
+//       quote, confirmation, card, pending-handoff, and socket-recovery flows.
 // Owns: swap tool result shaping and chat transaction-card data for this tool.
 // Does Not Own: backend swap API execution, wallet signing, or frontend card rendering.
 // Design Language:
 // - never claim execution without a returned tx hash or explicit pending state
 // - include txHash and txUrl/explorerUrl whenever a swap is submitted or executed
 // - socket recovery must preserve the same receipt fields as the normal path
+// - chat follow-up execution should fall back to pending quickly when the backend is slow
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-19-agent-execution-receipt-links.md
 // - Kind: repo doc
@@ -43,6 +46,8 @@ interface SwapArgs {
 }
 
 const NATIVE_PLACEHOLDER = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+const CHAT_EXECUTION_PENDING_HANDOFF_MS = 8000;
+const PENDING_HANDOFF_SENTINEL = { __pending_handoff: true } as const;
 
 const SAFE_TOKEN_SYMBOLS = new Set([
     'ETH', 'WETH', 'USDC', 'USDT', 'DAI', 'SOL', 'BTC', 'WBTC', 'BNB', 'WBNB', 'POL', 'MATIC',
@@ -270,6 +275,23 @@ function repairSwapArgsFromMessages(simulated: SwapArgs | null, messages: any[])
         token_in: repairTruncatedEvmAddressFromMessages(simulated.token_in, messages),
         token_out: repairTruncatedEvmAddressFromMessages(simulated.token_out, messages),
     };
+}
+
+function raceExecutionWithPendingHandoff<T>(
+    executionPromise: Promise<T>,
+    delayMs: number
+): Promise<T | typeof PENDING_HANDOFF_SENTINEL> {
+    let handoffTimer: ReturnType<typeof setTimeout> | null = null;
+    const pendingHandoffPromise = new Promise<typeof PENDING_HANDOFF_SENTINEL>((resolve) => {
+        handoffTimer = setTimeout(() => resolve(PENDING_HANDOFF_SENTINEL), delayMs);
+        handoffTimer.unref?.();
+    });
+    return Promise.race([
+        executionPromise.finally(() => {
+            if (handoffTimer) clearTimeout(handoffTimer);
+        }),
+        pendingHandoffPromise,
+    ]);
 }
 
 function hasQuoteModeExecutionAuthorization(context: ToolContext | undefined, args: SwapArgs): boolean {
@@ -895,113 +917,12 @@ When show-quote-before-swap is enabled (default), execution must follow:
                 // ⚡ STEP 2: Execute swap (blocking - wait for result)
                 const API_BASE = process.env.API_BASE_URL ||
                     (process.env.PORT ? `http://127.0.0.1:${process.env.PORT}` : 'http://localhost:3001');
-
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 150000);
-
-                try {
-                    const response = await fetch(`${API_BASE}/api/swap/execute-instant`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${accessToken}`,
-                            ...(appKey ? { 'X-App-Key': appKey } : {}),
-                            ...buildSignedHeaders('POST', '/api/swap/execute-instant', JSON.stringify({
-                                tokenIn: args.token_in,
-                                tokenOut: args.token_out,
-                                amountIn: args.amount_in,
-                                chainId: args.chain_id,
-                                slippageBps: Math.round((args.slippage || 10) * 100),
-                                messageId: transactionMessage.id
-                            })),
-                            'X-Transaction-Message-Id': transactionMessage.id // Pass message ID for updates
-                        },
-                        body: JSON.stringify({
-                            tokenIn: args.token_in,
-                            tokenOut: args.token_out,
-                            amountIn: args.amount_in,
-                            chainId: args.chain_id,
-                            slippageBps: Math.round((args.slippage || 10) * 100),
-                            messageId: transactionMessage.id // For backend to update progress
-                        }),
-                        signal: controller.signal
-                    });
-
-                    clearTimeout(timeoutId);
-                    const result = await response.json() as {
-                        success?: boolean;
-                        error?: string;
-                        message?: string;
-                        data?: { txHash?: string; amountOut?: string; tradeId?: string; status?: 'PENDING' | 'SUCCESS' | 'FAILED' };
-                    };
-
-                    let swapRecord: any = null;
-                    if (response.ok && result.success && (result.data?.tradeId || result.data?.txHash)) {
-                        try {
-                            const { prisma } = await import('../../../db/prisma.js');
-                            swapRecord = await prisma.swapHistory.findFirst({
-                                where: result.data?.tradeId
-                                    ? { id: result.data.tradeId }
-                                    : { txHash: result.data?.txHash },
-                                orderBy: { createdAt: 'desc' }
-                            });
-                        } catch (dbError) {
-                            console.warn('[PrepareSwapTransaction] Failed to load swap record:', (dbError as Error).message);
-                        }
-                    }
-
-                    // ⚡ STEP 3: Update transaction message with final result
-                    const backendStatus = String(result.data?.status || '').toUpperCase();
-                    const txUrl = buildTransactionExplorerUrl(args.chain_id, result.data?.txHash);
-                    const finalStatus = !response.ok || !result.success
-                        ? 'failed'
-                        : backendStatus === 'PENDING'
-                            ? 'pending'
-                            : 'success';
-                    const messageData = latestCardData || {};
-                    const completionData = {
-                        ...messageData,
-                        status: finalStatus,
-                        txHash: result.data?.txHash,
-                        txUrl,
-                        explorerUrl: txUrl,
-                        amountOut: resolveDisplayedAmountOut({
-                            status: finalStatus,
-                            currentAmountOut: messageData.amountOut,
-                            settledAmountOut: result.data?.amountOut || swapRecord?.tokenOutAmount,
-                        }),
-                        tokenInSymbol: swapRecord?.tokenInSymbol || messageData.tokenInSymbol,
-                        tokenOutSymbol: swapRecord?.tokenOutSymbol || messageData.tokenOutSymbol,
-                        error: result.error,
-                        errorMessage: result.error,
-                        completedAt: Date.now(),
-                        duration: messageData.startedAt ? Date.now() - messageData.startedAt : undefined,
-                        message: finalStatus === 'success'
-                        ? `✅ Swap completed! Transaction: ${result.data?.txHash?.slice(0, 10)}...`
-                            : finalStatus === 'pending'
-                                ? `⏳ Transaction submitted. Waiting for confirmation: ${result.data?.txHash?.slice(0, 10)}...`
-                                : `❌ Swap failed: ${result.error || 'Unknown error'}`,
-                        isLoading: finalStatus === 'pending',
-                        ...(executionDebug ? {
-                            debug: {
-                                ...(messageData.debug || {}),
-                                ...executionDebug,
-                                backendStatus: backendStatus || null,
-                            }
-                        } : {}),
-                    };
-                    latestCardData = completionData;
-                    isFinalized = true;
-                    if (pendingTimer) {
-                        clearTimeout(pendingTimer);
-                        pendingTimer = null;
-                    }
-                    await updateMessage(transactionMessage.id, {
-                        data: completionData,
-                        status: 'complete'
-                    });
-
-                    // Push final status to frontend
+                const persistCardUpdate = async (
+                    data: Record<string, any>,
+                    status: 'streaming' | 'complete' = 'complete'
+                ) => {
+                    latestCardData = data;
+                    await updateMessage(transactionMessage.id, { data, status });
                     chatWS.broadcast(userId, {
                         type: 'client_action',
                         sessionId,
@@ -1009,36 +930,164 @@ When show-quote-before-swap is enabled (default), execution must follow:
                             targetMessageId: transactionMessage.id,
                             action: {
                                 type: 'show_transaction_status_card',
-                                data: completionData
+                                data
                             }
                         }
                     });
+                };
 
-                    if (!response.ok || !result.success) {
-                        const errorMsg = result.error || result.message || 'Swap execution failed';
-                        console.error('[PrepareSwapTransaction] Backend swap failed:', errorMsg);
+                const buildDeferredPendingResult = () => ({
+                    success: true,
+                    mode: 'pending',
+                    messageId: transactionMessage.id,
+                    summary: `⏳ Swap submitted: ${args.amount_in} ${args.token_in} → ${args.token_out}. Waiting for backend confirmation.`,
+                    data: {
+                        status: 'PENDING',
+                    },
+                    _final: true,
+                });
 
-                        return {
-                            error: `Swap failed: ${errorMsg}`,
-                            mode: 'error',
-                            messageId: transactionMessage.id,
-                            details: result,
-                            _final: true,
-                            _user_message: `❌ Transaction failed: ${errorMsg}\n\nThis token may have restrictions or insufficient liquidity. Please try a different token or smaller amount.`
+                const executionPromise = (async (): Promise<any> => {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 150000);
+
+                    try {
+                        const response = await fetch(`${API_BASE}/api/swap/execute-instant`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${accessToken}`,
+                                ...(appKey ? { 'X-App-Key': appKey } : {}),
+                                ...buildSignedHeaders('POST', '/api/swap/execute-instant', JSON.stringify({
+                                    tokenIn: args.token_in,
+                                    tokenOut: args.token_out,
+                                    amountIn: args.amount_in,
+                                    chainId: args.chain_id,
+                                    slippageBps: Math.round((args.slippage || 10) * 100),
+                                    messageId: transactionMessage.id
+                                })),
+                                'X-Transaction-Message-Id': transactionMessage.id
+                            },
+                            body: JSON.stringify({
+                                tokenIn: args.token_in,
+                                tokenOut: args.token_out,
+                                amountIn: args.amount_in,
+                                chainId: args.chain_id,
+                                slippageBps: Math.round((args.slippage || 10) * 100),
+                                messageId: transactionMessage.id
+                            }),
+                            signal: controller.signal
+                        });
+
+                        const result = await response.json() as {
+                            success?: boolean;
+                            error?: string;
+                            message?: string;
+                            data?: { txHash?: string; amountOut?: string; tradeId?: string; status?: 'PENDING' | 'SUCCESS' | 'FAILED' };
                         };
-                    }
 
-                    console.log('[PrepareSwapTransaction] Backend swap successful:', result);
+                        let swapRecord: any = null;
+                        if (response.ok && result.success && (result.data?.tradeId || result.data?.txHash)) {
+                            try {
+                                const { prisma } = await import('../../../db/prisma.js');
+                                swapRecord = await prisma.swapHistory.findFirst({
+                                    where: result.data?.tradeId
+                                        ? { id: result.data.tradeId }
+                                        : { txHash: result.data?.txHash },
+                                    orderBy: { createdAt: 'desc' }
+                                });
+                            } catch (dbError) {
+                                console.warn('[PrepareSwapTransaction] Failed to load swap record:', (dbError as Error).message);
+                            }
+                        }
 
-                    if (finalStatus === 'pending') {
+                        const backendStatus = String(result.data?.status || '').toUpperCase();
+                        const txUrl = buildTransactionExplorerUrl(args.chain_id, result.data?.txHash);
+                        const finalStatus = !response.ok || !result.success
+                            ? 'failed'
+                            : backendStatus === 'PENDING'
+                                ? 'pending'
+                                : 'success';
+                        const messageData = latestCardData || {};
+                        const completionData = {
+                            ...messageData,
+                            status: finalStatus,
+                            txHash: result.data?.txHash,
+                            txUrl,
+                            explorerUrl: txUrl,
+                            amountOut: resolveDisplayedAmountOut({
+                                status: finalStatus,
+                                currentAmountOut: messageData.amountOut,
+                                settledAmountOut: result.data?.amountOut || swapRecord?.tokenOutAmount,
+                            }),
+                            tokenInSymbol: swapRecord?.tokenInSymbol || messageData.tokenInSymbol,
+                            tokenOutSymbol: swapRecord?.tokenOutSymbol || messageData.tokenOutSymbol,
+                            error: result.error,
+                            errorMessage: result.error,
+                            completedAt: Date.now(),
+                            duration: messageData.startedAt ? Date.now() - messageData.startedAt : undefined,
+                            message: finalStatus === 'success'
+                                ? `✅ Swap completed! Transaction: ${result.data?.txHash?.slice(0, 10)}...`
+                                : finalStatus === 'pending'
+                                    ? `⏳ Transaction submitted. Waiting for confirmation: ${result.data?.txHash?.slice(0, 10)}...`
+                                    : `❌ Swap failed: ${result.error || 'Unknown error'}`,
+                            isLoading: finalStatus === 'pending',
+                            ...(executionDebug ? {
+                                debug: {
+                                    ...(messageData.debug || {}),
+                                    ...executionDebug,
+                                    backendStatus: backendStatus || null,
+                                }
+                            } : {}),
+                        };
+                        isFinalized = true;
+                        if (pendingTimer) {
+                            clearTimeout(pendingTimer);
+                            pendingTimer = null;
+                        }
+                        await persistCardUpdate(completionData, 'complete');
+
+                        if (!response.ok || !result.success) {
+                            const errorMsg = result.error || result.message || 'Swap execution failed';
+                            console.error('[PrepareSwapTransaction] Backend swap failed:', errorMsg);
+                            return {
+                                error: `Swap failed: ${errorMsg}`,
+                                mode: 'error',
+                                messageId: transactionMessage.id,
+                                details: result,
+                                _final: true,
+                                _user_message: `❌ Transaction failed: ${errorMsg}\n\nThis token may have restrictions or insufficient liquidity. Please try a different token or smaller amount.`
+                            };
+                        }
+
+                        console.log('[PrepareSwapTransaction] Backend swap successful:', result);
+
+                        if (finalStatus === 'pending') {
+                            return {
+                                success: true,
+                                mode: 'pending',
+                                txHash: result.data?.txHash,
+                                txUrl,
+                                explorerUrl: txUrl,
+                                messageId: transactionMessage.id,
+                                summary: `⏳ Swap submitted: ${args.amount_in} ${args.token_in} → ${args.token_out}. Transaction: ${result.data?.txHash}. Explorer: ${txUrl || 'unavailable'}`,
+                                data: {
+                                    ...result.data,
+                                    txUrl,
+                                    explorerUrl: txUrl,
+                                },
+                                _final: true
+                            };
+                        }
+
                         return {
                             success: true,
-                            mode: 'pending',
+                            mode: 'executed',
                             txHash: result.data?.txHash,
                             txUrl,
                             explorerUrl: txUrl,
                             messageId: transactionMessage.id,
-                            summary: `⏳ Swap submitted: ${args.amount_in} ${args.token_in} → ${args.token_out}. Transaction: ${result.data?.txHash}. Explorer: ${txUrl || 'unavailable'}`,
+                            summary: `✅ Swap executed successfully! ${args.amount_in} ${args.token_in} → ${args.token_out}. Transaction: ${result.data?.txHash}. Explorer: ${txUrl || 'unavailable'}`,
                             data: {
                                 ...result.data,
                                 txUrl,
@@ -1046,268 +1095,187 @@ When show-quote-before-swap is enabled (default), execution must follow:
                             },
                             _final: true
                         };
-                    }
+                    } catch (innerError: any) {
+                        if (innerError.name === 'AbortError') {
+                            console.error('[PrepareSwapTransaction] Request timeout after 150s');
+                            const timeoutData = {
+                                ...(latestCardData || {}),
+                                status: 'failed',
+                                error: 'Transaction timeout',
+                                errorMessage: 'Transaction timeout',
+                                completedAt: Date.now(),
+                                isLoading: false
+                            };
+                            isFinalized = true;
+                            if (pendingTimer) {
+                                clearTimeout(pendingTimer);
+                                pendingTimer = null;
+                            }
+                            await persistCardUpdate(timeoutData, 'complete');
+                            return {
+                                error: 'Swap request timed out after 150 seconds. Please try again.',
+                                mode: 'error',
+                                messageId: transactionMessage.id,
+                                timeout: true,
+                                _final: true,
+                                _user_message: `⏱️ Transaction timed out after 150 seconds.\n\nThe network may be congested. Please try again in a moment.`
+                            };
+                        }
 
-                    // ⚡ Return success with messageId (card already saved and displayed)
-                    return {
-                        success: true,
-                        mode: 'executed',
-                        txHash: result.data?.txHash,
-                        txUrl,
-                        explorerUrl: txUrl,
-                        messageId: transactionMessage.id,
-                        summary: `✅ Swap executed successfully! ${args.amount_in} ${args.token_in} → ${args.token_out}. Transaction: ${result.data?.txHash}. Explorer: ${txUrl || 'unavailable'}`,
-                        data: {
-                            ...result.data,
-                            txUrl,
-                            explorerUrl: txUrl,
-                        },
-                        _final: true // Force AI to stop iterating
-                    };
+                        const errorCode = innerError.code || innerError.cause?.code || '';
+                        const isSocketError = errorCode === 'UND_ERR_SOCKET' || innerError.message?.includes('other side closed');
 
-                } catch (innerError: any) {
-                    clearTimeout(timeoutId);
+                        if (isSocketError) {
+                            console.warn('[PrepareSwapTransaction] Socket error - waiting for backend to complete transaction...');
 
-                    // Check if it's a timeout error
-                    if (innerError.name === 'AbortError') {
-                        console.error('[PrepareSwapTransaction] Request timeout after 150s');
+                            try {
+                                const { prisma } = await import('../../../db/prisma.js');
+                                const maxWaitTime = 60000;
+                                const startTime = Date.now();
+                                const searchStartMs = resolveSocketRecoverySearchStartMs({
+                                    requestStartedAt: latestCardData?.startedAt,
+                                    recoveryStartedAt: startTime,
+                                    lookbackMs: 5000
+                                });
+                                let pollInterval = 500;
+                                const maxPollInterval = 3000;
+                                let recentSwap = null;
+                                let pollCount = 0;
 
-                        // Update message to timeout status
-                        const messageContent = latestCardData || {};
+                                while (Date.now() - startTime < maxWaitTime) {
+                                    pollCount++;
+                                    recentSwap = await prisma.swapHistory.findFirst({
+                                        where: {
+                                            userId: context?.userId,
+                                            chainId: args.chain_id,
+                                            createdAt: {
+                                                gte: new Date(searchStartMs)
+                                            },
+                                            status: {
+                                                in: ['pending', 'success']
+                                            },
+                                            tokenInAddress: {
+                                                contains: args.token_in,
+                                                mode: 'insensitive'
+                                            },
+                                            tokenOutAddress: {
+                                                contains: args.token_out,
+                                                mode: 'insensitive'
+                                            }
+                                        },
+                                        orderBy: {
+                                            createdAt: 'desc'
+                                        }
+                                    });
+
+                                    if (recentSwap && recentSwap.txHash) {
+                                        console.log(`[PrepareSwapTransaction] ✅ Found transaction after ${Math.round((Date.now() - startTime) / 1000)}s (${pollCount} polls):`, recentSwap.txHash);
+                                        const recoveryResult = buildSocketRecoveryResult({
+                                            currentData: latestCardData || {},
+                                            recentSwap,
+                                            args: {
+                                                amount_in: args.amount_in,
+                                                token_in: args.token_in,
+                                                token_out: args.token_out,
+                                                chain_id: args.chain_id
+                                            }
+                                        });
+                                        isFinalized = true;
+                                        if (pendingTimer) {
+                                            clearTimeout(pendingTimer);
+                                            pendingTimer = null;
+                                        }
+                                        await persistCardUpdate(recoveryResult.completionData, 'complete');
+                                        return recoveryResult.toolResult;
+                                    }
+
+                                    if (pollCount % 5 === 0) {
+                                        console.log(`[PrepareSwapTransaction] Polling... ${Math.round((Date.now() - startTime) / 1000)}s elapsed (${pollCount} attempts)`);
+                                    }
+
+                                    await new Promise(resolve => setTimeout(resolve, pollInterval));
+                                    pollInterval = Math.min(pollInterval * 1.2, maxPollInterval);
+                                }
+
+                                console.warn(`[PrepareSwapTransaction] Timeout after ${Math.round((Date.now() - startTime) / 1000)}s (${pollCount} polls) - no transaction found`);
+                            } catch (dbError: any) {
+                                console.error('[PrepareSwapTransaction] Database query failed:', dbError.message);
+                            }
+
+                            const verificationData = {
+                                ...(latestCardData || {}),
+                                status: 'pending_verification',
+                                error: 'Connection lost during transaction',
+                                errorMessage: 'Connection lost during transaction',
+                                completedAt: Date.now(),
+                                isLoading: false
+                            };
+                            isFinalized = true;
+                            if (pendingTimer) {
+                                clearTimeout(pendingTimer);
+                                pendingTimer = null;
+                            }
+                            await persistCardUpdate(verificationData, 'complete');
+                            return {
+                                error: 'Connection lost - transaction status unclear',
+                                mode: 'pending_verification',
+                                messageId: transactionMessage.id,
+                                _final: true,
+                                _user_message: `⚠️ Connection lost while submitting transaction.\n\n**Please check your wallet:**\n- Look for pending/recent transactions\n- The swap may have been submitted to the blockchain\n- Do NOT retry if transaction is already pending\n\nIf you see the transaction, it will be confirmed shortly. Otherwise, you can try again.`
+                            };
+                        }
+
+                        console.error('[PrepareSwapTransaction] Network error:', innerError.message);
+                        const networkErrorData = {
+                            ...(latestCardData || {}),
+                            status: 'failed',
+                            error: innerError.message,
+                            errorMessage: innerError.message,
+                            completedAt: Date.now(),
+                            isLoading: false
+                        };
                         isFinalized = true;
                         if (pendingTimer) {
                             clearTimeout(pendingTimer);
                             pendingTimer = null;
                         }
-                        const timeoutData = {
-                            ...messageContent,
-                            status: 'failed',
-                            error: 'Transaction timeout',
-                            errorMessage: 'Transaction timeout',
-                            completedAt: Date.now(),
-                            isLoading: false
-                        };
-                        latestCardData = timeoutData;
-                        await updateMessage(transactionMessage.id, {
-                            data: timeoutData,
-                            status: 'complete'
-                        });
-
-                        chatWS.broadcast(userId, {
-                            type: 'client_action',
-                            sessionId,
-                            data: {
-                                targetMessageId: transactionMessage.id,
-                                action: {
-                                    type: 'show_transaction_status_card',
-                                    data: timeoutData
-                                }
-                            }
-                        });
-
+                        await persistCardUpdate(networkErrorData, 'complete');
                         return {
-                            error: 'Swap request timed out after 150 seconds. Please try again.',
+                            error: `Network error: ${innerError.message}`,
                             mode: 'error',
                             messageId: transactionMessage.id,
-                            timeout: true,
                             _final: true,
-                            _user_message: `⏱️ Transaction timed out after 150 seconds.\n\nThe network may be congested. Please try again in a moment.`
+                            _user_message: `❌ Network error occurred: ${innerError.message}\n\nPlease try again.`
                         };
+                    } finally {
+                        clearTimeout(timeoutId);
                     }
+                })();
 
-                    // Handle socket/network errors
-                    const errorCode = innerError.code || innerError.cause?.code || '';
-                    const isSocketError = errorCode === 'UND_ERR_SOCKET' || innerError.message?.includes('other side closed');
+                const executionOutcome = await raceExecutionWithPendingHandoff(
+                    executionPromise,
+                    CHAT_EXECUTION_PENDING_HANDOFF_MS
+                );
 
-                    if (isSocketError) {
-                        // CRITICAL FIX: Socket error means connection lost DURING transaction
-                        // The backend may still be processing (approval + swap + retry)
-                        // OPTIMIZED: Faster polling with exponential backoff
-                        console.warn('[PrepareSwapTransaction] Socket error - waiting for backend to complete transaction...');
-
-                        try {
-                            const { prisma } = await import('../../../db/prisma.js');
-
-                            // Optimized polling: Start fast, slow down if no result
-                            const maxWaitTime = 60000; // 60 seconds total (reduced from 90s)
-                            const startTime = Date.now();
-                            const searchStartMs = resolveSocketRecoverySearchStartMs({
-                                requestStartedAt: latestCardData?.startedAt,
-                                recoveryStartedAt: startTime,
-                                lookbackMs: 5000
-                            });
-                            let pollInterval = 500; // Start with 500ms (reduced from 1s)
-                            const maxPollInterval = 3000; // Max 3s (reduced from 5s)
-
-                            let recentSwap = null;
-                            let pollCount = 0;
-
-                            while (Date.now() - startTime < maxWaitTime) {
-                                pollCount++;
-
-                                // Query most recent swap for this user
-                                recentSwap = await prisma.swapHistory.findFirst({
-                                    where: {
-                                        userId: context?.userId,
-                                        chainId: args.chain_id,
-                                        createdAt: {
-                                            gte: new Date(searchStartMs)
-                                        },
-                                        status: {
-                                            in: ['pending', 'success']
-                                        },
-                                        tokenInAddress: {
-                                            contains: args.token_in,
-                                            mode: 'insensitive'
-                                        },
-                                        tokenOutAddress: {
-                                            contains: args.token_out,
-                                            mode: 'insensitive'
-                                        }
-                                    },
-                                    orderBy: {
-                                        createdAt: 'desc'
-                                    }
-                                });
-
-                                if (recentSwap && recentSwap.txHash) {
-                                    // Transaction was recorded! Update card and return success
-                                    console.log(`[PrepareSwapTransaction] ✅ Found transaction after ${Math.round((Date.now() - startTime) / 1000)}s (${pollCount} polls):`, recentSwap.txHash);
-                                    const currentData = latestCardData || {};
-                                    const recoveryResult = buildSocketRecoveryResult({
-                                        currentData,
-                                        recentSwap,
-                                        args: {
-                                            amount_in: args.amount_in,
-                                            token_in: args.token_in,
-                                            token_out: args.token_out,
-                                            chain_id: args.chain_id
-                                        }
-                                    });
-                                    const { completionData } = recoveryResult;
-                                    latestCardData = completionData;
-                                    isFinalized = true;
-                                    if (pendingTimer) {
-                                        clearTimeout(pendingTimer);
-                                        pendingTimer = null;
-                                    }
-                                    await updateMessage(transactionMessage.id, {
-                                        data: completionData,
-                                        status: 'complete'
-                                    });
-                                    chatWS.broadcast(userId, {
-                                        type: 'client_action',
-                                        sessionId,
-                                        data: {
-                                            targetMessageId: transactionMessage.id,
-                                            action: {
-                                                type: 'show_transaction_status_card',
-                                                data: completionData
-                                            }
-                                        }
-                                    });
-                                    return recoveryResult.toolResult;
-                                }
-
-                                // Log only every 5 polls to reduce noise
-                                if (pollCount % 5 === 0) {
-                                    console.log(`[PrepareSwapTransaction] Polling... ${Math.round((Date.now() - startTime) / 1000)}s elapsed (${pollCount} attempts)`);
-                                }
-
-                                // Wait before next poll (exponential backoff)
-                                await new Promise(resolve => setTimeout(resolve, pollInterval));
-                                pollInterval = Math.min(pollInterval * 1.2, maxPollInterval);
-                            }
-
-                            // Timeout - no transaction found
-                            console.warn(`[PrepareSwapTransaction] Timeout after ${Math.round((Date.now() - startTime) / 1000)}s (${pollCount} polls) - no transaction found`);
-                        } catch (dbError: any) {
-                            console.error('[PrepareSwapTransaction] Database query failed:', dbError.message);
-                        }
-
-                        // If no transaction found in DB, ask user to verify manually
-                        const verificationData = {
-                            ...(latestCardData || {}),
-                            status: 'pending_verification',
-                            error: 'Connection lost during transaction',
-                            errorMessage: 'Connection lost during transaction',
-                            completedAt: Date.now(),
-                            isLoading: false
-                        };
-                        latestCardData = verificationData;
-                        await updateMessage(transactionMessage.id, {
-                            data: verificationData,
-                            status: 'complete'
-                        });
-                        isFinalized = true;
-                        if (pendingTimer) {
-                            clearTimeout(pendingTimer);
-                            pendingTimer = null;
-                        }
-
-                        chatWS.broadcast(userId, {
-                            type: 'client_action',
-                            sessionId,
-                            data: {
-                                targetMessageId: transactionMessage.id,
-                                action: {
-                                    type: 'show_transaction_status_card',
-                                    data: verificationData
-                                }
-                            }
-                        });
-
-                        return {
-                            error: 'Connection lost - transaction status unclear',
-                            mode: 'pending_verification',
-                            messageId: transactionMessage.id,
-                            _final: true,
-                            _user_message: `⚠️ Connection lost while submitting transaction.\n\n**Please check your wallet:**\n- Look for pending/recent transactions\n- The swap may have been submitted to the blockchain\n- Do NOT retry if transaction is already pending\n\nIf you see the transaction, it will be confirmed shortly. Otherwise, you can try again.`
-                        };
-                    }
-
-                    // Other network error
-                    console.error('[PrepareSwapTransaction] Network error:', innerError.message);
-
-                    isFinalized = true;
-                    if (pendingTimer) {
-                        clearTimeout(pendingTimer);
-                        pendingTimer = null;
-                    }
-                    const networkErrorData = {
+                if (executionOutcome === PENDING_HANDOFF_SENTINEL) {
+                    const pendingHandoffData = {
                         ...(latestCardData || {}),
-                        status: 'failed',
-                        error: innerError.message,
-                        errorMessage: innerError.message,
-                        completedAt: Date.now(),
-                        isLoading: false
+                        status: 'pending',
+                        message: '⏳ Transaction submitted. Waiting for backend confirmation...',
+                        isLoading: true
                     };
-                    latestCardData = networkErrorData;
-                    await updateMessage(transactionMessage.id, {
-                        data: networkErrorData,
-                        status: 'complete'
+                    try {
+                        await persistCardUpdate(pendingHandoffData, 'streaming');
+                    } catch (error) {
+                        console.warn('[PrepareSwapTransaction] Failed to persist deferred pending handoff:', (error as Error).message);
+                    }
+                    void executionPromise.catch((error) => {
+                        console.error('[PrepareSwapTransaction] Deferred execution promise failed:', error);
                     });
-
-                    chatWS.broadcast(userId, {
-                        type: 'client_action',
-                        sessionId,
-                        data: {
-                            targetMessageId: transactionMessage.id,
-                            action: {
-                                type: 'show_transaction_status_card',
-                                data: networkErrorData
-                            }
-                        }
-                    });
-
-                    return {
-                        error: `Network error: ${innerError.message}`,
-                        mode: 'error',
-                        messageId: transactionMessage.id,
-                        _final: true,
-                        _user_message: `❌ Network error occurred: ${innerError.message}\n\nPlease try again.`
-                    };
+                    return buildDeferredPendingResult();
                 }
+
+                return executionOutcome;
             }
 
             // DEPRECATED: Swap cards removed from chat interface
@@ -1353,6 +1321,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
 export const __prepareSwapTest = {
     resolveSocketRecoverySearchStartMs,
     buildSocketRecoveryResult,
+    raceExecutionWithPendingHandoff,
     hasQuoteModeExecutionAuthorization,
     repairTruncatedEvmAddressFromMessages,
     findRecentSwapPrecheckFromTrace,

@@ -2506,9 +2506,23 @@ export class MainSwapService {
     }
 
     const requireConfirmedTx = request.requireConfirmedTx === true;
+    // CONTEXT MEMORY
+    // Updated: 2026-04-23
+    // Status: verified
+    // Why: wallet-page swap-card execution was returning before on-chain finality, so
+    // a sell could finish approval, broadcast the real swap, then revert while the UI
+    // still treated the attempt as a completed swap.
+    // Debug Goal: swap-card must only report success after the actual swap tx confirms.
+    // Search Tags: wallet swap approval only no swap swap-card revert reported success
+    // Invariants:
+    // - swap-card waits for the real swap tx confirmation before returning success.
+    // - allowance mode remains the only EVM mode that can intentionally skip confirmation.
+    // Failure Modes:
+    // - approval tx succeeds but the swap tx reverts after the API already returned success.
+    // - wallet history shows a completed swap even though chain receipt status is failed.
     const shouldWaitForConfirmation = requireConfirmedTx
       ? true
-      : request.mode === 'swap-card'
+      : request.mode === 'allowance'
         ? false
         : !isTurboCopytrade;
     const confirmationTimeoutMs = requireConfirmedTx

@@ -210,6 +210,79 @@ test('runChatV2Turn reuses a pre-routed snapshot without route-selection or norm
     assert.match(broker.getContent(), /generate an image/);
 });
 
+test('runChatV2Turn short-circuits route selection for explicit swap syntax', async () => {
+    const taskIds: string[] = [];
+    const executedTools: Array<{ name: string; arguments: Record<string, any> }> = [];
+    const generationClient = {
+        async generate(params: { taskId: string }) {
+            taskIds.push(params.taskId);
+            throw new Error(`generation should not be called: ${params.taskId}`);
+        },
+    } as any;
+    const broker = makeBroker();
+
+    const result = await runChatV2Turn({
+        snapshot: makeSnapshot('swap 0.001 ETH to USDC', {
+            requestedTokenSymbols: ['ETH', 'USDC'],
+            runtime: {
+                chainId: 8453,
+                chainName: 'Base',
+                nativeBalance: '0.03823547',
+                userSettings: {
+                    showQuoteBeforeSwap: true,
+                },
+                toolContext: {
+                    chainId: 8453,
+                    chainName: 'Base',
+                    nativeBalance: '0.03823547',
+                    toolConfig: {
+                        showQuoteBeforeSwap: true,
+                        customSlippage: '0.5',
+                    },
+                },
+            },
+        }),
+        task: {
+            id: 'task-runner',
+            sessionId: 'session-runner',
+            assistantMessageId: 'assistant-runner',
+            model: 'gpt-5.4-mini',
+            toolContext: {
+                toolConfig: {
+                    showQuoteBeforeSwap: true,
+                    customSlippage: '0.5',
+                },
+            },
+        },
+        userId: 'user-runner',
+        broker: broker as any,
+        generationClient,
+        toolExecutionEngine: {
+            async execute(call: any) {
+                executedTools.push({ name: call.name, arguments: call.arguments || {} });
+                return {
+                    id: call.id,
+                    name: call.name,
+                    arguments: call.arguments,
+                    ok: true,
+                    result: {
+                        expected_out_human: '2.30',
+                        price_impact: '0.1%',
+                    },
+                    metadata: { source: 'tool_runtime' },
+                };
+            },
+        } as any,
+    });
+
+    assert.deepEqual(taskIds, []);
+    assert.equal(result.snapshot.taskRoute?.owner, 'swap');
+    assert.equal(result.snapshot.taskRoute?.phase, 'execute');
+    assert.deepEqual(result.snapshot.taskRoute?.facets || [], []);
+    assert.deepEqual(executedTools.map((tool) => tool.name), ['simulate_swap']);
+    assert.match(broker.getContent(), /Fast quote ready|已获取快速报价/);
+});
+
 test('runChatV2Turn puts image execute turns into forced image tool work mode', async () => {
     const seenRounds: Array<{ tools: string[]; toolChoice: any; content: string }> = [];
     const generationClient = {
