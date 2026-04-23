@@ -390,6 +390,7 @@ export async function runNodeOrchestration(params: {
     const prefetchedRequiredContextTools = new Set<string>();
 
     updateChatContextRuntime(params.toolContext, {
+        snapshot: params.snapshot,
         executionPlan: plan,
         skillPrompts: skillResolution.skillPrompts,
         providerNativeEvidence,
@@ -465,6 +466,7 @@ export async function runNodeOrchestration(params: {
         currentPhase = options?.phaseAfterNativeSearch ?? skillResolution.currentPhase;
         lastRoundPolicyMessage = '';
         updateChatContextRuntime(params.toolContext, {
+            snapshot: normalizedSnapshot,
             executionPlan: plan,
             skillPrompts: skillResolution.skillPrompts,
             providerNativeEvidence,
@@ -719,6 +721,7 @@ export async function runNodeOrchestration(params: {
             (roundProviderOptions as any).buffer_visible_output = true;
         }
         updateChatContextRuntime(params.toolContext, {
+            snapshot: params.snapshot,
             executionPlan: plan,
             skillPrompts: skillResolution.skillPrompts,
             providerNativeEvidence,
@@ -1477,11 +1480,14 @@ function normalizeIntentHistoryString(value: unknown): string | null {
 function updateChatContextRuntime(
     toolContext: Record<string, any>,
     runtime: {
+        snapshot: ChatContextSnapshot;
         executionPlan: any;
         skillPrompts: string[];
         providerNativeEvidence: ProviderNativeEvidenceSnapshot[];
     },
 ) {
+    toolContext.__snapshot = runtime.snapshot;
+    toolContext.__controlPolicy = runtime.snapshot.policySnapshot || null;
     toolContext.__chatContextRuntime = {
         executionPlan: runtime.executionPlan || null,
         skillPrompts: Array.isArray(runtime.skillPrompts) ? runtime.skillPrompts : [],

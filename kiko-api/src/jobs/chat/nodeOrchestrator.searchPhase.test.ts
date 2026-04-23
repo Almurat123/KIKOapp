@@ -663,6 +663,76 @@ test('explicit swap syntax without chain name uses current chain fast quote lane
     assert.doesNotMatch(broker.getContent(), /Would you like me to quote/i);
 });
 
+test('explicit sell-all syntax uses current chain balance in fast quote lane without generation', async () => {
+    const snapshot = makeSnapshot('sell all usdc to eth', {
+        requestedTokenSymbols: ['USDC', 'ETH'],
+        runtime: {
+            chainId: 8453,
+            chainName: 'Base',
+            nativeBalance: '0.03823547',
+            userId: 'user-1',
+            toolContext: {
+                chainId: 8453,
+                chainName: 'Base',
+                nativeBalance: '0.03823547',
+                balance: [
+                    {
+                        symbol: 'USDC',
+                        balance: '4.797005',
+                        decimals: 6,
+                        contractAddress: '0x833589fCD6eDb6E08f4c7C32D4f71B54bdA02913',
+                    },
+                ],
+                toolConfig: {
+                    showQuoteBeforeSwap: true,
+                    customSlippage: '0.5',
+                },
+            },
+        },
+    });
+    const broker = makeBroker();
+    const generationClient = {
+        async generate() {
+            throw new Error('generation should not be called for fast swap lane');
+        },
+    };
+    const seenCalls: Array<{ name: string; arguments: Record<string, any> }> = [];
+
+    await runNodeOrchestration({
+        snapshot,
+        generationClient: generationClient as any,
+        toolExecutionEngine: {
+            async execute(call: any) {
+                seenCalls.push({ name: call.name, arguments: call.arguments || {} });
+                if (call.name === 'simulate_swap') {
+                    return {
+                        id: call.id,
+                        name: call.name,
+                        arguments: call.arguments,
+                        ok: true,
+                        result: {
+                            expected_out_human: '0.002054',
+                            price_impact: '0.76%',
+                        },
+                    };
+                }
+                throw new Error(`unexpected tool ${call.name}`);
+            },
+        } as any,
+        broker: broker as any,
+        toolContext: snapshot.runtime.toolContext || {},
+    });
+
+    assert.deepEqual(seenCalls.map((call) => call.name).sort(), ['simulate_swap']);
+    assert.equal(seenCalls.find((call) => call.name === 'simulate_swap')?.arguments.chain_id, 8453);
+    assert.equal(seenCalls.find((call) => call.name === 'simulate_swap')?.arguments.token_in, 'USDC');
+    assert.equal(seenCalls.find((call) => call.name === 'simulate_swap')?.arguments.token_out, 'ETH');
+    assert.equal(seenCalls.find((call) => call.name === 'simulate_swap')?.arguments.amount_in, '4.797005');
+    assert.match(broker.getContent(), /Fast quote ready|已获取快速报价/);
+    assert.match(broker.getContent(), /4\.797005 USDC/);
+    assert.doesNotMatch(broker.getContent(), /quote-required step is missing|Would you like me to quote/i);
+});
+
 test('route-selected clarification stops before canonical normalization or main generation', async () => {
     const snapshot = makeSnapshot('Use the reference image to make a new poster');
     const broker = makeBroker();

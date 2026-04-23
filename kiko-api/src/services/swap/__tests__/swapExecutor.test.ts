@@ -186,3 +186,20 @@ test('turbo copytrade buy token-info bypass only activates for explicit copytrad
     isSell: false,
   } as any), false);
 });
+
+test('interactive wallet swaps use the lightweight token metadata path', () => {
+  assert.equal(__swapExecutorTest.isInteractiveWalletSwap({
+    feeContext: 'swap',
+    runtimeContext: { mode: 'swap-card' },
+  } as any), true);
+
+  assert.equal(__swapExecutorTest.isInteractiveWalletSwap({
+    feeContext: 'swap',
+    runtimeContext: { mode: 'allowance' },
+  } as any), true);
+
+  assert.equal(__swapExecutorTest.isInteractiveWalletSwap({
+    feeContext: 'copyTrade',
+    runtimeContext: { mode: 'swap-card' },
+  } as any), false);
+});

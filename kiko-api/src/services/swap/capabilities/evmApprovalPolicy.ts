@@ -3,7 +3,10 @@ import type { OrderRuntimeContext } from '../../order-runtime/types.js';
 export interface EvmApprovalPolicyDecision {
   preferPermit2: boolean;
   allowSignedPermit: boolean;
-  reasonCode?: 'copytrade_exit_explicit_approval_preferred' | 'confirmed_sell_explicit_approval_preferred';
+  reasonCode?:
+  | 'copytrade_exit_explicit_approval_preferred'
+  | 'confirmed_sell_explicit_approval_preferred'
+  | 'wallet_erc20_input_explicit_approval_preferred';
 }
 
 function isCopytradeExit(runtimeContext?: OrderRuntimeContext): boolean {
@@ -18,6 +21,7 @@ function isWalletSellRuntime(runtimeContext?: OrderRuntimeContext): boolean {
 export function resolveEvmApprovalPolicy(params: {
   chainId: number;
   isSellTx: boolean;
+  tokenInRequiresApproval?: boolean;
   waitForConfirmation?: boolean;
   runtimeContext?: OrderRuntimeContext;
 }): EvmApprovalPolicyDecision {
@@ -31,19 +35,14 @@ export function resolveEvmApprovalPolicy(params: {
   // Debug Goal: confirmed sell flows use explicit 0x approval; buy flows can still use Permit2.
   // Search Tags: wallet page permit2 spender not 0x confirmed sell explicit approval
   // Invariants:
-  // - confirmed EVM sells do not prefer Permit2 or signed permits.
-  // - non-sell flows keep Permit2 enabled.
+  // - wallet EVM swaps with ERC20 input do not prefer Permit2 or signed permits.
+  // - native-input buy flows keep Permit2 enabled because no token approval is needed.
   // Failure Modes:
   // - user sees Permit2 / uniswap-style spender on wallet-page sell approval.
   // - permit2 sell path succeeds on approval but fails on execution with limited diagnosis.
   // - allowance-mode chat sells skip confirmation wait, accidentally re-enable Permit2,
   //   and then broadcast a quote that still needs an off-chain signature.
-  if (!params.isSellTx) {
-    return {
-      preferPermit2: true,
-      allowSignedPermit: true
-    };
-  }
+  const walletRuntime = isWalletSellRuntime(params.runtimeContext);
 
   if (params.waitForConfirmation && isCopytradeExit(params.runtimeContext)) {
     return {
@@ -53,7 +52,22 @@ export function resolveEvmApprovalPolicy(params: {
     };
   }
 
-  if (isWalletSellRuntime(params.runtimeContext)) {
+  if (walletRuntime && params.tokenInRequiresApproval) {
+    return {
+      preferPermit2: false,
+      allowSignedPermit: false,
+      reasonCode: 'wallet_erc20_input_explicit_approval_preferred'
+    };
+  }
+
+  if (!params.isSellTx) {
+    return {
+      preferPermit2: true,
+      allowSignedPermit: true
+    };
+  }
+
+  if (walletRuntime) {
     return {
       preferPermit2: false,
       allowSignedPermit: false,

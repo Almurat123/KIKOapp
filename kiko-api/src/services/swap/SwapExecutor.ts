@@ -317,6 +317,12 @@ function shouldSkipCopytradeTokenInfoHotPath(params: Pick<SwapParams, 'feeContex
         && params.isSell !== true;
 }
 
+function isInteractiveWalletSwap(params: Pick<SwapParams, 'feeContext' | 'runtimeContext'>): boolean {
+    const mode = String(params.runtimeContext?.mode || '').trim().toLowerCase();
+    return params.feeContext === 'swap'
+        && (mode === 'swap-card' || mode === 'allowance' || mode === 'fast-swap');
+}
+
 async function withSoftTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {
     return await Promise.race([
         promise,
@@ -374,6 +380,10 @@ export class SwapExecutor {
         const { userId, walletAddress, tokenIn, tokenOut, amountIn, chainId, slippageBps: requestedSlippage, feeContext } = params;
         const isCopytradeSellHotPath = feeContext === 'copyTrade' && (params.isSell === true || !tokenOut);
         const skipCopytradeTokenInfoHotPath = shouldSkipCopytradeTokenInfoHotPath(params);
+        const skipWalletTokenInfoHotPath = isInteractiveWalletSwap({
+            feeContext,
+            runtimeContext: params.runtimeContext,
+        });
 
         // 1. Resolve Token Addresses & Metadata
         const resolveToken = async (token: string) => {
@@ -386,6 +396,9 @@ export class SwapExecutor {
                 return ethers.getAddress(token);
             }
             if (skipCopytradeTokenInfoHotPath && ethers.isAddress(token)) {
+                return ethers.getAddress(token);
+            }
+            if (skipWalletTokenInfoHotPath && ethers.isAddress(token)) {
                 return ethers.getAddress(token);
             }
             const info = await getTokenInfo(token, chainId);
@@ -412,21 +425,22 @@ export class SwapExecutor {
         const slippageBps = requestedSlippage ?? (isSellTx ? 1500 : 1000);
         const isSellForFee = isSellTx;
 
-        if (skipCopytradeTokenInfoHotPath) {
-            logger.info(LogCode.SYS_INFO, 'Turbo copytrade buy token-info bypass enabled', {
+        if (skipCopytradeTokenInfoHotPath || skipWalletTokenInfoHotPath) {
+            logger.info(LogCode.SYS_INFO, 'Swap token-info bypass enabled for latency-sensitive path', {
                 chainId,
                 tokenIn: actualTokenInFixed,
                 tokenOut: actualTokenOutFixed,
+                reason: skipWalletTokenInfoHotPath ? 'interactive_wallet_swap' : 'turbo_copytrade_buy',
             });
         }
 
         const [tokenInInfo, tokenOutInfo] = await Promise.all([
-            skipCopytradeTokenInfoHotPath
+            skipCopytradeTokenInfoHotPath || skipWalletTokenInfoHotPath
                 ? Promise.resolve(isNativeIn ? { decimals: 18 } : null)
                 : isCopytradeSellHotPath
                 ? Promise.resolve(null)
                 : getTokenInfo(actualTokenInFixed, chainId, { verbose: false }),
-            isNativeOut || isCopytradeSellHotPath || skipCopytradeTokenInfoHotPath
+            isNativeOut || isCopytradeSellHotPath || skipCopytradeTokenInfoHotPath || skipWalletTokenInfoHotPath
                 ? Promise.resolve(isNativeOut ? { decimals: 18 } : null)
                 : getTokenInfo(actualTokenOutFixed, chainId, { verbose: false }),
         ]);
@@ -587,7 +601,9 @@ export class SwapExecutor {
 
         // 2.5 Fetch token prices for price impact calculation
         let refPrice: number | null = null;
-        const skipRefPriceFetch = params.executionMode === 'turbo' && feeContext === 'copyTrade';
+        const skipRefPriceFetch =
+            (params.executionMode === 'turbo' && feeContext === 'copyTrade')
+            || skipWalletTokenInfoHotPath;
         if (!skipRefPriceFetch) {
             try {
                 const [tokenInPrice, tokenOutPrice] = await Promise.all([
@@ -616,12 +632,15 @@ export class SwapExecutor {
                 // Continue without refPrice - impact calc will fall back to 0
             }
         } else {
-            logger.info(LogCode.SYS_INFO, '[SwapExecutor] Turbo copytrade: skipping refPrice fetch');
+            logger.info(LogCode.SYS_INFO, '[SwapExecutor] Skipping refPrice fetch on latency-sensitive path', {
+                reason: skipWalletTokenInfoHotPath ? 'interactive_wallet_swap' : 'turbo_copytrade'
+            });
         }
 
         const sellReliability = scoreEvmSellReliability({
             chainId,
             isSellTx,
+            tokenInRequiresApproval: !isNativeIn,
             waitForConfirmation: params.waitForConfirmation,
             runtimeContext: params.runtimeContext
         });
@@ -649,29 +668,29 @@ export class SwapExecutor {
             : params.zeroExQuoteTimeoutMs;
 
         let preferPermit2 = params.preferPermit2 !== false && sellReliability.preferPermit2;
-        if (preferPermit2 && isSellTx && !isNativeIn) {
+        if (preferPermit2 && !isNativeIn) {
             const holder = ZEROX_ALLOWANCE_HOLDER_BY_CHAIN[chainId];
             if (holder) {
                 try {
                     const existingAllowance = await getErc20Allowance(actualTokenInFixed, walletAddress, holder, chainId, 'latest', { lane: 'critical' });
                     if (existingAllowance >= BigInt(amountInBase)) {
                         preferPermit2 = false;
-                        logger.info(LogCode.SYS_INFO, 'Detected sufficient 0x allowance-holder allowance; bypassing permit2 for sell', {
+                        logger.info(LogCode.SYS_INFO, 'Detected sufficient 0x allowance-holder allowance; bypassing permit2 for ERC20 input', {
                             chainId,
                             token: actualTokenInFixed,
                             spender: holder
                         });
                     }
                 } catch (allowanceErr: any) {
-                    logger.warn(LogCode.SYS_ERROR, 'Failed to check 0x allowance-holder allowance; keep permit2 preference', {
+                    logger.warn(LogCode.SYS_ERROR, 'Failed to check 0x allowance-holder allowance; keep current approval preference', {
                         chainId,
                         token: actualTokenInFixed,
                         error: allowanceErr?.message || String(allowanceErr)
                     });
                 }
             }
-        } else if (params.preferPermit2 !== false && isSellTx && !isNativeIn && !sellReliability.preferPermit2) {
-            logger.info(LogCode.SYS_INFO, 'Sell reliability scorer disabled permit2 preference', {
+        } else if (params.preferPermit2 !== false && !isNativeIn && !sellReliability.preferPermit2) {
+            logger.info(LogCode.SYS_INFO, 'Approval policy disabled permit2 preference for ERC20 input', {
                 chainId,
                 token: actualTokenInFixed,
                 reasonCode: sellReliability.reasonCode || 'sell_reliability_explicit_approval'
@@ -721,7 +740,7 @@ export class SwapExecutor {
             });
         }
 
-        if (isSellTx && !isNativeIn && requiresExplicitApprovalQuote({
+        if (!isNativeIn && requiresExplicitApprovalQuote({
             chainId,
             quote: best,
             preferPermit2,
@@ -2032,4 +2051,5 @@ export const __swapExecutorTest = {
     isPermit2Quote,
     requiresExplicitApprovalQuote,
     shouldSkipCopytradeTokenInfoHotPath,
+    isInteractiveWalletSwap,
 };

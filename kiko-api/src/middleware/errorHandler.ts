@@ -6,6 +6,7 @@
 import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { applyCorsResponseHeaders } from './corsPolicy.js';
 
 /**
  * Custom error class for API errors
@@ -114,6 +115,7 @@ export async function errorHandler(error: any, request: any, reply: any) {
     const statusCode = error.statusCode || 500;
 
     // Send error response
+    applyCorsResponseHeaders(request, reply);
     reply.status(statusCode).send(response);
 }
 
@@ -122,6 +124,7 @@ export async function errorHandler(error: any, request: any, reply: any) {
  */
 export async function notFoundHandler(request: any, reply: any) {
     const requestId = getRequestId(request);
+    applyCorsResponseHeaders(request, reply);
     reply.status(404).send({
         success: false,
         error: 'Route not found',

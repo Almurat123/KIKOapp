@@ -141,6 +141,19 @@ function isAmbiguousSwapFailure(statusCode: number | null, error: unknown): bool
     return Boolean(statusCode && statusCode >= 502 && parseFailure);
 }
 
+function isGatewayMaskedSwapFailure(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error || '');
+    const normalized = message.toLowerCase();
+    return normalized.includes('load failed')
+        || normalized.includes('failed to fetch')
+        || normalized.includes('networkerror')
+        || normalized.includes('fetch failed');
+}
+
+function buildGatewayMaskedSwapErrorMessage(): string {
+    return 'The API gateway blocked the swap result before the app could read it. No success response was received. Please retry after the gateway or CORS layer recovers.';
+}
+
 async function reconcileRecentInstantSwap(params: {
     userAddress?: string;
     tokenIn: string;
@@ -362,6 +375,10 @@ export async function executeSwapInstant(params: {
                     startedAtMs,
                 });
                 if (reconciled) return reconciled;
+                return {
+                    success: false,
+                    error: buildGatewayMaskedSwapErrorMessage(),
+                };
             }
             throw parseError;
         }
@@ -409,7 +426,7 @@ export async function executeSwapInstant(params: {
         }
         return {
             success: false,
-            error: message,
+            error: isGatewayMaskedSwapFailure(error) ? buildGatewayMaskedSwapErrorMessage() : message,
         };
     }
 }

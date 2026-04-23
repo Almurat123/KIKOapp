@@ -136,8 +136,6 @@ interface ChatModelFamilyControlOption {
   disabledReason?: string;
 }
 
-const IMAGE_UNAVAILABLE_REASON = 'Unavailable';
-
 const BINARY_REASONING_OPTIONS: ChatModelFamilyControlOption[] = [
   { id: 'fast', label: 'Fast' },
   { id: 'thinking', label: 'Thinking' },

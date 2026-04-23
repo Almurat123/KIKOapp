@@ -73,6 +73,7 @@ export interface ControlPolicySnapshot {
     controlPlane: 'node';
     mutationAllowed: boolean;
     enforcementLevel: EnforcementLevel;
+    enforceIntentAllowlist?: boolean;
     allowedTools: string[];
     mutationToolAllowlist: string[];
     providerNativeTools: string[];
@@ -153,6 +154,7 @@ export function buildControlPolicySnapshot(params: {
         controlPlane: 'node',
         mutationAllowed: actionClass !== 'READ_ONLY',
         enforcementLevel: 'hard',
+        enforceIntentAllowlist: true,
         allowedTools: Array.from(allowedSet),
         mutationToolAllowlist: [...mutationToolAllowlist],
         providerNativeTools: [...PROVIDER_NATIVE_TOOLS],
@@ -289,7 +291,7 @@ export function checkToolAgainstPolicy(params: {
             policy,
         );
     }
-    if (!policy.allowedTools.includes(toolName)) {
+    if (policy.enforceIntentAllowlist !== false && !policy.allowedTools.includes(toolName)) {
         return createPolicyError(
             'POLICY_UNAUTHORIZED_TOOL',
             `Tool "${toolName}" is not allowed for this intent`,

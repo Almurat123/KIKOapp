@@ -468,6 +468,9 @@ export async function getZeroExQuote(
     const endpoint = useLegacyEndpoint
       ? '/swap/v1/quote'
       : (preferPermit2 ? '/swap/permit2/quote' : '/swap/allowance-holder/quote');
+    let usedEndpoint: 'v1' | 'permit2' | 'allowance-holder' = useLegacyEndpoint
+      ? 'v1'
+      : (preferPermit2 ? 'permit2' : 'allowance-holder');
 
     // CRITICAL: taker parameter is REQUIRED for allowance-holder endpoint
     // At this point, takerAddress is guaranteed to be valid (checked above)
@@ -579,11 +582,12 @@ export async function getZeroExQuote(
     // Check if response has valid transaction data
     // allowance-holder endpoint returns { transaction: { to, data, value }, buyAmount, ... }
     // v1 endpoint returns { to, data, value, buyAmount, ... } directly
-    const hasValidData = rawData && (
-      (rawData.transaction?.to && rawData.transaction?.data) || // permit2 format
-      (rawData.to && rawData.data) || // v1 format
-      rawData.buyAmount // At minimum should have buyAmount
-    );
+    const quoteHasValidData = (data: any): boolean => Boolean(data && (
+      (data.transaction?.to && data.transaction?.data) || // v2 format
+      (data.to && data.data) || // v1 format
+      data.buyAmount // At minimum should have buyAmount
+    ));
+    let hasValidData = quoteHasValidData(rawData);
 
     // If Permit2 endpoint fails/invalid, try allowance-holder first.
     if ((!responseWasOk || !hasValidData) && !useLegacyEndpoint && preferPermit2) {
@@ -604,6 +608,8 @@ export async function getZeroExQuote(
         });
         responseWasOk = true;
         httpStatus = 200;
+        usedEndpoint = 'allowance-holder';
+        hasValidData = quoteHasValidData(rawData);
       } catch (allowanceErr: any) {
         responseWasOk = false;
         const statusMatch = String(allowanceErr?.message || '').match(/HTTP (\d+):\s*(.+)/);
@@ -696,6 +702,8 @@ export async function getZeroExQuote(
         logger.info(LogCode.API_FETCH_SUCCESS, '0x API Fallback to v1 endpoint succeeded');
         rawData = fallbackData;
         responseWasOk = true;
+        usedEndpoint = 'v1';
+        hasValidData = quoteHasValidData(rawData);
 
         // Transform fallback data to expected format if needed
         // But here we just return the compatible shape below
@@ -762,7 +770,7 @@ export async function getZeroExQuote(
       sellToken,
       buyToken,
       buyAmount: rawData.buyAmount,
-      usedEndpoint: useLegacyEndpoint ? 'v1' : 'allowance-holder'
+      usedEndpoint
     });
 
     // 0x API v2 (allowance-holder) returns { transaction: { to, data, value, ... }, ... }
@@ -779,7 +787,7 @@ export async function getZeroExQuote(
     }
 
     const allowanceTarget = rawData.allowanceTarget || rawData.issues?.allowance?.spender;
-    const permit2Payload = rawData?.permit2?.eip712
+    const permit2Payload = usedEndpoint === 'permit2' && rawData?.permit2?.eip712
       ? {
         domain: rawData.permit2.eip712.domain || {},
         types: rawData.permit2.eip712.types || {},
@@ -787,8 +795,12 @@ export async function getZeroExQuote(
         message: rawData.permit2.eip712.message || {}
       }
       : null;
-    const permit2Spender = rawData?.permit2?.spender || rawData?.permit2?.eip712?.message?.spender || null;
-    const permit2Expiry = rawData?.permit2?.expiry || rawData?.permit2?.eip712?.message?.sigDeadline || null;
+    const permit2Spender = usedEndpoint === 'permit2'
+      ? (rawData?.permit2?.spender || rawData?.permit2?.eip712?.message?.spender || null)
+      : null;
+    const permit2Expiry = usedEndpoint === 'permit2'
+      ? (rawData?.permit2?.expiry || rawData?.permit2?.eip712?.message?.sigDeadline || null)
+      : null;
 
     const data: ZeroExQuote = {
       ...rawData,
@@ -873,7 +885,7 @@ export async function getZeroExQuote(
       buyToken: normalizeBuyToken.slice(0, 12),
       buyAmount: data.buyAmount,
       hasAllowanceIssue: !!data.issues?.allowance,
-      usedEndpoint: useLegacyEndpoint ? 'v1' : (data.permit2Payload ? 'permit2' : 'allowance-holder')
+      usedEndpoint
     });
 
     return data;

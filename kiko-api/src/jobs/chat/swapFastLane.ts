@@ -11,6 +11,117 @@ function detectLocale(snapshot: ChatContextSnapshot): 'en' | 'zh' {
         || resolveBinaryLocale(String(snapshot.lastUserMessage || ''), snapshot.normalizedIntent?.locale);
 }
 
+const CHAIN_BALANCE_KEYS: Record<number, string> = {
+    1: 'eth',
+    10: 'optimism',
+    56: 'bsc',
+    137: 'polygon',
+    42161: 'arbitrum',
+    8453: 'base',
+    900: 'solana',
+};
+
+const CHAIN_NATIVE_SYMBOLS: Record<number, Set<string>> = {
+    1: new Set(['ETH', 'WETH']),
+    10: new Set(['ETH', 'WETH']),
+    56: new Set(['BNB', 'WBNB']),
+    137: new Set(['POL', 'MATIC', 'WMATIC']),
+    42161: new Set(['ETH', 'WETH']),
+    8453: new Set(['ETH', 'WETH']),
+    900: new Set(['SOL', 'WSOL']),
+};
+
+type StructuredSwapRequest = {
+    tokenIn: string;
+    tokenOut: string;
+    amountIn: string;
+    chainId: number;
+    chainName: string;
+    amountKind: 'direct' | 'balance_all' | 'balance_percent';
+};
+
+type NormalizedBalanceEntry = {
+    symbol: string;
+    balance: string;
+    decimals?: number;
+    contractAddress?: string;
+};
+
+function isNormalizedBalanceEntry(entry: NormalizedBalanceEntry | null): entry is NormalizedBalanceEntry {
+    return Boolean(entry);
+}
+
+function normalizeBalanceEntries(entries: any): NormalizedBalanceEntry[] {
+    if (!Array.isArray(entries)) return [];
+    return entries
+        .map((entry): NormalizedBalanceEntry | null => {
+            if (!entry || typeof entry !== 'object') return null;
+            const symbol = String(entry.symbol || entry.tokenSymbol || '').trim();
+            const balance = entry.balance ?? entry.tokenBalance ?? entry.amount;
+            if (!symbol || balance == null) return null;
+            return {
+                symbol,
+                balance: String(balance),
+                decimals: typeof entry.decimals === 'number' ? entry.decimals : undefined,
+                contractAddress: entry.contractAddress || entry.contract || entry.address || undefined,
+            };
+        })
+        .filter(isNormalizedBalanceEntry);
+}
+
+function resolveCurrentChainBalanceSnapshot(snapshot: ChatContextSnapshot, chainId: number): { ethBalance?: string; tokens: NormalizedBalanceEntry[] } | null {
+    const toolContext = snapshot.runtime?.toolContext || {};
+    const directTokens = normalizeBalanceEntries(toolContext.balance);
+    const directNativeBalance = toolContext.nativeBalance ?? snapshot.runtime?.nativeBalance;
+    if (directTokens.length > 0 || directNativeBalance != null) {
+        return {
+            ethBalance: directNativeBalance != null ? String(directNativeBalance) : undefined,
+            tokens: directTokens,
+        };
+    }
+
+    const chainKey = CHAIN_BALANCE_KEYS[chainId];
+    const chainSnapshot = chainKey && toolContext.allChainBalances && typeof toolContext.allChainBalances === 'object'
+        ? toolContext.allChainBalances[chainKey]
+        : null;
+    if (!chainSnapshot || typeof chainSnapshot !== 'object') return null;
+
+    const tokens = normalizeBalanceEntries(chainSnapshot.tokens);
+    const ethBalance = chainSnapshot.ethBalanceFormatted ?? chainSnapshot.ethBalance ?? chainSnapshot.nativeBalance;
+    if (tokens.length === 0 && ethBalance == null) return null;
+
+    return {
+        ethBalance: ethBalance != null ? String(ethBalance) : undefined,
+        tokens,
+    };
+}
+
+function resolveStructuredAmountIn(snapshot: ChatContextSnapshot, parsed: StructuredSwapRequest): string | null {
+    if (parsed.amountKind === 'direct') return parsed.amountIn;
+
+    const chainSnapshot = resolveCurrentChainBalanceSnapshot(snapshot, parsed.chainId);
+    if (!chainSnapshot) return null;
+
+    const tokenInUpper = String(parsed.tokenIn || '').trim().toUpperCase();
+    const isNative = Boolean(CHAIN_NATIVE_SYMBOLS[parsed.chainId]?.has(tokenInUpper));
+    const rawBalance = isNative
+        ? chainSnapshot.ethBalance
+        : chainSnapshot.tokens.find((token) => String(token.symbol || '').trim().toUpperCase() === tokenInUpper)?.balance;
+    if (!rawBalance) return null;
+
+    if (parsed.amountKind === 'balance_all') {
+        return String(rawBalance);
+    }
+
+    const percent = parseFloat(parsed.amountIn);
+    const balanceNum = Number(rawBalance);
+    if (!Number.isFinite(percent) || percent <= 0 || !Number.isFinite(balanceNum) || balanceNum <= 0) {
+        return null;
+    }
+
+    return String(balanceNum * (percent / 100));
+}
+
 // CONTEXT MEMORY
 // Updated: 2026-04-23
 // Status: verified
@@ -25,13 +136,7 @@ function detectLocale(snapshot: ChatContextSnapshot): 'en' | 'zh' {
 // Failure Modes:
 // - parser only recognizes "buy X for Y on chain" and misses "swap A to B"
 // - missing chain clause blocks a valid quote on the current connected chain
-function parseStructuredSwapRequest(snapshot: ChatContextSnapshot): {
-    tokenIn: string;
-    tokenOut: string;
-    amountIn: string;
-    chainId: number;
-    chainName: string;
-} | null {
+function parseStructuredSwapRequest(snapshot: ChatContextSnapshot): StructuredSwapRequest | null {
     const raw = String(snapshot.lastUserMessage || '').trim();
     const resolveTargetChain = (chainRaw?: string | null) => {
         const explicitChain = chainRaw ? normalizeChainAlias(chainRaw) : null;
@@ -48,6 +153,7 @@ function parseStructuredSwapRequest(snapshot: ChatContextSnapshot): {
         tokenInRaw: string;
         tokenOutRaw: string;
         amountIn: string;
+        amountKind?: 'direct' | 'balance_all' | 'balance_percent';
         chainRaw?: string | null;
     }) => {
         const targetChain = resolveTargetChain(params.chainRaw);
@@ -58,9 +164,12 @@ function parseStructuredSwapRequest(snapshot: ChatContextSnapshot): {
             return null;
         }
 
-        const tokenOut = (snapshot.requestedTokenAddresses?.[0]
-            || params.tokenOutRaw.trim());
+        const tokenOutSource = snapshot.requestedTokenAddresses?.[0]
+            || params.tokenOutRaw.trim();
         const tokenIn = params.tokenInRaw.trim().toUpperCase();
+        const tokenOut = /^0x[a-fA-F0-9]{40}$/.test(tokenOutSource)
+            ? tokenOutSource
+            : tokenOutSource.toUpperCase();
         const amountIn = params.amountIn.trim();
         if (!tokenOut || !amountIn || !tokenIn) return null;
 
@@ -70,6 +179,7 @@ function parseStructuredSwapRequest(snapshot: ChatContextSnapshot): {
             amountIn,
             chainId: targetChain.chainId,
             chainName: targetChain.chainName,
+            amountKind: params.amountKind || 'direct',
         };
     };
 
@@ -80,6 +190,7 @@ function parseStructuredSwapRequest(snapshot: ChatContextSnapshot): {
             tokenInRaw,
             tokenOutRaw,
             amountIn,
+            amountKind: 'direct',
             chainRaw,
         });
     }
@@ -91,6 +202,25 @@ function parseStructuredSwapRequest(snapshot: ChatContextSnapshot): {
             tokenInRaw,
             tokenOutRaw,
             amountIn,
+            amountKind: 'direct',
+            chainRaw,
+        });
+    }
+
+    const sellMatch = raw.match(/^\s*sell\s+(all|\d+(?:\.\d+)?%?|\d+(?:\.\d+)?)\s+([A-Za-z0-9$._-]+|0x[a-fA-F0-9]{40})\s+(?:to|for)\s+([A-Za-z0-9$._-]+|0x[a-fA-F0-9]{40})\s*(?:(?:on|in)\s+(.+?))?\s*$/i);
+    if (sellMatch) {
+        const [, amountRaw, tokenInRaw, tokenOutRaw, chainRaw] = sellMatch;
+        const normalizedAmount = String(amountRaw || '').trim();
+        const amountKind = normalizedAmount.toLowerCase() === 'all'
+            ? 'balance_all'
+            : normalizedAmount.endsWith('%')
+                ? 'balance_percent'
+                : 'direct';
+        return buildParsed({
+            tokenInRaw,
+            tokenOutRaw,
+            amountIn: amountKind === 'balance_percent' ? normalizedAmount.slice(0, -1) : normalizedAmount,
+            amountKind,
             chainRaw,
         });
     }
@@ -241,6 +371,10 @@ export async function tryRunFastSwapLane(params: {
     const parsed = parseStructuredSwapRequest(params.snapshot);
     if (!parsed) return false;
     if (params.snapshot.confirmationState?.kind) return false;
+    const amountIn = resolveStructuredAmountIn(params.snapshot, parsed);
+    if (!amountIn || !Number.isFinite(Number(amountIn)) || Number(amountIn) <= 0) {
+        return false;
+    }
 
     const locale = detectLocale(params.snapshot);
     const simulateCall: OrchestratorToolCall = {
@@ -249,7 +383,7 @@ export async function tryRunFastSwapLane(params: {
         arguments: {
             token_in: parsed.tokenIn,
             token_out: parsed.tokenOut,
-            amount_in: parsed.amountIn,
+            amount_in: amountIn,
             chain_id: parsed.chainId,
             slippage: params.task.toolContext?.toolConfig?.customSlippage
                 ? Number(params.task.toolContext.toolConfig.customSlippage)
@@ -277,7 +411,7 @@ export async function tryRunFastSwapLane(params: {
             chainName: parsed.chainName,
             tokenIn: parsed.tokenIn,
             tokenOut: parsed.tokenOut,
-            amountIn: parsed.amountIn,
+            amountIn,
             nativeBalance: params.snapshot.runtime?.nativeBalance,
             tokenInfo: null,
             quote: simulateResult.result,

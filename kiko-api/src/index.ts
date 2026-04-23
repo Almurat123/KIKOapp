@@ -155,6 +155,7 @@ import { xIngressWorker } from './services/x/index.js';
 import { ensureXBotCredentialsLoaded } from './services/x/xCredentialsService.js';
 import { xAuthRoutes } from './routes/xAuth.js';
 import { closeHubClient, farcasterIngressWorker } from './services/farcaster-agent/index.js';
+import { applyCorsResponseHeaders, isAllowedCorsOrigin } from './middleware/corsPolicy.js';
 
 const fastify = Fastify({
     logger: {
@@ -170,40 +171,16 @@ const fastify = Fastify({
 installConsoleInterception();
 
 // Register CORS
-const corsOrigins = env.corsOrigin
-    .split(',')
-    .map((o) => o.trim().replace(/\/+$/, ''))
-    .filter(Boolean);
-const corsOriginsSet = new Set(corsOrigins);
-
-function isAllowedCorsOrigin(origin?: string): boolean {
-    if (!origin) {
-        return true;
-    }
-    const normalized = origin.replace(/\/+$/, '');
-    if (corsOriginsSet.has(normalized)) {
-        return true;
-    }
-    try {
-        const parsed = new URL(normalized);
-        const host = parsed.hostname.toLowerCase();
-        if (host === 'kikoapp.app' || host.endsWith('.kikoapp.app')) {
-            return true;
-        }
-        if (env.nodeEnv !== 'production' && (host === 'localhost' || host === '127.0.0.1')) {
-            return true;
-        }
-    } catch {
-        return false;
-    }
-    return false;
-}
-
 fastify.register(cors, {
     origin: (origin, cb) => {
         cb(null, isAllowedCorsOrigin(origin));
     },
     credentials: true,
+});
+
+fastify.addHook('onSend', async (request, reply, payload) => {
+    applyCorsResponseHeaders(request, reply);
+    return payload;
 });
 
 function isXAuthRoute(url: string): boolean {
@@ -222,9 +199,7 @@ function applyXAuthCorsFallback(request: any, reply: any): void {
     if (!isXAuthRoute(request.url || '')) return;
     const origin = String(request.headers?.origin || '').trim().replace(/\/+$/, '');
     if (!origin || !isAllowedCorsOrigin(origin)) return;
-    reply.header('Access-Control-Allow-Origin', origin);
-    reply.header('Vary', 'Origin');
-    reply.header('Access-Control-Allow-Credentials', 'true');
+    applyCorsResponseHeaders(request, reply);
     reply.header('Access-Control-Allow-Methods', 'GET,OPTIONS');
     reply.header('Access-Control-Allow-Headers', 'Authorization,Content-Type,X-App-Key,X-Requested-With');
     reply.header('Access-Control-Max-Age', '600');

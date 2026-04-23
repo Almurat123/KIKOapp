@@ -283,6 +283,88 @@ test('runChatV2Turn short-circuits route selection for explicit swap syntax', as
     assert.match(broker.getContent(), /Fast quote ready|已获取快速报价/);
 });
 
+test('runChatV2Turn short-circuits route selection for explicit sell-all syntax', async () => {
+    const taskIds: string[] = [];
+    const executedTools: Array<{ name: string; arguments: Record<string, any> }> = [];
+    const generationClient = {
+        async generate(params: { taskId: string }) {
+            taskIds.push(params.taskId);
+            throw new Error(`generation should not be called: ${params.taskId}`);
+        },
+    } as any;
+    const broker = makeBroker();
+
+    const result = await runChatV2Turn({
+        snapshot: makeSnapshot('sell all usdc to eth', {
+            requestedTokenSymbols: ['USDC', 'ETH'],
+            runtime: {
+                chainId: 8453,
+                chainName: 'Base',
+                nativeBalance: '0.03823547',
+                userSettings: {
+                    showQuoteBeforeSwap: true,
+                },
+                toolContext: {
+                    chainId: 8453,
+                    chainName: 'Base',
+                    nativeBalance: '0.03823547',
+                    balance: [
+                        {
+                            symbol: 'USDC',
+                            balance: '4.797005',
+                            decimals: 6,
+                            contractAddress: '0x833589fCD6eDb6E08f4c7C32D4f71B54bdA02913',
+                        },
+                    ],
+                    toolConfig: {
+                        showQuoteBeforeSwap: true,
+                        customSlippage: '0.5',
+                    },
+                },
+            },
+        }),
+        task: {
+            id: 'task-runner',
+            sessionId: 'session-runner',
+            assistantMessageId: 'assistant-runner',
+            model: 'gpt-5.4-mini',
+            toolContext: {
+                toolConfig: {
+                    showQuoteBeforeSwap: true,
+                    customSlippage: '0.5',
+                },
+            },
+        },
+        userId: 'user-runner',
+        broker: broker as any,
+        generationClient,
+        toolExecutionEngine: {
+            async execute(call: any) {
+                executedTools.push({ name: call.name, arguments: call.arguments || {} });
+                return {
+                    id: call.id,
+                    name: call.name,
+                    arguments: call.arguments,
+                    ok: true,
+                    result: {
+                        expected_out_human: '0.002054',
+                        price_impact: '0.76%',
+                    },
+                    metadata: { source: 'tool_runtime' },
+                };
+            },
+        } as any,
+    });
+
+    assert.deepEqual(taskIds, []);
+    assert.equal(result.snapshot.taskRoute?.owner, 'swap');
+    assert.equal(result.snapshot.taskRoute?.phase, 'execute');
+    assert.deepEqual(executedTools.map((tool) => tool.name), ['simulate_swap']);
+    assert.equal(executedTools[0]?.arguments.amount_in, '4.797005');
+    assert.match(broker.getContent(), /Fast quote ready|已获取快速报价/);
+    assert.match(broker.getContent(), /4\.797005 USDC/);
+});
+
 test('runChatV2Turn puts image execute turns into forced image tool work mode', async () => {
     const seenRounds: Array<{ tools: string[]; toolChoice: any; content: string }> = [];
     const generationClient = {
@@ -406,6 +488,152 @@ test('runChatV2Turn puts image execute turns into forced image tool work mode', 
         },
     });
     assert.match(seenRounds[0]!.content, /\[IMAGE_EXECUTION_WORK_MODE\]/);
+});
+
+test('runChatV2Turn updates control policy after a mid-turn image reroute', async () => {
+    let routeSelectionCount = 0;
+    const toolPolicyAllowedTools: string[][] = [];
+    const generationClient = {
+        async generate(params: {
+            taskId: string;
+            tools?: Array<{ function?: { name?: string } }>;
+        }) {
+            if (params.taskId.endsWith(':route')) {
+                routeSelectionCount += 1;
+                const isImageRoute = routeSelectionCount === 2;
+                return {
+                    toolCalls: [],
+                    text: JSON.stringify({
+                        owner: isImageRoute ? 'image' : 'general_answer',
+                        phase: isImageRoute ? 'execute' : 'answer',
+                        facets: isImageRoute ? ['reference_image', 'social_images'] : [],
+                        entities: {
+                            token_addresses: [],
+                            token_symbols: [],
+                            wallet_addresses: [],
+                            market_identifiers: [],
+                            image_refs: isImageRoute ? ['https://example.com/reference.png'] : [],
+                        },
+                        requested_chain: null,
+                        requested_time_window: null,
+                        row_count: null,
+                        inherit_entities_from_context: true,
+                        locale: 'en',
+                        needs_clarification: false,
+                        clarification_question: null,
+                        explanation: isImageRoute
+                            ? 'The user wants the previous image request generated now.'
+                            : 'The first pass needs context before selecting a specialist route.',
+                        confidence: 0.98,
+                    }),
+                    reasoning: '',
+                    citations: [],
+                };
+            }
+
+            const toolNames = (params.tools || []).map((tool) => String(tool.function?.name || '')).filter(Boolean);
+            if (toolNames.includes('generate_image_from_intent')) {
+                return {
+                    toolCalls: [
+                        {
+                            id: 'call-image',
+                            name: 'generate_image_from_intent',
+                            arguments: {
+                                user_intent: 'Regenerate the previous image request with the attached reference.',
+                            },
+                        },
+                    ],
+                    text: '',
+                    reasoning: '',
+                    citations: [],
+                };
+            }
+
+            return {
+                toolCalls: [
+                    {
+                        id: 'call-context',
+                        name: 'read_user_context',
+                        arguments: {},
+                    },
+                ],
+                text: '',
+                reasoning: '',
+                citations: [],
+            };
+        },
+    } as any;
+    const broker = makeBroker();
+    const executedTools: string[] = [];
+
+    const result = await runChatV2Turn({
+        snapshot: makeSnapshot('again', {
+            toolDefinitions: [
+                { name: 'read_user_context', description: 'Read user context.', parameters: {} },
+                { name: 'generate_image_from_intent', description: 'Generate an image from user intent.', parameters: {} },
+            ] as any,
+            runtime: {
+                socialInput: {
+                    platform: 'farcaster',
+                    images: [{ url: 'https://example.com/reference.png' }],
+                },
+            },
+        }),
+        task: {
+            id: 'task-runner',
+            sessionId: 'session-runner',
+            assistantMessageId: 'assistant-runner',
+            model: 'gpt-5.4-mini',
+            toolContext: {},
+        },
+        userId: 'user-runner',
+        broker: broker as any,
+        generationClient,
+        toolExecutionEngine: {
+            async execute(call: { id?: string; name: string }, toolContext: Record<string, any>) {
+                executedTools.push(call.name);
+                toolPolicyAllowedTools.push([...(toolContext.__controlPolicy?.allowedTools || [])]);
+                if (call.name === 'generate_image_from_intent') {
+                    return {
+                        id: call.id || 'call-image',
+                        name: call.name,
+                        arguments: {},
+                        ok: true,
+                        result: {
+                            handled_response: true,
+                            response_channel: 'generated-image',
+                        },
+                        metadata: { source: 'tool_runtime' },
+                        continuation: {
+                            next_action: 'complete_with_side_effect',
+                            can_answer_now: true,
+                            reason: 'Generated image response is owned by the image task pipeline.',
+                            reusable_for_next_turn: false,
+                        },
+                    };
+                }
+                return {
+                    id: call.id || 'call-context',
+                    name: call.name,
+                    arguments: {},
+                    ok: true,
+                    result: { ok: true },
+                    metadata: { source: 'tool_runtime' },
+                    continuation: {
+                        next_action: 'call_another_tool',
+                        can_answer_now: false,
+                        reason: 'Context read completed.',
+                        reusable_for_next_turn: true,
+                    },
+                };
+            },
+        } as any,
+    });
+
+    assert.equal(result.terminal, true);
+    assert.deepEqual(executedTools, ['read_user_context', 'generate_image_from_intent']);
+    assert.equal(routeSelectionCount, 2);
+    assert.ok(toolPolicyAllowedTools.at(-1)?.includes('generate_image_from_intent'));
 });
 
 test('runChatV2Turn normalizes unnormalized turns with the same session model before orchestration', async () => {
