@@ -589,6 +589,80 @@ test('explicit structured swap requests use the fast swap lane without generatio
     assert.match(broker.getContent(), /BENJI/);
 });
 
+test('explicit swap syntax without chain name uses current chain fast quote lane without generation', async () => {
+    const snapshot = makeSnapshot('swap 0.001 ETH to USDC', {
+        requestedTokenSymbols: ['ETH', 'USDC'],
+        runtime: {
+            chainId: 8453,
+            chainName: 'Base',
+            nativeBalance: '0.03823547',
+            userId: 'user-1',
+            toolContext: {
+                chainId: 8453,
+                chainName: 'Base',
+                nativeBalance: '0.03823547',
+                toolConfig: {
+                    showQuoteBeforeSwap: true,
+                    customSlippage: '0.5',
+                },
+            },
+        },
+    });
+    const broker = makeBroker();
+    const generationClient = {
+        async generate() {
+            throw new Error('generation should not be called for fast swap lane');
+        },
+    };
+    const seenCalls: Array<{ name: string; arguments: Record<string, any> }> = [];
+
+    await runNodeOrchestration({
+        snapshot,
+        generationClient: generationClient as any,
+        toolExecutionEngine: {
+            async execute(call: any) {
+                seenCalls.push({ name: call.name, arguments: call.arguments || {} });
+                if (call.name === 'get_token_info') {
+                    return {
+                        id: call.id,
+                        name: call.name,
+                        arguments: call.arguments,
+                        ok: true,
+                        result: {
+                            symbol: 'USDC',
+                            name: 'USD Coin',
+                        },
+                    };
+                }
+                if (call.name === 'simulate_swap') {
+                    return {
+                        id: call.id,
+                        name: call.name,
+                        arguments: call.arguments,
+                        ok: true,
+                        result: {
+                            expected_out_human: '2.318608',
+                            price_impact: '0.995%',
+                        },
+                    };
+                }
+                throw new Error(`unexpected tool ${call.name}`);
+            },
+        } as any,
+        broker: broker as any,
+        toolContext: snapshot.runtime.toolContext || {},
+    });
+
+    assert.deepEqual(seenCalls.map((call) => call.name).sort(), ['get_token_info', 'simulate_swap']);
+    assert.equal(seenCalls.find((call) => call.name === 'simulate_swap')?.arguments.chain_id, 8453);
+    assert.equal(seenCalls.find((call) => call.name === 'simulate_swap')?.arguments.token_in, 'ETH');
+    assert.equal(seenCalls.find((call) => call.name === 'simulate_swap')?.arguments.token_out, 'USDC');
+    assert.match(broker.getContent(), /Fast quote ready|已获取快速报价/);
+    assert.match(broker.getContent(), /0\.001 ETH/);
+    assert.match(broker.getContent(), /USDC/);
+    assert.doesNotMatch(broker.getContent(), /Would you like me to quote/i);
+});
+
 test('route-selected clarification stops before canonical normalization or main generation', async () => {
     const snapshot = makeSnapshot('Use the reference image to make a new poster');
     const broker = makeBroker();

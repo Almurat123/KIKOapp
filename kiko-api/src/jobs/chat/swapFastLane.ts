@@ -11,6 +11,20 @@ function detectLocale(snapshot: ChatContextSnapshot): 'en' | 'zh' {
         || resolveBinaryLocale(String(snapshot.lastUserMessage || ''), snapshot.normalizedIntent?.locale);
 }
 
+// CONTEXT MEMORY
+// Updated: 2026-04-23
+// Status: verified
+// Why: explicit first-turn swap requests in quote-before-swap mode must hit the
+// fast quote lane instead of letting the model ask whether it should quote.
+// Debug Goal: phrases like "swap 0.001 ETH to USDC" should directly run a quote
+// on the active chain and return a confirmation-ready quote response.
+// Search Tags: swap 0.001 ETH to USDC fast lane direct quote first turn
+// Invariants:
+// - explicit swap requests with amount/token pair should parse without an extra confirmation turn
+// - omitted chain names fall back to the active/requested chain in snapshot context
+// Failure Modes:
+// - parser only recognizes "buy X for Y on chain" and misses "swap A to B"
+// - missing chain clause blocks a valid quote on the current connected chain
 function parseStructuredSwapRequest(snapshot: ChatContextSnapshot): {
     tokenIn: string;
     tokenOut: string;
@@ -19,37 +33,69 @@ function parseStructuredSwapRequest(snapshot: ChatContextSnapshot): {
     chainName: string;
 } | null {
     const raw = String(snapshot.lastUserMessage || '').trim();
-    const buyForMatch = raw.match(/^\s*buy\s+(.+?)\s+for\s+(\d+(?:\.\d+)?)\s+([A-Za-z0-9$._-]+|0x[a-fA-F0-9]{40})\s+(?:on|in)\s+(.+?)\s*$/i);
-    if (!buyForMatch) return null;
+    const resolveTargetChain = (chainRaw?: string | null) => {
+        const explicitChain = chainRaw ? normalizeChainAlias(chainRaw) : null;
+        return explicitChain || resolveCanonicalChainRef({
+            taskRoute: snapshot.taskRoute || null,
+            requestedTokenAddresses: snapshot.requestedTokenAddresses,
+            requestedTokenSymbols: snapshot.requestedTokenSymbols,
+            runtimeChainId: snapshot.runtime.chainId,
+            runtimeChainName: snapshot.runtime.chainName,
+        });
+    };
 
-    const [, targetRaw, amountIn, tokenInRaw, chainRaw] = buyForMatch;
-    const targetChain = normalizeChainAlias(chainRaw) || resolveCanonicalChainRef({
-        taskRoute: snapshot.taskRoute || null,
-        requestedTokenAddresses: snapshot.requestedTokenAddresses,
-        requestedTokenSymbols: snapshot.requestedTokenSymbols,
-        runtimeChainId: snapshot.runtime.chainId,
-        runtimeChainName: snapshot.runtime.chainName,
-    });
-    if (!targetChain?.chainId || !targetChain.chainName) return null;
+    const buildParsed = (params: {
+        tokenInRaw: string;
+        tokenOutRaw: string;
+        amountIn: string;
+        chainRaw?: string | null;
+    }) => {
+        const targetChain = resolveTargetChain(params.chainRaw);
+        if (!targetChain?.chainId || !targetChain.chainName) return null;
 
-    const runtimeChainId = Number(snapshot.runtime.chainId || 0) || undefined;
-    if (runtimeChainId && runtimeChainId !== targetChain.chainId) {
-        return null;
+        const runtimeChainId = Number(snapshot.runtime.chainId || 0) || undefined;
+        if (params.chainRaw && runtimeChainId && runtimeChainId !== targetChain.chainId) {
+            return null;
+        }
+
+        const tokenOut = (snapshot.requestedTokenAddresses?.[0]
+            || params.tokenOutRaw.trim());
+        const tokenIn = params.tokenInRaw.trim().toUpperCase();
+        const amountIn = params.amountIn.trim();
+        if (!tokenOut || !amountIn || !tokenIn) return null;
+
+        return {
+            tokenIn,
+            tokenOut,
+            amountIn,
+            chainId: targetChain.chainId,
+            chainName: targetChain.chainName,
+        };
+    };
+
+    const buyForMatch = raw.match(/^\s*buy\s+(.+?)\s+for\s+(\d+(?:\.\d+)?)\s+([A-Za-z0-9$._-]+|0x[a-fA-F0-9]{40})\s+(?:(?:on|in)\s+(.+?))?\s*$/i);
+    if (buyForMatch) {
+        const [, tokenOutRaw, amountIn, tokenInRaw, chainRaw] = buyForMatch;
+        return buildParsed({
+            tokenInRaw,
+            tokenOutRaw,
+            amountIn,
+            chainRaw,
+        });
     }
 
-    const tokenOut = (snapshot.requestedTokenAddresses?.[0]
-        || targetRaw
-            .trim());
-    const tokenIn = tokenInRaw.trim().toUpperCase();
-    if (!tokenOut || !amountIn || !tokenIn) return null;
+    const swapMatch = raw.match(/^\s*swap\s+(\d+(?:\.\d+)?)\s+([A-Za-z0-9$._-]+|0x[a-fA-F0-9]{40})\s+(?:to|for)\s+([A-Za-z0-9$._-]+|0x[a-fA-F0-9]{40})\s*(?:(?:on|in)\s+(.+?))?\s*$/i);
+    if (swapMatch) {
+        const [, amountIn, tokenInRaw, tokenOutRaw, chainRaw] = swapMatch;
+        return buildParsed({
+            tokenInRaw,
+            tokenOutRaw,
+            amountIn,
+            chainRaw,
+        });
+    }
 
-    return {
-        tokenIn,
-        tokenOut,
-        amountIn,
-        chainId: targetChain.chainId,
-        chainName: targetChain.chainName,
-    };
+    return null;
 }
 
 export function tryBuildFastLaneSwapIntent(snapshot: ChatContextSnapshot): {
