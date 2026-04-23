@@ -61,6 +61,7 @@ import { farcasterApiClient } from './farcasterApiClient.js';
 import { markFarcasterConversationOutbound } from './farcasterConversationService.js';
 
 type DeliveryType = 'reply' | 'notification';
+const FARCASTER_DIRECT_IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif']);
 
 function normalizeFarcasterCastEmbedUrls(value: unknown): string[] {
   const rawUrls = Array.isArray(value) ? value : [];
@@ -71,6 +72,9 @@ function normalizeFarcasterCastEmbedUrls(value: unknown): string[] {
     try {
       const parsed = new URL(url);
       if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') continue;
+      const extensionMatch = parsed.pathname.match(/\.([a-z0-9]+)$/i);
+      const extension = extensionMatch ? extensionMatch[1].toLowerCase() : null;
+      if (!extension || !FARCASTER_DIRECT_IMAGE_EXTENSIONS.has(extension)) continue;
       deduped.add(parsed.toString());
     } catch {
       continue;
@@ -90,7 +94,7 @@ function summarizeEmbedUrl(url: string) {
       path: parsed.pathname || null,
       extension,
       isApiGeneratedImageProxy: parsed.pathname.startsWith('/api/chat/generated-images/public/'),
-      looksLikeDirectImage: Boolean(extension && ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(extension)),
+      looksLikeDirectImage: Boolean(extension && FARCASTER_DIRECT_IMAGE_EXTENSIONS.has(extension)),
     };
   } catch {
     return {

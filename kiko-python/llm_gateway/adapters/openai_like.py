@@ -377,7 +377,7 @@ def _build_openai_responses_request_body(req: GenerateRequest) -> dict[str, Any]
         "model": req.model,
         "input": _convert_messages_to_responses_input(req.messages),
         "stream": True,
-        "store": False,
+        "store": True,
     }
     metadata = normalize_metadata(req.metadata)
     if metadata:

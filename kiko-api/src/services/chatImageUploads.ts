@@ -468,8 +468,32 @@ function buildPublicObjectUrl(objectKey: string): string | null {
     return `${baseUrl}/${encodedPath}?v=${encodeURIComponent(version)}`;
 }
 
+function extractGeneratedImagePublicObjectKeyFromUrl(rawUrl: string): string | null {
+    const trimmed = String(rawUrl || '').trim();
+    if (!trimmed) return null;
+    try {
+        const parsed = new URL(trimmed);
+        const decodedPath = parsed.pathname
+            .split('/')
+            .map((segment) => decodeURIComponent(segment))
+            .join('/')
+            .replace(/^\/+/, '');
+        const proxyPrefix = 'api/chat/generated-images/public/';
+        if (decodedPath.startsWith(proxyPrefix)) {
+            const proxyPath = decodedPath.slice(proxyPrefix.length);
+            const normalizedProxyPath = normalizePublicGeneratedImageProxyPath(proxyPath);
+            return isPublicGeneratedImageObjectKey(normalizedProxyPath) ? normalizedProxyPath : null;
+        }
+        return isPublicGeneratedImageObjectKey(decodedPath) ? decodedPath : null;
+    } catch {
+        return null;
+    }
+}
+
 export function resolveGeneratedImagePublicUrl(attachment: any): string | null {
-    const publicObjectKey = String(attachment?.publicObjectKey || '').trim().replace(/^\/+/, '');
+    const explicitPublicObjectKey = String(attachment?.publicObjectKey || '').trim().replace(/^\/+/, '');
+    const derivedPublicObjectKey = extractGeneratedImagePublicObjectKeyFromUrl(String(attachment?.publicUrl || '').trim());
+    const publicObjectKey = explicitPublicObjectKey || derivedPublicObjectKey || '';
     if (publicObjectKey && isPublicGeneratedImageObjectKey(publicObjectKey)) {
         return buildPublicObjectUrl(publicObjectKey)
             || String(attachment?.publicUrl || '').trim()
@@ -1191,6 +1215,7 @@ export const __chatImageUploadsTest = {
     readObjectKeyImageExtension,
     buildGeneratedPublicObjectKey,
     buildPublicObjectUrl,
+    extractGeneratedImagePublicObjectKeyFromUrl,
     normalizePublicGeneratedImageProxyPath,
     transcodeImageBufferForPublicDelivery,
 };

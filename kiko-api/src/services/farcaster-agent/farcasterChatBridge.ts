@@ -181,6 +181,7 @@ const DEFAULT_FARCASTER_TIMEOUT_REPLY = 'I am still working on that. Please try 
 const DEFAULT_FARCASTER_GENERATED_IMAGE_READY_REPLY = 'Generated.';
 const DEFAULT_FARCASTER_GENERATED_IMAGE_PENDING_REPLY = 'Image generation is still running. Please try again in a moment.';
 const DEFAULT_FARCASTER_TASK_REPLY_TIMEOUT_MS = 300_000;
+const FARCASTER_DIRECT_IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif']);
 
 function sanitizeFarcasterPublicReplyText(text: string): string {
   const trimmed = String(text || '').trim();
@@ -204,6 +205,9 @@ function normalizeFarcasterReplyEmbedUrls(value: unknown): string[] {
     try {
       const parsed = new URL(url);
       if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') continue;
+      const extensionMatch = parsed.pathname.match(/\.([a-z0-9]+)$/i);
+      const extension = extensionMatch ? extensionMatch[1].toLowerCase() : null;
+      if (!extension || !FARCASTER_DIRECT_IMAGE_EXTENSIONS.has(extension)) continue;
       deduped.add(parsed.toString());
     } catch {
       continue;
@@ -213,9 +217,15 @@ function normalizeFarcasterReplyEmbedUrls(value: unknown): string[] {
 }
 
 function readGeneratedImageEmbedUrl(image: any): string | null {
-  return resolveGeneratedImagePublicUrl(image)
-    || String(image?.previewUrl || image?.url || '').trim()
-    || null;
+  const publicUrl = resolveGeneratedImagePublicUrl(image);
+  const previewOrRawUrl = String(image?.previewUrl || image?.url || '').trim() || null;
+  if (normalizeFarcasterReplyEmbedUrls(publicUrl ? [publicUrl] : []).length > 0) {
+    return publicUrl;
+  }
+  if (normalizeFarcasterReplyEmbedUrls(previewOrRawUrl ? [previewOrRawUrl] : []).length > 0) {
+    return previewOrRawUrl;
+  }
+  return publicUrl || previewOrRawUrl || null;
 }
 
 function summarizeEmbedUrl(url: string | null) {
@@ -235,7 +245,7 @@ function summarizeEmbedUrl(url: string | null) {
     const path = parsed.pathname || '';
     const extensionMatch = path.match(/\.([a-z0-9]+)$/i);
     const extension = extensionMatch ? extensionMatch[1].toLowerCase() : null;
-    const looksLikeDirectImage = Boolean(extension && ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(extension));
+    const looksLikeDirectImage = Boolean(extension && FARCASTER_DIRECT_IMAGE_EXTENSIONS.has(extension));
     return {
       urlPresent: true,
       host: parsed.host || null,

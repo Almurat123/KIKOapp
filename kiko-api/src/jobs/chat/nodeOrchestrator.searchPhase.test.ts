@@ -475,6 +475,100 @@ test('openai non-image tool rounds carry responses api mode and previous_respons
     assert.equal(seenRounds[1]?.previousResponseId, 'resp-next-1');
 });
 
+test('openai stale previous_response_id retries once without it when raw provider error carries not-found detail', async () => {
+    const snapshot = makeSnapshot('Deploy the token and then continue.', {
+        model: 'gpt-5.4-mini-2026-03-17',
+        previousResponseId: 'resp-prev-1',
+        normalizedIntent: makeCanonicalIntent({
+            intent: 'clanker_deploy',
+            taskMode: 'execute',
+            executionCandidate: true,
+        }),
+    });
+    const broker = makeBroker();
+    const seenRounds: Array<{ previousResponseId?: string; apiMode?: string }> = [];
+    let generationRound = 0;
+
+    const generationClient = {
+        async generate(params: any) {
+            if (String(params?.taskId || '').endsWith(':plan')) {
+                return { text: '', reasoning: '', toolCalls: [] };
+            }
+            generationRound += 1;
+            seenRounds.push({
+                apiMode: params.providerOptions?.api_mode,
+                previousResponseId: params.providerOptions?.previous_response_id,
+            });
+            if (generationRound === 1) {
+                await params.onProviderState?.({ previousResponseId: 'resp-next-1', finishReason: 'tool_calls' });
+                return {
+                    text: '',
+                    reasoning: '',
+                    toolCalls: [
+                        {
+                            id: 'call-deploy-1',
+                            name: 'deploy_clanker_token',
+                            arguments: { ticker: 'TB' },
+                        },
+                    ],
+                    providerState: { previousResponseId: 'resp-next-1', finishReason: 'tool_calls' },
+                };
+            }
+            if (generationRound === 2) {
+                const err = new Error('[HTTP_400] | HTTP 400');
+                (err as any).code = 'HTTP_400';
+                (err as any).raw = JSON.stringify({
+                    error: {
+                        message: "Previous response with id 'resp-next-1' not found.",
+                        type: 'invalid_request_error',
+                        param: 'previous_response_id',
+                        code: 'previous_response_not_found',
+                    },
+                });
+                throw err;
+            }
+            return {
+                text: 'Done after retry.',
+                reasoning: '',
+                toolCalls: [],
+                providerState: { previousResponseId: 'resp-next-2', finishReason: 'stop' },
+            };
+        },
+    };
+
+    await runNodeOrchestration({
+        snapshot,
+        generationClient: generationClient as any,
+        toolExecutionEngine: {
+            async execute(call: any) {
+                return {
+                    id: call.id || 'call-deploy-1',
+                    name: call.name,
+                    arguments: call.arguments || {},
+                    ok: true,
+                    result: { ok: true, dryRun: true },
+                    metadata: { source: 'tool_runtime' },
+                    continuation: {
+                        next_action: 'answer',
+                        can_answer_now: true,
+                        reason: 'dry run complete',
+                        reusable_for_next_turn: true,
+                    },
+                };
+            },
+        } as any,
+        broker: broker as any,
+        toolContext: {},
+    });
+
+    assert.equal(generationRound, 3);
+    assert.equal(seenRounds[0]?.apiMode, 'responses');
+    assert.equal(seenRounds[0]?.previousResponseId, 'resp-prev-1');
+    assert.equal(seenRounds[1]?.previousResponseId, 'resp-next-1');
+    assert.equal(seenRounds[2]?.previousResponseId, undefined);
+    assert.equal(broker.getContent(), 'Done after retry.');
+});
+
 test('Grok social queries keep native search phase free of local tools, then hand off to local analysis', async () => {
     const snapshot = makeSnapshot('Search X for BTC sentiment, then analyze holders', {
         requestedTokenSymbols: ['BTC'],

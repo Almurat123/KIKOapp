@@ -789,11 +789,13 @@ export async function runNodeOrchestration(params: {
                 break;
             } catch (error: any) {
                 const errorMessage = error?.message || String(error);
+                const errorRaw = typeof error?.raw === 'string' ? error.raw : '';
+                const retrySignal = [errorMessage, errorRaw].filter(Boolean).join('\n');
                 const canRetryWithoutPreviousResponse =
                     !retriedWithoutPreviousResponse
                     && (providerInfo.provider === 'grok' || providerInfo.provider === 'openai')
                     && roundPreviousResponseId.trim().length > 0
-                    && isStalePreviousResponseError(errorMessage);
+                    && isStalePreviousResponseError(retrySignal);
 
                 logger.error(LogCode.AI_API_ERROR, 'NodeOrchestrator: generation round failed', {
                     sessionId: params.snapshot.sessionId,
@@ -801,6 +803,7 @@ export async function runNodeOrchestration(params: {
                     round,
                     model: params.snapshot.model,
                     error: errorMessage,
+                    errorRaw: errorRaw ? errorRaw.slice(0, 400) : undefined,
                     retryWithoutPreviousResponse: canRetryWithoutPreviousResponse,
                     recentMessages: providerReadyMessages.slice(-4).map((msg) => ({
                         role: msg.role,

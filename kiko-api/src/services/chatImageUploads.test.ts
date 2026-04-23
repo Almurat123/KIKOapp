@@ -6,6 +6,7 @@ import {
   inferPublicImageContentTypeFromExtension,
   inferPublicImageExtensionFromContentType,
   readObjectKeyImageExtension,
+  resolveGeneratedImagePublicUrl,
   transcodeImageBufferForPublicDelivery,
 } from './chatImageUploads.js';
 
@@ -71,5 +72,14 @@ test('public generated-image loader strips the hotlink-ok proxy prefix before ob
       'hotlink-ok/chat-uploads/generated-public/farcaster/did_privy_test/2026-04-20/message-123.png',
     ),
     'chat-uploads/generated-public/farcaster/did_privy_test/2026-04-20/message-123.png',
+  );
+});
+
+test('generated-image public URL resolution recovers a proxy image URL from legacy publicUrl-only state', () => {
+  assert.equal(
+    resolveGeneratedImagePublicUrl({
+      publicUrl: 'https://cdn.kikoapp.app/chat-uploads/generated-public/farcaster/did_privy_test/2026-04-20/message-123.png',
+    }),
+    'https://api.kikoapp.app/api/chat/generated-images/public/hotlink-ok/chat-uploads/generated-public/farcaster/did_privy_test/2026-04-20/message-123.png?v=message-123',
   );
 });

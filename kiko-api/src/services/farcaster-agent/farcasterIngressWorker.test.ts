@@ -320,6 +320,118 @@ test('buildFarcasterAssistantReplyFromMessage rewrites legacy generated-image pu
   ]);
 });
 
+test('buildFarcasterAssistantReplyFromMessage rewrites legacy generated-image public URLs even without public object keys', async () => {
+  const reply = await buildFarcasterAssistantReplyFromMessage({
+    content: '',
+    type: 'generated-image',
+    data: {
+      generatedImage: {
+        status: 'complete',
+        images: [
+          {
+            id: 'generated-legacy-public-url',
+            publicUrl: 'https://cdn.kikoapp.app/chat-uploads/generated-public/farcaster/did_privy_test/2026-04-20/message-123.png',
+            previewUrl: 'https://signed.example/generated.png',
+            name: 'generated.png',
+            type: 'image/png',
+            size: 123,
+            width: 1024,
+            height: 1024,
+          },
+        ],
+      },
+    },
+  });
+
+  assert.equal(reply.text, 'Generated.');
+  assert.deepEqual(reply.embeds, [
+    'https://api.kikoapp.app/api/chat/generated-images/public/hotlink-ok/chat-uploads/generated-public/farcaster/did_privy_test/2026-04-20/message-123.png?v=message-123',
+  ]);
+});
+
+test('buildFarcasterAssistantReplyFromMessage falls back to direct preview images when publicUrl is page-like', async () => {
+  const reply = await buildFarcasterAssistantReplyFromMessage({
+    content: '',
+    type: 'generated-image',
+    data: {
+      generatedImage: {
+        status: 'complete',
+        images: [
+          {
+            id: 'generated-ogp-like-url',
+            publicUrl: 'https://api.kikoapp.app/share/generated-image/message-123',
+            previewUrl: 'https://signed.example/generated.png',
+            name: 'generated.png',
+            type: 'image/png',
+            size: 123,
+            width: 1024,
+            height: 1024,
+          },
+        ],
+      },
+    },
+  });
+
+  assert.equal(reply.text, 'Generated.');
+  assert.deepEqual(reply.embeds, ['https://signed.example/generated.png']);
+});
+
+test('farcasterReplyService strips page-like embed URLs before publication', async () => {
+  const delivery = prisma.farcasterMessageDelivery as any;
+  const originalFindUnique = delivery.findUnique;
+  const originalCreate = delivery.create;
+  const originalUpdate = delivery.update;
+  const originalIsConfigured = (farcasterApiClient as any).isConfigured;
+  const originalPublishCastReply = (farcasterApiClient as any).publishCastReply;
+  let createdPayload: any = null;
+  let publishedParams: any = null;
+
+  delivery.findUnique = async () => null;
+  delivery.create = async (args: any) => {
+    createdPayload = args.data.payload;
+    return {
+      id: 'delivery-direct-image-filter',
+      idempotencyKey: args.data.idempotencyKey,
+      status: 'pending',
+      attemptCount: 1,
+      updatedAt: new Date(),
+    } as any;
+  };
+  delivery.update = async (args: any) => ({
+    id: args.where.id,
+    ...args.data,
+  });
+  (farcasterApiClient as any).isConfigured = () => true;
+  (farcasterApiClient as any).publishCastReply = async (params: any) => {
+    publishedParams = params;
+    return { hash: '0xsent', raw: null };
+  };
+
+  try {
+    const result = await farcasterReplyService.replyToMention({
+      farcasterFid: 877398,
+      parentHash: '0xparent',
+      parentAuthorFid: 877398,
+      text: 'Generated.',
+      embeds: [
+        'https://api.kikoapp.app/share/generated-image/message-123',
+        'https://cdn.example/generated.png',
+      ],
+      idempotencyKey: 'farcaster:reply:mention:direct-image-filter',
+    });
+
+    assert.equal(result, true);
+    assert.deepEqual(createdPayload?.embeds, ['https://cdn.example/generated.png']);
+    assert.deepEqual(publishedParams?.embeds, ['https://cdn.example/generated.png']);
+  } finally {
+    delivery.findUnique = originalFindUnique;
+    delivery.create = originalCreate;
+    delivery.update = originalUpdate;
+    (farcasterApiClient as any).isConfigured = originalIsConfigured;
+    (farcasterApiClient as any).publishCastReply = originalPublishCastReply;
+  }
+});
+
 test('buildFarcasterAssistantReplyFromGeneratedImageState uses task output fallback embeds', async () => {
   const reply = await buildFarcasterAssistantReplyFromGeneratedImageState({
     status: 'complete',

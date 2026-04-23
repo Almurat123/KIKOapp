@@ -115,7 +115,7 @@ class OpenAIRequestDiagnosticsTests(unittest.TestCase):
         self.assertEqual(body["tools"][0]["type"], "function")
         self.assertEqual(body["tools"][0]["name"], "generate_image_from_intent")
         self.assertEqual(body["tools"][0]["strict"], True)
-        self.assertEqual(body["store"], False)
+        self.assertEqual(body["store"], True)
         self.assertEqual(body["tools"][0]["parameters"]["additionalProperties"], False)
         self.assertEqual(
             sorted(body["tools"][0]["parameters"]["required"]),
