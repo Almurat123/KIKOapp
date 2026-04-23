@@ -127,6 +127,7 @@ async def stream_generation(body: GenerationRequest):
                 messages=[item.model_dump(exclude_none=True) for item in body.messages],
                 model=body.model,
                 tools=body.tools,
+                api_mode=body.provider_options.get("api_mode"),
                 metadata=body.provider_options.get("metadata") or body.metadata,
                 tool_context=body.provider_options.get("tool_context"),
                 tool_policy=body.provider_options.get("tool_policy"),

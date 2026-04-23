@@ -697,6 +697,12 @@ export async function runNodeOrchestration(params: {
                     previousResponseId,
                 },
             );
+        if (providerInfo.provider === 'openai') {
+            (roundProviderOptions as any).api_mode = 'responses';
+            if (previousResponseId && typeof (roundProviderOptions as any).previous_response_id !== 'string') {
+                (roundProviderOptions as any).previous_response_id = String(previousResponseId);
+            }
+        }
         if (imageExecutionWorkMode) {
             (roundProviderOptions as any).tool_choice = {
                 type: 'function',
@@ -704,6 +710,9 @@ export async function runNodeOrchestration(params: {
                     name: IMAGE_GENERATION_TOOL_NAME,
                 },
             };
+            if (previousResponseId) {
+                (roundProviderOptions as any).previous_response_id = String(previousResponseId);
+            }
         }
         if (!forceAnswerFromEvidence && mustReadRequiredContextFirst) {
             (roundProviderOptions as any).buffer_visible_output = true;
@@ -782,7 +791,7 @@ export async function runNodeOrchestration(params: {
                 const errorMessage = error?.message || String(error);
                 const canRetryWithoutPreviousResponse =
                     !retriedWithoutPreviousResponse
-                    && providerInfo.provider === 'grok'
+                    && (providerInfo.provider === 'grok' || providerInfo.provider === 'openai')
                     && roundPreviousResponseId.trim().length > 0
                     && isStalePreviousResponseError(errorMessage);
 
@@ -1636,9 +1645,11 @@ function buildEvidenceOnlyProviderOptions(
                 session_id: String(snapshot.sessionId || ''),
                 task_id: String(snapshot.taskId || ''),
             },
+            api_mode: 'responses',
             tool_context: snapshot.runtime.toolContext || {},
             ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
             enable_search: false,
+            ...(options?.previousResponseId ? { previous_response_id: String(options.previousResponseId) } : {}),
             ...(options?.bufferVisibleOutput ? { buffer_visible_output: true } : {}),
         };
     }

@@ -256,7 +256,7 @@ test('execution turns expose only missing required read tools before wider local
     assert.equal(broker.getContent(), 'Ready to prepare the launch after reading the required context.');
 });
 
-test('image execution turns prefetch image-lane required context before the first model round', async () => {
+test('openai image execution turns prefetch image-lane required context and use responses mode before the first model round', async () => {
     const snapshot = makeSnapshot('Generate a rock style poster using the attached mascot image.', {
         model: 'gpt-5.4-mini-2026-03-17',
         taskRoute: {
@@ -293,7 +293,7 @@ test('image execution turns prefetch image-lane required context before the firs
         },
     });
     const broker = makeBroker();
-    const seenRounds: Array<{ tools: string[] }> = [];
+    const seenRounds: Array<{ tools: string[]; apiMode?: string; previousResponseId?: string }> = [];
     const seenMessages: any[][] = [];
     let generationRound = 0;
 
@@ -305,6 +305,8 @@ test('image execution turns prefetch image-lane required context before the firs
             generationRound += 1;
             seenRounds.push({
                 tools: (params.tools || []).map((item: any) => item.function?.name).filter(Boolean),
+                apiMode: params.providerOptions?.api_mode,
+                previousResponseId: params.providerOptions?.previous_response_id,
             });
             seenMessages.push(params.messages || []);
             return {
@@ -372,6 +374,8 @@ test('image execution turns prefetch image-lane required context before the firs
 
     assert.equal(generationRound, 1);
     assert.ok((seenRounds[0]?.tools || []).includes('generate_image_from_intent'));
+    assert.equal(seenRounds[0]?.apiMode, 'responses');
+    assert.equal(seenRounds[0]?.previousResponseId, undefined);
     assert.ok(!(seenRounds[0]?.tools || []).includes('read_workflow_state'));
     assert.ok(!(seenRounds[0]?.tools || []).includes('read_skill_prompts'));
     assert.ok(!(seenRounds[0]?.tools || []).includes('read_user_context'));
@@ -389,6 +393,86 @@ test('image execution turns prefetch image-lane required context before the firs
             'generate_image_from_intent',
         ],
     );
+});
+
+test('openai non-image tool rounds carry responses api mode and previous_response_id on continuation', async () => {
+    const snapshot = makeSnapshot('What is in this wallet, then continue.', {
+        model: 'gpt-5.4-mini-2026-03-17',
+        previousResponseId: 'resp-prev-1',
+        normalizedIntent: makeCanonicalIntent({
+            intent: 'wallet_analysis',
+            taskMode: 'execute',
+            executionCandidate: true,
+        }),
+    });
+    const broker = makeBroker();
+    const seenRounds: Array<{ apiMode?: string; previousResponseId?: string; toolChoice?: any }> = [];
+    let generationRound = 0;
+
+    const generationClient = {
+        async generate(params: any) {
+            if (String(params?.taskId || '').endsWith(':plan')) {
+                return { text: '', reasoning: '', toolCalls: [] };
+            }
+            generationRound += 1;
+            seenRounds.push({
+                apiMode: params.providerOptions?.api_mode,
+                previousResponseId: params.providerOptions?.previous_response_id,
+                toolChoice: params.providerOptions?.tool_choice,
+            });
+            if (generationRound === 1) {
+                await params.onProviderState?.({ previousResponseId: 'resp-next-1', finishReason: 'tool_calls' });
+                return {
+                    text: '',
+                    reasoning: '',
+                    toolCalls: [
+                        {
+                            id: 'call-wallet-1',
+                            name: 'get_wallet_portfolio',
+                            arguments: { wallet_address: '0x123' },
+                        },
+                    ],
+                    providerState: { previousResponseId: 'resp-next-1', finishReason: 'tool_calls' },
+                };
+            }
+            return {
+                text: 'Done.',
+                reasoning: '',
+                toolCalls: [],
+                providerState: { previousResponseId: 'resp-next-2', finishReason: 'stop' },
+            };
+        },
+    };
+
+    await runNodeOrchestration({
+        snapshot,
+        generationClient: generationClient as any,
+        toolExecutionEngine: {
+            async execute(call: any) {
+                return {
+                    id: call.id || 'call-wallet-1',
+                    name: call.name,
+                    arguments: call.arguments || {},
+                    ok: true,
+                    result: { ok: true },
+                    metadata: { source: 'tool_runtime' },
+                    continuation: {
+                        next_action: 'answer',
+                        can_answer_now: true,
+                        reason: 'wallet context ready',
+                        reusable_for_next_turn: true,
+                    },
+                };
+            },
+        } as any,
+        broker: broker as any,
+        toolContext: {},
+    });
+
+    assert.equal(seenRounds[0]?.apiMode, 'responses');
+    assert.equal(seenRounds[0]?.previousResponseId, 'resp-prev-1');
+    assert.equal(seenRounds[1]?.apiMode, 'responses');
+    assert.equal(seenRounds[1]?.previousResponseId, 'resp-next-1');
 });
 
 test('Grok social queries keep native search phase free of local tools, then hand off to local analysis', async () => {

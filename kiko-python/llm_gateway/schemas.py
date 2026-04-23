@@ -50,6 +50,7 @@ class GenerateRequest(BaseModel):
     messages: list[LLMMessage]
     stream: bool = True
     metadata: dict[str, str] = Field(default_factory=dict)
+    api_mode: str | None = None
     tools: list[dict[str, Any]] | None = None
     tool_context: dict[str, Any] | None = None
     enable_search: bool | None = None

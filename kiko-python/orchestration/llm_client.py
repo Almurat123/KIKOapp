@@ -95,6 +95,7 @@ async def stream_llm_with_options(
     messages: list[dict[str, Any]],
     model: str,
     tools: list[dict[str, Any]],
+    api_mode: str | None = None,
     metadata: dict[str, Any] | None = None,
     tool_context: dict[str, Any] | None = None,
     tool_policy: dict[str, Any] | None = None,
@@ -109,6 +110,8 @@ async def stream_llm_with_options(
         "stream": True,
         "tools": tools,
     }
+    if api_mode:
+        body["api_mode"] = api_mode
     if metadata:
         body["metadata"] = metadata
     if tool_context:

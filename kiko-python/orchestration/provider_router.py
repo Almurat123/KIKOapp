@@ -39,7 +39,7 @@ def resolve_provider(model: str) -> dict[str, str | bool]:
             "provider": "openai",
             "model": model,
             "supportsNativeSearch": False,
-            "supportsPreviousResponse": False,
+            "supportsPreviousResponse": True,
             "searchFlavor": "generic",
         }
     if "deepseek" in normalized:
@@ -54,6 +54,6 @@ def resolve_provider(model: str) -> dict[str, str | bool]:
         "provider": "openai",
         "model": model,
         "supportsNativeSearch": False,
-        "supportsPreviousResponse": False,
+        "supportsPreviousResponse": True,
         "searchFlavor": "generic",
     }

@@ -34,6 +34,7 @@ from ..schemas import GatewayEvent, GenerateRequest
 logger = logging.getLogger(__name__)
 
 OPENAI_API_URL = os.getenv("OPENAI_API_URL", "https://api.openai.com/v1/chat/completions")
+OPENAI_RESPONSES_API_URL = os.getenv("OPENAI_RESPONSES_API_URL", "https://api.openai.com/v1/responses")
 GROK_SERVICE_URL = os.getenv("GROK_SERVICE_URL", "http://localhost:8000/grok")
 XAI_API_URL = os.getenv("XAI_API_URL", "https://api.x.ai/v1/chat/completions")
 GROK_PREFER_SDK_GATEWAY = os.getenv("GROK_PREFER_SDK_GATEWAY", "true").lower() not in {"0", "false", "no"}
@@ -76,6 +77,13 @@ def _should_omit_openai_reasoning_effort_for_chat_tools(
     return _normalized_model(model).startswith("gpt-5.4")
 
 
+def _normalize_openai_api_mode(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"responses", "chat_completions"}:
+        return normalized
+    return "chat_completions"
+
+
 def _build_openai_request_body(req: GenerateRequest) -> tuple[dict[str, Any], str | None]:
     reasoning_effort = _normalize_reasoning_effort(
         (req.tool_context or {}).get("reasoningEffort") or (req.tool_context or {}).get("reasoning_effort"),
@@ -102,8 +110,187 @@ def _build_openai_request_body(req: GenerateRequest) -> tuple[dict[str, Any], st
     return body, reasoning_effort if omit_reasoning_effort else None
 
 
+def _coerce_responses_input_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except Exception:
+        return str(value)
+
+
+def _coerce_responses_image_url(value: Any) -> str | None:
+    if isinstance(value, str):
+        normalized = value.strip()
+        return normalized or None
+    if isinstance(value, dict):
+        for key in ("url", "image_url"):
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+            if isinstance(candidate, dict):
+                nested = _coerce_responses_image_url(candidate)
+                if nested:
+                    return nested
+    return None
+
+
+def _convert_message_content_to_responses_parts(content: Any) -> list[dict[str, Any]]:
+    if content is None:
+        return []
+    if isinstance(content, str):
+        text = content.strip()
+        return [{"type": "input_text", "text": content}] if text else []
+    if isinstance(content, list):
+        parts: list[dict[str, Any]] = []
+        for item in content:
+            parts.extend(_convert_message_content_to_responses_parts(item))
+        return parts
+    if isinstance(content, dict):
+        part_type = str(content.get("type") or "").strip().lower()
+        if part_type in {"input_text", "text", "output_text"}:
+            text = _coerce_responses_input_text(content.get("text"))
+            return [{"type": "input_text", "text": text}] if text.strip() else []
+        if part_type in {"image_url", "input_image"}:
+            image_url = _coerce_responses_image_url(content.get("image_url") if "image_url" in content else content)
+            if not image_url:
+                return []
+            part: dict[str, Any] = {"type": "input_image", "image_url": image_url}
+            detail = content.get("detail")
+            if isinstance(detail, str) and detail.strip():
+                part["detail"] = detail.strip()
+            return [part]
+        if part_type == "input_file":
+            part: dict[str, Any] = {"type": "input_file"}
+            if content.get("file_id"):
+                part["file_id"] = str(content.get("file_id"))
+            elif content.get("file_url"):
+                part["file_url"] = str(content.get("file_url"))
+            else:
+                return []
+            return [part]
+        if "text" in content:
+            text = _coerce_responses_input_text(content.get("text"))
+            return [{"type": "input_text", "text": text}] if text.strip() else []
+    text = _coerce_responses_input_text(content)
+    return [{"type": "input_text", "text": text}] if text.strip() else []
+
+
+def _normalize_responses_role(role: str) -> str:
+    normalized = str(role or "").strip().lower()
+    if normalized == "system":
+        return "developer"
+    if normalized in {"developer", "user", "assistant"}:
+        return normalized
+    return normalized
+
+
+def _convert_messages_to_responses_input(messages: list[Any]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for message in messages:
+        role = _normalize_responses_role(getattr(message, "role", None) or (message.get("role") if isinstance(message, dict) else None))
+        content = getattr(message, "content", None) if not isinstance(message, dict) else message.get("content")
+        tool_call_id = getattr(message, "tool_call_id", None) if not isinstance(message, dict) else message.get("tool_call_id")
+        if role == "tool":
+            call_id = str(tool_call_id or "").strip()
+            if not call_id:
+                continue
+            items.append({
+                "type": "function_call_output",
+                "call_id": call_id,
+                "output": _coerce_responses_input_text(content),
+            })
+            continue
+        if role not in {"developer", "user", "assistant"}:
+            continue
+        parts = _convert_message_content_to_responses_parts(content)
+        if not parts:
+            continue
+        items.append({
+            "role": role,
+            "content": parts,
+        })
+    return items
+
+
+def _convert_chat_tools_to_responses_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    converted: list[dict[str, Any]] = []
+    for tool in tools:
+        if not isinstance(tool, dict):
+            continue
+        if str(tool.get("type") or "").strip() != "function":
+            converted.append(tool)
+            continue
+        function = tool.get("function")
+        if not isinstance(function, dict):
+            continue
+        name = str(function.get("name") or "").strip()
+        if not name:
+            continue
+        converted.append({
+            "type": "function",
+            "name": name,
+            "description": str(function.get("description") or ""),
+            "parameters": function.get("parameters") if isinstance(function.get("parameters"), dict) else {"type": "object", "properties": {}},
+            "strict": bool(function.get("strict", True)),
+        })
+    return converted
+
+
+def _convert_tool_choice_to_responses(tool_choice: Any) -> Any:
+    if isinstance(tool_choice, str):
+        normalized = tool_choice.strip().lower()
+        if normalized in {"auto", "required", "none"}:
+            return normalized
+        return "auto"
+    if isinstance(tool_choice, dict):
+        tool_type = str(tool_choice.get("type") or "").strip().lower()
+        if tool_type == "function":
+            name = ""
+            function = tool_choice.get("function")
+            if isinstance(function, dict):
+                name = str(function.get("name") or "").strip()
+            if not name:
+                name = str(tool_choice.get("name") or "").strip()
+            if name:
+                return {"type": "function", "name": name}
+    return "auto"
+
+
+def _build_openai_responses_request_body(req: GenerateRequest) -> dict[str, Any]:
+    reasoning_effort = _normalize_reasoning_effort(
+        (req.tool_context or {}).get("reasoningEffort") or (req.tool_context or {}).get("reasoning_effort"),
+    )
+    body: dict[str, Any] = {
+        "model": req.model,
+        "input": _convert_messages_to_responses_input(req.messages),
+        "stream": True,
+        "store": False,
+    }
+    metadata = normalize_metadata(req.metadata)
+    if metadata:
+        body["metadata"] = metadata
+    if reasoning_effort:
+        body["reasoning"] = {"effort": reasoning_effort}
+    if req.tools:
+        body["tools"] = _convert_chat_tools_to_responses_tools(req.tools)
+        body["tool_choice"] = _convert_tool_choice_to_responses(req.tool_choice)
+    if req.previous_response_id:
+        body["previous_response_id"] = req.previous_response_id
+    return body
+
+
 def _summarize_openai_request_shape(body: dict[str, Any]) -> dict[str, Any]:
     tools = body.get("tools") if isinstance(body.get("tools"), list) else []
+    input_value = body.get("messages") if isinstance(body.get("messages"), list) else body.get("input")
+    if isinstance(input_value, list):
+        message_count = len(input_value)
+    elif input_value in (None, ""):
+        message_count = 0
+    else:
+        message_count = 1
     invalid_names: list[dict[str, Any]] = []
     long_descriptions: list[dict[str, Any]] = []
     non_object_parameters: list[dict[str, Any]] = []
@@ -142,10 +329,10 @@ def _summarize_openai_request_shape(body: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "request_keys": sorted(body.keys()),
-        "message_count": len(body.get("messages") or []),
+        "message_count": message_count,
         "tool_count": len(tools),
         "first_tool_names": first_tool_names,
-        "reasoning_effort": body.get("reasoning_effort"),
+        "reasoning_effort": body.get("reasoning_effort") or ((body.get("reasoning") or {}).get("effort") if isinstance(body.get("reasoning"), dict) else None),
         "has_reasoning_object": isinstance(body.get("reasoning"), dict),
         "stream": body.get("stream"),
         "tool_choice": body.get("tool_choice"),
@@ -279,6 +466,20 @@ async def _stream_openai(req: GenerateRequest, provider: str):
         yield GatewayEvent(event_type="error", provider="openai", payload={"message": "OPENAI_API_KEY missing"})
         return
 
+    api_mode = _normalize_openai_api_mode(req.api_mode)
+    if api_mode == "responses":
+        body = _build_openai_responses_request_body(req)
+        request_shape = _summarize_openai_request_shape(body)
+        logger.info("llm_gateway.openai_request_shape %s", {**request_shape, "api_mode": "responses"})
+        async for ev in _stream_openai_responses_sse(
+            provider=provider,
+            url=OPENAI_RESPONSES_API_URL,
+            headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
+            body=body,
+        ):
+            yield ev
+        return
+
     body, omitted_reasoning_effort = _build_openai_request_body(req)
     if omitted_reasoning_effort:
         logger.warning(
@@ -289,7 +490,7 @@ async def _stream_openai(req: GenerateRequest, provider: str):
             "OpenAI rejects function tools with reasoning_effort for GPT-5.4 chat/completions; use Responses API for tool+reasoning.",
         )
     request_shape = _summarize_openai_request_shape(body)
-    logger.info("llm_gateway.openai_request_shape %s", request_shape)
+    logger.info("llm_gateway.openai_request_shape %s", {**request_shape, "api_mode": "chat_completions"})
     if (
         request_shape["invalid_tool_name_count"]
         or request_shape["long_tool_description_count"]
@@ -304,6 +505,233 @@ async def _stream_openai(req: GenerateRequest, provider: str):
         body=body,
     ):
         yield ev
+
+
+async def _stream_openai_responses_sse(provider: str, url: str, headers: dict[str, str], body: dict[str, Any]):
+    started_at = time.time()
+    first_token_at = None
+    started_sent = False
+    provider_request_id = None
+    function_calls: dict[str, dict[str, Any]] = {}
+
+    timeout = _build_stream_timeout()
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        retries = STREAM_MAX_RETRIES
+        backoff = 1
+        for attempt in range(retries):
+            try:
+                async with client.stream("POST", url, headers=headers, json=body) as resp:
+                    if resp.status_code >= 400:
+                        txt = await resp.aread()
+                        raw_text = txt.decode("utf-8", errors="ignore")[:2000]
+                        yield GatewayEvent(
+                            event_type="error",
+                            provider=provider,
+                            payload={
+                                "message": f"HTTP {resp.status_code}",
+                                "code": f"HTTP_{resp.status_code}",
+                                "raw": raw_text,
+                            },
+                        )
+                        return
+
+                    current_event_type = None
+                    async for line in resp.aiter_lines():
+                        if not line:
+                            continue
+                        if line.startswith("event: "):
+                            current_event_type = line[7:].strip()
+                            continue
+                        if not line.startswith("data: "):
+                            continue
+                        raw = line[6:].strip()
+                        if not raw or raw == "[DONE]":
+                            continue
+                        try:
+                            data = json.loads(raw)
+                        except Exception:
+                            continue
+
+                        event_type = str(data.get("type") or current_event_type or "").strip()
+                        response = data.get("response") if isinstance(data.get("response"), dict) else {}
+                        provider_request_id = promote_provider_request_id(
+                            provider_request_id,
+                            data.get("response_id"),
+                            provider=provider,
+                            prefer=True,
+                        )
+                        provider_request_id = promote_provider_request_id(
+                            provider_request_id,
+                            response.get("id"),
+                            provider=provider,
+                            prefer=True,
+                        )
+
+                        top_level_error = data.get("error") if isinstance(data.get("error"), dict) else {}
+                        response_error = response.get("error") if isinstance(response.get("error"), dict) else {}
+                        if top_level_error or response_error:
+                            err = top_level_error or response_error
+                            yield GatewayEvent(
+                                event_type="error",
+                                provider=provider,
+                                provider_request_id=provider_request_id,
+                                payload={
+                                    "message": str(err.get("message") or "Provider stream error"),
+                                    "code": str(err.get("code") or "") or None,
+                                    "raw": json.dumps(err, ensure_ascii=False)[:2000],
+                                },
+                            )
+                            return
+
+                        if not started_sent:
+                            started_sent = True
+                            yield GatewayEvent(event_type="message_start", provider=provider, provider_request_id=provider_request_id, payload={})
+
+                        if event_type == "response.output_text.delta":
+                            delta = str(data.get("delta") or "")
+                            if delta:
+                                if first_token_at is None:
+                                    first_token_at = int((time.time() - started_at) * 1000)
+                                yield GatewayEvent(
+                                    event_type="delta_text",
+                                    provider=provider,
+                                    provider_request_id=provider_request_id,
+                                    payload={"text": delta},
+                                )
+                            continue
+
+                        if event_type.endswith(".delta") and "reasoning" in event_type and "function_call_arguments" not in event_type:
+                            delta = str(data.get("delta") or "")
+                            if delta:
+                                if first_token_at is None:
+                                    first_token_at = int((time.time() - started_at) * 1000)
+                                yield GatewayEvent(
+                                    event_type="delta_reasoning",
+                                    provider=provider,
+                                    provider_request_id=provider_request_id,
+                                    payload={"text": delta},
+                                )
+                            continue
+
+                        if event_type == "response.output_item.added":
+                            item = data.get("item") if isinstance(data.get("item"), dict) else {}
+                            if str(item.get("type") or "").strip() == "function_call":
+                                item_id = str(item.get("id") or "").strip()
+                                if item_id:
+                                    function_calls[item_id] = {
+                                        "id": item_id,
+                                        "call_id": str(item.get("call_id") or "").strip(),
+                                        "name": str(item.get("name") or "").strip(),
+                                        "arguments": str(item.get("arguments") or ""),
+                                        "output_index": data.get("output_index"),
+                                    }
+                            continue
+
+                        if event_type == "response.function_call_arguments.delta":
+                            item_id = str(data.get("item_id") or "").strip()
+                            if not item_id:
+                                continue
+                            call = function_calls.setdefault(item_id, {
+                                "id": item_id,
+                                "call_id": "",
+                                "name": "",
+                                "arguments": "",
+                                "output_index": data.get("output_index"),
+                            })
+                            call["arguments"] = f"{call.get('arguments', '')}{str(data.get('delta') or '')}"
+                            if data.get("output_index") is not None:
+                                call["output_index"] = data.get("output_index")
+                            continue
+
+                        if event_type == "response.function_call_arguments.done":
+                            item = data.get("item") if isinstance(data.get("item"), dict) else {}
+                            item_id = str(item.get("id") or data.get("item_id") or "").strip()
+                            if not item_id:
+                                continue
+                            call = function_calls.setdefault(item_id, {
+                                "id": item_id,
+                                "call_id": "",
+                                "name": "",
+                                "arguments": "",
+                                "output_index": data.get("output_index"),
+                            })
+                            call["call_id"] = str(item.get("call_id") or call.get("call_id") or "").strip()
+                            call["name"] = str(item.get("name") or call.get("name") or "").strip()
+                            call["arguments"] = str(item.get("arguments") or call.get("arguments") or "")
+                            if data.get("output_index") is not None:
+                                call["output_index"] = data.get("output_index")
+                            tool_call_id = call["call_id"] or call["id"]
+                            yield GatewayEvent(
+                                event_type="tool_call",
+                                provider=provider,
+                                provider_request_id=provider_request_id,
+                                payload={
+                                    "tool_calls": [
+                                        {
+                                            "index": int(call.get("output_index") or 0),
+                                            "id": tool_call_id,
+                                            "type": "function",
+                                            "function": {
+                                                "name": call["name"],
+                                                "arguments": call["arguments"],
+                                            },
+                                        },
+                                    ],
+                                },
+                            )
+                            continue
+
+                        if event_type == "response.completed":
+                            usage = response.get("usage")
+                            if usage:
+                                yield GatewayEvent(
+                                    event_type="usage",
+                                    provider=provider,
+                                    provider_request_id=provider_request_id,
+                                    payload={"usage": usage},
+                                )
+                            total_ms = int((time.time() - started_at) * 1000)
+                            yield GatewayEvent(
+                                event_type="latency_metrics",
+                                provider=provider,
+                                provider_request_id=provider_request_id,
+                                payload={"end_to_end_ms": total_ms, "first_token_ms": first_token_at},
+                            )
+                            yield GatewayEvent(
+                                event_type="done",
+                                provider=provider,
+                                provider_request_id=provider_request_id,
+                                payload={"finish_reason": None},
+                            )
+                            return
+                    total_ms = int((time.time() - started_at) * 1000)
+                    yield GatewayEvent(
+                        event_type="latency_metrics",
+                        provider=provider,
+                        provider_request_id=provider_request_id,
+                        payload={"end_to_end_ms": total_ms, "first_token_ms": first_token_at},
+                    )
+                    yield GatewayEvent(
+                        event_type="done",
+                        provider=provider,
+                        provider_request_id=provider_request_id,
+                        payload={"finish_reason": None},
+                    )
+                    return
+            except Exception as e:
+                code, message, retriable = _classify_stream_exception(e)
+                if attempt == retries - 1 or not retriable:
+                    yield GatewayEvent(
+                        event_type="error",
+                        provider=provider,
+                        payload={
+                            "message": message,
+                            "code": code,
+                        },
+                    )
+                    return
+                await asyncio.sleep(backoff)
+                backoff *= 2
 
 
 async def _stream_xai(req: GenerateRequest, provider: str):

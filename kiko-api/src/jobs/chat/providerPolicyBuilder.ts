@@ -55,6 +55,7 @@ export interface ProviderOptions {
         session_id: string;
         task_id: string;
     };
+    api_mode?: 'responses' | 'chat_completions';
     tool_context: Record<string, any>;
     reasoning_effort?: string;
     enable_search: boolean;
@@ -109,14 +110,14 @@ export function resolveProviderInfo(model: string): ProviderInfo {
             provider: 'openai',
             model,
             supportsNativeSearch: false,
-            supportsPreviousResponse: false,
+            supportsPreviousResponse: true,
         };
     }
     return {
         provider: 'openai',
         model,
         supportsNativeSearch: false,
-        supportsPreviousResponse: false,
+        supportsPreviousResponse: true,
     };
 }
 
@@ -132,14 +133,17 @@ export function buildProviderOptions(
     },
 ): ProviderOptions {
     const reasoningEffort = normalizeOpenAIReasoningEffort(snapshot.runtime.toolContext?.reasoningEffort);
+    const previousResponseId = sanitizePreviousResponseId(phaseContext?.previousResponseId ?? snapshot.previousResponseId);
     if (providerInfo.provider !== 'grok') {
         return {
             metadata: {
                 session_id: String(snapshot.sessionId || ''),
                 task_id: String(snapshot.taskId || ''),
             },
+            api_mode: 'responses',
             tool_context: snapshot.runtime.toolContext || {},
             ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+            ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
             enable_search: false,
         };
     }
@@ -168,7 +172,6 @@ export function buildProviderOptions(
         snapshot.runtime.pageContext,
     ]);
     const fromDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const previousResponseId = sanitizePreviousResponseId(phaseContext?.previousResponseId ?? snapshot.previousResponseId);
     const actionClass = snapshot.policySnapshot?.actionClass || 'READ_ONLY';
     const hardMutationPolicy = snapshot.policySnapshot?.enforcementLevel === 'hard' && actionClass !== 'READ_ONLY';
     const nativeSearchEnabled = !hardMutationPolicy

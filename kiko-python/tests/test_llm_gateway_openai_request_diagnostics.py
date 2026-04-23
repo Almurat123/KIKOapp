@@ -2,6 +2,7 @@ import unittest
 
 from llm_gateway.adapters.openai_like import (
     _build_openai_request_body,
+    _build_openai_responses_request_body,
     _summarize_openai_request_shape,
 )
 from llm_gateway.schemas import GenerateRequest
@@ -73,6 +74,48 @@ class OpenAIRequestDiagnosticsTests(unittest.TestCase):
 
         self.assertIsNone(omitted)
         self.assertEqual(body["tool_choice"], tool_choice)
+
+    def test_builds_responses_request_for_forced_image_function_call(self):
+        tool_choice = {
+            "type": "function",
+            "function": {"name": "generate_image_from_intent"},
+        }
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "generate_image_from_intent",
+                    "description": "Generate an image.",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+        req = GenerateRequest(
+            model="gpt-5.4-mini-2026-03-17",
+            api_mode="responses",
+            messages=[
+                {"role": "system", "content": "You are the image controller."},
+                {"role": "user", "content": "Generate a rock style poster."},
+            ],
+            tools=tools,
+            tool_choice=tool_choice,
+            tool_context={"reasoningEffort": "medium"},
+            metadata={"session_id": "session-1"},
+        )
+
+        body = _build_openai_responses_request_body(req)
+
+        self.assertEqual(body["model"], "gpt-5.4-mini-2026-03-17")
+        self.assertEqual(body["tool_choice"], {"type": "function", "name": "generate_image_from_intent"})
+        self.assertEqual(body["reasoning"], {"effort": "medium"})
+        self.assertEqual(body["metadata"], {"session_id": "session-1"})
+        self.assertEqual(body["input"][0]["role"], "developer")
+        self.assertEqual(body["input"][0]["content"][0]["type"], "input_text")
+        self.assertEqual(body["input"][1]["role"], "user")
+        self.assertEqual(body["tools"][0]["type"], "function")
+        self.assertEqual(body["tools"][0]["name"], "generate_image_from_intent")
+        self.assertEqual(body["tools"][0]["strict"], True)
+        self.assertEqual(body["store"], False)
 
     def test_summarizes_tool_shape_without_prompt_content(self):
         body = {
