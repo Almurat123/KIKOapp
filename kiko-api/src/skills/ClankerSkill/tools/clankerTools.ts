@@ -62,7 +62,7 @@
 // - /Users/almurat/KiKo/system-journal/adr/2026-04-15-clanker-token-deploy-skill.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
 // - /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-devbuy-and-token-url.md
-import { Tool } from '../../../tooling/registry.js';
+import { Tool, type ToolContext } from '../../../tooling/registry.js';
 import {
     deployClankerToken,
     getClankerClaimedFees,
@@ -77,6 +77,61 @@ function toolError(error: unknown) {
         success: false,
         error: error instanceof Error ? error.message : String(error),
     };
+}
+
+function resolveClankerDeployContext(context?: ToolContext): {
+    interface: string;
+    platform: string;
+    messageId: string;
+    id: string;
+} | undefined {
+    const currentPage = String(context?.currentPage || '').trim().toLowerCase();
+    const pageContext = String(context?.pageContext || '').trim().toLowerCase();
+    const socialPlatform = String((context as any)?.socialInput?.platform || '').trim().toLowerCase();
+
+    if (socialPlatform === 'farcaster' || currentPage === 'farcaster' || pageContext === 'farcaster_agent') {
+        const messageId = String(
+            (context as any)?.farcasterAgent?.sourceMessageId
+            || (context as any)?.farcasterAgent?.rootCastHash
+            || '',
+        ).trim();
+        const id = String((context as any)?.farcaster?.fid || '').trim();
+        if (messageId && id) {
+            return {
+                interface: 'KiKo Agent',
+                platform: 'farcaster',
+                messageId,
+                id,
+            };
+        }
+    }
+
+    if (socialPlatform === 'x' || currentPage === 'x' || pageContext === 'x_agent') {
+        const messageId = String(
+            (context as any)?.x?.sourceMessageId
+            || (context as any)?.x?.rootTweetId
+            || '',
+        ).trim();
+        const id = String((context as any)?.x?.xUserId || '').trim();
+        if (messageId && id) {
+            return {
+                interface: 'KiKo Agent',
+                platform: 'x',
+                messageId,
+                id,
+            };
+        }
+    }
+
+    return undefined;
+}
+
+function hasCompleteClankerDeployContext(input: any): boolean {
+    return Boolean(
+        String(input?.context?.platform || '').trim()
+        && String(input?.context?.messageId || '').trim()
+        && String(input?.context?.id || '').trim(),
+    );
 }
 
 export const DeployClankerTokenTool: Tool = {
@@ -189,7 +244,13 @@ export const DeployClankerTokenTool: Tool = {
     handler: async (args, context) => {
         try {
             const { confirmDeploy, ...input } = args || {};
-            return deployClankerToken(input, { confirmDeploy: confirmDeploy === true }, {
+            const socialContext = hasCompleteClankerDeployContext(input)
+                ? undefined
+                : resolveClankerDeployContext(context);
+            const deployInput = socialContext
+                ? { ...input, context: socialContext }
+                : input;
+            return deployClankerToken(deployInput, { confirmDeploy: confirmDeploy === true }, {
                 fallbackTokenAdmin: context?.userAddress,
             });
         } catch (error) {

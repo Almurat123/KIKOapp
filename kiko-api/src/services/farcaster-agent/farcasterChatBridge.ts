@@ -24,9 +24,10 @@
 //         `gpt-image-2` turns taking about 199 seconds end-to-end, so the
 //         Farcaster bridge must wait at least as long as the 300-second image
 //         provider timeout before falling back to a pending public reply.
-//         Operator correction on 2026-04-21 confirmed GPT Image Mini remains the
-//         default generated-image model and should consume the shared free
-//         generated-image allowance. A later correction on the same day moved
+//         Operator correction on 2026-04-24 confirmed only Cloudflare FLUX.2
+//         Klein 4B has a daily free image bucket; saved image preferences for
+//         other models must enter the credits billing path. An earlier
+//         correction on 2026-04-21 moved
 //         Farcaster image intent selection back to the model-led agent path:
 //         this bridge carries saved image-model preferences into tool context,
 //         but it must not regex-route user wording directly into generated-image

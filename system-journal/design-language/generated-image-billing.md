@@ -15,13 +15,13 @@ server-owned context and billing consent.
 1. Generated-image usage must be stored in a dedicated ledger, not
    `billing_usage_ledger`.
 2. Free generated-image allowance is counted on the backend per authenticated
-   user as a shared lifetime request pool, controlled by
-   `CREDITS_LIFETIME_IMAGE_FREE_REQUESTS`.
-3. Reservation rows in `reserved` or `completed` state count against the shared
-   free-request allowance so concurrent requests cannot oversubscribe the pool.
+   user as a Cloudflare FLUX.2 Klein 4B daily request bucket, controlled by
+   `CREDITS_DAILY_FREE_CLOUDFLARE_IMAGE_REQUESTS`.
+3. Reservation rows in `reserved` or `completed` state count against the
+   Cloudflare daily free bucket so concurrent requests cannot oversubscribe it.
 4. Paid generated-image runs reserve credits before the provider call starts.
 5. Only completed paid generated-image rows may capture reserved credits.
-6. Unmetered image models must not consume the shared free-request pool.
+6. Paid image models do not receive free generated-image requests.
 
 ## Forbidden Local Patch Patterns
 
@@ -30,22 +30,25 @@ server-owned context and billing consent.
 - Do not allow a paid generated-image call to proceed before credits are
   reserved.
 - Do not capture credits for reserved, failed, or cancelled image rows.
-- Do not spend the shared free-request pool on unmetered provider paths.
+- Do not give GPT, Grok, or Runware image models free generated-image requests.
+- Do not charge Cloudflare FLUX.2 Klein 4B; block it after the daily free
+  bucket is exhausted.
 
 ## Current Product Policy
 
-- `cloudflare-flux-2-klein-4b`: enabled, unmetered, does not consume the
-  shared generated-image free-request pool and does not reserve credits.
-- `gpt-image-1-mini`: enabled through OpenAI, participates in the shared
-  lifetime free-request pool.
-- `gpt-image-2`: enabled through OpenRouter when configured, participates in
-  the shared lifetime free-request pool.
-- `grok-imagine-image`: enabled through xAI, participates in the shared
-  lifetime free-request pool.
-- `grok-imagine-image-pro`: enabled through xAI, participates in the shared
-  lifetime free-request pool.
-- `runware-flux-2-klein-9b-kv`: enabled through Runware, participates in the
-  shared lifetime free-request pool and then charges the low-cost image price.
+- `cloudflare-flux-2-klein-4b`: enabled through Cloudflare Workers AI, free for
+  `CREDITS_DAILY_FREE_CLOUDFLARE_IMAGE_REQUESTS` requests per user per UTC day,
+  then blocked until the next day.
+- `gpt-image-1-mini`: enabled through OpenAI, credits-only from the first
+  request.
+- `gpt-image-2`: enabled through OpenRouter when configured, credits-only from
+  the first request.
+- `grok-imagine-image`: enabled through xAI, credits-only from the first
+  request.
+- `grok-imagine-image-pro`: enabled through xAI, credits-only from the first
+  request.
+- `runware-flux-2-klein-9b-kv`: enabled through Runware, credits-only from the
+  first request at the low-cost image price.
 
 ## Document Provenance
 
@@ -62,19 +65,14 @@ server-owned context and billing consent.
 - Source: /Users/almurat/KiKo/kiko-api/src/config/env.ts
   - Kind: repo doc
   - Retrieved: 2026-04-24
-  - Applied To: `CREDITS_LIFETIME_IMAGE_FREE_REQUESTS` parsing and default
-    fallback
+  - Applied To: `CREDITS_DAILY_FREE_CLOUDFLARE_IMAGE_REQUESTS` parsing and
+    default fallback
   - Verification: verified in code
 - Source: /Users/almurat/KiKo/kiko-api/src/services/generatedImageBilling.ts
   - Kind: repo doc
   - Retrieved: 2026-04-24
-  - Applied To: the backend free-request pool consumed by generated-image
+  - Applied To: the Cloudflare-only daily free bucket and credits-only image
     billing
-  - Verification: verified in code
-- Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-24-low-cost-generated-image-models.md
-  - Kind: repo doc
-  - Retrieved: 2026-04-24
-  - Applied To: Cloudflare unmetered behavior and Runware shared-pool billing
   - Verification: verified in code
 
 ## See Also

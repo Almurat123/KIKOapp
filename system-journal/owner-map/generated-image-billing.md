@@ -16,7 +16,7 @@ Updated: 2026-04-24
 
 Owns: model normalization, free-vs-paid image reservation decisions, billing
 consent checks, reservation locking, reservation status transitions, and
-consuming the env-configured shared lifetime free-request allowance.
+consuming the env-configured Cloudflare FLUX.2 Klein 4B daily free bucket.
 
 Does not own: provider HTTP calls, prompt orchestration, moderation, or
 frontend picker chrome, or env parsing itself.
@@ -51,7 +51,7 @@ provider outcome is known.
 - Source: /Users/almurat/KiKo/kiko-api/src/config/env.ts
   - Kind: repo doc
   - Retrieved: 2026-04-24
-  - Applied To: env-side parsing of `CREDITS_LIFETIME_IMAGE_FREE_REQUESTS`
+  - Applied To: env-side parsing of `CREDITS_DAILY_FREE_CLOUDFLARE_IMAGE_REQUESTS`
   - Verification: verified in code
 - Source: operator requirement on 2026-04-18
   - Kind: product doc

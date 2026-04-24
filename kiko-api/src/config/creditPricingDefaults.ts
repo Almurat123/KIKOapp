@@ -10,8 +10,8 @@
 // Invariants:
 // - Default image credits pricing is derived from provider USD cost, not typed twice.
 // - Billable image models use the same conversion rule.
-// - Unmetered provider-backed models may be present with a zero USD price, but
-//   generated-image billing must keep them out of the shared free-request pool.
+// - Daily-free provider-backed models may be present with a zero USD price, but
+//   generated-image billing must keep their free bucket model-specific.
 // Failure Modes:
 // - Updating provider USD cost without updating default credits pricing.
 // - Showing one image price in billing while reserve/capture charges another.

@@ -20,6 +20,9 @@ test('deployFourMemeToken dry run returns a normalized BSC payload', async () =>
     assert.equal(payload.category, 'Meme');
     assert.equal(payload.tokenManagerAddress, '0x5c952063c7fc8610FFDB798152D69F0B9550762b');
     assert.equal(payload.bnbAmount, 0.15);
+    assert.equal('websiteUrl' in payload, false);
+    assert.equal('twitterUrl' in payload, false);
+    assert.equal('telegramUrl' in payload, false);
 });
 
 test('deployFourMemeToken rejects non-BSC chains', async () => {

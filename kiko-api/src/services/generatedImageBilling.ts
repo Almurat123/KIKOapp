@@ -4,6 +4,7 @@ import { env } from '../config/env.js';
 import { getDefaultGeneratedImageUsdPrice } from '../config/creditPricingDefaults.js';
 import {
     findGeneratedImageUsageRecord,
+    getDailyGeneratedImageReservationSummary,
     insertGeneratedImageUsageReservation,
     updateGeneratedImageUsageStatus,
 } from '../repositories/billingRepository.js';
@@ -12,7 +13,6 @@ import {
     captureReservedImageCredits,
     computeGeneratedImageCreditsCharge,
     getCreditBalanceSummary,
-    getLifetimeImageFreeRequestsUsed,
     releaseReservedImageCredits,
     reserveImageCredits,
 } from './creditBillingService.js';
@@ -20,25 +20,31 @@ import {
 // CONTEXT MEMORY
 // Updated: 2026-04-23
 // Status: mixed
-// Why: generated-image charging must now follow the credits ledger only. All
-// enabled image models share one lifetime free-request pool, and paid requests
-// reserve/capture/release credits from the same explicit image price table.
-// Debug Goal: keep shared lifetime image freebies and paid credits charging
-// correct across gpt-image-1-mini, gpt-image-2, grok-imagine-image, and low-cost
+// Why: generated-image charging must now follow the credits ledger only. The
+// free image allowance is model-specific: Cloudflare FLUX.2 Klein 4B gets a
+// small daily free request bucket, while all other enabled image models require
+// credits immediately.
+// Debug Goal: keep Cloudflare daily freebies and paid credits charging correct
+// across gpt-image-1-mini, gpt-image-2, grok-imagine-image, and low-cost
 // provider-backed models.
-// Search Tags: generated image shared free pool lifetime requests credits reserve capture cloudflare runware flux
+// Search Tags: generated image daily free cloudflare credits reserve capture runware flux
 // Invariants:
-// - gpt-image-1-mini, gpt-image-2, grok-imagine-image, and runware-flux-2-klein-9b-kv share one lifetime free-request pool.
-// - cloudflare-flux-2-klein-4b is unmetered and must not consume the shared free-request pool.
+// - cloudflare-flux-2-klein-4b consumes one daily free request per generation.
+// - cloudflare-flux-2-klein-4b blocks after its daily free request bucket is exhausted.
+// - gpt-image-1-mini, gpt-image-2, grok-imagine-image, grok-imagine-image-pro,
+//   and runware-flux-2-klein-9b-kv require credits from the first request.
 // - Paid image requests only charge credits from env.credits.imagePricing.
 // - Reservation ids stay bound to one server-owned context and must not be replayable across contexts.
 // Failure Modes:
-// - Charging gpt-image-2 immediately instead of consuming the shared free pool.
+// - Accidentally giving paid image models a free request.
+// - Charging Cloudflare 4B instead of enforcing its free daily bucket.
 // - Showing one product price while reserve/capture uses a different credits table.
 
 const GENERATED_IMAGE_RESERVATION_LOCK_TTL_SECONDS = 8;
-function getGeneratedImageLifetimeFreeRequestLimit(): number {
-    return Math.max(0, Number(env.credits.lifetimeImageFreeRequests || 0));
+const CLOUDFLARE_FREE_IMAGE_MODEL_FAMILY = 'cloudflare-flux-2-klein-4b' as const;
+
+function getCloudflareDailyFreeRequestLimit(): number {
+    return Math.max(0, Number(env.credits.dailyFreeCloudflareImageRequests || 0));
 }
 
 export type GeneratedImageProvider = 'openai' | 'xai' | 'cloudflare' | 'runware';
@@ -57,10 +63,11 @@ export type GeneratedImageProviderModel =
     | 'runware-flux-2-klein-9b-kv';
 export type GeneratedImageQuality = 'low' | 'medium' | 'high' | 'normal' | 'pro';
 export type GeneratedImageReservationStatus = 'reserved' | 'completed' | 'failed' | 'cancelled';
-type GeneratedImageBillingMode = 'unmetered' | 'shared_free_then_credits';
+type GeneratedImageBillingMode = 'daily_free_then_blocked' | 'credits_only';
 export type GeneratedImageDecisionReason =
     | 'MODEL_NOT_SUPPORTED'
     | 'MODEL_DISABLED'
+    | 'DAILY_FREE_LIMIT_EXHAUSTED'
     | 'INSUFFICIENT_CREDITS'
     | 'MODEL_PRICING_NOT_CONFIGURED';
 
@@ -202,7 +209,7 @@ function normalizeGeneratedImageRequest(model: string, quality?: string | null):
             modelFamily: null,
             quality: null,
             enabled: false,
-            billingMode: 'shared_free_then_credits',
+            billingMode: 'credits_only',
             freeOutputImageLimit: 0,
             pricePerOutputImageUsd: 0,
         };
@@ -221,8 +228,8 @@ function normalizeGeneratedImageRequest(model: string, quality?: string | null):
             modelFamily: 'cloudflare-flux-2-klein-4b',
             quality: 'normal',
             enabled: true,
-            billingMode: 'unmetered',
-            freeOutputImageLimit: 0,
+            billingMode: 'daily_free_then_blocked',
+            freeOutputImageLimit: getCloudflareDailyFreeRequestLimit(),
             pricePerOutputImageUsd: 0,
         };
     }
@@ -240,8 +247,8 @@ function normalizeGeneratedImageRequest(model: string, quality?: string | null):
             modelFamily: 'runware-flux-2-klein-9b-kv',
             quality: 'normal',
             enabled: true,
-            billingMode: 'shared_free_then_credits',
-            freeOutputImageLimit: getGeneratedImageLifetimeFreeRequestLimit(),
+            billingMode: 'credits_only',
+            freeOutputImageLimit: 0,
             pricePerOutputImageUsd: getDefaultGeneratedImageUsdPrice('runware-flux-2-klein-9b-kv', 'normal') || 0,
         };
     }
@@ -254,8 +261,8 @@ function normalizeGeneratedImageRequest(model: string, quality?: string | null):
             modelFamily: 'grok-imagine-image',
             quality: 'pro',
             enabled: true,
-            billingMode: 'shared_free_then_credits',
-            freeOutputImageLimit: getGeneratedImageLifetimeFreeRequestLimit(),
+            billingMode: 'credits_only',
+            freeOutputImageLimit: 0,
             pricePerOutputImageUsd: getDefaultGeneratedImageUsdPrice('grok-imagine-image-pro', 'pro') || 0,
         };
     }
@@ -268,8 +275,8 @@ function normalizeGeneratedImageRequest(model: string, quality?: string | null):
             modelFamily: 'grok-imagine-image',
             quality: 'normal',
             enabled: true,
-            billingMode: 'shared_free_then_credits',
-            freeOutputImageLimit: getGeneratedImageLifetimeFreeRequestLimit(),
+            billingMode: 'credits_only',
+            freeOutputImageLimit: 0,
             pricePerOutputImageUsd: getDefaultGeneratedImageUsdPrice('grok-imagine-image', 'normal') || 0,
         };
     }
@@ -286,8 +293,8 @@ function normalizeGeneratedImageRequest(model: string, quality?: string | null):
             modelFamily: 'gpt-image-1-mini',
             quality: normalizedMiniQuality,
             enabled: true,
-            billingMode: 'shared_free_then_credits',
-            freeOutputImageLimit: getGeneratedImageLifetimeFreeRequestLimit(),
+            billingMode: 'credits_only',
+            freeOutputImageLimit: 0,
             pricePerOutputImageUsd,
         };
     }
@@ -304,8 +311,8 @@ function normalizeGeneratedImageRequest(model: string, quality?: string | null):
             modelFamily: 'gpt-image-2',
             quality: normalizedGptQuality,
             enabled: true,
-            billingMode: 'shared_free_then_credits',
-            freeOutputImageLimit: getGeneratedImageLifetimeFreeRequestLimit(),
+            billingMode: 'credits_only',
+            freeOutputImageLimit: 0,
             pricePerOutputImageUsd,
         };
     }
@@ -317,7 +324,7 @@ function normalizeGeneratedImageRequest(model: string, quality?: string | null):
         modelFamily: null,
         quality: null,
         enabled: false,
-        billingMode: 'shared_free_then_credits',
+        billingMode: 'credits_only',
         freeOutputImageLimit: 0,
         pricePerOutputImageUsd: 0,
     };
@@ -370,21 +377,46 @@ export function buildGeneratedImageBillingDecision(snapshot: GeneratedImageBilli
         return buildDisabledDecision(normalized, 'MODEL_DISABLED', snapshot.dateUtc, imageCount);
     }
 
-    const isUnmetered = normalized.billingMode === 'unmetered';
-    const freeOutputImagesRemaining = isUnmetered
-        ? 0
-        : Math.max(normalized.freeOutputImageLimit - freeOutputImagesUsed, 0);
-    const freeRequestCount = !isUnmetered && freeOutputImagesRemaining > 0 ? 1 : 0;
+    const isDailyFreeOnly = normalized.billingMode === 'daily_free_then_blocked';
+    const freeOutputImagesRemaining = isDailyFreeOnly
+        ? Math.max(normalized.freeOutputImageLimit - freeOutputImagesUsed, 0)
+        : 0;
+    const freeRequestCount = isDailyFreeOnly && freeOutputImagesRemaining > 0 ? 1 : 0;
     const freeImageCount = freeRequestCount;
-    const billedImageCount = isUnmetered ? 0 : (freeRequestCount > 0 ? 0 : imageCount);
+    const billedImageCount = isDailyFreeOnly ? 0 : imageCount;
     const requiresCredits = billedImageCount > 0;
-    const creditsCost = isUnmetered
+    const creditsCost = isDailyFreeOnly
         ? 0
         : computeGeneratedImageCreditsCharge({
             model: normalized.providerModel || normalized.requestedModel,
             quality: normalized.quality,
             imageCount,
         });
+
+    if (isDailyFreeOnly && freeRequestCount === 0) {
+        return {
+            allowed: false,
+            reason: 'DAILY_FREE_LIMIT_EXHAUSTED',
+            dateUtc: snapshot.dateUtc,
+            requestedModel: normalized.requestedModel,
+            provider: normalized.provider,
+            providerModel: normalized.providerModel,
+            modelFamily: normalized.modelFamily,
+            quality: normalized.quality,
+            imageCount,
+            freeRequestCount: 0,
+            freeOutputImageLimit: normalized.freeOutputImageLimit,
+            freeOutputImagesUsed,
+            freeOutputImagesRemaining,
+            freeImageCount: 0,
+            billedImageCount: 0,
+            pricePerOutputImageUsd: normalized.pricePerOutputImageUsd,
+            usdCost: 0,
+            creditsCost: 0,
+            availableCredits: snapshot.availableCredits,
+            requiresCredits: false,
+        };
+    }
 
     if (requiresCredits && creditsCost === null) {
         return {
@@ -563,52 +595,80 @@ export async function reserveGeneratedImageUsage(
         };
     }
 
-    if (normalized.billingMode === 'unmetered') {
-        const decision = buildGeneratedImageBillingDecision({
-            dateUtc,
-            model: normalized.providerModel,
-            quality: normalized.quality,
-            imageCount,
-            freeOutputImagesUsed: 0,
-            availableCredits: 0,
-        });
-        if (!decision.allowed || !decision.provider || !decision.providerModel || !decision.modelFamily || !decision.quality) {
+    if (normalized.billingMode === 'daily_free_then_blocked') {
+        const quotaKey = CLOUDFLARE_FREE_IMAGE_MODEL_FAMILY;
+        const lockKey = toReservationLockKey(userId, dateUtc, quotaKey);
+        const lockValue = randomUUID();
+        const hasLock = await acquireLock(lockKey, GENERATED_IMAGE_RESERVATION_LOCK_TTL_SECONDS, lockValue);
+        if (!hasLock) {
+            throw new Error('Generated image billing reservation is busy');
+        }
+        try {
+            const lockedExistingRecord = await findGeneratedImageUsageRecord(requestId);
+            assertReservationBindingMatches(lockedExistingRecord, {
+                userId,
+                contextType,
+                contextId,
+                model: params.model,
+                quality: params.quality,
+            });
+            const lockedExisting = toUsageReservation(lockedExistingRecord);
+            if (lockedExisting) return lockedExisting;
+
+            const usageSummary = await getDailyGeneratedImageReservationSummary({
+                userId,
+                dateUtc,
+                modelFamily: CLOUDFLARE_FREE_IMAGE_MODEL_FAMILY,
+            });
+            const decision = buildGeneratedImageBillingDecision({
+                dateUtc,
+                model: normalized.providerModel,
+                quality: normalized.quality,
+                imageCount,
+                freeOutputImagesUsed: usageSummary.freeImageCount,
+                availableCredits: 0,
+            });
+            if (!decision.allowed || !decision.provider || !decision.providerModel || !decision.modelFamily || !decision.quality) {
+                return {
+                    ...decision,
+                    requestId,
+                    contextType,
+                    contextId,
+                    source: params.source || null,
+                    status: 'failed',
+                    existing: false,
+                };
+            }
+
+            await insertGeneratedImageUsageReservation({
+                requestId,
+                userId,
+                provider: decision.provider,
+                model: decision.providerModel,
+                modelFamily: decision.modelFamily,
+                quality: decision.quality,
+                imageCount: decision.imageCount,
+                freeRequestCount: decision.freeRequestCount,
+                freeImageCount: decision.freeImageCount,
+                billedImageCount: 0,
+                usdCost: 0,
+                dateUtc,
+                contextType,
+                contextId,
+                source: params.source || null,
+            });
             return {
                 ...decision,
                 requestId,
                 contextType,
                 contextId,
                 source: params.source || null,
-                status: 'failed',
+                status: 'reserved',
                 existing: false,
             };
+        } finally {
+            await releaseLock(lockKey, lockValue).catch(() => undefined);
         }
-        await insertGeneratedImageUsageReservation({
-            requestId,
-            userId,
-            provider: decision.provider,
-            model: decision.providerModel,
-            modelFamily: decision.modelFamily,
-            quality: decision.quality,
-            imageCount: decision.imageCount,
-            freeRequestCount: 0,
-            freeImageCount: 0,
-            billedImageCount: 0,
-            usdCost: 0,
-            dateUtc,
-            contextType,
-            contextId,
-            source: params.source || null,
-        });
-        return {
-            ...decision,
-            requestId,
-            contextType,
-            contextId,
-            source: params.source || null,
-            status: 'reserved',
-            existing: false,
-        };
     }
 
     const quotaKey = 'credit-billing';
@@ -631,16 +691,13 @@ export async function reserveGeneratedImageUsage(
         const lockedExisting = toUsageReservation(lockedExistingRecord);
         if (lockedExisting) return lockedExisting;
 
-        const [freeRequestsUsed, creditSummary] = await Promise.all([
-            getLifetimeImageFreeRequestsUsed(userId),
-            getCreditBalanceSummary(userId),
-        ]);
+        const creditSummary = await getCreditBalanceSummary(userId);
         const decision = buildGeneratedImageBillingDecision({
             dateUtc,
             model: normalized.providerModel,
             quality: normalized.quality,
             imageCount,
-            freeOutputImagesUsed: freeRequestsUsed,
+            freeOutputImagesUsed: 0,
             availableCredits: creditSummary.availableCredits,
         });
 

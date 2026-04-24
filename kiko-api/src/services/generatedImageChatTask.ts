@@ -306,6 +306,9 @@ function buildFailureMessage(params: {
     if (reason === 'INSUFFICIENT_CREDITS') {
         return 'Insufficient credits for this image request. Please top up and try again.';
     }
+    if (reason === 'DAILY_FREE_LIMIT_EXHAUSTED') {
+        return 'The free FLUX.2 Klein 4B daily image limit has been used. Please try again tomorrow or choose a paid image model.';
+    }
     if (reason === 'MODEL_PRICING_NOT_CONFIGURED') {
         return 'This image model is not available for paid credits yet.';
     }

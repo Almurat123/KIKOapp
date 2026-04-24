@@ -1,4 +1,4 @@
-import { Tool } from '../../../tooling/registry.js';
+import { Tool, type ToolContext } from '../../../tooling/registry.js';
 import { deployFourMemeToken } from '../../../services/fourMemeTokenDeployService.js';
 
 function toolError(error: unknown) {
@@ -6,6 +6,21 @@ function toolError(error: unknown) {
         success: false,
         error: error instanceof Error ? error.message : String(error),
     };
+}
+
+function resolveXSourceTweetUrl(context?: ToolContext): string | undefined {
+    const currentPage = String(context?.currentPage || '').trim().toLowerCase();
+    const pageContext = String(context?.pageContext || '').trim().toLowerCase();
+    const socialPlatform = String((context as any)?.socialInput?.platform || '').trim().toLowerCase();
+    if (socialPlatform !== 'x' && currentPage !== 'x' && pageContext !== 'x_agent') return undefined;
+
+    const tweetId = String(
+        (context as any)?.x?.sourceMessageId
+        || (context as any)?.x?.rootTweetId
+        || '',
+    ).trim();
+    if (!tweetId) return undefined;
+    return `https://x.com/i/web/status/${encodeURIComponent(tweetId)}`;
 }
 
 export const DeployFourMemeTokenTool: Tool = {
@@ -42,7 +57,11 @@ export const DeployFourMemeTokenTool: Tool = {
     handler: async (args, context) => {
         try {
             const { confirmDeploy, ...input } = args || {};
-            return deployFourMemeToken(input, {
+            const xSourceTweetUrl = input?.twitterUrl ? undefined : resolveXSourceTweetUrl(context);
+            const deployInput = xSourceTweetUrl
+                ? { ...input, twitterUrl: xSourceTweetUrl }
+                : input;
+            return deployFourMemeToken(deployInput, {
                 confirmDeploy: confirmDeploy === true,
                 userId: context?.userId,
                 accessToken: context?.accessToken,

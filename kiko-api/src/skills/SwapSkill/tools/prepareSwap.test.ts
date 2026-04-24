@@ -3,6 +3,15 @@ import assert from 'node:assert/strict';
 
 import { __prepareSwapTest } from './prepareSwap.js';
 
+test('resolveQuoteDisplayAmount prefers human output over raw provider amounts', () => {
+  assert.equal(__prepareSwapTest.resolveQuoteDisplayAmount({
+    data: {
+      amountOut: '7.647801510662393331',
+      amountOutHuman: '7647801510.662393331',
+    },
+  }), '7647801510.662393331');
+});
+
 test('resolveSocketRecoverySearchStartMs uses original request start time when it predates socket recovery', () => {
   const requestStartedAt = 1_000_000;
   const recoveryStartedAt = 1_030_000;
@@ -68,6 +77,35 @@ test('buildSocketRecoveryResult marks confirmed trades as success', () => {
   assert.equal(result.completionData.amountOut, '0.3');
   assert.equal(result.toolResult.mode, 'executed');
   assert.equal(result.toolResult.data.status, 'success');
+});
+
+test('buildSocketRecoveryResult preserves quote card display when settled fields are lossy', () => {
+  const result = __prepareSwapTest.buildSocketRecoveryResult({
+    currentData: {
+      amountOut: '0.010627563013151585',
+      tokenInSymbol: 'SHIB',
+      tokenOutSymbol: 'ETH',
+    },
+    recentSwap: {
+      id: 'trade-display-lossy',
+      txHash: '0xdisplay123',
+      status: 'success',
+      tokenOutAmount: '0.00',
+      tokenInSymbol: 'UNKNOWN',
+      tokenOutSymbol: 'WETH',
+    },
+    args: {
+      amount_in: '7647801510.662393331',
+      token_in: '0xFCa95aeb5bF44aE355806A5ad14659c940dC6BF7',
+      token_out: 'ETH',
+      chain_id: 8453,
+    },
+  });
+
+  assert.equal(result.completionData.status, 'success');
+  assert.equal(result.completionData.amountOut, '0.010627563013151585');
+  assert.equal(result.completionData.tokenInSymbol, 'SHIB');
+  assert.equal(result.completionData.tokenOutSymbol, 'ETH');
 });
 
 test('buildSocketRecoveryResult surfaces failed trades immediately', () => {

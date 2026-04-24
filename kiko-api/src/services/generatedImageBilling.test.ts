@@ -8,54 +8,50 @@ import {
     resolveAvailableGeneratedImagePreference,
 } from './generatedImageBilling.js';
 
-function withLifetimeFreeRequests<T>(value: number, fn: () => T): T {
-    const originalValue = env.credits.lifetimeImageFreeRequests;
-    env.credits.lifetimeImageFreeRequests = value;
+function withCloudflareDailyFreeRequests<T>(value: number, fn: () => T): T {
+    const originalValue = env.credits.dailyFreeCloudflareImageRequests;
+    env.credits.dailyFreeCloudflareImageRequests = value;
     try {
         return fn();
     } finally {
-        env.credits.lifetimeImageFreeRequests = originalValue;
+        env.credits.dailyFreeCloudflareImageRequests = originalValue;
     }
 }
 
-test('GPT Image 2 uses the shared lifetime free image request pool before charging credits', () => {
-    withLifetimeFreeRequests(3, () => {
-        const decision = buildGeneratedImageBillingDecision({
-            dateUtc: '2026-04-22',
-            model: 'gpt-image-2',
-            quality: 'medium',
-            imageCount: 1,
-            freeOutputImagesUsed: 0,
-            availableCredits: 0,
-        });
-
-        assert.equal(decision.allowed, true);
-        assert.equal(decision.freeOutputImageLimit, 3);
-        assert.equal(decision.freeRequestCount, 1);
-        assert.equal(decision.freeImageCount, 1);
-        assert.equal(decision.billedImageCount, 0);
-        assert.equal(decision.creditsCost, 1.59);
-        assert.equal(decision.usdCost, 0);
+test('GPT Image 2 requires credits from the first request', () => {
+    const decision = buildGeneratedImageBillingDecision({
+        dateUtc: '2026-04-22',
+        model: 'gpt-image-2',
+        quality: 'medium',
+        imageCount: 1,
+        freeOutputImagesUsed: 0,
+        availableCredits: 0,
     });
+
+    assert.equal(decision.allowed, false);
+    assert.equal(decision.reason, 'INSUFFICIENT_CREDITS');
+    assert.equal(decision.freeOutputImageLimit, 0);
+    assert.equal(decision.freeRequestCount, 0);
+    assert.equal(decision.freeImageCount, 0);
+    assert.equal(decision.billedImageCount, 1);
+    assert.equal(decision.creditsCost, 1.59);
 });
 
-test('GPT Image 2 requires credits after the free lifetime pool is exhausted', () => {
-    withLifetimeFreeRequests(3, () => {
-        const decision = buildGeneratedImageBillingDecision({
-            dateUtc: '2026-04-22',
-            model: 'gpt-image-2',
-            quality: 'medium',
-            imageCount: 1,
-            freeOutputImagesUsed: 3,
-            availableCredits: 0,
-        });
-
-        assert.equal(decision.allowed, false);
-        assert.equal(decision.reason, 'INSUFFICIENT_CREDITS');
-        assert.equal(decision.freeRequestCount, 0);
-        assert.equal(decision.billedImageCount, 1);
-        assert.equal(decision.creditsCost, 1.59);
+test('GPT Image 2 medium quality is billable when enough credits are available', () => {
+    const decision = buildGeneratedImageBillingDecision({
+        dateUtc: '2026-04-22',
+        model: 'gpt-image-2',
+        quality: 'medium',
+        imageCount: 1,
+        freeOutputImagesUsed: 0,
+        availableCredits: 2,
     });
+
+    assert.equal(decision.allowed, true);
+    assert.equal(decision.freeRequestCount, 0);
+    assert.equal(decision.billedImageCount, 1);
+    assert.equal(decision.creditsCost, 1.59);
+    assert.equal(decision.usdCost, 0.053);
 });
 
 test('GPT Image 2 high quality is billable when enough credits are available', () => {
@@ -75,28 +71,26 @@ test('GPT Image 2 high quality is billable when enough credits are available', (
     assert.equal(decision.usdCost, 0.211);
 });
 
-test('GPT Image 1 Mini uses the shared lifetime free image request pool before charging credits', () => {
-    withLifetimeFreeRequests(3, () => {
-        const decision = buildGeneratedImageBillingDecision({
-            dateUtc: '2026-04-22',
-            model: 'gpt-image-1-mini',
-            quality: 'medium',
-            imageCount: 2,
-            freeOutputImagesUsed: 0,
-            availableCredits: 0,
-        });
-
-        assert.equal(decision.allowed, true);
-        assert.equal(decision.freeOutputImageLimit, 3);
-        assert.equal(decision.freeRequestCount, 1);
-        assert.equal(decision.freeImageCount, 1);
-        assert.equal(decision.billedImageCount, 0);
-        assert.equal(decision.creditsCost, 0.66);
-        assert.equal(decision.usdCost, 0);
+test('GPT Image 1 Mini requires credits from the first request', () => {
+    const decision = buildGeneratedImageBillingDecision({
+        dateUtc: '2026-04-22',
+        model: 'gpt-image-1-mini',
+        quality: 'medium',
+        imageCount: 2,
+        freeOutputImagesUsed: 0,
+        availableCredits: 1,
     });
+
+    assert.equal(decision.allowed, true);
+    assert.equal(decision.freeOutputImageLimit, 0);
+    assert.equal(decision.freeRequestCount, 0);
+    assert.equal(decision.freeImageCount, 0);
+    assert.equal(decision.billedImageCount, 2);
+    assert.equal(decision.creditsCost, 0.66);
+    assert.equal(decision.usdCost, 0.022);
 });
 
-test('Grok normal charges credits after lifetime free requests are exhausted', () => {
+test('Grok normal charges credits from the first request', () => {
     const decision = buildGeneratedImageBillingDecision({
         dateUtc: '2026-04-22',
         model: 'grok-imagine-image',
@@ -113,26 +107,51 @@ test('Grok normal charges credits after lifetime free requests are exhausted', (
     assert.equal(decision.usdCost, 0.02);
 });
 
-test('Grok pro uses the shared lifetime free image request pool before charging credits', () => {
+test('Grok pro charges credits from the first request', () => {
     const decision = buildGeneratedImageBillingDecision({
         dateUtc: '2026-04-22',
         model: 'grok-imagine-image-pro',
         quality: 'pro',
         imageCount: 1,
         freeOutputImagesUsed: 0,
-        availableCredits: 0,
+        availableCredits: 3,
     });
 
     assert.equal(decision.allowed, true);
-    assert.equal(decision.freeRequestCount, 1);
-    assert.equal(decision.freeImageCount, 1);
-    assert.equal(decision.billedImageCount, 0);
+    assert.equal(decision.freeRequestCount, 0);
+    assert.equal(decision.freeImageCount, 0);
+    assert.equal(decision.billedImageCount, 1);
     assert.equal(decision.creditsCost, 2.1);
-    assert.equal(decision.usdCost, 0);
+    assert.equal(decision.usdCost, 0.07);
 });
 
-test('Cloudflare FLUX.2 Klein 4B is unmetered and does not consume shared free image requests', () => {
-    withLifetimeFreeRequests(3, () => {
+test('Cloudflare FLUX.2 Klein 4B uses the daily free image bucket', () => {
+    withCloudflareDailyFreeRequests(3, () => {
+        const decision = buildGeneratedImageBillingDecision({
+            dateUtc: '2026-04-24',
+            model: 'cloudflare-flux-2-klein-4b',
+            quality: 'normal',
+            imageCount: 1,
+            freeOutputImagesUsed: 2,
+            availableCredits: 0,
+        });
+
+        assert.equal(decision.allowed, true);
+        assert.equal(decision.provider, 'cloudflare');
+        assert.equal(decision.providerModel, 'cloudflare-flux-2-klein-4b');
+        assert.equal(decision.freeOutputImageLimit, 3);
+        assert.equal(decision.freeOutputImagesRemaining, 1);
+        assert.equal(decision.freeRequestCount, 1);
+        assert.equal(decision.freeImageCount, 1);
+        assert.equal(decision.billedImageCount, 0);
+        assert.equal(decision.requiresCredits, false);
+        assert.equal(decision.creditsCost, 0);
+        assert.equal(decision.usdCost, 0);
+    });
+});
+
+test('Cloudflare FLUX.2 Klein 4B blocks after the daily free bucket is exhausted', () => {
+    withCloudflareDailyFreeRequests(3, () => {
         const decision = buildGeneratedImageBillingDecision({
             dateUtc: '2026-04-24',
             model: 'cloudflare-flux-2-klein-4b',
@@ -142,50 +161,32 @@ test('Cloudflare FLUX.2 Klein 4B is unmetered and does not consume shared free i
             availableCredits: 0,
         });
 
-        assert.equal(decision.allowed, true);
-        assert.equal(decision.provider, 'cloudflare');
-        assert.equal(decision.providerModel, 'cloudflare-flux-2-klein-4b');
-        assert.equal(decision.freeOutputImageLimit, 0);
-        assert.equal(decision.freeRequestCount, 0);
-        assert.equal(decision.freeImageCount, 0);
+        assert.equal(decision.allowed, false);
+        assert.equal(decision.reason, 'DAILY_FREE_LIMIT_EXHAUSTED');
+        assert.equal(decision.freeOutputImageLimit, 3);
+        assert.equal(decision.freeOutputImagesRemaining, 0);
         assert.equal(decision.billedImageCount, 0);
         assert.equal(decision.requiresCredits, false);
-        assert.equal(decision.creditsCost, 0);
-        assert.equal(decision.usdCost, 0);
     });
 });
 
-test('Runware FLUX.2 Klein 9B KV uses shared free requests before charging low credits price', () => {
-    withLifetimeFreeRequests(3, () => {
-        const freeDecision = buildGeneratedImageBillingDecision({
+test('Runware FLUX.2 Klein 9B KV charges low credits price from the first request', () => {
+    withCloudflareDailyFreeRequests(3, () => {
+        const decision = buildGeneratedImageBillingDecision({
             dateUtc: '2026-04-24',
             model: 'runware-flux-2-klein-9b-kv',
             quality: 'normal',
             imageCount: 1,
             freeOutputImagesUsed: 0,
-            availableCredits: 0,
-        });
-        assert.equal(freeDecision.allowed, true);
-        assert.equal(freeDecision.provider, 'runware');
-        assert.equal(freeDecision.freeRequestCount, 1);
-        assert.equal(freeDecision.billedImageCount, 0);
-        assert.equal(freeDecision.creditsCost, 0.0234);
-        assert.equal(freeDecision.usdCost, 0);
-
-        const paidDecision = buildGeneratedImageBillingDecision({
-            dateUtc: '2026-04-24',
-            model: 'runware-flux-2-klein-9b-kv',
-            quality: 'normal',
-            imageCount: 1,
-            freeOutputImagesUsed: 3,
             availableCredits: 0.03,
         });
-        assert.equal(paidDecision.allowed, true);
-        assert.equal(paidDecision.freeRequestCount, 0);
-        assert.equal(paidDecision.billedImageCount, 1);
-        assert.equal(paidDecision.requiresCredits, true);
-        assert.equal(paidDecision.creditsCost, 0.0234);
-        assert.equal(paidDecision.usdCost, 0.00078);
+        assert.equal(decision.allowed, true);
+        assert.equal(decision.provider, 'runware');
+        assert.equal(decision.freeRequestCount, 0);
+        assert.equal(decision.billedImageCount, 1);
+        assert.equal(decision.requiresCredits, true);
+        assert.equal(decision.creditsCost, 0.0234);
+        assert.equal(decision.usdCost, 0.00078);
     });
 });
 

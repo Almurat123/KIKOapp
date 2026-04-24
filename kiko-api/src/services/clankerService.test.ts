@@ -52,6 +52,60 @@ test('deployClankerToken dry run uses percentage fee units that match Clanker v4
     });
 });
 
+test('deployClankerToken omits Clanker social context for ordinary web launches', async () => {
+    const result = await deployClankerToken({
+        name: 'Web Token',
+        symbol: 'WEB',
+        tokenAdmin: '0x0000000000000000000000000000000000000001',
+    }, {
+        confirmDeploy: false,
+    });
+
+    const payload = requirePayload(result);
+    assert.equal('context' in payload, false);
+});
+
+test('deployClankerToken includes social context only when platform message and user ids are complete', async () => {
+    const result = await deployClankerToken({
+        name: 'Farcaster Token',
+        symbol: 'FCAST',
+        tokenAdmin: '0x0000000000000000000000000000000000000001',
+        context: {
+            interface: 'KiKo Agent',
+            platform: 'farcaster',
+            messageId: '0xcast',
+            id: '1576616',
+        },
+    }, {
+        confirmDeploy: false,
+    });
+
+    const payload = requirePayload(result);
+    assert.deepEqual(payload.context, {
+        interface: 'KiKo Agent',
+        platform: 'farcaster',
+        messageId: '0xcast',
+        id: '1576616',
+    });
+});
+
+test('deployClankerToken drops incomplete social context instead of sending undefined fields', async () => {
+    const result = await deployClankerToken({
+        name: 'Incomplete Context Token',
+        symbol: 'ICT',
+        tokenAdmin: '0x0000000000000000000000000000000000000001',
+        context: {
+            interface: 'KiKo Agent',
+            platform: 'farcaster',
+        },
+    }, {
+        confirmDeploy: false,
+    });
+
+    const payload = requirePayload(result);
+    assert.equal('context' in payload, false);
+});
+
 test('deployClankerToken dry run uses documented 0.5% to 5% defaults for generic dynamic fees', async () => {
     const result = await deployClankerToken({
         name: 'Dynamic Default Token',

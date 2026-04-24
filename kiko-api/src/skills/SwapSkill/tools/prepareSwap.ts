@@ -178,6 +178,12 @@ function hasExecutableQuoteEvidence(quotePayload: any): boolean {
     return hasPositiveAmount || hasRouteHint;
 }
 
+function resolveQuoteDisplayAmount(quotePayload: any): string | null {
+    const quote = quotePayload?.data || quotePayload?.quote || null;
+    if (!quote || typeof quote !== 'object') return null;
+    return quote.amountOutHuman || quote.amountOut || quote.buyAmount || quote.toAmount || null;
+}
+
 function normalizeTokenForMatch(token: string, chainId: number): string {
     const raw = String(token || '').trim().toLowerCase();
     if (!raw) return '';
@@ -429,8 +435,16 @@ function buildSocketRecoveryResult(params: {
             currentAmountOut: params.currentData.amountOut,
             settledAmountOut: params.recentSwap.tokenOutAmount,
         }),
-        tokenInSymbol: params.recentSwap.tokenInSymbol || params.currentData.tokenInSymbol,
-        tokenOutSymbol: params.recentSwap.tokenOutSymbol || params.currentData.tokenOutSymbol,
+        tokenInSymbol: resolveFinalCardTokenSymbol({
+            persistedSymbol: params.recentSwap.tokenInSymbol,
+            currentSymbol: params.currentData.tokenInSymbol,
+            requestedToken: params.args.token_in,
+        }),
+        tokenOutSymbol: resolveFinalCardTokenSymbol({
+            persistedSymbol: params.recentSwap.tokenOutSymbol,
+            currentSymbol: params.currentData.tokenOutSymbol,
+            requestedToken: params.args.token_out,
+        }),
         completedAt: Date.now(),
         message: recoveredStatus === 'success'
             ? `✅ Swap completed! Transaction: ${txHash?.slice(0, 10)}...`
@@ -464,6 +478,34 @@ function buildSocketRecoveryResult(params: {
             recovered_from_socket_error: true
         }
     };
+}
+
+function resolveFinalCardTokenSymbol(params: {
+    persistedSymbol?: string | null;
+    currentSymbol?: string | null;
+    requestedToken?: string | null;
+}): string | null | undefined {
+    const persisted = normalizeDisplaySymbol(params.persistedSymbol);
+    const current = normalizeDisplaySymbol(params.currentSymbol);
+    if (!persisted || persisted === 'UNKNOWN' || persisted === 'TOKEN') {
+        return params.currentSymbol || params.persistedSymbol;
+    }
+    if (current && isNativeEthSymbol(current) && persisted === 'WETH') {
+        return params.currentSymbol;
+    }
+    const requested = normalizeDisplaySymbol(params.requestedToken);
+    if (requested && isNativeEthSymbol(requested) && persisted === 'WETH') {
+        return current || 'ETH';
+    }
+    return params.persistedSymbol || params.currentSymbol;
+}
+
+function normalizeDisplaySymbol(value?: string | null): string {
+    return String(value || '').trim().toUpperCase();
+}
+
+function isNativeEthSymbol(value: string): boolean {
+    return value === 'ETH' || value === 'BASE ETH';
 }
 
 export const PrepareSwapTransactionTool: Tool<SwapArgs> = {
@@ -949,7 +991,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
 
                 // Update card with pre-warmed estimate (if available) without blocking execution
                 preWarmQuotePromise.then(async preWarmedQuote => {
-                    const estimatedOut = preWarmedQuote?.data?.amountOut || preWarmedQuote?.data?.amountOutHuman;
+                    const estimatedOut = resolveQuoteDisplayAmount(preWarmedQuote);
                     if (!estimatedOut) return;
                     const currentData = latestCardData || {};
                     const updatedData = {
@@ -1091,8 +1133,16 @@ When show-quote-before-swap is enabled (default), execution must follow:
                                 currentAmountOut: messageData.amountOut,
                                 settledAmountOut: result.data?.amountOut || swapRecord?.tokenOutAmount,
                             }),
-                            tokenInSymbol: swapRecord?.tokenInSymbol || messageData.tokenInSymbol,
-                            tokenOutSymbol: swapRecord?.tokenOutSymbol || messageData.tokenOutSymbol,
+                            tokenInSymbol: resolveFinalCardTokenSymbol({
+                                persistedSymbol: swapRecord?.tokenInSymbol,
+                                currentSymbol: messageData.tokenInSymbol,
+                                requestedToken: args.token_in,
+                            }),
+                            tokenOutSymbol: resolveFinalCardTokenSymbol({
+                                persistedSymbol: swapRecord?.tokenOutSymbol,
+                                currentSymbol: messageData.tokenOutSymbol,
+                                requestedToken: args.token_out,
+                            }),
                             error: result.error,
                             errorMessage: result.error,
                             completedAt: Date.now(),
@@ -1358,7 +1408,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
             const preWarmedQuote = await preWarmQuotePromise.catch(() => null);
             const quoteDetails = preWarmedQuote?.data
                 ? {
-                    amountOut: preWarmedQuote.data.amountOutHuman || preWarmedQuote.data.amountOut || null,
+                    amountOut: resolveQuoteDisplayAmount(preWarmedQuote),
                     priceImpact: preWarmedQuote.data.priceImpact ?? null,
                     dex: preWarmedQuote.data.dexName || preWarmedQuote.data.dex || null,
                 }
@@ -1390,6 +1440,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
 };
 
 export const __prepareSwapTest = {
+    resolveQuoteDisplayAmount,
     resolveSocketRecoverySearchStartMs,
     buildSocketRecoveryResult,
     raceExecutionWithPendingHandoff,

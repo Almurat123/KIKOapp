@@ -97,16 +97,16 @@ test('credits billing closes the local loop without calling paid providers', asy
         assert.equal(balanceAfterFreeText.reservedCredits, 0);
 
         const seededFreeRequests = [
-            { requestId: `req_free_mini_${suffix}`, model: 'gpt-image-1-mini', modelFamily: 'gpt-image-1-mini', quality: 'medium' },
-            { requestId: `req_free_grok_${suffix}`, model: 'grok-imagine-image', modelFamily: 'grok-imagine-image', quality: 'normal' },
-            { requestId: `req_free_gpt2_${suffix}`, model: 'gpt-image-2', modelFamily: 'gpt-image-2', quality: 'medium' },
+            { requestId: `req_free_cf1_${suffix}`, model: 'cloudflare-flux-2-klein-4b', modelFamily: 'cloudflare-flux-2-klein-4b', quality: 'normal' },
+            { requestId: `req_free_cf2_${suffix}`, model: 'cloudflare-flux-2-klein-4b', modelFamily: 'cloudflare-flux-2-klein-4b', quality: 'normal' },
+            { requestId: `req_free_cf3_${suffix}`, model: 'cloudflare-flux-2-klein-4b', modelFamily: 'cloudflare-flux-2-klein-4b', quality: 'normal' },
         ];
 
         for (const seeded of seededFreeRequests) {
             await insertGeneratedImageUsageReservation({
                 requestId: seeded.requestId,
                 userId,
-                provider: seeded.model.startsWith('grok') ? 'xai' : 'openai',
+                provider: 'cloudflare',
                 model: seeded.model,
                 modelFamily: seeded.modelFamily,
                 quality: seeded.quality,

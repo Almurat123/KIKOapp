@@ -149,6 +149,12 @@ function normalizeFourMemeDeployInput(input: DeployFourMemeTokenInput): DeployFo
     };
 }
 
+function stripUndefinedFields<T extends Record<string, any>>(value: T): T {
+    return Object.fromEntries(
+        Object.entries(value).filter(([, item]) => item !== undefined),
+    ) as T;
+}
+
 async function waitForFourMemeTokenAddress(txHash: string, timeoutMs = 12_000): Promise<string | undefined> {
     const startedAt = Date.now();
     while (Date.now() - startedAt < timeoutMs) {
@@ -315,11 +321,11 @@ export async function deployFourMemeToken(
     options: DeployFourMemeTokenOptions = {},
 ) {
     const normalized = normalizeFourMemeDeployInput(input);
-    const payload = {
+    const payload = stripUndefinedFields({
         ...normalized,
         chainName: FOUR_MEME_CHAIN_NAME,
         tokenManagerAddress: FOUR_MEME_TOKEN_MANAGER,
-    };
+    });
 
     if (!options.confirmDeploy) {
         return {

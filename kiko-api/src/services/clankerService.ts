@@ -566,14 +566,25 @@ function normalizeDeployPayload(input: DeployClankerTokenInput) {
     }
     payload.pool = pool;
     payload.fees = fees;
-    payload.context = {
-        interface: input.context?.interface || 'KiKo Agent',
-        platform: input.context?.platform || 'KiKo',
-        messageId: input.context?.messageId,
-        id: input.context?.id,
-    };
+    const socialContext = normalizeClankerSocialContext(input.context);
+    if (socialContext) {
+        payload.context = socialContext;
+    }
 
     return payload;
+}
+
+function normalizeClankerSocialContext(input: DeployClankerTokenInput['context'] | undefined) {
+    const platform = String(input?.platform || '').trim();
+    const messageId = String(input?.messageId || '').trim();
+    const id = String(input?.id || '').trim();
+    if (!platform || !messageId || !id) return null;
+    return {
+        interface: String(input?.interface || '').trim() || 'KiKo Agent',
+        platform,
+        messageId,
+        id,
+    };
 }
 
 async function fetchClankerJson(path: string, init: RequestInit = {}) {

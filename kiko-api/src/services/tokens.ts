@@ -5,6 +5,7 @@ import {
     getTokenInfo as getDetectedTokenInfo,
     type TokenInfo as DetectedTokenInfo,
 } from './ai/tokenDetector.js';
+import { findCachedTrendingToken } from '../repositories/tokenRepository.js';
 
 // Common token mappings by chain for popular tokens
 // This allows resolving symbols like "ETH", "USDC" to contract addresses
@@ -332,6 +333,7 @@ export interface TokenDisplayMetadata {
 type TokenDisplayResolverDeps = {
     getDetectedTokenInfo?: typeof getDetectedTokenInfo;
     findDetectedTokenOnAnyChain?: typeof findDetectedTokenOnAnyChain;
+    findCachedTrendingToken?: typeof findCachedTrendingToken;
     searchDexTokens?: typeof searchDexTokens;
 };
 
@@ -384,6 +386,22 @@ function pickBestSearchCandidate(
     return candidates[0] || null;
 }
 
+function chainIdToTokenCacheChain(chainId: number): string | undefined {
+    switch (Number(chainId)) {
+        case 1: return 'eth';
+        case 10: return 'optimism';
+        case 56: return 'bsc';
+        case 137: return 'polygon';
+        case 42161: return 'arbitrum';
+        case 8453: return 'base';
+        case 900:
+        case 101:
+            return 'solana';
+        default:
+            return undefined;
+    }
+}
+
 export async function resolveTokenDisplayMetadata(
     token: string,
     chainId: number,
@@ -408,9 +426,22 @@ export async function resolveTokenDisplayMetadata(
 
     const getSpecificInfo = deps.getDetectedTokenInfo || getDetectedTokenInfo;
     const getGlobalInfo = deps.findDetectedTokenOnAnyChain || findDetectedTokenOnAnyChain;
+    const getCachedTrendingToken = deps.findCachedTrendingToken || findCachedTrendingToken;
     const searchDynamicTokens = deps.searchDexTokens || searchDexTokens;
+    const cachedChain = chainIdToTokenCacheChain(chainId);
 
     if (isHexAddressLike(raw) || isSolanaAddressLike(raw)) {
+        if (cachedChain) {
+            try {
+                const cached = await getCachedTrendingToken(raw, cachedChain);
+                if (cached?.symbol && cached.symbol !== 'UNKNOWN') {
+                    return toDynamicTokenDisplay(cached, raw);
+                }
+            } catch {
+                // Fall through to detector/API-backed metadata.
+            }
+        }
+
         try {
             const specific = await getSpecificInfo(raw, chainId);
             if (specific?.symbol && specific.symbol !== 'UNKNOWN') {
@@ -436,6 +467,17 @@ export async function resolveTokenDisplayMetadata(
     }
 
     const normalizedSymbol = normalizeDisplaySymbol(raw);
+    if (cachedChain) {
+        try {
+            const cached = await getCachedTrendingToken(raw, cachedChain);
+            if (cached?.symbol && cached.symbol !== 'UNKNOWN') {
+                return toDynamicTokenDisplay(cached, normalizedSymbol);
+            }
+        } catch {
+            // Fall back to dynamic search.
+        }
+    }
+
     try {
         const searchResults = await searchDynamicTokens(raw);
         const candidate = pickBestSearchCandidate(raw, chainId, searchResults);

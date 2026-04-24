@@ -21,7 +21,7 @@
 //         optional shared free-model cap, the shared premium daily quota, and
 //         token-tier quota parsing that can bind both free and premium chat
 //         allowances for each holder tier. Generated-image free allowance now
-//         lives in the credits runtime as one shared lifetime request pool.
+//         lives in the credits runtime as a Cloudflare 4B daily free bucket.
 // Goal: keep startup validation as the single owner for deployment-time security
 //       and connectivity requirements around X auth, Farcaster agent ingress,
 //       and chat quota env parsing.
@@ -46,9 +46,9 @@
 // - GPT and Grok are premium-model traffic and share one daily free quota.
 // - Generated-image free allowance is backend-owned, env-driven, and must not
 //   be inferred from client-side counters or chat billing knobs.
-// - `CREDITS_LIFETIME_IMAGE_FREE_REQUESTS` controls the shared lifetime
-//   generated-image free request pool; unmetered Cloudflare image generation
-//   must not consume that pool.
+// - `CREDITS_DAILY_FREE_CLOUDFLARE_IMAGE_REQUESTS` controls only the
+//   Cloudflare FLUX.2 Klein 4B daily free bucket. Other image models require
+//   credits immediately.
 // - `USAGE_LIMITS_TIERS_JSON` may define `freeModelLimit` and `premiumLimit`;
 //   legacy `dailyLimit` must still map into the premium limit for backward compatibility.
 // - Quota env parsing must normalize model ids once and never depend on ad hoc caller string rewrites.
@@ -254,7 +254,7 @@ export interface EnvConfig {
         minimumTopUpUsd: number;
         refundWindowHours: number;
         dailyPremiumFreeMessages: number;
-        lifetimeImageFreeRequests: number;
+        dailyFreeCloudflareImageRequests: number;
         minPremiumTextReserveCredits: number;
         reconciliationIntervalMinutes: number;
         reconciliationBackfillBlocks: number;
@@ -388,7 +388,7 @@ function validateEnv(): EnvConfig {
     const creditsMinimumTopUpUsd = parseFloat(process.env.CREDITS_MINIMUM_TOPUP_USD || '1');
     const creditsRefundWindowHours = parseInt(process.env.CREDITS_REFUND_WINDOW_HOURS || '24', 10);
     const creditsDailyPremiumFreeMessages = parseInt(process.env.CREDITS_DAILY_PREMIUM_FREE_MESSAGES || '5', 10);
-    const creditsLifetimeImageFreeRequests = parseInt(process.env.CREDITS_LIFETIME_IMAGE_FREE_REQUESTS || '3', 10);
+    const creditsDailyFreeCloudflareImageRequests = parseInt(process.env.CREDITS_DAILY_FREE_CLOUDFLARE_IMAGE_REQUESTS || '3', 10);
     const creditsMinPremiumTextReserveCredits = parseFloat(process.env.CREDITS_MIN_PREMIUM_TEXT_RESERVE || '1');
     const creditsReconciliationIntervalMinutes = parseInt(process.env.CREDITS_RECONCILIATION_INTERVAL_MINUTES || '5', 10);
     const creditsReconciliationBackfillBlocks = parseInt(process.env.CREDITS_RECONCILIATION_BACKFILL_BLOCKS || '2000', 10);
@@ -751,7 +751,7 @@ function validateEnv(): EnvConfig {
             minimumTopUpUsd: Number.isFinite(creditsMinimumTopUpUsd) ? Math.max(0, creditsMinimumTopUpUsd) : 1,
             refundWindowHours: Number.isFinite(creditsRefundWindowHours) ? Math.max(1, creditsRefundWindowHours) : 24,
             dailyPremiumFreeMessages: Number.isFinite(creditsDailyPremiumFreeMessages) ? Math.max(0, creditsDailyPremiumFreeMessages) : 5,
-            lifetimeImageFreeRequests: Number.isFinite(creditsLifetimeImageFreeRequests) ? Math.max(0, creditsLifetimeImageFreeRequests) : 3,
+            dailyFreeCloudflareImageRequests: Number.isFinite(creditsDailyFreeCloudflareImageRequests) ? Math.max(0, creditsDailyFreeCloudflareImageRequests) : 3,
             minPremiumTextReserveCredits: Number.isFinite(creditsMinPremiumTextReserveCredits) ? Math.max(0, creditsMinPremiumTextReserveCredits) : 1,
             reconciliationIntervalMinutes: Number.isFinite(creditsReconciliationIntervalMinutes) ? Math.max(1, creditsReconciliationIntervalMinutes) : 5,
             reconciliationBackfillBlocks: Number.isFinite(creditsReconciliationBackfillBlocks) ? Math.max(10, creditsReconciliationBackfillBlocks) : 2000,

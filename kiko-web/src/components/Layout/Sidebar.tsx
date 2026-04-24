@@ -528,7 +528,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </span>
               </div>
               <div className={styles.usageRow}>
-                <span className={styles.usageLabel}>Image Free</span>
+                <span className={styles.usageLabel}>4B Free</span>
                 <span className={styles.usageValue}>
                   {usageSummary
                     ? `${usageSummary.generatedImageFree.used}/${usageSummary.generatedImageFree.limit}`

@@ -2,6 +2,7 @@ import { Decimal } from 'decimal.js';
 import { Prisma } from '@prisma/client';
 import prisma from '../db/prisma.js';
 import { env } from '../config/env.js';
+import { getDailyGeneratedImageReservationSummary } from '../repositories/billingRepository.js';
 import {
     getBillingCategory,
     getUtcDateString,
@@ -743,13 +744,13 @@ export async function getDailyPremiumFreeAssistantMessagesUsed(userId: string, d
     });
 }
 
-export async function getLifetimeImageFreeRequestsUsed(userId: string): Promise<number> {
-    const rows = await prisma.$queryRaw<Array<{ total: string | number | null }>>`
-        SELECT COALESCE(SUM(free_request_count), 0) AS total
-        FROM generated_image_usage_ledger
-        WHERE user_id = ${userId}
-    `;
-    return Number(rows[0]?.total || 0);
+export async function getDailyCloudflareImageFreeRequestsUsed(userId: string, dateUtc: string): Promise<number> {
+    const summary = await getDailyGeneratedImageReservationSummary({
+        userId,
+        dateUtc,
+        modelFamily: 'cloudflare-flux-2-klein-4b',
+    });
+    return summary.freeImageCount;
 }
 
 export async function getCreditBalanceSummary(userId: string): Promise<CreditBalanceSummary> {
@@ -757,7 +758,7 @@ export async function getCreditBalanceSummary(userId: string): Promise<CreditBal
     const [account, premiumTextFreeUsed, generatedImageFreeUsed] = await Promise.all([
         ensureCreditAccount(userId),
         getDailyPremiumFreeAssistantMessagesUsed(userId, dateUtc),
-        getLifetimeImageFreeRequestsUsed(userId),
+        getDailyCloudflareImageFreeRequestsUsed(userId, dateUtc),
     ]);
     return {
         availableCredits: decimalToNumber(account.availableCredits),
@@ -765,7 +766,7 @@ export async function getCreditBalanceSummary(userId: string): Promise<CreditBal
         premiumTextFreeUsed,
         premiumTextFreeLimit: env.credits.dailyPremiumFreeMessages,
         generatedImageFreeUsed,
-        generatedImageFreeLimit: env.credits.lifetimeImageFreeRequests,
+        generatedImageFreeLimit: env.credits.dailyFreeCloudflareImageRequests,
     };
 }
 
