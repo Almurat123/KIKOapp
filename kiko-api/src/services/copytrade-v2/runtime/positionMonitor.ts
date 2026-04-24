@@ -120,6 +120,10 @@ const EXIT_INFLIGHT_RETRY_GRACE_MS = getExitInflightRetryGraceMs();
 const MAX_EXIT_RETRIES = Math.max(1, Number(process.env.COPYTRADE_MAX_EXIT_RETRIES || '3'));
 const EXIT_RETRY_COOLDOWN_MS = Math.max(5_000, Number(process.env.COPYTRADE_EXIT_RETRY_COOLDOWN_MS || '12000'));
 const TOKEN_EXIT_LOCK_MAX_MS = Math.max(10_000, Number(process.env.COPYTRADE_TOKEN_EXIT_LOCK_MAX_MS || '45000'));
+const MIRROR_SELL_PRICE_SNAPSHOT_TIMEOUT_MS = Math.max(
+    0,
+    Number(process.env.COPYTRADE_MIRROR_SELL_PRICE_SNAPSHOT_TIMEOUT_MS || '750')
+);
 
 const positionsBeingExited = new Set<string>();
 const tokenExitsBeingProcessed = new Map<string, { owner: string; startedAt: number }>();
@@ -134,6 +138,30 @@ type PositionStatusCompat = {
 
 let positionStatusCompatCache: { value: PositionStatusCompat; ts: number } | null = null;
 const POSITION_STATUS_COMPAT_TTL_MS = 30_000;
+
+async function resolveExitGuardPriceSnapshot(params: {
+    tokenAddress: string;
+    chainId: number;
+    exitReason: string;
+}): Promise<{ snapshot: Awaited<ReturnType<typeof getGuardPriceSnapshot>>; timedOut: boolean }> {
+    const lookup = getGuardPriceSnapshot(params.tokenAddress, params.chainId, {
+        priority: 'high',
+        rpcStrategy: 'fast',
+    })
+        .then((snapshot) => ({ snapshot, timedOut: false }))
+        .catch(() => ({ snapshot: null, timedOut: false }));
+
+    if (params.exitReason !== 'mirror_sell' || MIRROR_SELL_PRICE_SNAPSHOT_TIMEOUT_MS <= 0) {
+        return lookup;
+    }
+
+    return Promise.race([
+        lookup,
+        new Promise<{ snapshot: null; timedOut: true }>((resolve) => {
+            setTimeout(() => resolve({ snapshot: null, timedOut: true }), MIRROR_SELL_PRICE_SNAPSHOT_TIMEOUT_MS);
+        }),
+    ]);
+}
 
 async function getPositionStatusCompat(): Promise<PositionStatusCompat> {
   const cached = positionStatusCompatCache;
@@ -314,10 +342,20 @@ export async function executePositionExit(params: {
     const { userId, tokenAddress, chainId, exitReason, config } = params;
     let tokenInfo = params.tokenInfo ?? { price: 0, symbol: 'UNKNOWN' };
     if (!(Number.isFinite(tokenInfo?.price) && tokenInfo.price > 0)) {
-        const guardPrice = await getGuardPriceSnapshot(tokenAddress, chainId, {
-            priority: 'high',
-            rpcStrategy: 'fast',
-        }).catch(() => null);
+        const guardPriceResult = await resolveExitGuardPriceSnapshot({
+            tokenAddress,
+            chainId,
+            exitReason,
+        });
+        if (guardPriceResult.timedOut) {
+            logger.info(LogCode.SYS_INFO, 'Mirror sell price snapshot timed out; proceeding without blocking exit', {
+                userId,
+                token: tokenAddress,
+                chainId,
+                timeoutMs: MIRROR_SELL_PRICE_SNAPSHOT_TIMEOUT_MS,
+            });
+        }
+        const guardPrice = guardPriceResult.snapshot;
         if (guardPrice) {
             tokenInfo = {
                 ...tokenInfo,

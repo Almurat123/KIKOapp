@@ -17,6 +17,9 @@ test('social model command menu includes low and medium GPT choices', () => {
   assert.match(menu, /\/model gpt-5\.4-mini low/);
   assert.match(menu, /\/model gpt-5\.4-mini medium/);
   assert.match(menu, /\/model deepseek flash/);
+  assert.match(menu, /balanced GPT reasoning for normal agent tasks and image planning/);
+  assert.match(menu, /Grok 4\.1 Fast \/ fast/);
+  assert.match(menu, /strong search ability and real-time X data for fast social answers/);
 });
 
 test('social model command matches DeepSeek V4 Flash', () => {
@@ -33,6 +36,16 @@ test('social model command matches Grok fast model', () => {
   assert.equal(choice?.reasoningLevel, 'fast');
 });
 
+test('social model command accepts dashed numbers and menu display names', () => {
+  const numbered = __socialSettingsCommandTest.matchChatModelChoice('/model -2');
+  const named = __socialSettingsCommandTest.matchChatModelChoice('/model Grok 4.1 Fast');
+
+  assert.equal(numbered?.model, 'gpt-5.4-mini-2026-03-17');
+  assert.equal(numbered?.reasoningLevel, 'medium');
+  assert.equal(named?.model, 'grok-4-1-fast-non-reasoning');
+  assert.equal(named?.reasoningLevel, 'fast');
+});
+
 test('social image command default resolves to executable image preference', () => {
   const choice = __socialSettingsCommandTest.matchImageModelChoice('/image default');
 
@@ -47,6 +60,16 @@ test('social image command matches Grok normal preference', () => {
   assert.equal(choice?.quality, 'normal');
 });
 
+test('social image command accepts dashed numbers and menu display names', () => {
+  const numbered = __socialSettingsCommandTest.matchImageModelChoice('/image -1');
+  const named = __socialSettingsCommandTest.matchImageModelChoice('/image Grok Imagine Pro');
+
+  assert.equal(numbered?.model, 'cloudflare-flux-2-klein-4b');
+  assert.equal(numbered?.quality, 'normal');
+  assert.equal(named?.model, 'grok-imagine-image-pro');
+  assert.equal(named?.quality, 'pro');
+});
+
 test('social image command menu and aliases include Grok pro image preference', () => {
   const menu = __socialSettingsCommandTest.buildImageMenu();
   const explicit = __socialSettingsCommandTest.matchImageModelChoice('/image grok pro');
@@ -54,6 +77,8 @@ test('social image command menu and aliases include Grok pro image preference', 
   const compactAlias = __socialSettingsCommandTest.matchImageModelChoice('/image grokpro');
 
   assert.match(menu, /\/image grok pro/);
+  assert.match(menu, /supports edit and reference image input/);
+  assert.match(menu, /text-to-image only; no edit\/reference image input/);
   assert.equal(explicit?.model, 'grok-imagine-image-pro');
   assert.equal(explicit?.quality, 'pro');
   assert.equal(providerModel?.model, 'grok-imagine-image-pro');
@@ -229,7 +254,7 @@ test('social settings command resolves Grok pro image from menu number', async (
   const pendingMenus = new Map<string, unknown>();
   const savedChoices: Array<{ userId: string; model: string; quality: string | null }> = [];
   const menu = __socialSettingsCommandTest.buildImageMenu();
-  const grokProNumber = menu.match(/^(\d+)\. \/image grok pro$/m)?.[1];
+  const grokProNumber = menu.match(/^(\d+)\. \/image grok pro\b/m)?.[1];
 
   assert.ok(grokProNumber);
 
@@ -277,6 +302,55 @@ test('social settings command resolves Grok pro image from menu number', async (
         savedChoices.push({ userId, model: choice.model, quality: choice.quality });
       },
     },
+  });
+
+  assert.deepEqual(saved, {
+    handled: true,
+    replyText: 'Saved image model: Grok Imagine Pro / pro',
+  });
+  assert.deepEqual(savedChoices, [
+    {
+      userId: 'did:test',
+      model: 'grok-imagine-image-pro',
+      quality: 'pro',
+    },
+  ]);
+  assert.equal(pendingMenus.size, 0);
+});
+
+test('social settings command resolves image model display name from pending menu context', async () => {
+  const pendingMenus = new Map<string, unknown>();
+  const savedChoices: Array<{ userId: string; model: string; quality: string | null }> = [];
+  const deps = {
+    async getPendingMenu(key: string) {
+      return (pendingMenus.get(key) as any) || null;
+    },
+    async setPendingMenu(key: string, pending: unknown) {
+      pendingMenus.set(key, pending);
+    },
+    async clearPendingMenu(key: string) {
+      pendingMenus.delete(key);
+    },
+    async persistChatModelChoice() {
+      throw new Error('unexpected chat persist');
+    },
+    async persistImageModelChoice(userId: string, choice: { model: string; quality: string | null }) {
+      savedChoices.push({ userId, model: choice.model, quality: choice.quality });
+    },
+  };
+
+  await __socialSettingsCommandTest.handleSocialSettingsCommand({
+    userId: 'did:test',
+    text: '/image',
+    replyContextKey: 'x:conversation-image-name',
+    deps,
+  });
+
+  const saved = await __socialSettingsCommandTest.handleSocialSettingsCommand({
+    userId: 'did:test',
+    text: 'Grok Imagine Pro',
+    replyContextKey: 'x:conversation-image-name',
+    deps,
   });
 
   assert.deepEqual(saved, {
