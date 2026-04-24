@@ -13,13 +13,13 @@ test('social model command matches GPT-5.4 mini medium effort', () => {
 test('social model command menu includes low and medium GPT choices', () => {
   const menu = __socialSettingsCommandTest.buildModelMenu();
 
-  assert.match(menu, /just the number/i);
+  assert.match(menu, /Pick reply model/i);
   assert.match(menu, /\/model gpt-5\.4-mini low/);
   assert.match(menu, /\/model gpt-5\.4-mini medium/);
   assert.match(menu, /\/model deepseek flash/);
-  assert.match(menu, /balanced GPT reasoning for normal agent tasks and image planning/);
+  assert.match(menu, /GPT-5\.4 Mini \/ medium; balanced/);
   assert.match(menu, /Grok 4\.1 Fast \/ fast/);
-  assert.match(menu, /strong search ability and real-time X data for fast social answers/);
+  assert.match(menu, /X search/);
 });
 
 test('social model command matches DeepSeek V4 Flash', () => {
@@ -76,9 +76,10 @@ test('social image command menu and aliases include Grok pro image preference', 
   const providerModel = __socialSettingsCommandTest.matchImageModelChoice('/image grok-imagine-image-pro');
   const compactAlias = __socialSettingsCommandTest.matchImageModelChoice('/image grokpro');
 
+  assert.equal(Buffer.byteLength(menu, 'utf8') <= 320, true);
   assert.match(menu, /\/image grok pro/);
-  assert.match(menu, /supports edit and reference image input/);
-  assert.match(menu, /text-to-image only; no edit\/reference image input/);
+  assert.match(menu, /edit \+ ref/);
+  assert.match(menu, /text only/);
   assert.equal(explicit?.model, 'grok-imagine-image-pro');
   assert.equal(explicit?.quality, 'pro');
   assert.equal(providerModel?.model, 'grok-imagine-image-pro');
@@ -254,7 +255,7 @@ test('social settings command resolves Grok pro image from menu number', async (
   const pendingMenus = new Map<string, unknown>();
   const savedChoices: Array<{ userId: string; model: string; quality: string | null }> = [];
   const menu = __socialSettingsCommandTest.buildImageMenu();
-  const grokProNumber = menu.match(/^(\d+)\. \/image grok pro\b/m)?.[1];
+  const grokProNumber = menu.match(/^(\d+)\) \/image grok pro\b/m)?.[1];
 
   assert.ok(grokProNumber);
 

@@ -182,6 +182,7 @@ export async function scheduleMirrorSellIntentsForEvent(params: {
         trackedRemainingRaw: trackedRemainingRaw.toString(),
         targetSellRatioBps: event.targetSellRatioBps,
         targetFullExitVerified: event.targetFullExitVerified,
+        targetSellReference: (event.metadata as Record<string, unknown> | null | undefined)?.targetSellReference || null,
         targetWallet: event.targetWallet,
         orderId: position.orderId || null,
       },

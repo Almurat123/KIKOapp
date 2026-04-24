@@ -1,5 +1,5 @@
 // CONTEXT MEMORY
-// Updated: 2026-04-16
+// Updated: 2026-04-24
 // Author: Linh Tran
 // Reason: Public Farcaster replies need a side-effect-free text formatter so
 //         tests can validate cast-safe wrapping without importing the whole
@@ -55,16 +55,64 @@ const MAX_CAST_REPLY_LINE_CHARS = 42;
 const MAX_SOCIAL_PARAGRAPH_CHARS = 110;
 const MAX_SOCIAL_PARAGRAPH_SENTENCES = 2;
 
+function markdownLinkToCastText(label: string, url: string): string {
+  const normalizedLabel = String(label || '').trim();
+  const normalizedUrl = String(url || '').trim();
+  if (!normalizedUrl) return normalizedLabel;
+  if (!normalizedLabel || /^open link$/i.test(normalizedLabel) || normalizedLabel === '打开链接') {
+    return normalizedUrl;
+  }
+  return `${normalizedLabel}: ${normalizedUrl}`;
+}
+
 function stripCastMarkdownDecorators(text: string): string {
   return String(text || '')
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '$1')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_match, label, url) => markdownLinkToCastText(label, url))
     .replace(/\*\*([^*\n]+)\*\*/g, '$1')
     .replace(/__([^_\n]+)__/g, '$1')
     .replace(/`([^`\n]+)`/g, '$1');
 }
 
+function extractFirstUrl(text: string, patterns: RegExp[]): string | null {
+  for (const pattern of patterns) {
+    const match = pattern.exec(text);
+    const url = match?.[1] || match?.[0] || '';
+    if (url) return url.trim();
+  }
+  return null;
+}
+
+function compactDeploymentReceiptForCast(text: string): string | null {
+  const normalized = stripCastMarkdownDecorators(text);
+  const lower = normalized.toLowerCase();
+  const isDeployReceipt =
+    lower.includes('token deployed')
+    || normalized.includes('代币已部署')
+    || lower.includes('four.meme token')
+    || lower.includes('clanker token');
+  if (!isDeployReceipt) return null;
+
+  const tokenPageUrl = extractFirstUrl(normalized, [
+    /https?:\/\/(?:www\.)?clanker\.world\/\S+/i,
+    /https?:\/\/(?:www\.)?four\.meme\/\S+/i,
+  ]);
+  const explorerUrl = extractFirstUrl(normalized, [
+    /https?:\/\/(?:www\.)?basescan\.org\/token\/\S+/i,
+    /https?:\/\/(?:www\.)?bscscan\.com\/token\/\S+/i,
+  ]);
+  const url = tokenPageUrl || explorerUrl;
+  if (!url) return null;
+
+  const launchpad = /four\.meme/i.test(url)
+    ? 'Four.meme'
+    : /clanker\.world/i.test(url)
+      ? 'Clanker'
+      : 'Token';
+  return `${launchpad} token deployed.\n\n${url}`;
+}
+
 function normalizeCastReplyWhitespace(text: string): string {
-  return stripCastMarkdownDecorators(text)
+  return (compactDeploymentReceiptForCast(text) || stripCastMarkdownDecorators(text))
     .replace(/\r\n?/g, '\n')
     .replace(/[ \t\f\v]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
@@ -157,6 +205,7 @@ function chunkContinuousText(value: string, maxChars: number): string[] {
 
 function wrapCastReplyLine(line: string, maxChars: number): string[] {
   if (!line) return [''];
+  if (/^https?:\/\/\S+$/i.test(line)) return [line];
   if (/\s/.test(line)) return [line];
   const chunks = chunkContinuousText(line, maxChars);
   return chunks.length > 0 ? chunks : [''];

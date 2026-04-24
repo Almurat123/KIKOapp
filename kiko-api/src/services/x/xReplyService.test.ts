@@ -31,6 +31,20 @@ test('sanitizePublicXReplyText strips generated image URLs and bare domains', ()
   assert.equal(text, 'Generated. Also see');
 });
 
+test('sanitizePublicXReplyText preserves public token deployment links', () => {
+  const text = sanitizePublicXReplyText(
+    [
+      'Clanker token deployed.',
+      'Token address: 0x269c77D98A25E8b80b53A85ee309dFb805c53b07',
+      'Clanker page: [Open link](https://www.clanker.world/clanker/0x269c77D98A25E8b80b53A85ee309dFb805c53b07)',
+      'Token explorer: https://basescan.org/token/0x269c77D98A25E8b80b53A85ee309dFb805c53b07',
+    ].join('\n'),
+  );
+
+  assert.match(text, /https:\/\/www\.clanker\.world\/clanker\/0x269c77D98A25E8b80b53A85ee309dFb805c53b07/);
+  assert.match(text, /https:\/\/basescan\.org\/token\/0x269c77D98A25E8b80b53A85ee309dFb805c53b07/);
+});
+
 test('sanitizePublicXReplyText preserves markdown link text without the URL', () => {
   const text = sanitizePublicXReplyText('Read the [wallet summary](https://kikoapp.app/chat/abc) before trading.');
 
@@ -47,7 +61,7 @@ test('sanitizePublicXReplyText falls back when the reply is only a link', () => 
 test('sanitizePublicXReplyText truncates long public replies under X budget', () => {
   const text = sanitizePublicXReplyText('A'.repeat(400));
 
-  assert.equal(text.length <= 260, true);
+  assert.equal(text.length <= 280, true);
   assert.equal(text.endsWith('...'), true);
 });
 

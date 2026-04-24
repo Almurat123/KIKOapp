@@ -71,6 +71,23 @@ test('trimCastText strips markdown emphasis so Farcaster shows plain text', () =
   assert.match(formatted, /\+\$592\.05 realized/);
 });
 
+test('trimCastText preserves markdown deployment links as visible cast URLs', () => {
+  const formatted = trimCastText(
+    [
+      'Clanker token deployed.',
+      'Token address: 0x269c77D98A25E8b80b53A85ee309dFb805c53b07',
+      'Clanker page: [Open link](https://www.clanker.world/clanker/0x269c77D98A25E8b80b53A85ee309dFb805c53b07)',
+      'Token explorer: https://basescan.org/token/0x269c77D98A25E8b80b53A85ee309dFb805c53b07',
+    ].join('\n'),
+    320,
+  );
+
+  assert.equal(
+    formatted,
+    'Clanker token deployed.\n\nhttps://www.clanker.world/clanker/0x269c77D98A25E8b80b53A85ee309dFb805c53b07',
+  );
+});
+
 test('createFarcasterInboundEventLog accepts first insert and quietly rejects duplicates', async () => {
   const eventLog = prisma.farcasterEventLog as any;
   const originalCreateMany = eventLog.createMany;

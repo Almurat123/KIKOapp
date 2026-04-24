@@ -2,6 +2,7 @@ import { buildRecoverablePendingEntryTxHash } from '../buy/pendingProtectionPoli
 import { resolveEntryDeviationCurrentPrice } from '../buy/entryDeviationPriceSelection.js';
 import { scheduleLateBuySubmissionAdoption } from '../buy/lateBuySubmissionAdoption.js';
 import { cancelPendingAttributedPosition } from '../positions/pendingAttributedPositionLedger.js';
+import { buildMirrorSellSourceAnchor } from '../exit/targetSellReference.js';
 import {
     advanceCanonicalOrderState as advanceCanonicalOrderStateFallback,
     claimOrCreateCanonicalOrder as claimOrCreateCanonicalOrderFallback,
@@ -2073,6 +2074,25 @@ export async function handleTargetSell(params: {
 
     logger.info(LogCode.EXE_TX_BROADCAST, 'Mirror sell: Processing open positions for token', { token: tokenToSell, configCount: uniqueExecutableConfigs.length, targetWallet });
 
+    const targetSellReference = buildMirrorSellSourceAnchor({
+        sourceTxHash: swap.txHash,
+        tokenIn: swap.tokenIn,
+        tokenOut: swap.tokenOut,
+        amountIn: swap.amountIn,
+        amountOut: swap.amountOut,
+    });
+    if (targetSellReference) {
+        logger.info(LogCode.SYS_INFO, 'Mirror sell target execution reference captured', {
+            chainId,
+            targetWallet: normalizedWallet,
+            txHash: swap.txHash,
+            sourceTokenIn: targetSellReference.sourceTokenIn,
+            sourceTokenOut: targetSellReference.sourceTokenOut,
+            sourceAmountIn: targetSellReference.sourceAmountIn,
+            sourceAmountOut: targetSellReference.sourceAmountOut,
+        });
+    }
+
     const persistedEvent = swap.txHash
         ? await upsertTargetSellEvent({
             chainId,
@@ -2083,7 +2103,8 @@ export async function handleTargetSell(params: {
             detectedAt: new Date(),
             metadata: {
                 persistedBy: 'legacy_mirror_sell_runtime',
-                configCount: uniqueExecutableConfigs.length
+                configCount: uniqueExecutableConfigs.length,
+                targetSellReference,
             }
         }).catch((error: any) => {
             logger.warn(LogCode.SYS_ERROR, 'Mirror sell: failed to persist durable target sell event', {
@@ -2283,6 +2304,7 @@ export async function handleTargetSell(params: {
                 metadata: {
                     persistedBy: 'legacy_mirror_sell_runtime',
                     configId: config.id,
+                    targetSellReference,
                 }
             }),
             positions: matchedPositions.map((position: any) => ({
@@ -2300,6 +2322,7 @@ export async function handleTargetSell(params: {
                 sourceRuntime: 'legacy_mirror_sell_runtime',
                 pendingPositionCount: pendingMatchedPositionIds.length,
                 executionPolicyReasonCode,
+                targetSellReference,
             }
         }).catch((error: any) => {
             logger.warn(LogCode.SYS_ERROR, 'Mirror sell: failed to schedule canonical exit intents', {

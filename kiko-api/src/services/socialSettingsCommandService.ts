@@ -62,35 +62,35 @@ const CHAT_MODEL_CHOICES: ChatModelChoice[] = [
     command: '/model gpt-5.4-mini low',
     model: 'gpt-5.4-mini-2026-03-17',
     reasoningLevel: 'low',
-    description: 'fast GPT reasoning for short replies and simple tool use',
+    description: 'fast',
   },
   {
     label: 'GPT-5.4 Mini / medium',
     command: '/model gpt-5.4-mini medium',
     model: 'gpt-5.4-mini-2026-03-17',
     reasoningLevel: 'medium',
-    description: 'balanced GPT reasoning for normal agent tasks and image planning',
+    description: 'balanced',
   },
   {
     label: 'DeepSeek V4 Flash / fast',
     command: '/model deepseek flash',
     model: 'deepseek-v4-flash',
     reasoningLevel: 'fast',
-    description: 'low-latency text replies for lightweight questions',
+    description: 'fast text',
   },
   {
     label: 'Grok 4.1 Fast / fast',
     command: '/model grok fast',
     model: 'grok-4-1-fast-non-reasoning',
     reasoningLevel: 'fast',
-    description: 'strong search ability and real-time X data for fast social answers',
+    description: 'X search',
   },
   {
     label: 'Grok 4.1 Fast / thinking',
     command: '/model grok thinking',
     model: 'grok-4-1-fast-reasoning',
     reasoningLevel: 'thinking',
-    description: 'strong search ability, real-time X data, and deeper reasoning',
+    description: 'X search + think',
   },
 ];
 
@@ -162,30 +162,30 @@ function describeChatModelChoice(
   const normalized = normalizeSupportedChatModel(model);
   const level = reasoningLevel || inferSupportedChatReasoningLevel(normalized);
   if (normalized === 'gpt-5.4-mini-2026-03-17' && level === 'low') {
-    return 'fast GPT reasoning for short replies and simple tool use';
+    return 'fast';
   }
   if (normalized === 'gpt-5.4-mini-2026-03-17') {
-    return 'balanced GPT reasoning for normal agent tasks and image planning';
+    return 'balanced';
   }
   if (normalized === 'deepseek-v4-flash') {
-    return 'low-latency text replies for lightweight questions';
+    return 'fast text';
   }
   if (normalized === 'grok-4-1-fast-reasoning') {
-    return 'strong search ability, real-time X data, and deeper reasoning';
+    return 'X search + think';
   }
   if (normalized === 'grok-4-1-fast-non-reasoning') {
-    return 'strong search ability and real-time X data for fast social answers';
+    return 'X search';
   }
-  return 'general text model for replies and tool use';
+  return 'general';
 }
 
 function describeImageInputSupport(model?: string | null): string {
   const normalized = String(model || '').trim().toLowerCase();
   if (normalized === 'cloudflare-flux-2-klein-4b') {
-    return 'text-to-image only; no edit/reference image input';
+    return 'text only';
   }
   if (normalized === 'runware-flux-2-klein-9b-kv') {
-    return 'supports reference image input; edit support is provider-limited';
+    return 'ref only';
   }
   if (
     normalized === 'gpt-image-1-mini'
@@ -193,9 +193,9 @@ function describeImageInputSupport(model?: string | null): string {
     || normalized === 'grok-imagine-image'
     || normalized === 'grok-imagine-image-pro'
   ) {
-    return 'supports edit and reference image input';
+    return 'edit + ref';
   }
-  return 'input support depends on provider';
+  return 'provider varies';
 }
 
 function normalizeCommandText(text: string): string {
@@ -209,15 +209,25 @@ function normalizeCommandText(text: string): string {
 
 function buildModelMenu(): string {
   return [
-    'Reply with one model command or just the number:',
-    ...CHAT_MODEL_CHOICES.map((choice, index) => `${index + 1}. ${choice.command} — ${choice.label}: ${choice.description}`),
+    'Pick reply model. Reply 1, -1, name, or command:',
+    ...CHAT_MODEL_CHOICES.map((choice, index) => `${index + 1}) ${choice.command} (${choice.label}; ${choice.description})`),
   ].join('\n');
 }
 
 function buildImageMenu(): string {
+  const castCommands = [
+    '/image default - text only',
+    '/image mini low - edit + ref',
+    '/image mini medium - edit + ref',
+    '/image gpt-image-2 medium - edit + ref',
+    '/image cloudflare - text',
+    '/image runware - ref',
+    '/image grok normal - edit + ref',
+    '/image grok pro - edit + ref',
+  ];
   return [
-    'Reply with one image command or just the number:',
-    ...IMAGE_MODEL_CHOICES.map((choice, index) => `${index + 1}. ${choice.command} — ${choice.inputSupport}`),
+    'Image model: reply 1-8 or command.',
+    ...castCommands.map((command, index) => `${index + 1}) ${command}`),
   ].join('\n');
 }
 

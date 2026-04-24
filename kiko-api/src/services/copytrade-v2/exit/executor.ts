@@ -131,6 +131,7 @@ async function runExitSwapAttempt(
   runtimeContext = plan.runtimeContext
 ) {
   const useDirectPrimary = sellRoutePolicy === 'direct_primary' || sellRoutePolicy === 'direct_only';
+  const sourceAnchor = plan.targetSellReference;
   const result = await submitCopytradeExit({
     userId: plan.userId,
     walletAddress: plan.walletAddress,
@@ -145,7 +146,14 @@ async function runExitSwapAttempt(
     executionContext: {
       executionStep,
       strictReplica: false,
-      sellRoutePolicy
+      sellRoutePolicy,
+      ...(sourceAnchor ? {
+        sourceTxHash: sourceAnchor.sourceTxHash,
+        sourceTokenIn: sourceAnchor.sourceTokenIn,
+        sourceTokenOut: sourceAnchor.sourceTokenOut,
+        sourceAmountIn: sourceAnchor.sourceAmountIn,
+        sourceAmountOut: sourceAnchor.sourceAmountOut,
+      } : {})
     },
     userSettings: {
       fastSwapMode: useDirectPrimary,

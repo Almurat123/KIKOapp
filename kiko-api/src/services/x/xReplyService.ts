@@ -8,35 +8,74 @@ import sharp from 'sharp';
 type DeliveryChannel = 'mention' | 'dm';
 type DeliveryType = 'reply' | 'dm' | 'notification';
 
-const MAX_PUBLIC_X_REPLY_CHARS = 260;
+const MAX_PUBLIC_X_REPLY_CHARS = 280;
 const MAX_X_TWEET_IMAGE_COUNT = 4;
 const MAX_X_TWEET_IMAGE_BYTES = 5 * 1024 * 1024;
 const FALLBACK_PUBLIC_X_REPLY_TEXT = 'I processed this in KIKO, but the reply contained media or links that I cannot post on X.';
 const GENERATED_IMAGE_READY_REPLY_TEXT = 'Generated.';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-22
+// Updated: 2026-04-24
 // Status: verified
-// Why: Public X mention replies must never send image URLs or KIKO share/OGP
-//      links. Generated-image replies may attach real X media IDs after server
-//      upload; text still goes through this final outbound guard.
-// Debug Goal: keep every automated X mention reply plain text even if upstream
-//             model output or bind/share copy contains URLs, while allowing
-//             generated image media upload by media_id.
+// Why: Public X mention replies must never send private KIKO share/OGP/image
+//      links. Public deployment receipts are different: Clanker/Four.meme and
+//      explorer URLs are the product result and must remain visible on X.
+// Debug Goal: keep private/app-generated URLs out of automated public replies,
+//             while allowing public token/result links and generated image
+//             media upload by media_id.
 // Search Tags: x mention no ogp links, x public reply strip urls, x generated image media upload
 // Invariants:
-// - Mention replies sent through the X API must not contain URLs.
+// - Mention replies sent through the X API must not contain KIKO share, app, or
+//   generated-image URLs.
+// - Public token deployment and explorer URLs are allowed because they are the
+//   durable receipt users need on social surfaces.
 // - Generated images attach as uploaded media IDs, never as public image URLs.
 // - The delivery payload persisted for mention replies must match sanitized text.
 // Failure Modes:
 // - Reintroducing KIKO share URLs creates OGP cards on X.
 // - Letting generated-image public URLs through exposes link-card replies instead of media attachments.
+// - Stripping deployment URLs makes successful deploy replies look broken.
+const PUBLIC_X_ALLOWED_LINK_HOSTS = new Set([
+  'clanker.world',
+  'www.clanker.world',
+  'four.meme',
+  'www.four.meme',
+  'basescan.org',
+  'www.basescan.org',
+  'bscscan.com',
+  'www.bscscan.com',
+]);
+
+function isAllowedPublicXReplyUrl(rawUrl: string): boolean {
+  try {
+    const normalized = /^(?:https?:\/\/|www\.)/i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
+    const parsed = new URL(normalized.startsWith('www.') ? `https://${normalized}` : normalized);
+    return PUBLIC_X_ALLOWED_LINK_HOSTS.has(parsed.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+function markdownLinkToPublicXText(label: string, url: string): string {
+  const normalizedLabel = String(label || '').trim();
+  const normalizedUrl = String(url || '').trim();
+  if (!normalizedUrl) return normalizedLabel;
+  if (!isAllowedPublicXReplyUrl(normalizedUrl)) return normalizedLabel;
+  if (!normalizedLabel || /^open link$/i.test(normalizedLabel) || normalizedLabel === '打开链接') {
+    return normalizedUrl;
+  }
+  return `${normalizedLabel}: ${normalizedUrl}`;
+}
+
 export function sanitizePublicXReplyText(input: string): string {
-  const withoutMarkdownLinks = String(input || '').replace(/\[([^\]]+)\]\((?:https?:\/\/|www\.)[^)\s]+[^)]*\)/gi, '$1');
+  const withoutMarkdownLinks = String(input || '').replace(
+    /\[([^\]]+)\]\(((?:https?:\/\/|www\.)[^)\s]+[^)]*)\)/gi,
+    (_match, label, url) => markdownLinkToPublicXText(label, url),
+  );
   const withoutUrls = withoutMarkdownLinks
-    .replace(/https?:\/\/\S+/gi, ' ')
-    .replace(/\bwww\.\S+/gi, ' ')
-    .replace(/\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s]*)?/gi, ' ')
+    .replace(/https?:\/\/\S+/gi, (url) => (isAllowedPublicXReplyUrl(url) ? url : ' '))
+    .replace(/\bwww\.\S+/gi, (url) => (isAllowedPublicXReplyUrl(url) ? url : ' '))
+    .replace(/\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s]*)?/gi, (url) => (isAllowedPublicXReplyUrl(url) ? url : ' '))
     .replace(/\b\S+\.(?:png|jpe?g|gif|webp)(?:\?\S*)?/gi, ' ');
   const withoutMarkdown = withoutUrls
     .replace(/```[\s\S]*?```/g, ' ')

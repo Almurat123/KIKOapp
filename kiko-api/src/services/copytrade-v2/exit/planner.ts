@@ -29,6 +29,7 @@
 import { ethers } from 'ethers';
 import type { CopyTradeExecutionMode } from '../../copyTradeExecutionMode.js';
 import type { EvmExitPlan, ExitTokenInfo, PositionExitReason } from './types.js';
+import type { MirrorSellSourceAnchor } from './targetSellReference.js';
 import { createExitOrderRuntimeContext } from './runtime.js';
 import { setOrderMetadata } from '../../order-runtime/context.js';
 import type { AttributedPositionLike } from '../positions/positionAttribution.js';
@@ -99,6 +100,7 @@ export async function buildEvmExitPlan(input: {
   executionMode: CopyTradeExecutionMode;
   targetWallet?: string;
   positions: AttributedPositionLike[];
+  targetSellReference?: MirrorSellSourceAnchor | null;
 } & PendingAttributedExitContext): Promise<EvmExitPlan> {
   const snapshot = await buildEvmExitAttributionSnapshot({
     walletAddress: input.walletAddress,
@@ -125,6 +127,7 @@ export async function buildEvmExitPlan(input: {
     targetWallet: input.targetWallet,
     snapshot,
     launchpadProvider,
+    targetSellReference: input.targetSellReference,
   });
 }
 
@@ -152,6 +155,7 @@ export function buildEvmExitPlanFromSnapshot(input: {
   targetWallet?: string;
   snapshot: ExitAttributionSnapshot;
   launchpadProvider?: 'fourmeme' | null;
+  targetSellReference?: MirrorSellSourceAnchor | null;
 }): EvmExitPlan {
   const { userId, tokenAddress, chainId, exitReason, tokenInfo, snapshot } = input;
   const balance = snapshot.balanceRaw;
@@ -466,6 +470,7 @@ export function buildEvmExitPlanFromSnapshot(input: {
     positions: effectivePositions,
     pendingAttributedLotIds: attribution.pendingAttributedLotIds,
     latestTargetSellTxHash: snapshot.latestTargetSellTxHash || null,
+    targetSellReference: input.targetSellReference || null,
     attributedReasonCode: effectiveReasonCode,
     attributionMetrics: adjustedMetrics,
     hasExternalBalance: attribution.hasExternalBalance,

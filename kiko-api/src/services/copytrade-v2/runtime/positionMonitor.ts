@@ -49,6 +49,7 @@ import { reconcileTerminalExitGhostPosition } from './terminalExitGhostPositionR
 import { reconcileHistoricalTargetSellGhostPosition } from './historicalTargetSellGhostPositionReconciler.js';
 import { reconcileLedgerClosedGhostPosition } from './ledgerClosedGhostPositionReconciler.js';
 import { reconcileZeroBalanceOpenPosition } from './zeroBalanceOpenPositionReconciler.js';
+import { coerceMirrorSellSourceAnchor } from '../exit/targetSellReference.js';
 import {
   ExitHotPathDeferredError,
   hasIntentContext,
@@ -735,7 +736,8 @@ export async function executePositionExit(params: {
                 executionMode,
                 targetWallet: config.targetWallet,
                 positions: exitPositions,
-                pendingLots: params.pendingAttributedLots
+                pendingLots: params.pendingAttributedLots,
+                targetSellReference: coerceMirrorSellSourceAnchor(params.intentContext?.targetSellReference),
             });
 
             balance = exitPlan.balance;

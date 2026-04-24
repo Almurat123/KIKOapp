@@ -574,6 +574,7 @@ async function processExitIntent(intent: any): Promise<void> {
             targetSellRatioBps: Number.isFinite(Number(intent.metadata?.targetSellRatioBps))
               ? Number(intent.metadata?.targetSellRatioBps)
               : null,
+            targetSellReference: intent.metadata?.targetSellReference || null,
           },
         });
         lastExecutionError = null;
