@@ -5,11 +5,13 @@
 // previously duplicated in separate files. That drift-prone split makes one
 // family easy to update while the other silently keeps stale user charges.
 // Debug Goal: keep image provider cost snapshots and default credits charges
-// derived from the same source for both OpenAI and xAI image models.
-// Search Tags: image provider usd cost credits pricing default markup multiplier
+// derived from the same source for OpenAI, xAI, Cloudflare, and Runware image models.
+// Search Tags: image provider usd cost credits pricing default markup multiplier cloudflare runware flux
 // Invariants:
 // - Default image credits pricing is derived from provider USD cost, not typed twice.
-// - Both OpenAI image models and Grok image models use the same conversion rule.
+// - Billable image models use the same conversion rule.
+// - Unmetered provider-backed models may be present with a zero USD price, but
+//   generated-image billing must keep them out of the shared free-request pool.
 // Failure Modes:
 // - Updating provider USD cost without updating default credits pricing.
 // - Showing one image price in billing while reserve/capture charges another.
@@ -32,6 +34,12 @@ export const DEFAULT_GENERATED_IMAGE_PROVIDER_USD_PRICING = {
     },
     'grok-imagine-image-pro': {
         pro: 0.07,
+    },
+    'cloudflare-flux-2-klein-4b': {
+        normal: 0,
+    },
+    'runware-flux-2-klein-9b-kv': {
+        normal: 0.00078,
     },
 } as const;
 

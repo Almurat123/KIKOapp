@@ -362,7 +362,7 @@ export async function runNodeOrchestration(params: {
     const intentSelectionHistory: ChatHistoryMessage[] = [];
     const deferredProviderCitations: any[] = [];
     let currentPhase = skillResolution.currentPhase;
-    let previousResponseId: string | null | undefined = params.snapshot.previousResponseId;
+    let previousResponseId: string | null | undefined = undefined;
     let lastRoundPolicyMessage = '';
     let forceAnswerFromEvidence = false;
     let forceBufferedVisibleOutput = false;
@@ -820,6 +820,7 @@ export async function runNodeOrchestration(params: {
                 if (canRetryWithoutPreviousResponse) {
                     retriedWithoutPreviousResponse = true;
                     previousResponseId = undefined;
+                    delete (roundProviderOptions as any).previous_response_id;
                     continue;
                 }
                 throw error;
@@ -1726,6 +1727,7 @@ function isStalePreviousResponseError(message: string): boolean {
         (normalized.includes('response with id') && normalized.includes('not found'))
         || (normalized.includes('previous_response_id') && normalized.includes('not found'))
         || (normalized.includes('grpc error') && normalized.includes('not found'))
+        || (normalized.includes('no tool output found for function call') && normalized.includes('invalid_request_error'))
     );
 }
 

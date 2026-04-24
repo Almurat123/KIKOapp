@@ -96,6 +96,7 @@ export function assembleChatContext(params: {
     userId?: string | null;
 }): ChatContextSnapshot {
     const { task, session, messages, toolDefinitions, userId } = params;
+    const activeModel = task.model || session?.model || DEFAULT_CHAT_MODEL;
     const sanitizedHistory = sanitizeHistory(messages);
     const budget = contextBudgetManager.applyBudget(
         sanitizedHistory.map((msg) => ({
@@ -205,7 +206,7 @@ export function assembleChatContext(params: {
         taskId: task.id,
         userMessageId: task.userMessageId,
         assistantMessageId: task.assistantMessageId,
-        model: task.model || session?.model || DEFAULT_CHAT_MODEL,
+        model: activeModel,
         history,
         lastUserMessage,
         recentToolTrace: extractRecentToolTrace(messages),
@@ -242,7 +243,7 @@ export function assembleChatContext(params: {
         requestedTokenSymbols,
         requestedAddressClassifications: [],
         compactedHistory: budget.compactedSummary || null,
-        previousResponseId: session?.lastResponseId ? String(session.lastResponseId) : null,
+        previousResponseId: null,
         historyBudget: {
             inputTokensEstimated: budget.inputTokensEstimated,
             historyKept: budget.historyKept,

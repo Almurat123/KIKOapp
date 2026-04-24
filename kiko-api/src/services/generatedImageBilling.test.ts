@@ -131,6 +131,64 @@ test('Grok pro uses the shared lifetime free image request pool before charging 
     assert.equal(decision.usdCost, 0);
 });
 
+test('Cloudflare FLUX.2 Klein 4B is unmetered and does not consume shared free image requests', () => {
+    withLifetimeFreeRequests(3, () => {
+        const decision = buildGeneratedImageBillingDecision({
+            dateUtc: '2026-04-24',
+            model: 'cloudflare-flux-2-klein-4b',
+            quality: 'normal',
+            imageCount: 1,
+            freeOutputImagesUsed: 3,
+            availableCredits: 0,
+        });
+
+        assert.equal(decision.allowed, true);
+        assert.equal(decision.provider, 'cloudflare');
+        assert.equal(decision.providerModel, 'cloudflare-flux-2-klein-4b');
+        assert.equal(decision.freeOutputImageLimit, 0);
+        assert.equal(decision.freeRequestCount, 0);
+        assert.equal(decision.freeImageCount, 0);
+        assert.equal(decision.billedImageCount, 0);
+        assert.equal(decision.requiresCredits, false);
+        assert.equal(decision.creditsCost, 0);
+        assert.equal(decision.usdCost, 0);
+    });
+});
+
+test('Runware FLUX.2 Klein 9B KV uses shared free requests before charging low credits price', () => {
+    withLifetimeFreeRequests(3, () => {
+        const freeDecision = buildGeneratedImageBillingDecision({
+            dateUtc: '2026-04-24',
+            model: 'runware-flux-2-klein-9b-kv',
+            quality: 'normal',
+            imageCount: 1,
+            freeOutputImagesUsed: 0,
+            availableCredits: 0,
+        });
+        assert.equal(freeDecision.allowed, true);
+        assert.equal(freeDecision.provider, 'runware');
+        assert.equal(freeDecision.freeRequestCount, 1);
+        assert.equal(freeDecision.billedImageCount, 0);
+        assert.equal(freeDecision.creditsCost, 0.0234);
+        assert.equal(freeDecision.usdCost, 0);
+
+        const paidDecision = buildGeneratedImageBillingDecision({
+            dateUtc: '2026-04-24',
+            model: 'runware-flux-2-klein-9b-kv',
+            quality: 'normal',
+            imageCount: 1,
+            freeOutputImagesUsed: 3,
+            availableCredits: 0.03,
+        });
+        assert.equal(paidDecision.allowed, true);
+        assert.equal(paidDecision.freeRequestCount, 0);
+        assert.equal(paidDecision.billedImageCount, 1);
+        assert.equal(paidDecision.requiresCredits, true);
+        assert.equal(paidDecision.creditsCost, 0.0234);
+        assert.equal(paidDecision.usdCost, 0.00078);
+    });
+});
+
 test('generated image preference normalization rejects disabled models', () => {
     assert.deepEqual(
         normalizeGeneratedImagePreference('gpt-image-2', 'high'),
@@ -150,6 +208,20 @@ test('generated image preference normalization rejects disabled models', () => {
         normalizeGeneratedImagePreference('grok-imagine-image', 'normal'),
         {
             model: 'grok-imagine-image',
+            quality: 'normal',
+        },
+    );
+    assert.deepEqual(
+        normalizeGeneratedImagePreference('cloudflare-flux-2-klein-4b', 'normal'),
+        {
+            model: 'cloudflare-flux-2-klein-4b',
+            quality: 'normal',
+        },
+    );
+    assert.deepEqual(
+        normalizeGeneratedImagePreference('runware:400@6', 'normal'),
+        {
+            model: 'runware-flux-2-klein-9b-kv',
             quality: 'normal',
         },
     );

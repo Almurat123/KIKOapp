@@ -186,6 +186,7 @@ export async function updateSession(
         data: {
             ...(updates.title !== undefined ? { title: updates.title } : {}),
             ...(normalizedModel !== undefined ? { model: normalizedModel } : {}),
+            ...(normalizedModel !== undefined ? { lastResponseId: null, compactionCursor: null } : {}),
             ...(normalizedReasoningLevel !== undefined ? { reasoningLevel: normalizedReasoningLevel } : {}),
             ...(updates.status !== undefined ? { status: updates.status } : {}),
         }
@@ -203,7 +204,7 @@ export async function updateSessionConversationState(
     return prisma.chatSession.update({
         where: { id: sessionId },
         data: {
-            ...(updates.lastResponseId !== undefined ? { lastResponseId: updates.lastResponseId } : {}),
+            ...(updates.lastResponseId !== undefined ? { lastResponseId: null } : {}),
             ...(updates.compactionCursor !== undefined ? { compactionCursor: updates.compactionCursor } : {}),
             ...(updates.conversationStateVersion !== undefined ? { conversationStateVersion: updates.conversationStateVersion } : {}),
         },

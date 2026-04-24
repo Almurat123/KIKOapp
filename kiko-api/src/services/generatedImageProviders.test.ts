@@ -103,12 +103,16 @@ test('reference-image support includes GPT and Grok image models', () => {
     assert.equal(supportsGeneratedImageReferenceInputModel('gpt-image-2'), true);
     assert.equal(supportsGeneratedImageReferenceInputModel('grok-imagine-image'), true);
     assert.equal(supportsGeneratedImageReferenceInputModel('grok-imagine-image-pro'), true);
+    assert.equal(supportsGeneratedImageReferenceInputModel('runware-flux-2-klein-9b-kv'), true);
+    assert.equal(supportsGeneratedImageReferenceInputModel('cloudflare-flux-2-klein-4b'), false);
 });
 
-test('execution provider resolves OpenRouter only for gpt-image-2 when configured', () => {
+test('execution provider resolves OpenRouter only for gpt-image-2 when configured and new low-cost providers directly', () => {
     const originalOpenRouterApiKey = process.env.OPENROUTER_API_KEY;
     delete process.env.OPENROUTER_API_KEY;
     try {
+        assert.equal(resolveGeneratedImageExecutionProvider('cloudflare-flux-2-klein-4b', 'cloudflare'), 'cloudflare');
+        assert.equal(resolveGeneratedImageExecutionProvider('runware-flux-2-klein-9b-kv', 'runware'), 'runware');
         assert.equal(resolveGeneratedImageExecutionProvider('gpt-image-1-mini', 'openai'), 'openai');
         assert.equal(resolveGeneratedImageExecutionProvider('gpt-image-2', 'openai'), 'openai');
         process.env.OPENROUTER_API_KEY = 'test-openrouter-key';
@@ -119,6 +123,141 @@ test('execution provider resolves OpenRouter only for gpt-image-2 when configure
             process.env.OPENROUTER_API_KEY = originalOpenRouterApiKey;
         } else {
             delete process.env.OPENROUTER_API_KEY;
+        }
+    }
+});
+
+test('Cloudflare FLUX.2 Klein 4B image requests use Workers AI and decode base64 image payload', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalAccountId = process.env.CLOUDFLARE_WORKERS_AI_ACCOUNT_ID;
+    const originalApiToken = process.env.CLOUDFLARE_WORKERS_AI_API_TOKEN;
+    const calls: Array<{ url: string; prompt: string | null; width: string | null; height: string | null }> = [];
+    process.env.CLOUDFLARE_WORKERS_AI_ACCOUNT_ID = 'test-account';
+    process.env.CLOUDFLARE_WORKERS_AI_API_TOKEN = 'test-cloudflare-token';
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const form = init?.body instanceof FormData ? init.body : null;
+        calls.push({
+            url: String(input),
+            prompt: form ? String(form.get('prompt') || '') : null,
+            width: form ? String(form.get('width') || '') : null,
+            height: form ? String(form.get('height') || '') : null,
+        });
+        return new Response(
+            JSON.stringify({
+                result: {
+                    image: Buffer.from('cloudflare-image').toString('base64'),
+                },
+                success: true,
+            }),
+            {
+                status: 200,
+                headers: {
+                    'content-type': 'application/json',
+                },
+            },
+        );
+    }) as typeof fetch;
+
+    try {
+        const result = await generateImageWithProvider({
+            provider: 'cloudflare',
+            model: 'cloudflare-flux-2-klein-4b',
+            prompt: 'Fast free mascot poster.',
+            quality: 'normal',
+        });
+
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0].url, 'https://api.cloudflare.com/client/v4/accounts/test-account/ai/run/@cf/black-forest-labs/flux-2-klein-4b');
+        assert.equal(calls[0].prompt, 'Fast free mascot poster.');
+        assert.equal(calls[0].width, '1024');
+        assert.equal(calls[0].height, '1024');
+        assert.equal(result.provider, 'cloudflare');
+        assert.equal(result.executionProvider, 'cloudflare');
+        assert.equal(result.model, 'cloudflare-flux-2-klein-4b');
+        assert.equal(result.imageBuffer.toString('utf8'), 'cloudflare-image');
+    } finally {
+        globalThis.fetch = originalFetch;
+        if (typeof originalAccountId === 'string') {
+            process.env.CLOUDFLARE_WORKERS_AI_ACCOUNT_ID = originalAccountId;
+        } else {
+            delete process.env.CLOUDFLARE_WORKERS_AI_ACCOUNT_ID;
+        }
+        if (typeof originalApiToken === 'string') {
+            process.env.CLOUDFLARE_WORKERS_AI_API_TOKEN = originalApiToken;
+        } else {
+            delete process.env.CLOUDFLARE_WORKERS_AI_API_TOKEN;
+        }
+    }
+});
+
+test('Runware FLUX.2 Klein 9B KV image requests use REST imageInference and download URL output', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalRunwareApiKey = process.env.RUNWARE_API_KEY;
+    const calls: Array<{ url: string; body: any }> = [];
+    process.env.RUNWARE_API_KEY = 'test-runware-key';
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const rawBody = typeof init?.body === 'string' ? init.body : '';
+        calls.push({
+            url,
+            body: rawBody ? JSON.parse(rawBody) : null,
+        });
+        if (url === 'https://api.runware.ai/v1') {
+            return new Response(
+                JSON.stringify({
+                    data: [
+                        {
+                            taskType: 'imageInference',
+                            taskUUID: calls[0].body[0].taskUUID,
+                            imageURL: 'https://im.runware.ai/generated.png',
+                            cost: 0.00078,
+                        },
+                    ],
+                }),
+                {
+                    status: 200,
+                    headers: {
+                        'content-type': 'application/json',
+                    },
+                },
+            );
+        }
+        return new Response('runware-image', {
+            status: 200,
+            headers: {
+                'content-type': 'image/png',
+            },
+        });
+    }) as typeof fetch;
+
+    try {
+        const result = await generateImageWithProvider({
+            provider: 'runware',
+            model: 'runware-flux-2-klein-9b-kv',
+            prompt: 'Cheap fast product render.',
+            quality: 'normal',
+            inputImages: [
+                { url: 'https://example.com/source.png', sourceLabel: 'reference' },
+            ],
+        });
+
+        assert.equal(calls.length, 2);
+        assert.equal(calls[0].url, 'https://api.runware.ai/v1');
+        assert.equal(calls[0].body[0].taskType, 'imageInference');
+        assert.equal(calls[0].body[0].model, 'runware:400@6');
+        assert.equal(calls[0].body[0].positivePrompt, 'Cheap fast product render.');
+        assert.equal(calls[0].body[0].seedImage, 'https://example.com/source.png');
+        assert.equal(calls[0].body[0].strength, 0.9);
+        assert.equal(result.provider, 'runware');
+        assert.equal(result.executionProvider, 'runware');
+        assert.equal(result.model, 'runware-flux-2-klein-9b-kv');
+        assert.equal(result.imageBuffer.toString('utf8'), 'runware-image');
+    } finally {
+        globalThis.fetch = originalFetch;
+        if (typeof originalRunwareApiKey === 'string') {
+            process.env.RUNWARE_API_KEY = originalRunwareApiKey;
+        } else {
+            delete process.env.RUNWARE_API_KEY;
         }
     }
 });

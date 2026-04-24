@@ -155,7 +155,7 @@ const generatedImageExecutionLimit = pLimit(GENERATED_IMAGE_MAX_CONCURRENCY);
 
 export type GeneratedImageMessageState = {
     requestedModel: string;
-    provider: 'openai' | 'xai' | null;
+    provider: 'openai' | 'xai' | 'cloudflare' | 'runware' | null;
     executionProvider: GeneratedImageExecutionProvider | null;
     providerModel: string | null;
     quality: string | null;
@@ -191,8 +191,20 @@ export type ExecuteGeneratedImageChatTaskResult = {
     errorMessage?: string | null;
 };
 
-function inferProvider(requestedModel: string): 'openai' | 'xai' | null {
+function inferProvider(requestedModel: string): 'openai' | 'xai' | 'cloudflare' | 'runware' | null {
     const normalized = String(requestedModel || '').trim().toLowerCase();
+    if (
+        normalized === 'cloudflare-flux-2-klein-4b'
+        || normalized === '@cf/black-forest-labs/flux-2-klein-4b'
+        || normalized === 'cloudflare/flux-2-klein-4b'
+        || normalized === 'flux-2-klein-4b'
+    ) return 'cloudflare';
+    if (
+        normalized === 'runware-flux-2-klein-9b-kv'
+        || normalized === 'runware:400@6'
+        || normalized === 'flux-2-klein-9b-kv'
+        || normalized === 'flux.2-klein-9b-kv'
+    ) return 'runware';
     if (normalized.startsWith('gpt-image-1-mini')) return 'openai';
     if (normalized.startsWith('gpt-image-2')) return 'openai';
     if (normalized.startsWith('grok-imagine-image')) return 'xai';
@@ -201,6 +213,18 @@ function inferProvider(requestedModel: string): 'openai' | 'xai' | null {
 
 function inferProviderModel(requestedModel: string): string | null {
     const normalized = String(requestedModel || '').trim().toLowerCase();
+    if (
+        normalized === 'cloudflare-flux-2-klein-4b'
+        || normalized === '@cf/black-forest-labs/flux-2-klein-4b'
+        || normalized === 'cloudflare/flux-2-klein-4b'
+        || normalized === 'flux-2-klein-4b'
+    ) return 'cloudflare-flux-2-klein-4b';
+    if (
+        normalized === 'runware-flux-2-klein-9b-kv'
+        || normalized === 'runware:400@6'
+        || normalized === 'flux-2-klein-9b-kv'
+        || normalized === 'flux.2-klein-9b-kv'
+    ) return 'runware-flux-2-klein-9b-kv';
     if (normalized.startsWith('gpt-image-1-mini')) return 'gpt-image-1-mini';
     if (normalized.startsWith('gpt-image-2')) return 'gpt-image-2';
     if (normalized.startsWith('grok-imagine-image-pro')) return 'grok-imagine-image-pro';
@@ -211,6 +235,18 @@ function inferProviderModel(requestedModel: string): string | null {
 function normalizeQuality(requestedModel: string, quality?: string | null): string | null {
     const normalizedModel = String(requestedModel || '').trim().toLowerCase();
     const normalizedQuality = String(quality || '').trim().toLowerCase();
+    if (
+        normalizedModel === 'cloudflare-flux-2-klein-4b'
+        || normalizedModel === '@cf/black-forest-labs/flux-2-klein-4b'
+        || normalizedModel === 'cloudflare/flux-2-klein-4b'
+        || normalizedModel === 'flux-2-klein-4b'
+        || normalizedModel === 'runware-flux-2-klein-9b-kv'
+        || normalizedModel === 'runware:400@6'
+        || normalizedModel === 'flux-2-klein-9b-kv'
+        || normalizedModel === 'flux.2-klein-9b-kv'
+    ) {
+        return 'normal';
+    }
     if (normalizedModel.startsWith('gpt-image-1-mini')) {
         if (normalizedQuality === 'low' || normalizedQuality === 'high') return normalizedQuality;
         return 'medium';
@@ -274,6 +310,12 @@ function buildFailureMessage(params: {
         return 'This image model is not available for paid credits yet.';
     }
     if (reason === 'MODEL_DISABLED') {
+        if (requestedModel.startsWith('cloudflare-flux-2-klein-4b') || requestedModel.includes('flux-2-klein-4b')) {
+            return 'Cloudflare FLUX.2 Klein 4B is unavailable right now.';
+        }
+        if (requestedModel.startsWith('runware-flux-2-klein-9b-kv') || requestedModel.includes('flux-2-klein-9b-kv')) {
+            return 'Runware FLUX.2 Klein 9B KV is unavailable right now.';
+        }
         if (requestedModel.startsWith('gpt-image-1-mini')) {
             return 'GPT Image 1 Mini is unavailable right now.';
         }
@@ -585,7 +627,7 @@ async function runGeneratedImageChatTask(params: StartGeneratedImageChatTaskPara
 
         const providerResult = await generateImageWithProvider({
             provider: reservation.provider,
-            model: reservation.providerModel as 'gpt-image-2' | 'gpt-image-1-mini' | 'grok-imagine-image' | 'grok-imagine-image-pro',
+            model: reservation.providerModel as 'gpt-image-2' | 'gpt-image-1-mini' | 'grok-imagine-image' | 'grok-imagine-image-pro' | 'cloudflare-flux-2-klein-4b' | 'runware-flux-2-klein-9b-kv',
             prompt: params.prompt,
             quality: reservation.quality as 'low' | 'medium' | 'high' | 'normal' | 'pro',
             inputImages: providerInputImages,

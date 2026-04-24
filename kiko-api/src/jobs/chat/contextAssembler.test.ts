@@ -244,3 +244,33 @@ test('assembleChatContext unwraps Farcaster mention wrapper before snapshot extr
     assert.deepEqual(snapshot.requestedTokenAddresses, [token]);
     assert.deepEqual(snapshot.requestedTokenSymbols, []);
 });
+
+test('assembleChatContext never reuses session previous response ids across user turns', () => {
+    const messages = [
+        {
+            role: 'user',
+            content: 'continue',
+        },
+    ];
+
+    const snapshot = assembleChatContext({
+        task: {
+            id: 'task-response-state',
+            sessionId: 'session-response-state',
+            userMessageId: 'user-response-state',
+            assistantMessageId: 'assistant-response-state',
+            model: 'gpt-5.4-mini',
+            toolContext: {},
+        },
+        session: {
+            userId: 'user-response-state',
+            model: 'gpt-5.4-mini',
+            lastResponseId: 'resp_should_not_replay',
+        },
+        messages,
+        toolDefinitions: [],
+        userId: 'user-response-state',
+    });
+
+    assert.equal(snapshot.previousResponseId, null);
+});

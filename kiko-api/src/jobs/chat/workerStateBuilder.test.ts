@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildDirectFollowupExecutionPlan, buildWorkerConversationState } from './workerStateBuilder.js';
+import { buildWorkerConversationState } from './workerStateBuilder.js';
 import type { ChatContextSnapshot } from './contracts.js';
 
 function makeSnapshot(overrides: Partial<ChatContextSnapshot> = {}): ChatContextSnapshot {
@@ -320,73 +320,4 @@ test('buildWorkerConversationState prefers task route over stale canonical token
         (state.evidence_state?.required || []).includes('onchain_token_evidence'),
         false,
     );
-});
-
-test('buildDirectFollowupExecutionPlan derives deterministic execute args for swap confirmations', () => {
-    const snapshot = makeSnapshot({
-        confirmationState: {
-            kind: 'swap_confirmation',
-            sourceTool: 'simulate_swap',
-            swap: {
-                tokenIn: 'BNB',
-                tokenOut: '0x0bc61768132aa1484e2b09301284b7def78a4444',
-                amountIn: '0.001',
-                chainId: 56,
-            },
-        },
-        policySnapshot: {
-            policyDecisionId: 'policy-1',
-        } as any,
-    });
-
-    const plan = buildDirectFollowupExecutionPlan({
-        snapshot,
-        taskToolContext: {
-            toolConfig: {
-                customSlippage: '1.5',
-            },
-        },
-    });
-
-    assert.ok(plan);
-    assert.equal(plan?.tool_name, 'prepare_swap_transaction');
-    assert.equal(plan?.args?.execute, true);
-    assert.equal(plan?.args?.slippage, 1.5);
-    assert.equal(typeof plan?.execution_gate?.confirmationToken, 'string');
-    assert.equal(plan?.binding?.binding_kind, 'derived_execute_args');
-});
-
-test('buildDirectFollowupExecutionPlan replays Clanker deploy previews with confirmDeploy enabled', () => {
-    const snapshot = makeSnapshot({
-        confirmationState: {
-            kind: 'order_confirmation',
-            sourceTool: 'deploy_clanker_token',
-            order: {
-                toolName: 'deploy_clanker_token',
-                args: {
-                    name: 'Kiko Receipt Test',
-                    symbol: 'KRT',
-                    chainId: 8453,
-                    description: 'Runtime receipt hook test token',
-                },
-                actionClass: 'TOKEN_DEPLOY_MUTATION',
-            },
-        } as any,
-        policySnapshot: {
-            policyDecisionId: 'policy-1',
-        } as any,
-    });
-
-    const plan = buildDirectFollowupExecutionPlan({
-        snapshot,
-    });
-
-    assert.ok(plan);
-    assert.equal(plan?.tool_name, 'deploy_clanker_token');
-    assert.equal(plan?.args?.confirmDeploy, true);
-    assert.equal(plan?.args?.name, 'Kiko Receipt Test');
-    assert.equal(plan?.args?.symbol, 'KRT');
-    assert.equal(plan?.binding?.binding_kind, 'prepared_confirmation');
-    assert.equal(plan?.binding?.action_class, 'TOKEN_DEPLOY_MUTATION');
-    assert.equal(typeof plan?.execution_gate?.confirmationToken, 'string');
 });

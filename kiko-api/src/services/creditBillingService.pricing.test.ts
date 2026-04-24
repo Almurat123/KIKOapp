@@ -50,6 +50,12 @@ test('generated image pricing uses the credits image table', () => {
         'grok-imagine-image-pro': {
             pro: 2.1,
         },
+        'cloudflare-flux-2-klein-4b': {
+            normal: 0,
+        },
+        'runware-flux-2-klein-9b-kv': {
+            normal: 0.0234,
+        },
     });
     assert.equal(DEFAULT_GENERATED_IMAGE_CREDIT_MARKUP_MULTIPLIER, 3);
 
@@ -69,5 +75,14 @@ test('generated image pricing uses the credits image table', () => {
             imageCount: 2,
         }),
         1.2,
+    );
+
+    assert.equal(
+        computeGeneratedImageCreditsCharge({
+            model: 'runware-flux-2-klein-9b-kv',
+            quality: 'normal',
+            imageCount: 1,
+        }),
+        0.0234,
     );
 });

@@ -12,7 +12,8 @@
 // Search Tags: runner task route before canonical normalization unified owner
 // Invariants:
 // - worker lifecycle and v2 turn execution remain separate owner layers
-// - direct trade confirmation and fast swap remain pre-generation branches
+// - trade confirmations enter model orchestration instead of a backend shortcut
+// - fast swap remains a separately gated pre-generation branch
 // - new turns attempt task route selection before canonical normalization
 // - legacy canonical intent is a compatibility bridge, not the routing source
 // Failure Modes:
@@ -35,10 +36,8 @@ import { applyConversationActionState } from './conversationStateResolver.js';
 import { resolveRuntimeDirectives } from './runtimeDirectiveResolver.js';
 import { ChatStreamBroker } from './streamBroker.js';
 import { buildTaskPlanningContext, materializePlanCard } from './taskPlanner.js';
-import { executeDirectTradeFollowup } from './tradeFollowupExecutor.js';
 import { parseTradingIntent } from './tradingIntentResolver.js';
 import { ToolExecutionEngine } from './toolExecutionEngine.js';
-import { isExplicitChainSwitchRequest } from './chainIntent.js';
 import { ChatAiTraceLogger } from './chatAiTraceLogger.js';
 import { resolveProviderInfo } from './providerPolicyBuilder.js';
 import { isModelLedToolOrchestrationEnabled } from './modelLedToolOrchestration.js';
@@ -83,26 +82,6 @@ export async function runChatV2Turn(params: {
         streamedNormalizationReasoningLength += text.length;
         await params.broker.pushReasoning(text);
     };
-
-    if (
-        preNormalizationTradingIntent?.kind === 'trade_confirmation'
-        && snapshot.confirmationState?.kind
-        && !isExplicitChainSwitchRequest(snapshot.lastUserMessage, snapshot.normalizedIntent, snapshot.taskRoute || null)
-    ) {
-        const directFollowup = await executeDirectTradeFollowup({
-            snapshot,
-            task: params.task,
-            userId: params.userId,
-            broker: params.broker,
-            toolExecutionEngine: params.toolExecutionEngine,
-        });
-        if (directFollowup.handled) {
-            const preOrchestratorTrace = new ChatAiTraceLogger(snapshot, resolveProviderInfo(snapshot.model).provider);
-            preOrchestratorTrace.markTerminal('direct_trade_followup');
-            preOrchestratorTrace.emit({ finalReason: 'direct_trade_followup' });
-            return { terminal: true, terminalOwner: 'worker', snapshot };
-        }
-    }
 
     if (!snapshot.taskRoute && !snapshot.taskRouteSelectionState) {
         const routeSelection = await selectTaskRoute({
@@ -163,21 +142,6 @@ export async function runChatV2Turn(params: {
         await params.broker.applyModelPlan(materializePlanCard(buildTaskPlanningContext(snapshot, skillResolution)));
     }
 
-    if (!isExplicitChainSwitchRequest(snapshot.lastUserMessage, snapshot.normalizedIntent, snapshot.taskRoute || null)) {
-        const directFollowup = await executeDirectTradeFollowup({
-            snapshot,
-            task: params.task,
-            userId: params.userId,
-            broker: params.broker,
-            toolExecutionEngine: params.toolExecutionEngine,
-        });
-        if (directFollowup.handled) {
-            preOrchestratorTrace.markTerminal('direct_trade_followup');
-            preOrchestratorTrace.emit({ finalReason: 'direct_trade_followup' });
-            return { terminal: true, terminalOwner: 'worker', snapshot };
-        }
-    }
-
     const fastSwapResult = await maybeExecuteFastSwap({
         snapshot,
         task: params.task,
@@ -207,19 +171,14 @@ export async function runChatV2Turn(params: {
                 },
                 shouldCancel: params.shouldCancel,
                 onProviderState: async (state) => {
-                    if (!state.previousResponseId || !params.updateSessionConversationState) {
+                    if (!state.previousResponseId) {
                         return;
                     }
-                    if (params.isSuspiciousProviderResponseId?.(state.previousResponseId)) {
-                        logger.warn(LogCode.AI_ORCHESTRATOR, 'ChatV2TurnRunner: skip suspicious provider response id', {
-                            taskId: params.task.id,
-                            sessionId: params.task.sessionId,
-                            previousResponseId: state.previousResponseId,
-                        });
-                        return;
-                    }
-                    await params.updateSessionConversationState({
-                        lastResponseId: state.previousResponseId,
+                    logger.info(LogCode.AI_ORCHESTRATOR, 'ChatV2TurnRunner: provider response id held for in-turn use only', {
+                        taskId: params.task.id,
+                        sessionId: params.task.sessionId,
+                        previousResponseId: state.previousResponseId,
+                        finishReason: state.finishReason,
                     });
                 },
                 onToolStatus: params.onToolStatus,

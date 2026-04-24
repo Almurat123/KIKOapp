@@ -229,7 +229,15 @@ function normalizeTaskModel(model?: string): string {
 
 function isGeneratedImageModel(model?: string | null): boolean {
     const normalized = String(model || '').trim().toLowerCase();
-    return normalized.startsWith('gpt-image-1-mini')
+    return normalized === 'cloudflare-flux-2-klein-4b'
+        || normalized === '@cf/black-forest-labs/flux-2-klein-4b'
+        || normalized === 'cloudflare/flux-2-klein-4b'
+        || normalized === 'flux-2-klein-4b'
+        || normalized === 'runware-flux-2-klein-9b-kv'
+        || normalized === 'runware:400@6'
+        || normalized === 'flux-2-klein-9b-kv'
+        || normalized === 'flux.2-klein-9b-kv'
+        || normalized.startsWith('gpt-image-1-mini')
         || normalized.startsWith('gpt-image-2')
         || normalized.startsWith('grok-imagine-image');
 }
@@ -659,6 +667,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 }
 
                 const taskModel = normalizeTaskModel(model || session.model);
+                const sessionModelChanged = taskModel !== normalizeTaskModel(session.model);
                 if (normalizedImageUploadIds.length > 0 && !supportsChatImageModel(taskModel)) {
                     await discardPreparedUploadsSafely(fastify, userId, normalizedImageUploadIds);
                     return reply.code(400).send({ error: 'The selected model does not support image input.' });
@@ -739,6 +748,13 @@ export async function chatRoutes(fastify: FastifyInstance) {
                         error: 'Usage limit check failed',
                         reason: 'USAGE_CHECK_FAILED'
                     });
+                }
+
+                if (sessionModelChanged) {
+                    await chatRepo.updateSession(sessionId, { model: taskModel });
+                    (session as any).model = taskModel;
+                    (session as any).lastResponseId = null;
+                    (session as any).compactionCursor = null;
                 }
 
                 // Create empty assistant message (will be populated by worker)
@@ -992,11 +1008,6 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     model: taskModel,
                     routeTotalMs: Date.now() - requestStartedAt,
                 });
-
-                // Update session model if different
-                if (taskModel !== session.model) {
-                    await chatRepo.updateSession(sessionId, { model: taskModel });
-                }
 
                 // Update session title if this is the first message
                 const messages = await chatRepo.getSessionMessages(sessionId);

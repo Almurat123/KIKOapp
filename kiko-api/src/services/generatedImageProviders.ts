@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer';
+import { randomUUID } from 'node:crypto';
 import { LogCode } from '../config/logRegistry.js';
 import { logger } from '../utils/logger.js';
 
@@ -77,9 +78,15 @@ import { logger } from '../utils/logger.js';
 // - /Users/almurat/KiKo/system-journal/design-language/generated-image-billing.md
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
-export type GeneratedImageProviderName = 'openai' | 'xai';
-export type GeneratedImageExecutionProvider = 'openai' | 'openrouter' | 'xai';
-export type GeneratedImageProviderModel = 'gpt-image-2' | 'gpt-image-1-mini' | 'grok-imagine-image' | 'grok-imagine-image-pro';
+export type GeneratedImageProviderName = 'openai' | 'xai' | 'cloudflare' | 'runware';
+export type GeneratedImageExecutionProvider = 'openai' | 'openrouter' | 'xai' | 'cloudflare' | 'runware';
+export type GeneratedImageProviderModel =
+    | 'gpt-image-2'
+    | 'gpt-image-1-mini'
+    | 'grok-imagine-image'
+    | 'grok-imagine-image-pro'
+    | 'cloudflare-flux-2-klein-4b'
+    | 'runware-flux-2-klein-9b-kv';
 export type GeneratedImageProviderQuality = 'low' | 'medium' | 'high' | 'normal' | 'pro';
 
 export interface GeneratedImageProviderInputImage {
@@ -130,6 +137,9 @@ const OPENROUTER_GPT_IMAGE_1_MINI_MODEL = String(process.env.OPENROUTER_GPT_IMAG
 const OPENROUTER_GPT_IMAGE_2_MODEL = String(process.env.OPENROUTER_GPT_IMAGE_2_MODEL || 'openai/gpt-5.4-image-2').trim();
 const XAI_IMAGE_ENDPOINT = 'https://api.x.ai/v1/images/generations';
 const XAI_IMAGE_EDIT_ENDPOINT = 'https://api.x.ai/v1/images/edits';
+const CLOUDFLARE_WORKERS_AI_MODEL = '@cf/black-forest-labs/flux-2-klein-4b';
+const RUNWARE_IMAGE_ENDPOINT = String(process.env.RUNWARE_API_URL || 'https://api.runware.ai/v1').trim();
+const RUNWARE_FLUX_2_KLEIN_9B_KV_MODEL = String(process.env.RUNWARE_FLUX_2_KLEIN_9B_KV_MODEL || 'runware:400@6').trim();
 const OPENAI_PARTIAL_IMAGE_COUNT = 2;
 const OPENROUTER_PARTIAL_IMAGE_COUNT = 1;
 
@@ -143,10 +153,26 @@ function isXaiGeneratedImageModel(model?: string | null): model is 'grok-imagine
     return normalized === 'grok-imagine-image' || normalized === 'grok-imagine-image-pro';
 }
 
+function isCloudflareGeneratedImageModel(model?: string | null): model is 'cloudflare-flux-2-klein-4b' {
+    const normalized = String(model || '').trim().toLowerCase();
+    return normalized === 'cloudflare-flux-2-klein-4b'
+        || normalized === '@cf/black-forest-labs/flux-2-klein-4b'
+        || normalized === 'cloudflare/flux-2-klein-4b'
+        || normalized === 'flux-2-klein-4b';
+}
+
+function isRunwareGeneratedImageModel(model?: string | null): model is 'runware-flux-2-klein-9b-kv' {
+    const normalized = String(model || '').trim().toLowerCase();
+    return normalized === 'runware-flux-2-klein-9b-kv'
+        || normalized === RUNWARE_FLUX_2_KLEIN_9B_KV_MODEL.toLowerCase()
+        || normalized === 'flux-2-klein-9b-kv'
+        || normalized === 'flux.2-klein-9b-kv';
+}
+
 export function supportsGeneratedImageReferenceInputModel(
     model?: string | null,
-): model is 'gpt-image-2' | 'gpt-image-1-mini' | 'grok-imagine-image' | 'grok-imagine-image-pro' {
-    return isOpenAiGeneratedImageModel(model) || isXaiGeneratedImageModel(model);
+): model is 'gpt-image-2' | 'gpt-image-1-mini' | 'grok-imagine-image' | 'grok-imagine-image-pro' | 'runware-flux-2-klein-9b-kv' {
+    return isOpenAiGeneratedImageModel(model) || isXaiGeneratedImageModel(model) || isRunwareGeneratedImageModel(model);
 }
 
 function normalizeProviderInputImages(inputImages?: GeneratedImageProviderInputImage[] | null): GeneratedImageProviderInputImage[] {
@@ -194,6 +220,8 @@ function extractProviderErrorMessage(response: Response, payload: any, fallbackL
             ? payload.message
             : typeof payload?.error?.message === 'string'
                 ? payload.error.message
+                : typeof payload?.errors?.[0]?.message === 'string'
+                    ? payload.errors[0].message
                 : '';
     const code = typeof payload?.code === 'string' ? payload.code.trim() : '';
     const requestId = String(
@@ -825,6 +853,165 @@ async function generateXaiImage(params: {
     };
 }
 
+function resolveCloudflareWorkersAiCredentials(): { accountId: string; apiToken: string } {
+    const accountId = String(
+        process.env.CLOUDFLARE_WORKERS_AI_ACCOUNT_ID
+        || process.env.CLOUDFLARE_ACCOUNT_ID
+        || process.env.CLOUDFLARE_R2_ACCOUNT_ID
+        || '',
+    ).trim();
+    const apiToken = String(
+        process.env.CLOUDFLARE_WORKERS_AI_API_TOKEN
+        || process.env.CLOUDFLARE_API_TOKEN
+        || '',
+    ).trim();
+    return { accountId, apiToken };
+}
+
+function readBase64ImageFromCloudflarePayload(payload: any): string {
+    return String(
+        payload?.result?.image
+        || payload?.image
+        || payload?.result?.images?.[0]
+        || payload?.images?.[0]
+        || '',
+    ).trim();
+}
+
+async function generateCloudflareFluxImage(params: {
+    prompt: string;
+    inputImages?: GeneratedImageProviderInputImage[] | null;
+}): Promise<GeneratedImageProviderResult> {
+    const { accountId, apiToken } = resolveCloudflareWorkersAiCredentials();
+    if (!accountId || !apiToken) {
+        throw new GeneratedImageProviderError('Cloudflare Workers AI image generation is not configured on the server.', 'GENERATED_IMAGE_PROVIDER_NOT_CONFIGURED', 503);
+    }
+
+    const inputImages = normalizeProviderInputImages(params.inputImages);
+    if (inputImages.length > 0) {
+        throw new GeneratedImageProviderError('Cloudflare FLUX.2 Klein 4B does not support uploaded-image input in this integration yet.', 'GENERATED_IMAGE_MODEL_INPUT_NOT_SUPPORTED', 400);
+    }
+
+    const form = new FormData();
+    form.append('prompt', params.prompt);
+    form.append('width', '1024');
+    form.append('height', '1024');
+    form.append('steps', '25');
+
+    const controller = createAbortController(PROVIDER_TIMEOUT_MS);
+    const endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/run/${CLOUDFLARE_WORKERS_AI_MODEL}`;
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${apiToken}`,
+        },
+        body: form,
+        signal: controller.signal,
+    });
+
+    const payload = await parseJsonSafely(response);
+    if (!response.ok) {
+        throw new GeneratedImageProviderError(
+            extractProviderErrorMessage(response, payload, 'Cloudflare Workers AI image generation'),
+        );
+    }
+
+    const encodedImage = readBase64ImageFromCloudflarePayload(payload);
+    if (!encodedImage) {
+        throw new GeneratedImageProviderError('Cloudflare Workers AI image generation returned no image payload.');
+    }
+    const decoded = encodedImage.startsWith('data:')
+        ? await decodeGeneratedImageAsset(encodedImage)
+        : { buffer: Buffer.from(encodedImage, 'base64'), contentType: 'image/png' };
+
+    return {
+        provider: 'cloudflare',
+        executionProvider: 'cloudflare',
+        model: 'cloudflare-flux-2-klein-4b',
+        quality: 'normal',
+        imageBuffer: decoded.buffer,
+        contentType: decoded.contentType,
+        revisedPrompt: null,
+        supportsProgressiveReveal: false,
+    };
+}
+
+async function generateRunwareFluxImage(params: {
+    prompt: string;
+    inputImages?: GeneratedImageProviderInputImage[] | null;
+}): Promise<GeneratedImageProviderResult> {
+    const apiKey = String(process.env.RUNWARE_API_KEY || '').trim();
+    if (!apiKey) {
+        throw new GeneratedImageProviderError('Runware image generation is not configured on the server.', 'GENERATED_IMAGE_PROVIDER_NOT_CONFIGURED', 503);
+    }
+
+    const inputImages = normalizeProviderInputImages(params.inputImages);
+    const taskUUID = randomUUID();
+    const task: Record<string, any> = {
+        taskType: 'imageInference',
+        taskUUID,
+        includeCost: true,
+        outputType: 'URL',
+        outputFormat: 'PNG',
+        positivePrompt: params.prompt,
+        width: 1024,
+        height: 1024,
+        model: RUNWARE_FLUX_2_KLEIN_9B_KV_MODEL,
+        steps: 4,
+        numberResults: 1,
+    };
+    if (inputImages[0]?.url) {
+        task.seedImage = inputImages[0].url;
+        task.strength = 0.9;
+    }
+
+    const controller = createAbortController(PROVIDER_TIMEOUT_MS);
+    const response = await fetch(RUNWARE_IMAGE_ENDPOINT, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify([task]),
+        signal: controller.signal,
+    });
+
+    const payload = await parseJsonSafely(response);
+    if (!response.ok || Array.isArray(payload?.errors)) {
+        throw new GeneratedImageProviderError(
+            extractProviderErrorMessage(response, payload, 'Runware image generation'),
+        );
+    }
+
+    const item = Array.isArray(payload?.data)
+        ? payload.data.find((entry: any) => String(entry?.taskUUID || '') === taskUUID) || payload.data[0]
+        : null;
+    const imageUrl = String(item?.imageURL || item?.imageUrl || '').trim();
+    const imageDataUri = String(item?.imageDataURI || item?.imageDataUri || '').trim();
+    const imageBase64 = String(item?.imageBase64Data || '').trim();
+    const downloaded = imageDataUri
+        ? await decodeGeneratedImageAsset(imageDataUri)
+        : imageBase64
+            ? { buffer: Buffer.from(imageBase64, 'base64'), contentType: 'image/png' }
+            : imageUrl
+                ? await fetchBinaryFromUrl(imageUrl)
+                : null;
+    if (!downloaded) {
+        throw new GeneratedImageProviderError('Runware image generation returned no image payload.');
+    }
+
+    return {
+        provider: 'runware',
+        executionProvider: 'runware',
+        model: 'runware-flux-2-klein-9b-kv',
+        quality: 'normal',
+        imageBuffer: downloaded.buffer,
+        contentType: downloaded.contentType,
+        revisedPrompt: null,
+        supportsProgressiveReveal: false,
+    };
+}
+
 function shouldUseOpenRouterForOpenAiImageModel(model: 'gpt-image-2' | 'gpt-image-1-mini'): boolean {
     if (model !== 'gpt-image-2') {
         return false;
@@ -836,6 +1023,12 @@ export function resolveGeneratedImageExecutionProvider(
     model?: string | null,
     provider?: GeneratedImageProviderName | null,
 ): GeneratedImageExecutionProvider | null {
+    if (provider === 'cloudflare' || isCloudflareGeneratedImageModel(model)) {
+        return 'cloudflare';
+    }
+    if (provider === 'runware' || isRunwareGeneratedImageModel(model)) {
+        return 'runware';
+    }
     if (provider === 'xai' || isXaiGeneratedImageModel(model)) {
         return 'xai';
     }
@@ -852,6 +1045,37 @@ export async function generateImageWithProvider(params: GeneratedImageProviderRe
         throw new GeneratedImageProviderError('Generated image prompt is required.', 'GENERATED_IMAGE_PROMPT_REQUIRED', 400);
     }
     const inputImages = normalizeProviderInputImages(params.inputImages);
+
+    if (params.provider === 'cloudflare' || isCloudflareGeneratedImageModel(params.model)) {
+        logger.info(LogCode.AI_API_CALL, 'Generated image provider selected', {
+            provider: 'cloudflare',
+            model: 'cloudflare-flux-2-klein-4b',
+            endpoint: `https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/${CLOUDFLARE_WORKERS_AI_MODEL}`,
+            inputImageCount: inputImages.length,
+            stream: false,
+            timeoutMs: PROVIDER_TIMEOUT_MS,
+        });
+        return generateCloudflareFluxImage({
+            prompt,
+            inputImages,
+        });
+    }
+
+    if (params.provider === 'runware' || isRunwareGeneratedImageModel(params.model)) {
+        logger.info(LogCode.AI_API_CALL, 'Generated image provider selected', {
+            provider: 'runware',
+            model: 'runware-flux-2-klein-9b-kv',
+            providerModel: RUNWARE_FLUX_2_KLEIN_9B_KV_MODEL,
+            endpoint: RUNWARE_IMAGE_ENDPOINT,
+            inputImageCount: inputImages.length,
+            stream: false,
+            timeoutMs: PROVIDER_TIMEOUT_MS,
+        });
+        return generateRunwareFluxImage({
+            prompt,
+            inputImages,
+        });
+    }
 
     if (params.provider === 'openai' || isOpenAiGeneratedImageModel(params.model)) {
         const model = isOpenAiGeneratedImageModel(params.model) ? params.model : 'gpt-image-1-mini';

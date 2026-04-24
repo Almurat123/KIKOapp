@@ -68,6 +68,36 @@ function makeCanonicalIntent(overrides: Partial<CanonicalIntent>): CanonicalInte
     };
 }
 
+function makeTaskRoute(owner: string, phase: 'answer' | 'analyze' | 'execute' | 'confirm' = 'execute') {
+    return {
+        owner,
+        phase,
+        facets: [],
+        entities: {
+            tokenAddresses: [],
+            tokenSymbols: [],
+            walletAddresses: [],
+            marketIdentifiers: [],
+            imageRefs: [],
+        },
+        requestedChain: null,
+        timeContext: null,
+        rowCount: null,
+        inheritEntitiesFromContext: false,
+        locale: 'en',
+        needsClarification: false,
+        clarificationQuestion: null,
+        explanation: 'pre-routed test turn',
+        confidence: 0.99,
+        source: 'llm',
+    } as any;
+}
+
+function isIntentStageTask(taskId: unknown): boolean {
+    const value = String(taskId || '');
+    return value.endsWith(':route') || value.endsWith(':route_selection') || value.endsWith(':normalize');
+}
+
 function makeBroker() {
     const citations: any[] = [];
     const texts: string[] = [];
@@ -398,7 +428,7 @@ test('openai image execution turns prefetch image-lane required context and use 
 test('openai non-image tool rounds carry responses api mode and previous_response_id on continuation', async () => {
     const snapshot = makeSnapshot('What is in this wallet, then continue.', {
         model: 'gpt-5.4-mini-2026-03-17',
-        previousResponseId: 'resp-prev-1',
+        taskRoute: makeTaskRoute('wallet', 'execute'),
         normalizedIntent: makeCanonicalIntent({
             intent: 'wallet_analysis',
             taskMode: 'execute',
@@ -412,6 +442,9 @@ test('openai non-image tool rounds carry responses api mode and previous_respons
     const generationClient = {
         async generate(params: any) {
             if (String(params?.taskId || '').endsWith(':plan')) {
+                return { text: '', reasoning: '', toolCalls: [] };
+            }
+            if (isIntentStageTask(params?.taskId)) {
                 return { text: '', reasoning: '', toolCalls: [] };
             }
             generationRound += 1;
@@ -470,7 +503,7 @@ test('openai non-image tool rounds carry responses api mode and previous_respons
     });
 
     assert.equal(seenRounds[0]?.apiMode, 'responses');
-    assert.equal(seenRounds[0]?.previousResponseId, 'resp-prev-1');
+    assert.equal(seenRounds[0]?.previousResponseId, undefined);
     assert.equal(seenRounds[1]?.apiMode, 'responses');
     assert.equal(seenRounds[1]?.previousResponseId, 'resp-next-1');
 });
@@ -478,7 +511,7 @@ test('openai non-image tool rounds carry responses api mode and previous_respons
 test('openai stale previous_response_id retries once without it when raw provider error carries not-found detail', async () => {
     const snapshot = makeSnapshot('Deploy the token and then continue.', {
         model: 'gpt-5.4-mini-2026-03-17',
-        previousResponseId: 'resp-prev-1',
+        taskRoute: makeTaskRoute('token_deploy', 'execute'),
         normalizedIntent: makeCanonicalIntent({
             intent: 'clanker_deploy',
             taskMode: 'execute',
@@ -492,6 +525,9 @@ test('openai stale previous_response_id retries once without it when raw provide
     const generationClient = {
         async generate(params: any) {
             if (String(params?.taskId || '').endsWith(':plan')) {
+                return { text: '', reasoning: '', toolCalls: [] };
+            }
+            if (isIntentStageTask(params?.taskId)) {
                 return { text: '', reasoning: '', toolCalls: [] };
             }
             generationRound += 1;
@@ -563,10 +599,133 @@ test('openai stale previous_response_id retries once without it when raw provide
 
     assert.equal(generationRound, 3);
     assert.equal(seenRounds[0]?.apiMode, 'responses');
-    assert.equal(seenRounds[0]?.previousResponseId, 'resp-prev-1');
+    assert.equal(seenRounds[0]?.previousResponseId, undefined);
     assert.equal(seenRounds[1]?.previousResponseId, 'resp-next-1');
     assert.equal(seenRounds[2]?.previousResponseId, undefined);
     assert.equal(broker.getContent(), 'Done after retry.');
+});
+
+test('openai in-turn unresolved tool-call response retries once without previous_response_id', async () => {
+    const snapshot = makeSnapshot('Confirm', {
+        model: 'gpt-5.4-mini-2026-03-17',
+        taskRoute: {
+            owner: 'swap',
+            phase: 'confirm',
+            facets: [],
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: [],
+                walletAddresses: [],
+                marketIdentifiers: [],
+                imageRefs: [],
+            },
+            requestedChain: null,
+            timeContext: null,
+            rowCount: null,
+            inheritEntitiesFromContext: false,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            explanation: 'Confirm the prepared swap.',
+            confidence: 0.99,
+            source: 'llm',
+        },
+        normalizedIntent: makeCanonicalIntent({
+            intent: 'swap',
+            taskMode: 'confirm',
+            executionCandidate: true,
+        }),
+    });
+    const broker = makeBroker();
+    const seenRounds: Array<{ previousResponseId?: string; apiMode?: string }> = [];
+    let generationRound = 0;
+
+    const generationClient = {
+        async generate(params: any) {
+            if (String(params?.taskId || '').endsWith(':plan')) {
+                return { text: '', reasoning: '', toolCalls: [] };
+            }
+            if (isIntentStageTask(params?.taskId)) {
+                return { text: '', reasoning: '', toolCalls: [] };
+            }
+            generationRound += 1;
+            seenRounds.push({
+                apiMode: params.providerOptions?.api_mode,
+                previousResponseId: params.providerOptions?.previous_response_id,
+            });
+            if (generationRound === 1) {
+                await params.onProviderState?.({ previousResponseId: 'resp-tool-call-only', finishReason: 'tool_calls' });
+                return {
+                    text: '',
+                    reasoning: '',
+                    toolCalls: [
+                        {
+                            id: 'call-read-workflow',
+                            name: 'read_workflow_state',
+                            arguments: {},
+                        },
+                    ],
+                    providerState: { previousResponseId: 'resp-tool-call-only', finishReason: 'tool_calls' },
+                };
+            }
+            if (generationRound === 2) {
+                const err = new Error('[HTTP_400] | HTTP 400');
+                (err as any).code = 'HTTP_400';
+                (err as any).raw = JSON.stringify({
+                    error: {
+                        message: 'No tool output found for function call call_swap_1.',
+                        type: 'invalid_request_error',
+                        param: 'input',
+                        code: null,
+                    },
+                });
+                throw err;
+            }
+            return {
+                text: 'Recovered without stale tool-call state.',
+                reasoning: '',
+                toolCalls: [],
+                providerState: { previousResponseId: 'resp-recovered', finishReason: 'stop' },
+            };
+        },
+    };
+
+    await runNodeOrchestration({
+        snapshot,
+        generationClient: generationClient as any,
+        toolExecutionEngine: {
+            async execute(call: any) {
+                if (String(call?.name || '').startsWith('read_')) {
+                    return {
+                        id: call.id || `call-${call.name}`,
+                        name: call.name,
+                        arguments: call.arguments || {},
+                        ok: true,
+                        result: { ok: true },
+                        metadata: { source: 'tool_runtime' },
+                        continuation: {
+                            next_action: 'answer',
+                            can_answer_now: true,
+                            reason: 'required context ready',
+                            reusable_for_next_turn: true,
+                        },
+                    };
+                }
+                throw new Error('unexpected business tool execution');
+            },
+        } as any,
+        broker: broker as any,
+        toolContext: {},
+    });
+
+    assert.equal(generationRound, 3);
+    assert.equal(seenRounds[0]?.apiMode, 'responses');
+    assert.equal(seenRounds[0]?.previousResponseId, undefined);
+    assert.equal(seenRounds[1]?.apiMode, 'responses');
+    assert.equal(seenRounds[1]?.previousResponseId, 'resp-tool-call-only');
+    assert.equal(seenRounds[2]?.apiMode, 'responses');
+    assert.equal(seenRounds[2]?.previousResponseId, undefined);
+    assert.equal(broker.getContent(), 'Recovered without stale tool-call state.');
 });
 
 test('Grok social queries keep native search phase free of local tools, then hand off to local analysis', async () => {

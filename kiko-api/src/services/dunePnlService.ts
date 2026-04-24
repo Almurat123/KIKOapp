@@ -1,9 +1,9 @@
 /**
  * Dune PNL Service
- * Uses Dune Analytics API to calculate wallet trading PNL (EVM chains only)
+ * Uses Dune dex.trades as an event source, then computes cost basis in code.
  */
 
-import { DuneClient, QueryParameter } from '@duneanalytics/client-sdk';
+import { DuneClient, ExecutionState } from '@duneanalytics/client-sdk';
 import * as dotenv from 'dotenv';
 import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
@@ -13,9 +13,13 @@ import { isQuoteToken, normalizeDuneChain } from './dunePnlCommon.js';
 dotenv.config();
 
 const DUNE_API_KEY = env.duneQueries?.apiKey || env.apiKeys.dune || process.env.DUNE_API_KEY || '';
-
-// Saved Query ID in Dune (EVM only)
-const EVM_PNL_QUERY_ID = 6506445;
+const EXECUTE_TIMEOUT_MS = 20_000;
+const STATUS_TIMEOUT_MS = 10_000;
+const RESULTS_TIMEOUT_MS = 15_000;
+const TOTAL_TIMEOUT_MS = 120_000;
+const STATUS_POLL_INTERVAL_MS = 2_500;
+const RESULTS_PAGE_SIZE = 1_000;
+const DEFAULT_COST_BASIS_LOOKBACK_DAYS = Number(process.env.DUNE_PNL_COST_BASIS_LOOKBACK_DAYS || 365);
 
 export interface DunePnlResult {
     tokenAddress: string;
@@ -24,7 +28,79 @@ export interface DunePnlResult {
     soldUsd: number;
     pnlUsd: number;
     profitPct: number | null;
+    buyCount?: number;
+    sellCount?: number;
+    remainingAmount?: number;
+    remainingCostUsd?: number;
+    costBasisComplete?: boolean;
 }
+
+export interface DuneWalletPnlSummary {
+    walletAddress: string;
+    chain: string;
+    totalRealizedPnlUsd: number;
+    totalRealizedProfitUsd: number;
+    totalRealizedLossUsd: number;
+    tradingPnlUsd: number;
+    tradingWinRate: number;
+    totalBoughtUsd: number;
+    totalSoldUsd: number;
+    totalTrades: number;
+    profitableTrades: number;
+    winRate: number;
+    tokens: DunePnlResult[];
+    queryExecutionTimeMs: number;
+}
+
+type TradeEventRow = {
+    blockchain?: unknown;
+    block_time?: unknown;
+    block_number?: unknown;
+    tx_hash?: unknown;
+    evt_index?: unknown;
+    token_address?: unknown;
+    token_symbol?: unknown;
+    side?: unknown;
+    token_amount?: unknown;
+    amount_usd?: unknown;
+    in_window?: unknown;
+};
+
+type TokenLot = {
+    amount: number;
+    costUsd: number;
+};
+
+type TokenLedger = {
+    tokenAddress: string;
+    tokenSymbol?: string;
+    lots: TokenLot[];
+    boughtUsd: number;
+    soldUsd: number;
+    pnlUsd: number;
+    buyCount: number;
+    sellCount: number;
+    profitableSells: number;
+    costBasisComplete: boolean;
+};
+
+type ExecClient = {
+    exec: {
+        executeSql: (params: { sql: string }) => Promise<{ execution_id: string; state: ExecutionState }>;
+        getExecutionStatus: (executionId: string) => Promise<{
+            state: ExecutionState;
+            error?: { message?: string };
+        }>;
+        getExecutionResults: (executionId: string, params?: { limit?: number; offset?: number }) => Promise<{
+            result?: {
+                rows: Record<string, unknown>[];
+                metadata?: { total_row_count?: number; row_count?: number };
+            };
+            next_offset?: number;
+            error?: { message?: string };
+        }>;
+    };
+};
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
     let timeoutId: NodeJS.Timeout;
@@ -36,29 +112,403 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
     }) as Promise<T>;
 }
 
-export interface DuneWalletPnlSummary {
-    walletAddress: string;
-    chain: string;
-    totalRealizedPnlUsd: number;      // Net PNL (All tokens)
-    totalRealizedProfitUsd: number;   // Sum of positive PNL
-    totalRealizedLossUsd: number;     // Sum of negative PNL
+function normalizeWalletAddress(address: string): string {
+    return String(address || '').trim().toLowerCase();
+}
 
-    // New Metrics for "Skill" Analysis
-    tradingPnlUsd: number;            // PNL excluding Quote Tokens
-    tradingWinRate: number;           // Win Rate excluding Quote Tokens
+function sqlQuote(value: string): string {
+    return `'${value.replace(/'/g, "''")}'`;
+}
 
-    totalBoughtUsd: number;
-    totalSoldUsd: number;
-    totalTrades: number;
-    profitableTrades: number;
-    winRate: number;
-    tokens: DunePnlResult[];
-    queryExecutionTimeMs: number;
+function hexLiteral(value: string): string {
+    return value.replace(/^0x/i, '').toLowerCase();
+}
+
+function normalizeNumber(value: unknown): number {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeBoolean(value: unknown): boolean {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    return String(value || '').toLowerCase() === 'true';
+}
+
+function buildEmptySummary(walletAddress: string, chain: string, queryExecutionTimeMs: number): DuneWalletPnlSummary {
+    return {
+        walletAddress,
+        chain,
+        totalRealizedPnlUsd: 0,
+        totalRealizedProfitUsd: 0,
+        totalRealizedLossUsd: 0,
+        tradingPnlUsd: 0,
+        tradingWinRate: 0,
+        totalBoughtUsd: 0,
+        totalSoldUsd: 0,
+        totalTrades: 0,
+        profitableTrades: 0,
+        winRate: 0,
+        tokens: [],
+        queryExecutionTimeMs,
+    };
+}
+
+function buildWalletTradeEventsSql(walletAddress: string, chain: string, days: number, lookbackDays: number): string {
+    const normalizedWallet = normalizeWalletAddress(walletAddress);
+    const walletVarbinary = `from_hex(${sqlQuote(hexLiteral(normalizedWallet))})`;
+    const duneChain = normalizeDuneChain(chain);
+    const safeDays = Math.max(1, Math.trunc(days));
+    const safeLookbackDays = Math.max(safeDays, Math.trunc(lookbackDays));
+
+    return `
+WITH window_legs AS (
+    SELECT
+        blockchain,
+        block_time,
+        block_month,
+        block_number,
+        tx_hash,
+        evt_index,
+        token_bought_address,
+        token_bought_symbol,
+        token_bought_amount,
+        token_sold_address,
+        token_sold_symbol,
+        token_sold_amount,
+        amount_usd
+    FROM dex.trades
+    WHERE lower(blockchain) = lower(${sqlQuote(duneChain)})
+      AND block_month >= cast(date_trunc('month', now() - INTERVAL '${safeDays}' day) AS date)
+      AND block_time >= now() - INTERVAL '${safeDays}' day
+      AND block_time < now()
+      AND amount_usd IS NOT NULL
+      AND amount_usd > 0
+      AND (
+        tx_from = ${walletVarbinary}
+        OR taker = ${walletVarbinary}
+      )
+),
+tokens_needed AS (
+    SELECT token_bought_address AS token_address
+    FROM window_legs
+    WHERE token_bought_address IS NOT NULL
+
+    UNION
+
+    SELECT token_sold_address AS token_address
+    FROM window_legs
+    WHERE token_sold_address IS NOT NULL
+),
+history_legs AS (
+    SELECT
+        blockchain,
+        block_time,
+        block_month,
+        block_number,
+        tx_hash,
+        evt_index,
+        token_bought_address,
+        token_bought_symbol,
+        token_bought_amount,
+        token_sold_address,
+        token_sold_symbol,
+        token_sold_amount,
+        amount_usd
+    FROM dex.trades
+    WHERE lower(blockchain) = lower(${sqlQuote(duneChain)})
+      AND block_month >= cast(date_trunc('month', now() - INTERVAL '${safeLookbackDays}' day) AS date)
+      AND block_time >= now() - INTERVAL '${safeLookbackDays}' day
+      AND block_time < now() - INTERVAL '${safeDays}' day
+      AND amount_usd IS NOT NULL
+      AND amount_usd > 0
+      AND (
+        tx_from = ${walletVarbinary}
+        OR taker = ${walletVarbinary}
+      )
+      AND (
+        token_bought_address IN (SELECT token_address FROM tokens_needed)
+        OR token_sold_address IN (SELECT token_address FROM tokens_needed)
+      )
+),
+trade_legs AS (
+    SELECT * FROM history_legs
+    UNION ALL
+    SELECT * FROM window_legs
+),
+events AS (
+    SELECT
+        blockchain,
+        block_time,
+        block_number,
+        tx_hash,
+        evt_index,
+        concat('0x', lower(to_hex(token_bought_address))) AS token_address,
+        token_bought_symbol AS token_symbol,
+        'buy' AS side,
+        token_bought_amount AS token_amount,
+        amount_usd,
+        block_time >= now() - INTERVAL '${safeDays}' day AS in_window
+    FROM trade_legs
+    WHERE token_bought_address IS NOT NULL
+      AND token_bought_amount IS NOT NULL
+      AND token_bought_amount > 0
+
+    UNION ALL
+
+    SELECT
+        blockchain,
+        block_time,
+        block_number,
+        tx_hash,
+        evt_index,
+        concat('0x', lower(to_hex(token_sold_address))) AS token_address,
+        token_sold_symbol AS token_symbol,
+        'sell' AS side,
+        token_sold_amount AS token_amount,
+        amount_usd,
+        block_time >= now() - INTERVAL '${safeDays}' day AS in_window
+    FROM trade_legs
+    WHERE token_sold_address IS NOT NULL
+      AND token_sold_amount IS NOT NULL
+      AND token_sold_amount > 0
+)
+SELECT *
+FROM events
+ORDER BY token_address ASC, block_time ASC, block_number ASC, tx_hash ASC, evt_index ASC, side ASC
+`.trim();
+}
+
+async function waitForExecution(client: ExecClient, executionId: string): Promise<void> {
+    const deadline = Date.now() + TOTAL_TIMEOUT_MS;
+
+    while (true) {
+        const status = await withTimeout(
+            client.exec.getExecutionStatus(executionId),
+            STATUS_TIMEOUT_MS,
+            'Dune PNL execution status'
+        );
+
+        if (status.state === ExecutionState.COMPLETED) return;
+        if (status.state === ExecutionState.FAILED || status.state === ExecutionState.CANCELLED || status.state === ExecutionState.EXPIRED) {
+            throw new Error(status.error?.message || `Dune PNL execution ended in state ${status.state}`);
+        }
+        if (Date.now() >= deadline) {
+            throw new Error(`Dune PNL execution exceeded ${TOTAL_TIMEOUT_MS}ms`);
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, STATUS_POLL_INTERVAL_MS));
+    }
+}
+
+async function executeSqlRows(sql: string): Promise<Record<string, unknown>[]> {
+    const client = new DuneClient(DUNE_API_KEY) as ExecClient;
+    const execution = await withTimeout(
+        client.exec.executeSql({ sql }),
+        EXECUTE_TIMEOUT_MS,
+        'Dune PNL executeSql'
+    );
+
+    await waitForExecution(client, execution.execution_id);
+
+    const rows: Record<string, unknown>[] = [];
+    let offset = 0;
+
+    while (true) {
+        const response = await withTimeout(
+            client.exec.getExecutionResults(execution.execution_id, {
+                limit: RESULTS_PAGE_SIZE,
+                offset,
+            }),
+            RESULTS_TIMEOUT_MS,
+            'Dune PNL execution results'
+        );
+
+        if (response.error?.message) throw new Error(response.error.message);
+
+        const chunk = response.result?.rows || [];
+        rows.push(...chunk);
+
+        const totalRowCount = response.result?.metadata?.total_row_count ?? chunk.length;
+        const nextOffset = typeof response.next_offset === 'number' ? response.next_offset : rows.length;
+        if (chunk.length === 0 || nextOffset >= totalRowCount) break;
+        offset = nextOffset;
+    }
+
+    return rows;
+}
+
+function getOrCreateLedger(ledgers: Map<string, TokenLedger>, tokenAddress: string, tokenSymbol?: string): TokenLedger {
+    const existing = ledgers.get(tokenAddress);
+    if (existing) {
+        if (!existing.tokenSymbol && tokenSymbol) existing.tokenSymbol = tokenSymbol;
+        return existing;
+    }
+
+    const created: TokenLedger = {
+        tokenAddress,
+        tokenSymbol,
+        lots: [],
+        boughtUsd: 0,
+        soldUsd: 0,
+        pnlUsd: 0,
+        buyCount: 0,
+        sellCount: 0,
+        profitableSells: 0,
+        costBasisComplete: true,
+    };
+    ledgers.set(tokenAddress, created);
+    return created;
+}
+
+function consumeLots(ledger: TokenLedger, sellAmount: number): { matchedCostUsd: number; complete: boolean } {
+    let remaining = sellAmount;
+    let matchedCostUsd = 0;
+
+    while (remaining > 1e-12 && ledger.lots.length > 0) {
+        const lot = ledger.lots[0];
+        const matchedAmount = Math.min(lot.amount, remaining);
+        const matchedCost = lot.amount > 0 ? lot.costUsd * (matchedAmount / lot.amount) : 0;
+
+        matchedCostUsd += matchedCost;
+        lot.amount -= matchedAmount;
+        lot.costUsd -= matchedCost;
+        remaining -= matchedAmount;
+
+        if (lot.amount <= 1e-12 || lot.costUsd <= 1e-9) {
+            ledger.lots.shift();
+        }
+    }
+
+    return {
+        matchedCostUsd,
+        complete: remaining <= 1e-9,
+    };
+}
+
+function buildSummaryFromTradeRows(
+    walletAddress: string,
+    chain: string,
+    rows: TradeEventRow[],
+    queryExecutionTimeMs: number
+): DuneWalletPnlSummary {
+    const ledgers = new Map<string, TokenLedger>();
+
+    const sortedRows = [...rows].sort((a, b) => {
+        const tokenCompare = String(a.token_address || '').localeCompare(String(b.token_address || ''));
+        if (tokenCompare !== 0) return tokenCompare;
+        const timeCompare = String(a.block_time || '').localeCompare(String(b.block_time || ''));
+        if (timeCompare !== 0) return timeCompare;
+        const blockCompare = normalizeNumber(a.block_number) - normalizeNumber(b.block_number);
+        if (blockCompare !== 0) return blockCompare;
+        const txCompare = String(a.tx_hash || '').localeCompare(String(b.tx_hash || ''));
+        if (txCompare !== 0) return txCompare;
+        const eventCompare = normalizeNumber(a.evt_index) - normalizeNumber(b.evt_index);
+        if (eventCompare !== 0) return eventCompare;
+        return String(a.side || '').localeCompare(String(b.side || ''));
+    });
+
+    for (const row of sortedRows) {
+        const tokenAddress = normalizeWalletAddress(String(row.token_address || ''));
+        if (!tokenAddress) continue;
+
+        const amount = normalizeNumber(row.token_amount);
+        const amountUsd = normalizeNumber(row.amount_usd);
+        if (!(amount > 0) || !(amountUsd > 0)) continue;
+
+        const tokenSymbol = row.token_symbol ? String(row.token_symbol) : undefined;
+        const ledger = getOrCreateLedger(ledgers, tokenAddress, tokenSymbol);
+        const inWindow = normalizeBoolean(row.in_window);
+        const side = String(row.side || '').toLowerCase();
+
+        if (side === 'buy') {
+            ledger.lots.push({ amount, costUsd: amountUsd });
+            if (inWindow) {
+                ledger.boughtUsd += amountUsd;
+                ledger.buyCount += 1;
+            }
+            continue;
+        }
+
+        if (side === 'sell') {
+            const { matchedCostUsd, complete } = consumeLots(ledger, amount);
+            if (!complete) ledger.costBasisComplete = false;
+
+            if (inWindow) {
+                const realizedPnl = amountUsd - matchedCostUsd;
+                ledger.soldUsd += amountUsd;
+                ledger.pnlUsd += realizedPnl;
+                ledger.sellCount += 1;
+                if (complete && realizedPnl > 0.01) ledger.profitableSells += 1;
+            }
+        }
+    }
+
+    const tokens: DunePnlResult[] = [];
+    for (const ledger of ledgers.values()) {
+        if (isQuoteToken(ledger.tokenSymbol, ledger.tokenAddress, chain)) continue;
+        if (ledger.buyCount === 0 && ledger.sellCount === 0) continue;
+
+        const remainingAmount = ledger.lots.reduce((sum, lot) => sum + lot.amount, 0);
+        const remainingCostUsd = ledger.lots.reduce((sum, lot) => sum + lot.costUsd, 0);
+        const profitPct = ledger.boughtUsd > 0 ? (ledger.pnlUsd / ledger.boughtUsd) * 100 : null;
+
+        tokens.push({
+            tokenAddress: ledger.tokenAddress,
+            tokenSymbol: ledger.tokenSymbol,
+            boughtUsd: ledger.boughtUsd,
+            soldUsd: ledger.soldUsd,
+            pnlUsd: ledger.costBasisComplete ? ledger.pnlUsd : 0,
+            profitPct: ledger.costBasisComplete ? profitPct : null,
+            buyCount: ledger.buyCount,
+            sellCount: ledger.sellCount,
+            remainingAmount,
+            remainingCostUsd,
+            costBasisComplete: ledger.costBasisComplete,
+        });
+    }
+
+    const completeTokens = tokens.filter((token) => token.costBasisComplete !== false);
+    const totalBought = completeTokens.reduce((sum, token) => sum + token.boughtUsd, 0);
+    const totalSold = completeTokens.reduce((sum, token) => sum + token.soldUsd, 0);
+    const totalPnl = completeTokens.reduce((sum, token) => sum + token.pnlUsd, 0);
+    const totalProfit = completeTokens.reduce((sum, token) => sum + (token.pnlUsd > 0 ? token.pnlUsd : 0), 0);
+    const totalLoss = completeTokens.reduce((sum, token) => sum + (token.pnlUsd < 0 ? token.pnlUsd : 0), 0);
+    const totalTrades = completeTokens.reduce((sum, token) => sum + (token.sellCount || 0), 0);
+    const profitableTrades = completeTokens.reduce((sum, token) => {
+        const ledger = ledgers.get(token.tokenAddress);
+        return sum + (ledger?.profitableSells || 0);
+    }, 0);
+    const winRate = totalTrades > 0 ? (profitableTrades / totalTrades) * 100 : 0;
+
+    tokens.sort((a, b) => Math.abs(b.pnlUsd) - Math.abs(a.pnlUsd));
+
+    return {
+        walletAddress,
+        chain,
+        totalRealizedPnlUsd: totalPnl,
+        totalRealizedProfitUsd: totalProfit,
+        totalRealizedLossUsd: totalLoss,
+        tradingPnlUsd: totalPnl,
+        tradingWinRate: winRate,
+        totalBoughtUsd: totalBought,
+        totalSoldUsd: totalSold,
+        totalTrades,
+        profitableTrades,
+        winRate,
+        tokens: tokens.slice(0, 50),
+        queryExecutionTimeMs,
+    };
 }
 
 /**
- * Get wallet PNL from Dune (EVM chains only)
- * Always executes fresh query for real-time data
+ * Get wallet PNL from Dune (EVM chains only).
+ *
+ * Dune's dex.trades table is leg-level, not an accounting ledger. This function
+ * therefore fetches normalized buy/sell token events and computes realized PNL
+ * in application code using FIFO lots. If a sell exceeds the available lookback
+ * cost basis, the token is marked costBasisComplete=false and excluded from the
+ * aggregate realized PNL instead of reporting a fake profit.
  */
 export async function getWalletPnlFromDune(
     walletAddress: string,
@@ -72,7 +522,7 @@ export async function getWalletPnlFromDune(
 
     const duneChain = normalizeDuneChain(chain);
 
-    logger.debug(LogCode.AI_API_CALL, `[Dune PNL] Fetching PNL`, {
+    logger.debug(LogCode.AI_API_CALL, '[Dune PNL] Fetching trade events for FIFO PNL', {
         wallet: walletAddress.slice(0, 10),
         chain: duneChain,
         days,
@@ -81,133 +531,32 @@ export async function getWalletPnlFromDune(
     const startTime = Date.now();
 
     try {
-        const client = new DuneClient(DUNE_API_KEY);
-
-        // Build query parameters
-        const params: QueryParameter[] = [
-            QueryParameter.text('wallet_addr', walletAddress),
-            QueryParameter.number('days', days),
-            QueryParameter.text('blockchain', duneChain)
-        ];
-
-        // Execute fresh query (no caching)
-        const response = await withTimeout(
-            client.runQuery({
-                queryId: EVM_PNL_QUERY_ID,
-                query_parameters: params
-            }),
-            20_000,
-            'Dune PNL query'
-        );
-
+        const lookbackDays = Math.max(days, days + DEFAULT_COST_BASIS_LOOKBACK_DAYS);
+        const sql = buildWalletTradeEventsSql(walletAddress, duneChain, days, lookbackDays);
+        const rows = await executeSqlRows(sql) as TradeEventRow[];
         const executionTime = Date.now() - startTime;
-        logger.debug(LogCode.API_FETCH_SUCCESS, `[Dune PNL] Query completed`, {
-            queryId: EVM_PNL_QUERY_ID,
+
+        logger.debug(LogCode.API_FETCH_SUCCESS, '[Dune PNL] Trade event query completed', {
             durationMs: executionTime,
+            rowCount: rows.length,
+            costBasisLookbackDays: lookbackDays,
             role: LogRole.METRIC
         });
 
-        if (!response?.result?.rows || response.result.rows.length === 0) {
+        if (rows.length === 0) {
             logger.info(LogCode.API_FETCH_SUCCESS, '[Dune PNL] No trades found for this wallet', { role: LogRole.METRIC });
-            return {
-                walletAddress,
-                chain: duneChain,
-                totalRealizedPnlUsd: 0,
-                totalRealizedProfitUsd: 0,
-                totalRealizedLossUsd: 0,
-                tradingPnlUsd: 0,      // New Field
-                tradingWinRate: 0,     // New Field
-                totalBoughtUsd: 0,
-                totalSoldUsd: 0,
-                totalTrades: 0,
-                profitableTrades: 0,
-                winRate: 0,
-                tokens: [],
-                queryExecutionTimeMs: executionTime
-            };
+            return buildEmptySummary(walletAddress, duneChain, executionTime);
         }
 
-        const rows = response.result.rows as any[];
+        const summary = buildSummaryFromTradeRows(walletAddress, duneChain, rows, executionTime);
 
-        // Parse results
-        const tokens: DunePnlResult[] = rows.map(row => {
-            const bought = Number(row.bought_usd) || 0;
-            const sold = Number(row.sold_usd) || 0;
-            const pnl = Number(row.pnl_usd);
-
-            return {
-                tokenAddress: row.address || row.token_address || '',
-                tokenSymbol: row.token || row.token_symbol || undefined,
-                boughtUsd: bought,
-                soldUsd: sold,
-                pnlUsd: isNaN(pnl) ? (sold - bought) : pnl,
-                profitPct: row.profit_pct !== null ? Number(row.profit_pct) : null
-            };
-        });
-
-        const filteredTokens = tokens.filter(t => !isQuoteToken(t.tokenSymbol, t.tokenAddress, duneChain));
-
-        // Calculate summary stats
-        // LOGIC CHANGE: Asymmetric PNL
-        // 1. ALL Losses are real (whether USDT or Meme).
-        // 2. Quote Token Profits are FAKE (just selling principal).
-        // 3. Meme Profits are REAL.
-
-        let totalBought = 0;
-        let totalSold = 0;
-        let totalPnl = 0; // This will now reflect "Trader PNL"
-        let totalProfit = 0;
-        let totalLoss = 0;
-        let profitableCount = 0;
-
-        for (const t of filteredTokens) {
-            totalBought += t.boughtUsd;
-            totalSold += t.soldUsd;
-
-            if (t.pnlUsd < 0) {
-                // LOSSES: Always count them. 
-                // If you lost USDT, you lost money. If you lost Meme, you lost money.
-                totalPnl += t.pnlUsd;
-                totalLoss += t.pnlUsd;
-            } else if (t.pnlUsd > 0) {
-                totalPnl += t.pnlUsd;
-                totalProfit += t.pnlUsd;
-                if (t.pnlUsd > 0.01) profitableCount++;
-            }
-        }
-
-        const tradesCount = filteredTokens.filter(t => t.soldUsd > 0).length;
-        const finalWinRate = tradesCount > 0 ? (profitableCount / tradesCount) * 100 : 0;
-
-        // Sort: Absolute PNL descending
-        filteredTokens.sort((a, b) => Math.abs(b.pnlUsd) - Math.abs(a.pnlUsd));
-
-        logger.info(LogCode.API_FETCH_SUCCESS, `[Dune PNL] ✅ Processed. Net Trader PNL: $${totalPnl.toFixed(2)} (Reflects User Reality)`, {
+        logger.info(LogCode.API_FETCH_SUCCESS, `[Dune PNL] Processed FIFO trade ledger. Net Trader PNL: $${summary.totalRealizedPnlUsd.toFixed(2)}`, {
             wallet: walletAddress,
-            pnl: totalPnl,
+            pnl: summary.totalRealizedPnlUsd,
             role: LogRole.METRIC
         });
 
-        return {
-            walletAddress,
-            chain: duneChain,
-            totalRealizedPnlUsd: totalPnl, // Now clearly -104
-            totalRealizedProfitUsd: totalProfit,
-            totalRealizedLossUsd: totalLoss,
-
-            // Legacy/Dual compatibility
-            tradingPnlUsd: totalPnl,
-            tradingWinRate: finalWinRate,
-
-            totalBoughtUsd: totalBought,
-            totalSoldUsd: totalSold,
-            totalTrades: tradesCount,
-            profitableTrades: profitableCount,
-            winRate: finalWinRate,
-            tokens: filteredTokens.slice(0, 50),
-            queryExecutionTimeMs: executionTime
-        };
-
+        return summary;
     } catch (error: any) {
         logger.error(LogCode.API_FETCH_FAILED, '[Dune PNL] Query failed', {
             error: error.message,
@@ -227,7 +576,6 @@ export async function getWalletPnlMultiChain(
 ): Promise<Map<string, DuneWalletPnlSummary>> {
     const results = new Map<string, DuneWalletPnlSummary>();
 
-    // Execute queries in parallel for speed
     const promises = chains.map(async (chain) => {
         const summary = await getWalletPnlFromDune(walletAddress, chain, days);
         if (summary) {
@@ -277,3 +625,8 @@ export async function getWalletPnlCombined(
         chains: chainResults
     };
 }
+
+export const __testOnlyDunePnl = {
+    buildWalletTradeEventsSql,
+    buildSummaryFromTradeRows,
+};

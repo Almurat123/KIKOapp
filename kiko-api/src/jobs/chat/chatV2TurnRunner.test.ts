@@ -210,6 +210,278 @@ test('runChatV2Turn reuses a pre-routed snapshot without route-selection or norm
     assert.match(broker.getContent(), /generate an image/);
 });
 
+test('runChatV2Turn does not persist provider response ids from unresolved tool-call turns', async () => {
+    const stateUpdates: Record<string, any>[] = [];
+    const generationClient = {
+        async generate(params: { taskId: string; onProviderState?: (state: any) => Promise<void>; onTextDelta: (text: string) => Promise<void> }) {
+            assert.equal(params.taskId, 'task-runner');
+            await params.onProviderState?.({
+                previousResponseId: 'resp-tool-call-only',
+                finishReason: 'tool_calls',
+            });
+            await params.onTextDelta('Ready for confirmation.');
+            return {
+                toolCalls: [],
+                text: 'Ready for confirmation.',
+                reasoning: '',
+                citations: [],
+                providerState: {
+                    previousResponseId: 'resp-tool-call-only',
+                    finishReason: 'tool_calls',
+                },
+            };
+        },
+    } as any;
+    const broker = makeBroker();
+    const snapshot = makeSnapshot('Prepare the swap.', {
+        taskRoute: {
+            owner: 'general',
+            phase: 'analyze',
+            facets: [],
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: [],
+                walletAddresses: [],
+                marketIdentifiers: [],
+                imageRefs: [],
+            },
+            requestedChain: null,
+            timeContext: null,
+            rowCount: null,
+            inheritEntitiesFromContext: false,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            explanation: 'pre-routed test turn',
+            confidence: 0.99,
+            source: 'llm',
+        } as any,
+    });
+
+    const result = await runChatV2Turn({
+        snapshot,
+        task: {
+            id: 'task-runner',
+            sessionId: 'session-runner',
+            assistantMessageId: 'assistant-runner',
+            model: 'gpt-5.4-mini',
+            toolContext: {},
+        },
+        userId: 'user-runner',
+        broker: broker as any,
+        generationClient,
+        toolExecutionEngine: {} as any,
+        updateSessionConversationState: async (state) => {
+            stateUpdates.push(state);
+        },
+    });
+
+    assert.equal(result.terminal, false);
+    assert.deepEqual(stateUpdates, []);
+    assert.match(broker.getContent(), /Ready for confirmation/);
+});
+
+test('runChatV2Turn never persists provider response ids across user turns', async () => {
+    const stateUpdates: Record<string, any>[] = [];
+    const finishReasons = ['tool_calls', 'length', 'stop'];
+    const generationClient = {
+        async generate(params: { onProviderState?: (state: any) => Promise<void>; onTextDelta: (text: string) => Promise<void> }) {
+            const finishReason = finishReasons.shift() || 'stop';
+            const previousResponseId = `resp-${finishReason}`;
+            await params.onProviderState?.({
+                previousResponseId,
+                finishReason,
+            });
+            await params.onTextDelta(`Round ${finishReason}.`);
+            return {
+                toolCalls: [],
+                text: `Round ${finishReason}.`,
+                reasoning: '',
+                citations: [],
+                providerState: {
+                    previousResponseId,
+                    finishReason,
+                },
+            };
+        },
+    } as any;
+
+    const makeTurnParams = (id: string) => ({
+        snapshot: makeSnapshot('Continue.', {
+            taskRoute: {
+                owner: 'general',
+                phase: 'answer',
+                facets: [],
+                entities: {
+                    tokenAddresses: [],
+                    tokenSymbols: [],
+                    walletAddresses: [],
+                    marketIdentifiers: [],
+                    imageRefs: [],
+                },
+                requestedChain: null,
+                timeContext: null,
+                rowCount: null,
+                inheritEntitiesFromContext: false,
+                locale: 'en',
+                needsClarification: false,
+                clarificationQuestion: null,
+                explanation: 'pre-routed test turn',
+                confidence: 0.99,
+                source: 'llm',
+            } as any,
+        }),
+        task: {
+            id,
+            sessionId: 'session-runner',
+            assistantMessageId: `assistant-${id}`,
+            model: 'gpt-5.4-mini',
+            toolContext: {},
+        },
+        userId: 'user-runner',
+        broker: makeBroker() as any,
+        generationClient,
+        toolExecutionEngine: {} as any,
+        updateSessionConversationState: async (state: Record<string, any>) => {
+            stateUpdates.push(state);
+        },
+    });
+
+    await runChatV2Turn(makeTurnParams('task-tool-calls'));
+    await runChatV2Turn(makeTurnParams('task-length'));
+    await runChatV2Turn(makeTurnParams('task-stop'));
+
+    assert.deepEqual(stateUpdates, []);
+});
+
+test('runChatV2Turn sends confirmation follow-ups through model orchestration instead of direct execution', async () => {
+    const broker = makeBroker();
+    const generationCalls: string[] = [];
+    const snapshot = applyTaskRouteToSnapshot(
+        makeSnapshot('Confirm', {
+            confirmationState: {
+                kind: 'order_confirmation',
+                sourceTool: 'deploy_clanker_token',
+                order: {
+                    toolName: 'deploy_clanker_token',
+                    args: {
+                        name: 'Trace Test',
+                        symbol: 'TRC',
+                        chainId: 8453,
+                        tokenAdmin: '0x1111111111111111111111111111111111111111',
+                        description: 'Trace test token',
+                    },
+                    actionClass: 'TOKEN_DEPLOY_MUTATION',
+                },
+            } as any,
+            conversationActionState: {
+                pendingAction: 'order',
+                confirmationPayload: {
+                    kind: 'order_confirmation',
+                    sourceTool: 'deploy_clanker_token',
+                    order: {
+                        toolName: 'deploy_clanker_token',
+                        args: {
+                            name: 'Trace Test',
+                            symbol: 'TRC',
+                            chainId: 8453,
+                            tokenAdmin: '0x1111111111111111111111111111111111111111',
+                            description: 'Trace test token',
+                        },
+                        actionClass: 'TOKEN_DEPLOY_MUTATION',
+                    },
+                },
+                canExecute: true,
+                needsClarification: false,
+                clarificationQuestion: null,
+            } as any,
+            runtime: {
+                userSettings: {},
+                toolContext: {},
+                prefetchedToolResults: {},
+                contextBlocks: {},
+                systemDirectives: [],
+                walletAddress: '0x1111111111111111111111111111111111111111',
+            },
+        }),
+        {
+            owner: 'token_deploy',
+            phase: 'confirm',
+            facets: [],
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: ['TRC'],
+                walletAddresses: [],
+                marketIdentifiers: [],
+                imageRefs: [],
+            },
+            requestedChain: {
+                chainId: 8453,
+                chainName: 'Base',
+                source: 'llm',
+            },
+            timeContext: null,
+            rowCount: null,
+            inheritEntitiesFromContext: false,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            explanation: 'Confirm the prepared token deployment.',
+            confidence: 0.99,
+            source: 'llm',
+        },
+    );
+
+    const result = await runChatV2Turn({
+        snapshot,
+        task: {
+            id: 'task-runner',
+            sessionId: 'session-runner',
+            assistantMessageId: 'assistant-runner',
+            model: 'gpt-5.4-mini',
+            toolContext: {
+                userAddress: '0x1111111111111111111111111111111111111111',
+            },
+        },
+        userId: 'user-runner',
+        broker: broker as any,
+        generationClient: {
+            async generate(params: { taskId: string; onTextDelta?: (text: string) => Promise<void> }) {
+                generationCalls.push(params.taskId);
+                if (params.taskId.endsWith(':plan')) {
+                    return { toolCalls: [], text: '', reasoning: '', citations: [] };
+                }
+                await params.onTextDelta?.('I will handle the confirmation through the model path.');
+                return {
+                    toolCalls: [],
+                    text: 'I will handle the confirmation through the model path.',
+                    reasoning: '',
+                    citations: [],
+                };
+            },
+        } as any,
+        toolExecutionEngine: {
+            async execute(call: any) {
+                if (String(call?.name || '').startsWith('read_')) {
+                    return {
+                        id: call.id,
+                        name: call.name,
+                        arguments: call.arguments,
+                        ok: true,
+                        result: { ok: true },
+                        metadata: { source: 'tool_runtime' },
+                    };
+                }
+                throw new Error(`unexpected direct tool execution: ${String(call?.name || '')}`);
+            },
+        } as any,
+    });
+
+    assert.equal(result.terminal, false);
+    assert.ok(generationCalls.includes('task-runner'));
+    assert.match(broker.getContent(), /model path/);
+});
+
 test('runChatV2Turn routes explicit swap syntax through the unified owner-selection path', async () => {
     const taskIds: string[] = [];
     const generationClient = {

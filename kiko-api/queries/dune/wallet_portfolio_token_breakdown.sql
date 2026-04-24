@@ -3,58 +3,128 @@
 --   {{wallet_addr}} text
 --   {{blockchain}}  text
 --   {{days}}        number
+--   {{lookback_days}} number -- recommended: {{days}} + 365
 --
 -- Purpose:
---   Single-wallet token-level breakdown over a time window.
---   This is the long-term dedicated portfolio-analysis query we want for
---   analyze_wallet_pnl_analysis.
+--   Return normalized buy/sell token events for a wallet. Do not aggregate
+--   realized PNL in SQL: dex.trades is leg-level, so multi-hop swaps can create
+--   false cost basis if amount_usd is summed directly.
+--
+-- Accounting:
+--   Kiko computes FIFO lots in application code from these rows. If a sell
+--   exceeds available historical lots, the token is marked as incomplete cost
+--   basis instead of being reported as fake profit.
 
-WITH buys AS (
-  SELECT
-    lower(trader) AS wallet_address,
-    lower(blockchain) AS blockchain,
-    lower(token_bought_address) AS token_address,
-    max(token_bought_symbol) AS token_symbol,
-    sum(amount_usd) AS total_buy_usd,
-    count(*) AS buy_tx_count
-  FROM dex.trades
-  WHERE lower(blockchain) = lower({{blockchain}})
-    AND lower(trader) = lower({{wallet_addr}})
-    AND block_time >= now() - INTERVAL '{{days}}' day
-  GROUP BY 1, 2, 3
+WITH input_wallet AS (
+  SELECT from_hex(replace(lower({{wallet_addr}}), '0x', '')) AS wallet
 ),
-sells AS (
+window_legs AS (
   SELECT
-    lower(trader) AS wallet_address,
-    lower(blockchain) AS blockchain,
-    lower(token_sold_address) AS token_address,
-    max(token_sold_symbol) AS token_symbol,
-    sum(amount_usd) AS total_sell_usd,
-    count(*) AS sell_tx_count
-  FROM dex.trades
-  WHERE lower(blockchain) = lower({{blockchain}})
-    AND lower(trader) = lower({{wallet_addr}})
-    AND block_time >= now() - INTERVAL '{{days}}' day
-  GROUP BY 1, 2, 3
+    t.blockchain,
+    t.block_time,
+    t.block_month,
+    t.block_number,
+    t.tx_hash,
+    t.evt_index,
+    t.token_bought_address,
+    t.token_bought_symbol,
+    t.token_bought_amount,
+    t.token_sold_address,
+    t.token_sold_symbol,
+    t.token_sold_amount,
+    t.amount_usd
+  FROM dex.trades t
+  CROSS JOIN input_wallet w
+  WHERE lower(t.blockchain) = lower({{blockchain}})
+    AND t.block_month >= cast(date_trunc('month', now() - INTERVAL '{{days}}' day) AS date)
+    AND t.block_time >= now() - INTERVAL '{{days}}' day
+    AND t.block_time < now()
+    AND t.amount_usd IS NOT NULL
+    AND t.amount_usd > 0
+    AND (t.tx_from = w.wallet OR t.taker = w.wallet)
+),
+tokens_needed AS (
+  SELECT token_bought_address AS token_address
+  FROM window_legs
+  WHERE token_bought_address IS NOT NULL
+
+  UNION
+
+  SELECT token_sold_address AS token_address
+  FROM window_legs
+  WHERE token_sold_address IS NOT NULL
+),
+history_legs AS (
+  SELECT
+    t.blockchain,
+    t.block_time,
+    t.block_month,
+    t.block_number,
+    t.tx_hash,
+    t.evt_index,
+    t.token_bought_address,
+    t.token_bought_symbol,
+    t.token_bought_amount,
+    t.token_sold_address,
+    t.token_sold_symbol,
+    t.token_sold_amount,
+    t.amount_usd
+  FROM dex.trades t
+  CROSS JOIN input_wallet w
+  WHERE lower(t.blockchain) = lower({{blockchain}})
+    AND t.block_month >= cast(date_trunc('month', now() - INTERVAL '{{lookback_days}}' day) AS date)
+    AND t.block_time >= now() - INTERVAL '{{lookback_days}}' day
+    AND t.block_time < now() - INTERVAL '{{days}}' day
+    AND t.amount_usd IS NOT NULL
+    AND t.amount_usd > 0
+    AND (t.tx_from = w.wallet OR t.taker = w.wallet)
+    AND (
+      t.token_bought_address IN (SELECT token_address FROM tokens_needed)
+      OR t.token_sold_address IN (SELECT token_address FROM tokens_needed)
+    )
+),
+trade_legs AS (
+  SELECT * FROM history_legs
+  UNION ALL
+  SELECT * FROM window_legs
+),
+events AS (
+  SELECT
+    blockchain,
+    block_time,
+    block_number,
+    tx_hash,
+    evt_index,
+    concat('0x', lower(to_hex(token_bought_address))) AS token_address,
+    token_bought_symbol AS token_symbol,
+    'buy' AS side,
+    token_bought_amount AS token_amount,
+    amount_usd,
+    block_time >= now() - INTERVAL '{{days}}' day AS in_window
+  FROM trade_legs
+  WHERE token_bought_address IS NOT NULL
+    AND token_bought_amount IS NOT NULL
+    AND token_bought_amount > 0
+
+  UNION ALL
+
+  SELECT
+    blockchain,
+    block_time,
+    block_number,
+    tx_hash,
+    evt_index,
+    concat('0x', lower(to_hex(token_sold_address))) AS token_address,
+    token_sold_symbol AS token_symbol,
+    'sell' AS side,
+    token_sold_amount AS token_amount,
+    amount_usd,
+    block_time >= now() - INTERVAL '{{days}}' day AS in_window
+  FROM trade_legs
+  WHERE token_sold_address IS NOT NULL
+    AND token_sold_amount IS NOT NULL
+    AND token_sold_amount > 0
 )
-SELECT
-  COALESCE(b.wallet_address, s.wallet_address) AS wallet_address,
-  COALESCE(b.blockchain, s.blockchain) AS blockchain,
-  COALESCE(b.token_address, s.token_address) AS token_address,
-  COALESCE(b.token_symbol, s.token_symbol) AS token_symbol,
-  COALESCE(b.total_buy_usd, 0) AS total_buy_usd,
-  COALESCE(s.total_sell_usd, 0) AS total_sell_usd,
-  COALESCE(s.total_sell_usd, 0) - COALESCE(b.total_buy_usd, 0) AS realized_pnl_usd,
-  CASE
-    WHEN COALESCE(b.total_buy_usd, 0) > 0
-      THEN (COALESCE(s.total_sell_usd, 0) - COALESCE(b.total_buy_usd, 0)) / b.total_buy_usd * 100
-    ELSE NULL
-  END AS profit_pct,
-  COALESCE(b.buy_tx_count, 0) AS buy_tx_count,
-  COALESCE(s.sell_tx_count, 0) AS sell_tx_count
-FROM buys b
-FULL OUTER JOIN sells s
-  ON b.wallet_address = s.wallet_address
- AND b.blockchain = s.blockchain
- AND b.token_address = s.token_address
-ORDER BY abs(COALESCE(s.total_sell_usd, 0) - COALESCE(b.total_buy_usd, 0)) DESC;
+SELECT *
+FROM events
+ORDER BY token_address ASC, block_time ASC, block_number ASC, tx_hash ASC, evt_index ASC, side ASC;

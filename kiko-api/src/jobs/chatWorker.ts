@@ -502,12 +502,15 @@ export class ChatWorker {
         previousResponseId: string | null | undefined
     ): boolean {
         if (!previousResponseId) return false;
-        if (!String(model || '').toLowerCase().includes('grok')) return false;
+        const normalizedModel = String(model || '').toLowerCase();
+        const canUseStoredResponseState = normalizedModel.includes('grok') || normalizedModel.includes('gpt');
+        if (!canUseStoredResponseState) return false;
         const message = String((error as any)?.message || error || '').toLowerCase();
         return (
             (message.includes('response with id') && message.includes('not found'))
             || (message.includes('previous_response_id') && message.includes('not found'))
             || (message.includes('grpc error') && message.includes('not found'))
+            || message.includes('no tool output found for function call')
         );
     }
 

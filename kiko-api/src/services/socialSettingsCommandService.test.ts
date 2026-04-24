@@ -39,6 +39,16 @@ test('social image command matches Grok normal preference', () => {
   assert.equal(choice?.quality, 'normal');
 });
 
+test('social image command matches Cloudflare and Runware low-cost image preferences', () => {
+  const cloudflare = __socialSettingsCommandTest.matchImageModelChoice('/image cloudflare-flux-2-klein-4b');
+  const runware = __socialSettingsCommandTest.matchImageModelChoice('/image runware-flux-2-klein-9b-kv');
+
+  assert.equal(cloudflare?.model, 'cloudflare-flux-2-klein-4b');
+  assert.equal(cloudflare?.quality, 'normal');
+  assert.equal(runware?.model, 'runware-flux-2-klein-9b-kv');
+  assert.equal(runware?.quality, 'normal');
+});
+
 test('social settings command resolves bare model number from pending menu context', async () => {
   const pendingMenus = new Map<string, unknown>();
   const savedChoices: Array<{ userId: string; model: string; reasoningLevel: string }> = [];

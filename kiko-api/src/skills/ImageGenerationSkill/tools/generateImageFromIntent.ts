@@ -22,6 +22,8 @@ import {
     type GeneratedImageProviderInputImage,
 } from '../../../services/generatedImageProviders.js';
 import { normalizeSocialImageUrl } from '../../../services/socialAgentInput.js';
+import { LogCode } from '../../../config/logRegistry.js';
+import { logger } from '../../../utils/logger.js';
 
 // CONTEXT MEMORY
 // Updated: 2026-04-23
@@ -169,6 +171,12 @@ function resolveImageToolContext(context?: Record<string, any>) {
     };
 }
 
+function buildPromptPreview(value: unknown, limit = 320): string {
+    const normalized = String(value || '').trim().replace(/\s+/g, ' ');
+    if (normalized.length <= limit) return normalized;
+    return `${normalized.slice(0, Math.max(0, limit - 3)).trim()}...`;
+}
+
 function resolveGeneratedImageSource(context?: Record<string, any>, snapshot?: any): 'farcaster' | 'x' | 'chat-v2-tool' {
     const currentPage = String(context?.currentPage || snapshot?.runtime?.currentPage || '').trim().toLowerCase();
     const pageContext = String(context?.pageContext || snapshot?.runtime?.pageContext || '').trim().toLowerCase();
@@ -181,13 +189,20 @@ function resolveGeneratedImageSource(context?: Record<string, any>, snapshot?: a
     return 'chat-v2-tool';
 }
 
-function pickDefaultGeneratedImageModel(_taskModel?: string | null): 'gpt-image-1-mini' | 'gpt-image-2' | 'grok-imagine-image' {
+type GeneratedImageToolModel =
+    | 'gpt-image-1-mini'
+    | 'gpt-image-2'
+    | 'grok-imagine-image'
+    | 'cloudflare-flux-2-klein-4b'
+    | 'runware-flux-2-klein-9b-kv';
+
+function pickDefaultGeneratedImageModel(_taskModel?: string | null): GeneratedImageToolModel {
     const resolved = resolveAvailableGeneratedImagePreference([
         { model: 'gpt-image-1-mini' },
         { model: 'grok-imagine-image' },
         { model: 'gpt-image-2' },
     ]);
-    return (resolved.model || 'gpt-image-1-mini') as 'gpt-image-1-mini' | 'gpt-image-2' | 'grok-imagine-image';
+    return (resolved.model || 'gpt-image-1-mini') as GeneratedImageToolModel;
 }
 
 function resolveGeneratedImageToolPreference(context?: Record<string, any>, taskModel?: string | null): {
@@ -533,6 +548,24 @@ export const GenerateImageFromIntentTool: Tool<GeneratedImageIntentInput, Record
             userIntent: String(normalizedArgs.user_intent || '').trim(),
             draftProviderPrompt: optimized.providerPrompt,
             spec: optimized.spec,
+        });
+        logger.info(LogCode.AI_PROMPT_GENERATED, 'generate_image_from_intent: prompt refinement complete', {
+            taskId,
+            sessionId,
+            source,
+            action: optimized.spec.action,
+            requestedMode: optimized.spec.editOrGenerate,
+            artifactType: optimized.spec.artifactType,
+            aspectRatio: optimized.spec.aspectRatio,
+            referenceImageCount: mergedReferenceImages.length,
+            usedRefiner: refinedPrompt.usedRefiner,
+            refinerModel: refinedPrompt.model,
+            refinerError: refinedPrompt.errorMessage || null,
+            draftPromptLength: optimized.providerPrompt.length,
+            refinedPromptLength: refinedPrompt.prompt.length,
+            promptChanged: optimized.providerPrompt !== refinedPrompt.prompt,
+            optimizedPromptSummary: optimized.optimizedPromptSummary,
+            refinedPromptPreview: buildPromptPreview(refinedPrompt.prompt),
         });
         const imagePreference = resolveGeneratedImageToolPreferenceWithOptions(context, taskModel, {
             hasReferenceInputs,

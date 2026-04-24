@@ -15,15 +15,13 @@
 //         the execution handoff can flip `confirmDeploy` only at execution
 //         time.
 // Goal: centralize worker-visible task, execution, evidence, and next-action
-//       state so prompt assembly, read_workflow_state, and direct follow-up
-//       execution all consume the same object contract.
-// Owns: derived worker state contracts and direct follow-up execution-plan derivation.
+//       state so prompt assembly and read_workflow_state consume the same object contract.
+// Owns: derived worker state contracts for model-owned orchestration.
 // Does Not Own: tool HTTP behavior, canonical intent normalization, or websocket rendering.
 // Design Language:
 // - worker state is one object, not scattered prompt lore
 // - pending confirmation must carry explicit binding metadata when available
 // - evidence gaps are derived from runtime state and recent tool traces, not guessed in prose
-// - direct follow-up execution must consume a deterministic plan object
 // - internal binding keys are execution safety state, not user-facing approval UX
 // - quote freshness is explicit; only tool-marked or expiry-marked stale quotes should block continuation
 // - mode progress is explicit; each long-running task must show completed and pending steps
@@ -32,11 +30,6 @@
 // - Clanker deploy confirmation state must preserve the prepared launch payload
 //   and only flip `confirmDeploy` on the execute handoff
 // Document Provenance:
-// - Source: product-owner runtime review of KiKo chat architecture
-// - Kind: product instruction / runtime observation
-// - Retrieved: 2026-04-18
-// - Applied To: unified worker state contract and direct follow-up execution plan
-// - Verification: verified in code and targeted tests
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-work-protocol-refactor.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-18
@@ -70,7 +63,6 @@
 import { resolveCanonicalChainRef } from "./chainIntent.js";
 import type {
   ChatContextSnapshot,
-  DirectFollowupExecutionPlan,
   ExecutionBindingState,
   ExecutionReceiptState,
   TradeQuoteState,
@@ -165,130 +157,6 @@ export function buildWorkerConversationState(
     next_action_state: buildNextActionState(snapshot, missingEvidence),
     carry_forward_entities: buildCarryForwardEntities(snapshot),
   });
-}
-
-export function buildDirectFollowupExecutionPlan(params: {
-  snapshot: ChatContextSnapshot;
-  taskToolContext?: Record<string, any> | null | undefined;
-}): DirectFollowupExecutionPlan | null {
-  const confirmation = params.snapshot.confirmationState;
-  if (!confirmation?.kind) return null;
-
-  if (confirmation.kind === "swap_confirmation" && confirmation.swap) {
-    const swap = confirmation.swap;
-    const toolName = swap.isCrossChain
-      ? "prepare_cross_chain_tx"
-      : "prepare_swap_transaction";
-    const args = swap.isCrossChain
-      ? stripEmptyEntries({
-          fromToken: swap.tokenIn,
-          toToken: swap.tokenOut,
-          fromAmount: swap.amountIn,
-          fromChain: swap.chainId,
-          toChain: swap.toChain,
-        })
-      : stripEmptyEntries({
-          token_in: swap.tokenIn,
-          token_out: swap.tokenOut,
-          amount_in: swap.amountIn,
-          chain_id: swap.chainId,
-          slippage: params.taskToolContext?.toolConfig?.customSlippage
-            ? Number(params.taskToolContext.toolConfig.customSlippage)
-            : 1.0,
-          execute: true,
-        });
-    const bindingKey = computeConfirmationToken(
-      toolName,
-      args,
-      params.snapshot.policySnapshot?.policyDecisionId,
-    );
-    return {
-      action_kind: "swap",
-      tool_name: toolName,
-      args,
-      execution_gate: {
-        phase: "execute",
-        confirmationToken: bindingKey,
-      },
-      binding: {
-        binding_kind: "derived_execute_args",
-        binding_key: bindingKey,
-        tool_name: toolName,
-        action_class: "TRADE_MUTATION",
-        source_tool:
-          confirmation.sourceTool || confirmation.binding?.tool_name || null,
-        captured_at:
-          confirmation.capturedAt || confirmation.binding?.captured_at || null,
-      },
-    };
-  }
-
-  if (
-    confirmation.kind === "copy_trade_confirmation" &&
-    confirmation.copyTrade
-  ) {
-    const copy = confirmation.copyTrade;
-    const args = stripEmptyEntries({
-      target_wallet: copy.targetWallet,
-      buy_amount_usd: copy.buyAmountUsd,
-      chain_id: copy.chainId,
-      mirror_sell: copy.mirrorSell,
-      take_profit_pct: copy.takeProfitPct,
-      stop_loss_pct: copy.stopLossPct,
-    });
-    const bindingKey = computeConfirmationToken(
-      "create_copy_trade_config",
-      args,
-      params.snapshot.policySnapshot?.policyDecisionId,
-    );
-    return {
-      action_kind: "copy_trade",
-      tool_name: "create_copy_trade_config",
-      args,
-      execution_gate: {
-        phase: "execute",
-        confirmationToken: bindingKey,
-      },
-      binding: {
-        binding_kind: "derived_execute_args",
-        binding_key: bindingKey,
-        tool_name: "create_copy_trade_config",
-        action_class: "ORDER_MUTATION",
-        source_tool:
-          confirmation.sourceTool || confirmation.binding?.tool_name || null,
-        captured_at:
-          confirmation.capturedAt || confirmation.binding?.captured_at || null,
-      },
-      extra_tool_context: copy.walletBinding
-        ? { __copyTradeWalletBindingAudit: copy.walletBinding }
-        : undefined,
-    };
-  }
-
-  if (confirmation.kind === "order_confirmation" && confirmation.order) {
-    const args = normalizeOrderExecutionArgs(confirmation.order);
-    const bindingKey = resolveOrderConfirmationToken(confirmation.order, args);
-    if (!bindingKey) return null;
-    return {
-      action_kind: "order",
-      tool_name: confirmation.order.toolName,
-      args,
-      execution_gate: {
-        phase: "execute",
-        confirmationToken: bindingKey,
-      },
-      binding: buildExecutionBinding({
-        ...confirmation,
-        order: {
-          ...confirmation.order,
-          args,
-          confirmationToken: bindingKey,
-        },
-      }),
-    };
-  }
-
-  return null;
 }
 
 function resolveTaskScope(snapshot: ChatContextSnapshot): {

@@ -90,6 +90,7 @@ const EVM_ADDR_RE = /\b0x[a-fA-F0-9]{40}\b/g;
 const SOL_ADDR_RE = /\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/g;
 const FARCASTER_CURRENT_LINE_RE = /(?:^|\n)Current\s+(?:@\S+|fid:\d+):\s*([\s\S]*)$/i;
 export const SWAP_CONFIRMATION_REPLAY_WINDOW_MS = 2 * 60 * 1000;
+export const PREPARED_CONFIRMATION_REPLAY_WINDOW_MS = 10 * 60 * 1000;
 
 export function extractEffectiveUserQuery(text: string): string {
     const raw = String(text || '').trim();
@@ -400,6 +401,7 @@ function resolveOrderConfirmationFromToolTrace(trace: RecentToolTrace | null): T
     const calls = trace?.toolCalls || [];
     for (let idx = calls.length - 1; idx >= 0; idx -= 1) {
         const call = calls[idx];
+        if (!isReusablePreparedConfirmationCall(call, PREPARED_CONFIRMATION_REPLAY_WINDOW_MS)) continue;
         const result = (call?.result && typeof call.result === 'object') ? call.result : {};
         if (String(call?.tool || '').trim() === 'deploy_clanker_token') {
             const clankerConfirmation = resolveClankerDeployConfirmationFromToolTrace(call, result);
@@ -617,6 +619,15 @@ function extractCallTimestamp(call: any): string | null {
         || '',
     ).trim();
     return value || null;
+}
+
+function isReusablePreparedConfirmationCall(call: any, windowMs: number): boolean {
+    if (!['success', 'cached'].includes(String(call?.status || ''))) return false;
+    const capturedAt = extractCallTimestamp(call);
+    if (!capturedAt) return false;
+    const capturedMs = Date.parse(capturedAt);
+    if (!Number.isFinite(capturedMs)) return false;
+    return Date.now() - capturedMs <= windowMs;
 }
 
 function isReusableSwapPrecheckCall(call: any, windowMs: number): boolean {

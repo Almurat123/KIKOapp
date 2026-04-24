@@ -111,6 +111,8 @@ export type ChatModelFamilyId =
   | 'grok-4-1-fast'
   | 'gpt-image-2'
   | 'gpt-image-1-mini'
+  | 'cloudflare-flux-2-klein-4b'
+  | 'runware-flux-2-klein-9b-kv'
   | 'grok-imagine-image';
 
 export interface ChatModelOption {
@@ -161,6 +163,14 @@ const GPT_IMAGE_1_MINI_QUALITY_OPTIONS: ChatModelFamilyControlOption[] = [
 const GROK_IMAGE_QUALITY_OPTIONS: ChatModelFamilyControlOption[] = [
   { id: 'normal', label: 'Normal', imageQuality: 'normal' },
   { id: 'pro', label: 'Pro', imageQuality: 'pro' },
+];
+
+const SINGLE_NORMAL_IMAGE_QUALITY_OPTIONS: ChatModelFamilyControlOption[] = [
+  { id: 'normal', label: 'Normal', imageQuality: 'normal' },
+];
+
+const FREE_IMAGE_QUALITY_OPTIONS: ChatModelFamilyControlOption[] = [
+  { id: 'normal', label: 'Free', imageQuality: 'normal' },
 ];
 
 function normalizeGpt54ReasoningLevel(level?: string | null): ChatReasoningEffort {
@@ -263,6 +273,26 @@ export const MODEL_OPTIONS: ChatModelOption[] = [
     imageQuality: 'high',
   },
   {
+    id: 'cloudflare-flux-2-klein-4b',
+    name: 'Cloudflare FLUX.2 Klein 4B',
+    mode: 'image',
+    kind: 'image',
+    familyId: 'cloudflare-flux-2-klein-4b',
+    reasoningLevel: 'normal',
+    reasoningLabel: 'Free',
+    imageQuality: 'normal',
+  },
+  {
+    id: 'runware-flux-2-klein-9b-kv',
+    name: 'Runware FLUX.2 Klein 9B KV',
+    mode: 'image',
+    kind: 'image',
+    familyId: 'runware-flux-2-klein-9b-kv',
+    reasoningLevel: 'normal',
+    reasoningLabel: 'Normal',
+    imageQuality: 'normal',
+  },
+  {
     id: 'grok-imagine-image',
     name: 'Grok Imagine',
     mode: 'image',
@@ -302,6 +332,8 @@ const MODEL_FAMILY_ORDER: ChatModelFamilyId[] = [
   'grok-4-1-fast',
   'gpt-image-2',
   'gpt-image-1-mini',
+  'cloudflare-flux-2-klein-4b',
+  'runware-flux-2-klein-9b-kv',
   'grok-imagine-image',
 ];
 
@@ -310,6 +342,8 @@ const FAMILY_REASONING_OPTIONS: Record<ChatModelFamilyId, ChatModelFamilyControl
   'grok-4-1-fast': BINARY_REASONING_OPTIONS,
   'gpt-image-2': GPT_IMAGE_2_QUALITY_OPTIONS,
   'gpt-image-1-mini': GPT_IMAGE_1_MINI_QUALITY_OPTIONS,
+  'cloudflare-flux-2-klein-4b': FREE_IMAGE_QUALITY_OPTIONS,
+  'runware-flux-2-klein-9b-kv': SINGLE_NORMAL_IMAGE_QUALITY_OPTIONS,
   'grok-imagine-image': GROK_IMAGE_QUALITY_OPTIONS,
 };
 
@@ -318,6 +352,8 @@ const FAMILY_CONTROL_KIND: Record<ChatModelFamilyId, ChatModelControlKind> = {
   'grok-4-1-fast': 'reasoning',
   'gpt-image-2': 'quality',
   'gpt-image-1-mini': 'quality',
+  'cloudflare-flux-2-klein-4b': 'quality',
+  'runware-flux-2-klein-9b-kv': 'quality',
   'grok-imagine-image': 'quality',
 };
 
@@ -328,6 +364,12 @@ function normalizeModelFamilyId(modelId?: string | null): ChatModelFamilyId | un
   if (!normalized) return undefined;
   const existing = MODEL_OPTIONS.find((model) => model.id === normalized)?.familyId;
   if (existing) return existing;
+  if (normalized === '@cf/black-forest-labs/flux-2-klein-4b' || normalized === 'cloudflare/flux-2-klein-4b' || normalized === 'flux-2-klein-4b') {
+    return 'cloudflare-flux-2-klein-4b';
+  }
+  if (normalized === 'runware:400@6' || normalized === 'flux-2-klein-9b-kv' || normalized === 'flux.2-klein-9b-kv') {
+    return 'runware-flux-2-klein-9b-kv';
+  }
   if (normalized.startsWith('grok-imagine-image-pro')) return 'grok-imagine-image';
   if (normalized.startsWith('grok-imagine-image')) return 'grok-imagine-image';
   if (normalized.startsWith('gpt-image-1-mini')) return 'gpt-image-1-mini';

@@ -370,6 +370,7 @@ test('resolveTradeConfirmationState extracts order confirmation from a prepared 
                         {
                             tool: 'prepare_polymarket_bet',
                             status: 'success',
+                            finishedAt: new Date().toISOString(),
                             args: {
                                 token_id: 'token-up',
                                 question: 'Ethereum Up or Down - March 25, 5:00AM-5:05AM ET',
@@ -407,6 +408,47 @@ test('resolveTradeConfirmationState extracts order confirmation from a prepared 
     assert.equal(state?.order?.args?.token_id, 'token-up');
     assert.equal(state?.order?.confirmationToken, 'abc123');
     assert.equal(state?.order?.actionClass, 'ORDER_MUTATION');
+});
+
+test('resolveTradeConfirmationState ignores stale prepared order confirmations', () => {
+    const staleTimestamp = new Date(Date.now() - (20 * 60 * 1000)).toISOString();
+    const state = resolveTradeConfirmationState([
+        {
+            role: 'assistant',
+            id: 'a-stale-order',
+            message_index: 1,
+            data: {
+                toolTrace: {
+                    toolCalls: [
+                        {
+                            tool: 'prepare_polymarket_bet',
+                            status: 'success',
+                            finishedAt: staleTimestamp,
+                            result: {
+                                requires_confirmation: true,
+                                confirmation_payload: {
+                                    tool_name: 'place_polymarket_order',
+                                    args: {
+                                        token_id: 'old-token',
+                                        side: 'BUY',
+                                        amount_usd: 1,
+                                    },
+                                    confirmation_token: 'old-order',
+                                    action_class: 'ORDER_MUTATION',
+                                },
+                            },
+                        },
+                    ],
+                },
+            },
+        },
+    ], 'confirm', {
+        domain: 'polymarket',
+        intent: 'polymarket_order',
+        taskMode: 'confirm',
+    } as any);
+
+    assert.equal(state, null);
 });
 
 test('resolveTradeConfirmationState preserves swap quote metadata on confirmation state', () => {
@@ -503,6 +545,7 @@ test('resolveTradeConfirmationState preserves token deploy mutation action class
                         {
                             tool: 'deploy_clanker_token',
                             status: 'success',
+                            finishedAt: new Date().toISOString(),
                             result: {
                                 requires_confirmation: true,
                                 confirmation_payload: {
@@ -552,6 +595,7 @@ test('resolveTradeConfirmationState treats a Clanker dry run as reusable deploy 
                         {
                             tool: 'deploy_clanker_token',
                             status: 'success',
+                            finishedAt: new Date().toISOString(),
                             args: {
                                 name: 'Kiko Receipt Test',
                                 symbol: 'KRT',
@@ -632,6 +676,7 @@ test('resolveTradeConfirmationState preserves copy-trade wallet binding provenan
                         {
                             tool: 'create_copy_trade_config',
                             status: 'success',
+                            finishedAt: new Date().toISOString(),
                             result: {
                                 requires_confirmation: true,
                                 confirmation_payload: {

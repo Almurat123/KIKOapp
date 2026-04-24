@@ -114,7 +114,10 @@ const formatTokenAmount = (displayAmount?: string, rawAmount?: string, decimals?
             // Fall through to displayAmount/rawAmount
         }
     }
-    return displayAmount || rawAmount || '0.00';
+    if (displayAmount) {
+        return trimDisplayAmount(displayAmount);
+    }
+    return rawAmount || '0.00';
 };
 
 const normalizeTokenIconKey = (symbol: string): string => {

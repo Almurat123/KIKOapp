@@ -319,18 +319,6 @@ export interface WorkerConversationState {
   carry_forward_entities?: Record<string, any>;
 }
 
-export interface DirectFollowupExecutionPlan {
-  action_kind: "swap" | "copy_trade" | "order";
-  tool_name: string;
-  args: Record<string, any>;
-  execution_gate: {
-    phase: "execute";
-    confirmationToken?: string;
-  };
-  binding: ExecutionBindingState | null;
-  extra_tool_context?: Record<string, any>;
-}
-
 export type ChatContextBlockName =
   | "user_settings"
   | "user_context"

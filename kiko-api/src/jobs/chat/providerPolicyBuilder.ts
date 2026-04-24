@@ -133,7 +133,7 @@ export function buildProviderOptions(
     },
 ): ProviderOptions {
     const reasoningEffort = normalizeOpenAIReasoningEffort(snapshot.runtime.toolContext?.reasoningEffort);
-    const previousResponseId = sanitizePreviousResponseId(phaseContext?.previousResponseId ?? snapshot.previousResponseId);
+    const previousResponseId = sanitizePreviousResponseId(phaseContext?.previousResponseId);
     if (providerInfo.provider !== 'grok') {
         return {
             metadata: {

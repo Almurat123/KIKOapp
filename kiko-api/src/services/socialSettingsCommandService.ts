@@ -107,6 +107,18 @@ const IMAGE_MODEL_CHOICES: ImageModelChoice[] = [
     quality: 'medium',
   },
   {
+    label: 'Cloudflare FLUX.2 Klein 4B / free',
+    command: '/image cloudflare-flux-2-klein-4b',
+    model: 'cloudflare-flux-2-klein-4b',
+    quality: 'normal',
+  },
+  {
+    label: 'Runware FLUX.2 Klein 9B KV / normal',
+    command: '/image runware-flux-2-klein-9b-kv',
+    model: 'runware-flux-2-klein-9b-kv',
+    quality: 'normal',
+  },
+  {
     label: 'Grok Imagine / normal',
     command: '/image grok normal',
     model: 'grok-imagine-image',
@@ -201,7 +213,11 @@ function matchImageModelChoice(command: string): ImageModelChoice | null {
   const quality = parts.at(-1) || null;
   const modelText = quality ? parts.slice(0, -1).join(' ') || rest : rest;
   const compact = modelText.replace(/[\s_-]+/g, '-');
-  const requestedModel = compact.includes('grok')
+  const requestedModel = compact.includes('cloudflare') || compact.includes('flux-2-klein-4b')
+    ? 'cloudflare-flux-2-klein-4b'
+    : compact.includes('runware') || compact.includes('flux-2-klein-9b-kv') || compact.includes('flux.2-klein-9b-kv')
+      ? 'runware-flux-2-klein-9b-kv'
+      : compact.includes('grok')
     ? 'grok-imagine-image'
     : compact.includes('gpt-image-2')
       ? 'gpt-image-2'
