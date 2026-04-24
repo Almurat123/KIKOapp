@@ -52,18 +52,18 @@ test('generated image source uses Farcaster from snapshot page context', () => {
 test('generated image tool uses product fallback only when no saved image preference exists', () => {
     assert.equal(
         __generateImageFromIntentTest.pickDefaultGeneratedImageModel('gpt-5.4-mini-2026-03-17'),
-        'gpt-image-1-mini',
+        'cloudflare-flux-2-klein-4b',
     );
 });
 
 test('generated image tool uses the same product fallback for non-OpenAI chat sessions', () => {
     assert.equal(
         __generateImageFromIntentTest.pickDefaultGeneratedImageModel('grok-4-1-fast-non-reasoning'),
-        'gpt-image-1-mini',
+        'cloudflare-flux-2-klein-4b',
     );
     assert.equal(
         __generateImageFromIntentTest.pickDefaultGeneratedImageModel('gpt-5.4-mini-2026-03-17'),
-        'gpt-image-1-mini',
+        'cloudflare-flux-2-klein-4b',
     );
 });
 
@@ -105,6 +105,18 @@ test('generated image tool falls back when saved image preference is unsupported
                 quality: 'high',
             },
         }, 'gpt-5.4-mini-2026-03-17'),
+        {
+            requestedModel: 'cloudflare-flux-2-klein-4b',
+            quality: 'normal',
+        },
+    );
+});
+
+test('generated image tool skips Cloudflare fallback when reference inputs require an editable model', () => {
+    assert.deepEqual(
+        __generateImageFromIntentTest.resolveGeneratedImageToolPreferenceWithOptions({}, 'gpt-5.4-mini-2026-03-17', {
+            hasReferenceInputs: true,
+        }),
         {
             requestedModel: 'gpt-image-1-mini',
             quality: 'medium',

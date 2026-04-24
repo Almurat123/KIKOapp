@@ -198,11 +198,12 @@ type GeneratedImageToolModel =
 
 function pickDefaultGeneratedImageModel(_taskModel?: string | null): GeneratedImageToolModel {
     const resolved = resolveAvailableGeneratedImagePreference([
-        { model: 'gpt-image-1-mini' },
+        { model: 'cloudflare-flux-2-klein-4b' },
         { model: 'grok-imagine-image' },
+        { model: 'gpt-image-1-mini' },
         { model: 'gpt-image-2' },
     ]);
-    return (resolved.model || 'gpt-image-1-mini') as GeneratedImageToolModel;
+    return (resolved.model || 'cloudflare-flux-2-klein-4b') as GeneratedImageToolModel;
 }
 
 function resolveGeneratedImageToolPreference(context?: Record<string, any>, taskModel?: string | null): {
@@ -235,8 +236,9 @@ function resolveGeneratedImageToolPreferenceWithOptions(
                 model: preferredModel,
                 quality: generatedImagePreference.quality,
             },
-            { model: 'gpt-image-1-mini' },
-            ...(hasReferenceInputs ? [{ model: 'gpt-image-2' }] : [{ model: 'grok-imagine-image' }, { model: 'gpt-image-2' }]),
+            ...(hasReferenceInputs
+                ? [{ model: 'gpt-image-1-mini' }, { model: 'grok-imagine-image' }, { model: 'gpt-image-2' }]
+                : [{ model: 'cloudflare-flux-2-klein-4b' }, { model: 'gpt-image-1-mini' }, { model: 'grok-imagine-image' }, { model: 'gpt-image-2' }]),
         ],
     );
     return {

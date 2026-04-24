@@ -26,7 +26,7 @@ function resolveXSourceTweetUrl(context?: ToolContext): string | undefined {
 export const DeployFourMemeTokenTool: Tool = {
     definition: {
         name: 'deploy_fourmeme_token',
-        description: 'Prepare or execute a Four.meme token deployment on BNB Chain only. Use this for BSC/BNB Chain token launches, not for Base. Four.meme requires a token image and a user-chosen initial BNB launch amount. Prefer a dry-run first and only set confirmDeploy=true after the user explicitly confirms the launch.',
+        description: 'Prepare or execute a Four.meme token deployment on BNB Chain only. Use this for BSC/BNB Chain token launches, not for Base. Four.meme requires a token image and a user-chosen initial BNB launch amount. In ordinary web chat, prefer a dry-run first and set confirmDeploy=true only after explicit confirmation. In X/Farcaster @mention agent mode, set confirmDeploy=true in the same turn when the mention explicitly asks to launch and required fields are present.',
         parameters: {
             type: 'object',
             properties: {

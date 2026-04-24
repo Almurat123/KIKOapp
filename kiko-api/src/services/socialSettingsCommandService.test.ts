@@ -36,8 +36,8 @@ test('social model command matches Grok fast model', () => {
 test('social image command default resolves to executable image preference', () => {
   const choice = __socialSettingsCommandTest.matchImageModelChoice('/image default');
 
-  assert.equal(choice?.model, 'gpt-image-1-mini');
-  assert.equal(choice?.quality, 'medium');
+  assert.equal(choice?.model, 'cloudflare-flux-2-klein-4b');
+  assert.equal(choice?.quality, 'normal');
 });
 
 test('social image command matches Grok normal preference', () => {
@@ -213,13 +213,13 @@ test('social settings command resolves bare image number from pending menu conte
 
   assert.deepEqual(saved, {
     handled: true,
-    replyText: 'Saved image model: Default image model: GPT Image 1 Mini / medium',
+    replyText: 'Saved image model: Default image model: FLUX.2 Klein 4B / free',
   });
   assert.deepEqual(savedChoices, [
     {
       userId: 'did:test',
-      model: 'gpt-image-1-mini',
-      quality: 'medium',
+      model: 'cloudflare-flux-2-klein-4b',
+      quality: 'normal',
     },
   ]);
   assert.equal(pendingMenus.size, 0);

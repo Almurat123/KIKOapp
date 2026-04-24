@@ -149,6 +149,8 @@ describe('buy confirmation transition', () => {
         claimOrCreateCanonicalOrder: async () => ({
           id: 'order-2',
           canonicalKey: 'chain:leader:target:user:cfg:token:buy',
+          requestKey: '0123456789abcdef0123456789abcdef',
+          requestPayloadHash: 'payload-hash',
           lifecycleState: 'BUY_SUBMITTING',
           lastReasonCode: 'ok_buy_submitted',
           chainId: 56,
@@ -267,6 +269,8 @@ describe('buy confirmation transition', () => {
         claimOrCreateCanonicalOrder: async () => ({
           id: 'order-1',
           canonicalKey: 'chain:leader:target:user:cfg:token:buy',
+          requestKey: 'abcdef0123456789abcdef0123456789',
+          requestPayloadHash: 'payload-hash',
           lifecycleState: 'BUY_SUBMITTING',
           lastReasonCode: 'ok_buy_submitted',
           chainId: 8453,

@@ -69,6 +69,19 @@ export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
       };
     }
 
+    if (!order.requestKey) {
+      return {
+        status: 'failed_terminal',
+        reasonCode: 'request_key_missing',
+        retryable: false,
+        sourceTxHash: signal.swap?.txHash || null,
+        metadata: {
+          reason: 'copytrade_order_missing_request_key',
+          orderId: order.id,
+        },
+      };
+    }
+
     const walletAddress = context.walletAddress || await getSolanaEmbeddedWalletAddress(context.userId) || '';
     if (!walletAddress) {
       logger.warn(LogCode.WTC_TX_SKIPPED, '[CopyTradeV2][SolanaExecution] skipped before send: missing solana wallet', {
@@ -178,6 +191,7 @@ export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
     }
 
     const request: MainSwapRequest = {
+      requestKey: order.requestKey,
       userId: context.userId,
       walletAddress,
       chainId: signal.chainId,
@@ -191,6 +205,7 @@ export class SolanaTradingFlowExecutor implements CopytradeExecutionPort {
         ...context.userSettings,
       },
       executionContext: {
+        copytradeRequestKey: order.requestKey,
         sourceTxHash: signal.swap.txHash,
         sourceRouter: signal.swap.router,
         sourceTxInput: signal.swap.sourceTxInput,

@@ -15,8 +15,9 @@
 // Design Language:
 // - dry-run payload preparation is not execution
 // - `deploy_clanker_token` becomes executable only when `confirmDeploy=true`
-// - real token deploy attempts require phase=execute; the model owns carrying
-//   the confirmed launch payload into the next tool call
+// - real token deploy attempts require phase=execute; web chat reaches that
+//   phase after confirmation, while X/Farcaster @mention agent mode may reach
+//   it on the first explicit execution turn
 // - confirmation payload args are user-visible context for the next model turn,
 //   not backend-replayed execution instructions
 // - quote freshness must come from explicit expiry/stale fields, not from timestamp age alone
@@ -146,9 +147,10 @@ export function checkMutationExecutionGate(params: {
         return { allow: true };
     }
 
-    // Order and token-deploy mutations are model-confirmed in the next turn.
-    // The backend gate only verifies that the current turn is an execution turn;
-    // it must not rewrite or hash-match the model's selected tool arguments.
+    // Order and token-deploy mutations are model-owned execution turns. Web chat
+    // reaches this after confirmation; X/Farcaster @mention agent mode can reach
+    // it in one turn when the social mention is explicit and complete. The gate
+    // must not rewrite or hash-match the model's selected tool arguments here.
     if (gatePhase !== 'execute') {
         const error = createPolicyError(
             'CONFIRMATION_REQUIRED',

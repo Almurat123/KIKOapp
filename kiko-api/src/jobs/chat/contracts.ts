@@ -421,7 +421,8 @@ export interface RuntimeDirective {
     | "quote_before_swap_contract"
     | "balance_auto_resolution_guard"
     | "chain_switch_required"
-    | "farcaster_public_reply_style";
+    | "farcaster_public_reply_style"
+    | "social_agent_single_turn_execution";
   message: string;
   metadata?: Record<string, any>;
 }

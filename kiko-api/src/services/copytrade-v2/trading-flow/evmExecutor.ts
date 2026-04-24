@@ -78,6 +78,19 @@ export class EvmTradingFlowExecutor implements CopytradeExecutionPort {
       };
     }
 
+    if (!order.requestKey) {
+      return {
+        status: 'failed_terminal',
+        reasonCode: 'request_key_missing',
+        retryable: false,
+        sourceTxHash: signal.swap?.txHash || null,
+        metadata: {
+          reason: 'copytrade_order_missing_request_key',
+          orderId: order.id,
+        },
+      };
+    }
+
     const sellDirection = isSellDirection(order);
     const tokenSwapDirection = isExplicitTokenSwap(order);
 
@@ -120,6 +133,7 @@ export class EvmTradingFlowExecutor implements CopytradeExecutionPort {
     }
 
     const request: MainSwapRequest = {
+      requestKey: order.requestKey,
       userId: context.userId,
       walletAddress: context.walletAddress,
       chainId: signal.chainId,
@@ -135,6 +149,7 @@ export class EvmTradingFlowExecutor implements CopytradeExecutionPort {
       },
       directSwapHint: buildDirectSwapHint(signal),
       executionContext: {
+        copytradeRequestKey: order.requestKey,
         sourceTxHash: signal.swap.txHash,
         sourceRouter: signal.swap.router,
         sourceTxInput: signal.swap.sourceTxInput,

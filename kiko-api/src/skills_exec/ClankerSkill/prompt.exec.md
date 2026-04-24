@@ -6,8 +6,9 @@ dedicated deployment flow before it touches the tool, including simple creator
 buy support, chain-neutral context handling, and the post-deploy token page URL.
 Runtime review also showed optional/defaultable fields must not be treated as
 blocking requirements.
-Goal: keep Clanker launches dry-run first, then confirm-and-send only after
-explicit user approval, while surfacing the deployed token page URL when the
+Goal: keep Clanker web launches dry-run first, while X/Farcaster @mention agent
+launches can execute in one turn when the mention itself is explicit and all
+required fields are present. Surface the deployed token page URL when the
 service returns one.
 Owns: Clanker token launch guidance, deploy/admin history lookups, reward
 inspection, and claim-prep guidance.
@@ -15,7 +16,9 @@ Does Not Own: wallet signing, token art generation, or trading execution.
 Design Language:
 - Omit `pool.pairedToken` to use the chain wrapped-native asset address; do not default to the literal `WETH` string.
 - Use `maxLpFee` for dynamic fee payloads; treat `maxFee` as an input alias only.
-- Real deploys must be gated by explicit confirmation and `confirmDeploy=true`.
+- Real deploys require `confirmDeploy=true`. Web chat uses explicit confirmation;
+  X/Farcaster @mention agent mode may use the mention itself as the execution
+  authorization when launch requirements are complete.
 - Hard launch requirements are name and symbol; token admin and chain are only
   questions when runtime/defaults cannot safely resolve them.
 - Creator buy / dev buy should default to the SDK `devBuy` field with only
@@ -81,8 +84,9 @@ inspect Clanker deploy or reward history, or prepare claim rewards.
 - Treat image, description, reward split, pool pair, fees, and creator buy as
   optional/defaultable. Do not block dry-run preparation on those fields; omit
   them or use the defaults below when the user does not specify them.
-- Prefer a dry-run first. Call `deploy_clanker_token` with `confirmDeploy=false` to show the exact payload before any real launch.
-- Only call `deploy_clanker_token` with `confirmDeploy=true` after the user explicitly confirms the launch details.
+- In ordinary web chat, prefer a dry-run first. Call `deploy_clanker_token` with `confirmDeploy=false` to show the exact payload before any real launch, then call with `confirmDeploy=true` only after the user confirms.
+- In X/Farcaster @mention agent mode, the mention itself is the user's in-channel execution request. If the latest mention explicitly asks to launch/deploy and all hard launch requirements are present, skip the dry-run confirmation turn and call `deploy_clanker_token` with `confirmDeploy=true` in the same turn.
+- The social-agent exception removes only the extra confirmation reply. It does not allow guessing name, symbol, token admin, chain, image choice, creator-buy amount, or other user spend fields.
 - On the confirmation turn, you own the tool call and its arguments. Use the pending launch payload as context, but do not assume the backend will replay or repair it for you.
 - If the user does not provide a reward split, default to one recipient with 100% allocated to the token admin.
 - If the user does not provide a pool pair, use the chain wrapped-native asset address. Do not send the literal string `WETH` as the payload default.

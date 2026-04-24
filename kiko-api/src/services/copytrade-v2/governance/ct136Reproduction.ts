@@ -40,6 +40,8 @@ class InMemoryOrderRepo implements CopytradeOrderRepositoryPort {
     const now = new Date();
     const order: CopytradeOrderAggregate = {
       id: `order-${this.byKey.size + 1}`,
+      requestKey: `ct136-request-${this.byKey.size + 1}`,
+      requestPayloadHash: `ct136-payload-${this.byKey.size + 1}`,
       chainId: signal.chainId,
       txHash: String(signal.swap.txHash || '').toLowerCase(),
       targetWallet: String(signal.targetWallet || '').toLowerCase(),
@@ -292,6 +294,8 @@ async function reproduceOrderIssue(issue: CtIssueDefinition, seq: number): Promi
   if (reasonCode === 'invalid_transition') {
     const decision = applyOrderLifecycleEvent({
       id: 'x',
+      requestKey: 'ct136-invalid-transition-request',
+      requestPayloadHash: 'ct136-invalid-transition-payload',
       chainId: 1,
       txHash: '0x1',
       targetWallet: '0xw',

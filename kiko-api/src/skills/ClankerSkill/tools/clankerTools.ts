@@ -13,6 +13,8 @@
 //               or persistence of deployed token records.
 // Design Language:
 // - Real token deployment requires `confirmDeploy=true`; otherwise return a dry-run payload.
+// - X/Farcaster @mention agent turns may set `confirmDeploy=true` on the first
+//   turn when the mention explicitly asks to launch and required fields are present.
 // - Query tools may inspect arbitrary addresses, but deploy tools should use explicit user-supplied admins/recipients.
 // - Default launch UX should prefer one recipient at 100%, a chain wrapped-native pair asset, and fixed fees.
 // - Dynamic fee payloads should expose `maxLpFee`; `maxFee` is only a compatibility alias.
@@ -137,7 +139,7 @@ function hasCompleteClankerDeployContext(input: any): boolean {
 export const DeployClankerTokenTool: Tool = {
     definition: {
         name: 'deploy_clanker_token',
-        description: 'Prepare or execute a Clanker v4 token deployment on Base only. Defaults are: token admin from the tagged user wallet when available, one reward recipient that receives 100%, standard pool with the chain native wrapped asset address, initial market cap 10, fixed fees at 1% / 1%, and simple creator buy support via devBuy. Treat phrases like "buy me 0.1 ETH" as devBuy.ethAmount = 0.1. Only ask for poolKey, amountOutMin, and recipient when the user explicitly wants a non-ETH route, slippage control, or custom settlement. Successful deploys should return the Clanker token page URL when the API provides a token address. Only set confirmDeploy=true after the user explicitly confirms the launch.',
+        description: 'Prepare or execute a Clanker v4 token deployment on Base only. Defaults are: token admin from the tagged user wallet when available, one reward recipient that receives 100%, standard pool with the chain native wrapped asset address, initial market cap 10, fixed fees at 1% / 1%, and simple creator buy support via devBuy. Treat phrases like "buy me 0.1 ETH" as devBuy.ethAmount = 0.1. Only ask for poolKey, amountOutMin, and recipient when the user explicitly wants a non-ETH route, slippage control, or custom settlement. Successful deploys should return the Clanker token page URL when the API provides a token address. In ordinary web chat, set confirmDeploy=true only after explicit confirmation. In X/Farcaster @mention agent mode, set confirmDeploy=true in the same turn when the mention explicitly asks to launch and required fields are present.',
         parameters: {
             type: 'object',
             properties: {

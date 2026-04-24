@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { toolRegistry } from '../../tooling/registry.js';
 import type { ChatContextSnapshot } from './contracts.js';
-import { runNodeOrchestration } from './nodeOrchestrator.js';
+import { resolveExecutionGateContext, runNodeOrchestration } from './nodeOrchestrator.js';
 
 function makeSnapshot(overrides: Partial<ChatContextSnapshot> = {}): ChatContextSnapshot {
     const { runtime: runtimeOverrides, ...rest } = overrides;
@@ -209,4 +209,102 @@ test('confirmation-required swap tool result ends the turn with quote text inste
         'Quote ready: 2.322311 USDC -> about 0.000997 ETH. Please reply "confirm" or "execute" to complete the trade.',
     );
     assert.ok(!/executed|submitted|swapped/i.test(broker.getContent()));
+});
+
+test('social agent execute route opens a single-turn mutation execution gate without pending confirmation', () => {
+    const snapshot = makeSnapshot({
+        lastUserMessage: 'Deploy a token on Base name Test symbol TST',
+        runtime: {
+            currentPage: 'x',
+            pageContext: 'x_agent',
+            socialInput: { platform: 'x' },
+        } as any,
+        taskRoute: {
+            owner: 'token_deploy',
+            phase: 'execute',
+            facets: [],
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: ['TST'],
+                walletAddresses: [],
+                marketIdentifiers: [],
+                imageRefs: [],
+            },
+            requestedChain: { chainId: 8453, chainName: 'Base' },
+            timeContext: null,
+            rowCount: null,
+            inheritEntitiesFromContext: false,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            explanation: 'Social mention explicitly asks to deploy.',
+            confidence: 0.99,
+            source: 'llm',
+        } as any,
+        normalizedIntent: {
+            domain: 'token',
+            intent: 'clanker_deploy',
+            taskMode: 'execute',
+            outputMode: 'execution_ready',
+            searchMode: 'forbidden',
+            searchTarget: 'none',
+            confidence: 0.99,
+            explanation: 'Social mention explicitly asks to deploy.',
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: ['TST'],
+                walletAddresses: [],
+                marketIdentifiers: [],
+            },
+            requestedChain: { chainId: 8453, chainName: 'Base' },
+            timeContext: null,
+            evidenceRequirements: [],
+            requiresRealtime: false,
+            requiresOnchainEvidence: false,
+            executionCandidate: true,
+            rowCount: null,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            source: 'llm',
+        } as any,
+        confirmationState: null,
+    });
+
+    assert.deepEqual(resolveExecutionGateContext(snapshot), { phase: 'execute' });
+});
+
+test('ordinary web execute route does not open mutation execution gate without pending confirmation', () => {
+    const snapshot = makeSnapshot({
+        lastUserMessage: 'Deploy a token on Base name Test symbol TST',
+        runtime: {
+            currentPage: 'chat',
+            pageContext: 'web_chat',
+        } as any,
+        taskRoute: {
+            owner: 'token_deploy',
+            phase: 'execute',
+            facets: [],
+            entities: {
+                tokenAddresses: [],
+                tokenSymbols: ['TST'],
+                walletAddresses: [],
+                marketIdentifiers: [],
+                imageRefs: [],
+            },
+            requestedChain: { chainId: 8453, chainName: 'Base' },
+            timeContext: null,
+            rowCount: null,
+            inheritEntitiesFromContext: false,
+            locale: 'en',
+            needsClarification: false,
+            clarificationQuestion: null,
+            explanation: 'Web chat deploy request still needs preview confirmation.',
+            confidence: 0.99,
+            source: 'llm',
+        } as any,
+        confirmationState: null,
+    });
+
+    assert.equal(resolveExecutionGateContext(snapshot), null);
 });

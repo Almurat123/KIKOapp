@@ -18,7 +18,13 @@ export interface CopytradeOrderRepositoryPort {
   claimOrLoad(
     signal: CopytradeIngressSignal,
     mode: CopytradeMode,
-  ): Promise<{ order: CopytradeOrderAggregate; claimed: boolean }>;
+  ): Promise<{
+    order: CopytradeOrderAggregate;
+    claimed: boolean;
+    requestKeyMismatch?: boolean;
+    expectedPayloadHash?: string;
+    actualPayloadHash?: string | null;
+  }>;
 
   updateState(params: {
     orderId: string;

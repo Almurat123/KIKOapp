@@ -100,6 +100,61 @@ export class CopytradeOrderFlowOrchestrator {
 
     let order = claim.order;
 
+    if (!order.requestKey) {
+      await this.deps.eventStore.append({
+        orderId: order.id,
+        eventType: 'REQUEST_KEY_REJECTED',
+        lifecycleState: order.lifecycleState,
+        reasonCode: 'request_key_missing',
+        payload: {
+          chainId: signal.chainId,
+          targetWallet: normalizedWallet,
+          txHash,
+        },
+      });
+      this.deps.observability.emit('copytrade_v2_request_key_missing', {
+        orderId: order.id,
+        chainId: signal.chainId,
+        mode: policy.mode,
+      });
+      return {
+        order,
+        mode: policy.mode,
+        skipped: true,
+        reasonCode: 'request_key_missing',
+      };
+    }
+
+    if (claim.requestKeyMismatch) {
+      await this.deps.eventStore.append({
+        orderId: order.id,
+        eventType: 'REQUEST_KEY_REJECTED',
+        lifecycleState: order.lifecycleState,
+        reasonCode: 'request_key_payload_mismatch',
+        payload: {
+          requestKey: order.requestKey,
+          chainId: signal.chainId,
+          targetWallet: normalizedWallet,
+          txHash,
+          expectedPayloadHash: claim.expectedPayloadHash || null,
+          actualPayloadHash: claim.actualPayloadHash || null,
+          sourceTxFrom: signal.sourceTxFrom || null,
+        },
+      });
+      this.deps.observability.emit('copytrade_v2_request_key_payload_mismatch', {
+        orderId: order.id,
+        requestKey: order.requestKey,
+        chainId: signal.chainId,
+        mode: policy.mode,
+      });
+      return {
+        order,
+        mode: policy.mode,
+        skipped: true,
+        reasonCode: 'request_key_payload_mismatch',
+      };
+    }
+
     if (!claim.claimed) {
       await this.deps.eventStore.append({
         orderId: order.id,
@@ -110,12 +165,14 @@ export class CopytradeOrderFlowOrchestrator {
           chainId: signal.chainId,
           targetWallet: normalizedWallet,
           txHash,
+          requestKey: order.requestKey,
           sourceTxFrom: signal.sourceTxFrom || null,
           ctIssueHintId: signal.ctIssueHintId || order.metadata?.ctIssueHintId || null,
         },
       });
       this.deps.observability.emit('copytrade_v2_ingress_deduped', {
         orderId: order.id,
+        requestKey: order.requestKey,
         chainId: signal.chainId,
         mode: policy.mode,
       });

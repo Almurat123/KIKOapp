@@ -1,7 +1,7 @@
 {
     "id": "clanker_deploy_token",
     "name": "Deploy Token via Clanker",
-    "description": "Deploy Clanker v4 tokens on Base with simple creator buy support, inspect deploy/deployer history, inspect reward recipients, and prepare claim transactions.",
+    "description": "Deploy Clanker v4 tokens on Base with web-chat confirmation, single-turn X/Farcaster @mention execution when explicit, simple creator buy support, history lookup, reward inspection, and claim preparation.",
     "intents": [
         "TRADING"
     ],

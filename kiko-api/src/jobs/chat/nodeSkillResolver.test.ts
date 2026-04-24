@@ -140,6 +140,34 @@ test('routes Clanker deploy queries to the dedicated Clanker skill first', () =>
     assert.equal(resolution.intentEnvelope.execution_risk, 'mutation');
 });
 
+test('social agent token deploy starts in execution mode with single-turn launch guidance', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'token',
+        intent: 'clanker_deploy',
+        taskMode: 'execute',
+        outputMode: 'execution_ready',
+        requestedChain: {
+            chainId: 8453,
+            chainName: 'Base',
+            source: 'llm',
+        },
+        executionCandidate: true,
+    });
+    const resolution = resolveNodeSkills(makeSnapshot('Deploy a token on Base named Test symbol TST', {
+        normalizedIntent: canonicalIntent,
+        runtime: {
+            currentPage: 'x',
+            pageContext: 'x_agent',
+            socialInput: { platform: 'x' },
+        },
+    }), null, canonicalIntent);
+
+    assert.equal(resolution.selectedSkills[0], 'clanker_deploy_token');
+    assert.equal(resolution.currentPhase, 'execution');
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('@mention agent mode')));
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('do not force a dry-run')));
+});
+
 test('canonical Clanker deploy intent routes to token deploy mutation envelope', () => {
     const canonicalIntent = makeCanonicalIntent({
         domain: 'token',

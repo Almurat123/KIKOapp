@@ -86,6 +86,8 @@ test('evm buy submission flow preserves unresolved turbo submissions for later r
   assert.ok(capturedRequest);
   const submittedRequest = capturedRequest as MainSwapRequest;
   assert.equal(submittedRequest.userSettings?.disableTokenInfo, true);
+  assert.match(submittedRequest.requestKey || '', /^[a-f0-9]{32}$/);
+  assert.equal(submittedRequest.executionContext?.copytradeRequestKey, submittedRequest.requestKey);
   assert.equal(result.status, 'submitted_unresolved');
   assert.equal(result.reasonCode, 'direct_timeout');
   assert.equal(result.txLifecycleStatus, 'broadcasted_unseen');

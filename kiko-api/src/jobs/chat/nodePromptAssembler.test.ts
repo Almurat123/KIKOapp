@@ -771,6 +771,51 @@ test("assembleGenerationMessages injects Farcaster agent mode prompt for public 
     String(systemMessage?.content || ""),
     /Unless the user explicitly asks for detail, keep the answer brief/i,
   );
+  assert.match(
+    String(systemMessage?.content || ""),
+    /SOCIAL_AGENT_SINGLE_TURN_EXECUTION:/,
+  );
+  assert.match(
+    String(systemMessage?.content || ""),
+    /do not force a dry-run-only response or ask the user to reply `confirm` again/i,
+  );
+});
+
+test("assembleGenerationMessages injects X agent single-turn execution prompt", () => {
+  const snapshot: ChatContextSnapshot = {
+    sessionId: "session-x-agent",
+    taskId: "task-x-agent",
+    model: "gpt-5-mini",
+    history: [],
+    lastUserMessage: "deploy a token on base name Test symbol TST",
+    runtime: {
+      contextBlocks: {},
+      userSettings: {},
+      currentPage: "x",
+      pageContext: "x_agent",
+      socialInput: { platform: "x" },
+    },
+    requestedTokenAddresses: [],
+    requestedTokenSymbols: [],
+    toolDefinitions: [],
+  };
+
+  const providerInfo: ProviderInfo = {
+    provider: "openai",
+    model: snapshot.model,
+    supportsNativeSearch: false,
+    supportsPreviousResponse: true,
+  };
+
+  const messages = assembleGenerationMessages(snapshot, [], providerInfo);
+  const systemMessage = messages.find((message) => message.role === "system");
+
+  assert.doesNotMatch(String(systemMessage?.content || ""), /FARCASTER_AGENT_MODE:/);
+  assert.match(String(systemMessage?.content || ""), /SOCIAL_AGENT_SINGLE_TURN_EXECUTION:/);
+  assert.match(
+    String(systemMessage?.content || ""),
+    /call the executable tool directly in this same turn/i,
+  );
 });
 
 test("assembleGenerationMessages emits multimodal current-turn content for OpenAI social-agent inputs", () => {

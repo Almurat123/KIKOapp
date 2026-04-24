@@ -58,6 +58,8 @@ export type CopytradeReasonCode =
   | 'ingress_deduped'
   | 'ingress_invalid_swap'
   | 'ingress_missing_identity'
+  | 'request_key_payload_mismatch'
+  | 'request_key_missing'
   | 'validation_low_confidence'
   | 'validation_direction_conflict'
   | 'validation_unroutable'

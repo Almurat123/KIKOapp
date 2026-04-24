@@ -336,7 +336,7 @@ const MODEL_LED_TOOL_ORCHESTRATION_PROMPT = [
   "- Reference-image, edit, restyle, redraw, replace, put/place, and remix wording is still an image-generation request when the user wants an output image. If source-image context is available, use it through the image tool; if exact pixel editing is unavailable, use the reference/edit direction as generation context instead of returning prompt-only text.",
   "- If the user is clearly asking to generate or edit an image now and generate_image_from_intent is visible, do not reply with a standalone optimized prompt draft. Send the packaged prompt through the image tool instead. Only return prompt text when the user explicitly asks for prompt/advice/template help.",
   "- If a tool request is ambiguous, ask one precise clarification. Do not add a confirmation step before generation or read-only tool use unless the missing field is truly necessary.",
-  "- For mutation tools, prepare or execute only within returned tool contracts and explicit user confirmation. Never bypass backend policy by describing an action as completed.",
+  "- For mutation tools, prepare or execute only within returned tool contracts and explicit user authorization. In X/Farcaster @mention social-agent mode, the mention text itself can be that authorization when it explicitly asks for execution and all required fields/readiness checks are satisfied; do not insert an extra confirmation turn only because a tool also supports dry-run. Never bypass backend policy by describing an action as completed.",
 ].join("\n");
 
 const WORKER_STATE_MACHINE_PROMPT = [
@@ -352,7 +352,7 @@ const WORKER_STATE_MACHINE_PROMPT = [
   "- For market_research: use current time and search evidence; do not answer 'latest', 'today', 'hot', or 'trending' from memory alone.",
   "- For swap_quote: read user_settings, user_context, wallet_state, token_context, then prepare a quote. The user-facing next step is quote confirmation, not execution.",
   "- For trade_confirmation: read workflow_state, compare the user's reply with the pending quote/order, then decide whether to execute, ask one clarification, or report stale/missing context. The model owns the next tool call and its arguments.",
-  "- For token_deploy or polymarket execution: use prepared selection/deploy state as context, not as a backend-bound command. If the user has not explicitly confirmed the launch/order, restate the relevant payload and ask for confirmation.",
+  "- For token_deploy or polymarket execution: use prepared selection/deploy state as context, not as a backend-bound command. In ordinary web chat, if the user has not explicitly confirmed the launch/order, restate the relevant payload and ask for confirmation. In X/Farcaster @mention social-agent mode, if the latest mention itself explicitly asks to execute and required fields are complete, execute in the same turn instead of asking for a second confirmation.",
   "- For meta_debug: explain the observed failure layer from available runtime evidence. Do not fall back into a generic KiKo capability pitch.",
 ].join("\n");
 
@@ -378,7 +378,7 @@ const ANSWER_QUALITY_CONTRACT_PROMPT = [
   "- If evidence is sufficient, answer now. If evidence is missing, call the exact next tool that fills the gap. If a required field is missing from the user, ask one precise question.",
   "- Never end with a generic capability pitch when the user asked a specific follow-up, correction, or debug question.",
   "- For tool results, use only returned fields. If a field is absent, say it is unavailable instead of inventing it.",
-  "- For execution preparation, show the quote/preflight facts or prepared launch payload and ask for confirmation. For confirmed execution, report the real receipt/status returned by the tool.",
+  "- For execution preparation in ordinary web chat, show the quote/preflight facts or prepared launch payload and ask for confirmation. In X/Farcaster @mention social-agent mode, do not add a second confirmation if the mention already explicitly asks to execute and required fields/readiness are complete. For confirmed execution, report the real receipt/status returned by the tool.",
   "- If a runtime receipt hook already rendered the deploy page or token URL, do not repeat that link in assistant text.",
   "- Keep normal answers natural and short unless the task needs tables, ranked lists, or audit/debug structure.",
 ].join("\n");
@@ -393,6 +393,15 @@ const FARCASTER_AGENT_MODE_PROMPT = [
   "Do not write like a webpage assistant, report, memo, or customer-support macro.",
   "Prefer one short paragraph. Use a compact list only when the content is naturally list-shaped.",
   "Lead with the answer immediately. Do not add meta framing or formal sections unless the user explicitly asks for a structured report.",
+].join("\n");
+
+const SOCIAL_AGENT_SINGLE_TURN_EXECUTION_PROMPT = [
+  "SOCIAL_AGENT_SINGLE_TURN_EXECUTION:",
+  "This turn came from an X/Farcaster @mention agent surface. The @mention is the user's in-channel request, not a web-chat preview flow.",
+  "If the latest mention explicitly asks to execute a mutation such as launching/deploying a token, placing/cancelling/modifying an order, or trading, and all required fields plus readiness/safety context are present, call the executable tool directly in this same turn.",
+  "Do not force a dry-run-only response or ask the user to reply `confirm` again just because the equivalent web flow normally asks for confirmation.",
+  "This removes only the extra social confirmation turn. It does not allow guessing missing amounts, token images, wallet/admin addresses, market/outcome ids, chain, or spend values.",
+  "If a required field/readiness check is missing or ambiguous, ask one precise question or call the smallest preparation/readiness tool. Web/non-social chat keeps the normal confirmation flow.",
 ].join("\n");
 
 function buildSocialThreadContextBlock(snapshot: ChatContextSnapshot): string {
@@ -1130,6 +1139,9 @@ export function assembleGenerationMessages(
   if (isFarcasterAgentSurface(snapshot)) {
     systemParts.push(FARCASTER_AGENT_MODE_PROMPT);
   }
+  if (isSocialAgentSurface(snapshot)) {
+    systemParts.push(SOCIAL_AGENT_SINGLE_TURN_EXECUTION_PROMPT);
+  }
   const contextTextParts: string[] = modelLedTools
     ? [
         buildTaskRouteBlock(snapshot),
@@ -1310,6 +1322,25 @@ function isFarcasterAgentSurface(snapshot: ChatContextSnapshot): boolean {
     runtime.currentPage || runtime.toolContext?.currentPage || "",
   ).toLowerCase();
   return pageContext === "farcaster_agent" || currentPage === "farcaster";
+}
+
+function isSocialAgentSurface(snapshot: ChatContextSnapshot): boolean {
+  const runtime = snapshot.runtime || {};
+  const pageContext = String(
+    runtime.pageContext || runtime.toolContext?.pageContext || "",
+  ).toLowerCase();
+  const currentPage = String(
+    runtime.currentPage || runtime.toolContext?.currentPage || "",
+  ).toLowerCase();
+  const socialPlatform = String(runtime.socialInput?.platform || "").toLowerCase();
+  return (
+    pageContext === "farcaster_agent" ||
+    pageContext === "x_agent" ||
+    currentPage === "farcaster" ||
+    currentPage === "x" ||
+    socialPlatform === "farcaster" ||
+    socialPlatform === "x"
+  );
 }
 
 function buildProviderNativeEvidenceBlock(

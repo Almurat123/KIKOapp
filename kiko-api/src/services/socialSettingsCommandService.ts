@@ -89,10 +89,10 @@ const CHAT_MODEL_CHOICES: ChatModelChoice[] = [
 
 const IMAGE_MODEL_CHOICES: ImageModelChoice[] = [
   {
-    label: 'Default image model: GPT Image 1 Mini / medium',
+    label: 'Default image model: FLUX.2 Klein 4B / free',
     command: '/image default',
-    model: 'gpt-image-1-mini',
-    quality: 'medium',
+    model: 'cloudflare-flux-2-klein-4b',
+    quality: 'normal',
   },
   {
     label: 'GPT Image 1 Mini / low',

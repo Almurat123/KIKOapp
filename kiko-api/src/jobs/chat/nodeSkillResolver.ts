@@ -2,8 +2,9 @@
 // Updated: 2026-04-23
 // Author: Renata
 // Reason: Clanker launch turns now need a first-class skill note so the model
-//         sees the deploy prompt, collects missing launch fields, and keeps
-//         real deploys dry-run first instead of drifting into generic trading.
+//         sees the deploy prompt, collects missing launch fields, keeps web
+//         deploys dry-run first, and lets explicit X/Farcaster @mention
+//         launches complete in one social turn.
 //         Canonical deploy intent and control policy now also need the resolver
 //         to expose token_deploy as a mutation envelope instead of general_answer.
 //         Chat v2 now also needs skill routing to expose only matched business
@@ -61,8 +62,10 @@
 //   tool exposure stays scoped to the current task package.
 // - Tool exposure should not fall back to local keyword gates for normal chat.
 // - Model-selected task choice belongs to the main model, but tool exposure must stay scoped to matched skill packages plus explicit context reads.
-// - Clanker launch flows should surface explicit dry-run and confirmation guidance before a real deploy.
-// - Clanker deploy intent envelopes are mutation workflows, even when the first tool call is a dry-run preview.
+// - Token launch flows use web-chat dry-run confirmation, but X/Farcaster
+//   @mention agent requests can execute in one turn when explicit and complete.
+// - Token deploy intent envelopes are mutation workflows, even when the first
+//   tool call is a dry-run preview.
 // - Session tool history may inform follow-up analysis, but must not reopen tool access for direct meta turns.
 // - Generic direct-answer turns should stay lean instead of inheriting a default market skill.
 // - Local token leaderboard fallback must stay scoped to token/general trend questions and must
@@ -108,7 +111,7 @@
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
 // - Kind: repo doc
 // - Retrieved: 2026-04-17
-// - Applied To: Clanker launch routing note, dry-run confirmation guidance, and token_deploy envelope
+// - Applied To: Clanker launch routing note, web confirmation guidance, and token_deploy envelope
 // - Verification: inferred from code and tests
 // - Source: operator correction on 2026-04-21 that generated-image execution
 //   should be model-decided
@@ -397,6 +400,11 @@ function detectRouteSocialDomain(snapshot: ChatContextSnapshot): 'x' | 'farcaste
     return 'market';
 }
 
+function isSocialAgentSurface(snapshot: ChatContextSnapshot): boolean {
+    const domain = detectRouteSocialDomain(snapshot);
+    return domain === 'x' || domain === 'farcaster';
+}
+
 function buildSearchModeFromTaskRoute(snapshot: ChatContextSnapshot): SearchMode {
     const taskRoute = snapshot.taskRoute || null;
     if (!taskRoute) return 'forbidden';
@@ -627,7 +635,11 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         }
     }
     if (tokenDeployTurn) {
-        strategyNotes.push('This is a token launch request. Route by chain: Base uses Clanker, BNB Chain / BSC uses Four.meme, and other explicit chains are unsupported for deploy in this runtime. Keep the launch flow dry-run first, then wait for explicit user confirmation before any real deploy.');
+        if (isSocialAgentSurface(snapshot)) {
+            strategyNotes.push('This is a token launch request from X/Farcaster @mention agent mode. Route by chain: Base uses Clanker, BNB Chain / BSC uses Four.meme, and other explicit chains are unsupported. If the mention explicitly asks to launch/deploy and all launch-required fields are present, do not force a dry-run or ask for a second confirm; call the deploy tool with the real execution flag in this same turn. If a required field is missing, ask only for that field.');
+        } else {
+            strategyNotes.push('This is a token launch request. Route by chain: Base uses Clanker, BNB Chain / BSC uses Four.meme, and other explicit chains are unsupported for deploy in this runtime. Keep the launch flow dry-run first, then wait for explicit user confirmation before any real deploy.');
+        }
     }
     const requestedChain = resolveCanonicalChainRef({
         taskRoute,
@@ -1455,8 +1467,13 @@ function buildToolPhasePolicy(
             || confirmationKind === 'copy_trade_confirmation'
             || confirmationKind === 'order_confirmation'
         );
+    const socialAgentExecutionReady = isSocialAgentSurface(snapshot)
+        && intentEnvelope.execution_risk === 'mutation'
+        && intentEnvelope.task_mode === 'execute'
+        && !snapshot.taskRoute?.needsClarification
+        && !snapshot.normalizedIntent?.needsClarification;
 
-    if (executionReady) {
+    if (executionReady || socialAgentExecutionReady) {
         return {
             initialPhase: 'execution',
             nextPhaseAfterNativeSearch: null,

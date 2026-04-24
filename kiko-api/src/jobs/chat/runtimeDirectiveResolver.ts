@@ -67,6 +67,19 @@ export function resolveRuntimeDirectives(params: {
         });
     }
 
+    if (isSocialAgentContext(toolContext)) {
+        directives.push({
+            kind: 'social_agent_single_turn_execution',
+            message:
+                'SOCIAL_AGENT_SINGLE_TURN_EXECUTION: This is an X/Farcaster @mention agent turn. If the latest user mention explicitly asks for an executable mutation and all required fields/readiness checks are satisfied, do not ask for a second chat confirmation; call the executable tool directly in this turn. If any required field, spend amount, token image, market id, chain, wallet/admin, or readiness check is missing or ambiguous, ask one precise question or run the smallest preparation/readiness tool instead.',
+            metadata: {
+                pageContext: toolContext.pageContext || null,
+                currentPage: toolContext.currentPage || null,
+                platform: toolContext.socialInput?.platform || null,
+            },
+        });
+    }
+
     const confirmation = params.confirmationState;
     if (confirmation?.kind === 'swap_confirmation' && confirmation.swap) {
         const swap = confirmation.swap;
@@ -137,6 +150,18 @@ function isFarcasterAgentContext(toolContext: Record<string, any>): boolean {
     const pageContext = String(toolContext?.pageContext || '').toLowerCase();
     const currentPage = String(toolContext?.currentPage || '').toLowerCase();
     return pageContext === 'farcaster_agent' || currentPage === 'farcaster';
+}
+
+function isSocialAgentContext(toolContext: Record<string, any>): boolean {
+    const pageContext = String(toolContext?.pageContext || '').toLowerCase();
+    const currentPage = String(toolContext?.currentPage || '').toLowerCase();
+    const socialPlatform = String(toolContext?.socialInput?.platform || '').toLowerCase();
+    return pageContext === 'farcaster_agent'
+        || pageContext === 'x_agent'
+        || currentPage === 'farcaster'
+        || currentPage === 'x'
+        || socialPlatform === 'farcaster'
+        || socialPlatform === 'x';
 }
 
 function resolveChainName(chainId: number): string | undefined {

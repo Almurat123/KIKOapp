@@ -17,6 +17,8 @@ function buildOrder(state: CopytradeOrderAggregate['lifecycleState']): Copytrade
   const now = new Date('2026-03-05T00:00:00.000Z');
   return {
     id: 'order-1',
+    requestKey: '0123456789abcdef0123456789abcdef',
+    requestPayloadHash: 'payload-hash',
     chainId: 8453,
     txHash: '0xsource',
     targetWallet: '0xTargetWallet',

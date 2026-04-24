@@ -1405,6 +1405,7 @@ export async function processSingleUserBuy(params: {
                         allowFallbackEntryDeviationBypass: false,
                         pendingPositionId,
                         nativeBalanceEvidence,
+                        requestKey: canonicalOrder?.requestKey,
                         refreshTokenInfoForRetry: async () => tokenInfoCache
                             ? await getTokenInfoOnce(tokenInfoCache, tokenToBuy, chainId, {
                                 verbose: false,

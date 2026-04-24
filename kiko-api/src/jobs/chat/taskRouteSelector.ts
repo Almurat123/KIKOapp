@@ -211,7 +211,7 @@ function buildRouteSelectionMessages(snapshot: ChatContextSnapshot): GenerationM
                 'If the user wants buy/sell/swap execution, owner=swap. Use facet=cross_chain when needed.',
                 'If the user wants copy-trade configuration, owner=copy_trade.',
                 'If the user wants a Polymarket answer or order, owner=polymarket.',
-                'If the user wants a generic token launch, owner=token_deploy. Runtime provider mapping is chain-based: Base -> Clanker, BNB Chain / BSC -> Four.meme.',
+                'If the user wants a generic token launch, owner=token_deploy. Runtime provider mapping is chain-based: Base -> Clanker, BNB Chain / BSC -> Four.meme. For explicit X/Farcaster @mention agent launch requests, use phase=execute so the task can complete in one social reply when required fields are present.',
                 'Use owner=general_answer only for ordinary direct answers that do not need a specialist owner.',
                 'Use phase=answer | analyze | execute | confirm.',
                 'answer = ordinary response or capability answer; analyze = research/investigation/evidence gathering; execute = do the task now; confirm = user is confirming a prepared action.',

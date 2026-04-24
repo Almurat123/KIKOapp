@@ -5,12 +5,18 @@ import type { CopytradeOrderAggregate } from '../contracts/aggregate.js';
 import type { CopytradeReasonCode } from '../contracts/lifecycle.js';
 import type { CopytradeMode } from '../contracts/modePolicy.js';
 import type { CopytradeIngressSignal, CopytradeOrderRepositoryPort } from '../contracts/ports.js';
+import {
+  buildCopytradeRequestKey,
+  buildCopytradeRequestPayloadHash,
+} from '../orders/requestKey.js';
 import { normalizeToken, normalizeTxHash, normalizeWallet } from '../runtime/chainIdentityNormalizer.js';
 
 function toAggregate(row: any): CopytradeOrderAggregate {
   return {
     id: row.id,
     canonicalKey: row.canonicalKey || null,
+    requestKey: row.requestKey,
+    requestPayloadHash: row.requestPayloadHash || null,
     chainId: row.chainId,
     txHash: row.txHash,
     targetWallet: row.targetWallet,
@@ -62,7 +68,13 @@ export class PrismaCopytradeOrderRepository implements CopytradeOrderRepositoryP
   async claimOrLoad(
     signal: CopytradeIngressSignal,
     mode: CopytradeMode,
-  ): Promise<{ order: CopytradeOrderAggregate; claimed: boolean }> {
+  ): Promise<{
+    order: CopytradeOrderAggregate;
+    claimed: boolean;
+    requestKeyMismatch?: boolean;
+    expectedPayloadHash?: string;
+    actualPayloadHash?: string | null;
+  }> {
     const txHash = normalizeTxHash(signal.chainId, signal.swap.txHash);
     const targetWallet = normalizeWallet(signal.chainId, signal.targetWallet);
     const activeConfig = await lookupActiveConfig(targetWallet, signal.chainId);
@@ -74,10 +86,33 @@ export class PrismaCopytradeOrderRepository implements CopytradeOrderRepositoryP
       activeConfig.configId || '',
       'unknown',
     ].join(':');
+    const requestKey = buildCopytradeRequestKey({
+      chainId: signal.chainId,
+      txHash,
+      targetWallet,
+      userId: activeConfig.userId,
+      configId: activeConfig.configId,
+    });
+    const requestPayloadHash = buildCopytradeRequestPayloadHash({
+      chainId: signal.chainId,
+      txHash,
+      targetWallet,
+      userId: activeConfig.userId,
+      configId: activeConfig.configId,
+      mode,
+      sourceTxFrom: signal.sourceTxFrom,
+      tokenIn: signal.swap.tokenIn,
+      tokenOut: signal.swap.tokenOut,
+      amountIn: signal.swap.amountIn,
+      amountOut: signal.swap.amountOut,
+      router: signal.swap.router,
+      dexName: signal.swap.dexName,
+    });
 
     const existing = await prisma.copytradeOrder.findFirst({
       where: {
         OR: [
+          { requestKey },
           { canonicalKey },
           {
             chainId: signal.chainId,
@@ -92,7 +127,15 @@ export class PrismaCopytradeOrderRepository implements CopytradeOrderRepositoryP
     });
 
     if (existing) {
-      return { order: toAggregate(existing), claimed: false };
+      const existingPayloadHash = String(existing.requestPayloadHash || '').trim();
+      const requestKeyMismatch = Boolean(existingPayloadHash && existingPayloadHash !== requestPayloadHash);
+      return {
+        order: toAggregate(existing),
+        claimed: false,
+        requestKeyMismatch,
+        expectedPayloadHash: requestPayloadHash,
+        actualPayloadHash: existingPayloadHash || null,
+      };
     }
 
     try {
@@ -100,6 +143,8 @@ export class PrismaCopytradeOrderRepository implements CopytradeOrderRepositoryP
         data: {
           id: crypto.randomUUID(),
           canonicalKey,
+          requestKey,
+          requestPayloadHash,
           chainId: signal.chainId,
           txHash,
           targetWallet,
@@ -121,6 +166,8 @@ export class PrismaCopytradeOrderRepository implements CopytradeOrderRepositoryP
             amountOut: String(signal.swap.amountOut || '0'),
             routeHopCount: signal.swap.routeHopCount || signal.swap.routeHops?.length || 0,
             ctIssueHintId: signal.ctIssueHintId || null,
+            requestKey,
+            requestPayloadHash,
           } as Prisma.InputJsonValue,
         },
       });
@@ -134,6 +181,7 @@ export class PrismaCopytradeOrderRepository implements CopytradeOrderRepositoryP
         const raced = await prisma.copytradeOrder.findFirst({
           where: {
             OR: [
+              { requestKey },
               { canonicalKey },
               {
                 chainId: signal.chainId,
@@ -146,7 +194,16 @@ export class PrismaCopytradeOrderRepository implements CopytradeOrderRepositoryP
             ],
           },
         });
-        if (raced) return { order: toAggregate(raced), claimed: false };
+        if (raced) {
+          const existingPayloadHash = String(raced.requestPayloadHash || '').trim();
+          return {
+            order: toAggregate(raced),
+            claimed: false,
+            requestKeyMismatch: Boolean(existingPayloadHash && existingPayloadHash !== requestPayloadHash),
+            expectedPayloadHash: requestPayloadHash,
+            actualPayloadHash: existingPayloadHash || null,
+          };
+        }
       }
       throw error;
     }

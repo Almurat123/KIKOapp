@@ -224,6 +224,10 @@ export type { NativeBalanceEvidence };
  * Unified swap request accepted by MainSwapService
  */
 export interface MainSwapRequest {
+  // Idempotency key for one logical operation. Copytrade treats this as an
+  // order lifecycle condition and reuses it across retries.
+  requestKey?: string;
+
   // Identity
   userId: string;
   walletAddress: string;
@@ -310,6 +314,7 @@ export interface MainSwapRequest {
     nativeBalanceEvidence?: NativeBalanceEvidence;
     copytradePendingPositionId?: string;
     copytradeUserId?: string;
+    copytradeRequestKey?: string;
   };
   executionPlan?: ExecutionPlanV1;
   runtimeContext?: OrderRuntimeContext;
@@ -650,6 +655,16 @@ export class MainSwapService {
     tokenOut: string,
     amountOverride?: string
   ): string {
+    const requestKey = request.requestKey || request.executionContext?.copytradeRequestKey;
+    if (request.mode === 'copytrade' && requestKey) {
+      return [
+        'copytrade',
+        requestKey,
+        request.chainId,
+        tokenIn.toLowerCase(),
+        tokenOut.toLowerCase()
+      ].join(':');
+    }
     const amount = amountOverride ?? request.amountIn;
     return [
       request.userId,
@@ -742,6 +757,7 @@ export class MainSwapService {
       // 1. INPUT VALIDATION
       this.validateRequest(request);
       const runtimeContext = request.runtimeContext || createOrderRuntimeContext({
+        requestKey: request.requestKey || request.executionContext?.copytradeRequestKey,
         userId: request.userId,
         chainId: request.chainId,
         walletAddress: request.walletAddress,
@@ -760,6 +776,7 @@ export class MainSwapService {
       });
       request.runtimeContext = runtimeContext;
       setOrderMetadata(runtimeContext, {
+        requestKey: request.requestKey || request.executionContext?.copytradeRequestKey || null,
         slippageBps: request.slippageBps ?? null,
         mode: request.mode,
         copytradePendingPositionId: request.executionContext?.copytradePendingPositionId || null,

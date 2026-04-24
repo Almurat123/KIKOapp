@@ -1,7 +1,7 @@
 {
     "id": "fourmeme_deploy_token",
     "name": "Deploy Token via Four.meme",
-    "description": "Deploy BNB Chain meme tokens through Four.meme with image upload, category metadata, and explicit confirmation before the real launch.",
+    "description": "Deploy BNB Chain meme tokens through Four.meme with image upload, category metadata, web-chat confirmation, and single-turn X/Farcaster @mention execution when the launch request is explicit.",
     "intents": [
         "TRADING"
     ],

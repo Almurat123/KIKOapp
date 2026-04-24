@@ -18,8 +18,9 @@ Four.meme.
 - `bnbAmount` is the user's initial BNB used in the launch transaction to buy/fund the token at creation time. It is paid from the user's wallet, separate from normal gas. Do not call it an optional avatar fee, do not treat it as the logo, and do not invent or default it.
 - Treat `description` and `category` as defaultable. If the user does not care, default category to `Meme`.
 - `launchTimeFromNow` is a delay in seconds from now. Omit it or use `0` when the user wants to launch immediately.
-- Prefer a dry-run first. Call `deploy_fourmeme_token` with `confirmDeploy=false` to show the exact launch payload before any real launch.
-- Only call `deploy_fourmeme_token` with `confirmDeploy=true` after the user explicitly confirms the launch details.
+- In ordinary web chat, prefer a dry-run first. Call `deploy_fourmeme_token` with `confirmDeploy=false` to show the exact launch payload before any real launch, then call with `confirmDeploy=true` only after the user confirms.
+- In X/Farcaster @mention agent mode, the mention itself is the user's in-channel execution request. If the latest mention explicitly asks to launch/deploy and all hard launch requirements are present, skip the dry-run confirmation turn and call `deploy_fourmeme_token` with `confirmDeploy=true` in the same turn.
+- The social-agent exception removes only the extra confirmation reply. It does not allow guessing `image`, `bnbAmount`, chain, or other user spend fields.
 - On the confirmation turn, you own the tool call and its arguments. Use the pending launch payload as context, but do not assume the backend will replay or repair it for you.
 - If the current turn includes uploaded images, inspect them and choose the image that best matches the user's launch intent for `image`. Do not let the backend auto-pick the image for you.
 - If multiple images could fit and the user's intent is still ambiguous, ask one precise clarification instead of guessing.

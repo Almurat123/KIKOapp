@@ -1514,11 +1514,15 @@ function updateChatContextRuntime(
     };
 }
 
-function resolveExecutionGateContext(
+export function resolveExecutionGateContext(
     snapshot: ChatContextSnapshot | null | undefined,
 ): ExecutionGateContext | null {
     const confirmation = snapshot?.confirmationState || null;
-    if (!confirmation?.kind) return null;
+    if (!confirmation?.kind) {
+        return isSocialAgentSingleTurnExecutionAuthorized(snapshot)
+            ? { phase: 'execute' }
+            : null;
+    }
 
     const conversationActionState = snapshot?.conversationActionState || null;
     const phase: ExecutionGateContext['phase'] = conversationActionState?.canExecute
@@ -1533,6 +1537,53 @@ function resolveExecutionGateContext(
     return confirmationToken
         ? { phase, confirmationToken }
         : { phase };
+}
+
+function isSocialAgentSingleTurnExecutionAuthorized(
+    snapshot: ChatContextSnapshot | null | undefined,
+): boolean {
+    if (!snapshot || !isSocialAgentSurface(snapshot)) return false;
+    if (snapshot.taskRoute?.needsClarification || snapshot.normalizedIntent?.needsClarification) return false;
+
+    const route = snapshot.taskRoute || null;
+    if (route && route.phase === 'execute' && isMutationTaskRouteOwner(route.owner)) return true;
+
+    const intent = snapshot.normalizedIntent || null;
+    if (!intent || intent.taskMode !== 'execute') return false;
+    return isMutationCanonicalIntent(intent.intent, intent.domain);
+}
+
+function isSocialAgentSurface(snapshot: ChatContextSnapshot): boolean {
+    const runtime = snapshot.runtime || {};
+    const pageContext = String(
+        runtime.pageContext || runtime.toolContext?.pageContext || '',
+    ).toLowerCase();
+    const currentPage = String(
+        runtime.currentPage || runtime.toolContext?.currentPage || '',
+    ).toLowerCase();
+    const socialPlatform = String(runtime.socialInput?.platform || '').toLowerCase();
+    return pageContext === 'farcaster_agent'
+        || pageContext === 'x_agent'
+        || currentPage === 'farcaster'
+        || currentPage === 'x'
+        || socialPlatform === 'farcaster'
+        || socialPlatform === 'x';
+}
+
+function isMutationTaskRouteOwner(owner: string | undefined): boolean {
+    return owner === 'token_deploy'
+        || owner === 'swap'
+        || owner === 'copy_trade'
+        || owner === 'polymarket';
+}
+
+function isMutationCanonicalIntent(intent: string | undefined, domain: string | undefined): boolean {
+    return intent === 'clanker_deploy'
+        || intent === 'swap'
+        || intent === 'cross_chain_swap'
+        || intent === 'copy_trade'
+        || intent === 'polymarket_order'
+        || (intent === 'token_alerts' && domain === 'token');
 }
 
 function buildRoundToolExecutionPolicy(

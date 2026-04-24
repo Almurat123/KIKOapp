@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 
 import prisma from '../../../db/prisma.js';
 import { normalizeToken, normalizeTxHash, normalizeWallet } from '../runtime/chainIdentityNormalizer.js';
+import { buildCopytradeRequestKey, buildCopytradeRequestPayloadHash } from './requestKey.js';
 
 type CanonicalDirection = 'buy' | 'sell' | 'token_swap' | 'unknown';
 
@@ -19,6 +20,8 @@ export interface CanonicalOrderIdentity {
 export interface CanonicalOrderSnapshot {
   id: string;
   canonicalKey: string | null;
+  requestKey: string;
+  requestPayloadHash: string | null;
   lifecycleState: string;
   lastReasonCode: string;
   chainId: number;
@@ -37,6 +40,8 @@ function toSnapshot(row: any): CanonicalOrderSnapshot {
   return {
     id: row.id,
     canonicalKey: row.canonicalKey || null,
+    requestKey: row.requestKey,
+    requestPayloadHash: row.requestPayloadHash || null,
     lifecycleState: row.lifecycleState,
     lastReasonCode: row.lastReasonCode,
     chainId: row.chainId,
@@ -101,9 +106,28 @@ export async function claimOrCreateCanonicalOrder(params: CanonicalOrderIdentity
   const tokenAddress = normalizeToken(chainId, params.tokenAddress);
   const tokenIn = normalizeToken(chainId, params.tokenIn || (params.direction === 'sell' ? tokenAddress : '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'));
   const tokenOut = normalizeToken(chainId, params.tokenOut || (params.direction === 'buy' ? tokenAddress : '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'));
+  const requestKey = buildCopytradeRequestKey({
+    chainId,
+    txHash,
+    targetWallet,
+    userId: params.userId,
+    configId: params.configId,
+  });
+  const requestPayloadHash = buildCopytradeRequestPayloadHash({
+    chainId,
+    txHash,
+    targetWallet,
+    userId: params.userId,
+    configId: params.configId,
+    mode: params.mode || 'normal',
+    tokenIn,
+    tokenOut,
+  });
 
   const metadata = {
     canonicalKey,
+    requestKey,
+    requestPayloadHash,
     leaderTxHash: txHash,
     targetWallet,
     followerWallet: params.followerWallet ? normalizeWallet(chainId, params.followerWallet) : null,
@@ -117,6 +141,8 @@ export async function claimOrCreateCanonicalOrder(params: CanonicalOrderIdentity
       data: {
         id: crypto.randomUUID(),
         canonicalKey,
+        requestKey,
+        requestPayloadHash,
         chainId,
         txHash,
         targetWallet,
@@ -146,8 +172,13 @@ export async function claimOrCreateCanonicalOrder(params: CanonicalOrderIdentity
       error instanceof Prisma.PrismaClientKnownRequestError
       && error.code === 'P2002'
     ) {
-      const raced = await prisma.copytradeOrder.findUnique({
-        where: { canonicalKey },
+      const raced = await prisma.copytradeOrder.findFirst({
+        where: {
+          OR: [
+            { canonicalKey },
+            { requestKey },
+          ],
+        },
       });
       if (raced) return toSnapshot(raced);
     }

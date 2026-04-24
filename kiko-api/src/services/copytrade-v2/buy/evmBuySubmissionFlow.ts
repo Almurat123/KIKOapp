@@ -11,6 +11,7 @@ import { shouldAbortCopytradeBuyRetry } from './copytradeBuyRetryGuard.js';
 import { resolveTxFinalState } from '../../order-runtime/adjudicator/finalState.js';
 import { evaluateCopytradeBuyAdmission } from './buyAdmissionGuard.js';
 import { evaluateCopytradeBuySendState } from './copytradeBuySendState.js';
+import { buildCopytradeRequestKey } from '../orders/requestKey.js';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -83,6 +84,7 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
   allowFallbackEntryDeviationBypass?: boolean;
   pendingPositionId?: string | null;
   nativeBalanceEvidence?: NativeBalanceEvidence;
+  requestKey?: string;
 }, deps?: {
   buildCopytradeBuyPlannedArtifact?: typeof buildCopytradeBuyPlannedArtifact;
   executeSwapViaPort?: typeof executeSwapViaPort;
@@ -106,6 +108,13 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
     swap: params.swap,
   });
   const leaderBuyTxHash = String(plannedArtifact.executionContextBase?.sourceTxHash || '').trim().toLowerCase() || null;
+  const requestKey = params.requestKey || buildCopytradeRequestKey({
+    chainId: params.chainId,
+    txHash: leaderBuyTxHash || params.swap?.txHash || `${params.configId}:${params.tokenToBuy}`,
+    targetWallet: params.configId,
+    userId: params.userId,
+    configId: params.configId,
+  });
 
   // CONTEXT MEMORY
   // Updated: 2026-04-13
@@ -138,6 +147,7 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
     const amountIn = args.amount.toFixed(18);
     const executionPlan = await plannedArtifact.getExecutionPlan(amountIn);
     return {
+      requestKey,
       userId: params.privyUserId,
       walletAddress: params.walletAddress,
       tokenIn: 'ETH',
@@ -150,6 +160,7 @@ export async function executeEvmCopytradeBuySubmissionFlow(params: {
       directSwapHint: params.directSwapHint,
       executionContext: {
         ...plannedArtifact.executionContextBase,
+        copytradeRequestKey: requestKey,
         executionStep: args.executionStep,
         copytradeFallbackPricingGuard: params.turboMode ? {
           stage: '0x_fallback',

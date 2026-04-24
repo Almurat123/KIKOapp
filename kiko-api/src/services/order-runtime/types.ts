@@ -73,6 +73,7 @@ export interface TxAttempt {
 
 export interface OrderRuntimeContext {
   orderId: string;
+  requestKey?: string;
   chainId: number;
   userId: string;
   walletAddress: string;
@@ -93,6 +94,7 @@ export interface OrderRuntimeContext {
 
 export interface OrderRuntimeSnapshot {
   orderId: string;
+  requestKey?: string;
   chainId: number;
   userId: string;
   walletAddress: string;

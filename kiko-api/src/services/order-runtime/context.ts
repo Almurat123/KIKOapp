@@ -13,6 +13,7 @@ import type {
 } from './types.js';
 
 function buildOrderId(seed: {
+  requestKey?: string;
   userId: string;
   chainId: number;
   walletAddress: string;
@@ -20,6 +21,10 @@ function buildOrderId(seed: {
   tokenIn?: string;
   tokenOut?: string;
 }): string {
+  const requestKey = String(seed.requestKey || '').trim().toLowerCase();
+  if (/^[a-f0-9]{32}$/.test(requestKey)) {
+    return `req:${requestKey}`;
+  }
   const parts = [
     seed.userId.slice(0, 12),
     String(seed.chainId),
@@ -33,6 +38,7 @@ function buildOrderId(seed: {
 }
 
 export function createOrderRuntimeContext(seed: {
+  requestKey?: string;
   userId: string;
   chainId: number;
   walletAddress: string;
@@ -45,6 +51,7 @@ export function createOrderRuntimeContext(seed: {
 }): OrderRuntimeContext {
   return {
     orderId: buildOrderId(seed),
+    requestKey: seed.requestKey,
     chainId: seed.chainId,
     userId: seed.userId,
     walletAddress: seed.walletAddress,
@@ -62,6 +69,7 @@ export function createOrderRuntimeContext(seed: {
     attempts: [],
     fallbackUsed: false,
     metadata: {
+      requestKey: seed.requestKey || null,
       tokenIn: seed.tokenIn || null,
       tokenOut: seed.tokenOut || null,
       ...(seed.metadata || {})
@@ -221,6 +229,7 @@ export function snapshotOrderRuntime(ctx: OrderRuntimeContext): OrderRuntimeSnap
     : null;
   return {
     orderId: ctx.orderId,
+    requestKey: ctx.requestKey,
     chainId: ctx.chainId,
     userId: ctx.userId,
     walletAddress: ctx.walletAddress,

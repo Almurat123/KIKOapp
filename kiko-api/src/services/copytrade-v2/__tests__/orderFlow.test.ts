@@ -24,6 +24,8 @@ class InMemoryOrderRepo implements CopytradeOrderRepositoryPort {
     const now = new Date();
     const created: CopytradeOrderAggregate = {
       id: `order-${this.store.size + 1}`,
+      requestKey: `request-key-${this.store.size + 1}`,
+      requestPayloadHash: `payload-hash-${this.store.size + 1}`,
       chainId: signal.chainId,
       txHash: String(signal.swap.txHash).toLowerCase(),
       targetWallet: String(signal.targetWallet).toLowerCase(),

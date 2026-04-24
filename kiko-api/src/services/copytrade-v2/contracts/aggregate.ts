@@ -14,6 +14,8 @@ export interface CopytradeOrderIdentity {
 export interface CopytradeOrderAggregate extends CopytradeOrderIdentity {
   id: string;
   canonicalKey?: string | null;
+  requestKey: string;
+  requestPayloadHash?: string | null;
   mode: CopytradeMode;
   lifecycleState: CopytradeLifecycleState;
   lastReasonCode: CopytradeReasonCode;
