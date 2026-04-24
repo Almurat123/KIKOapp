@@ -26,16 +26,16 @@ function resolveXSourceTweetUrl(context?: ToolContext): string | undefined {
 export const DeployFourMemeTokenTool: Tool = {
     definition: {
         name: 'deploy_fourmeme_token',
-        description: 'Prepare or execute a Four.meme token deployment on BNB Chain only. Use this for BSC/BNB Chain token launches, not for Base. Four.meme requires an image and an initial BNB amount. Prefer a dry-run first and only set confirmDeploy=true after the user explicitly confirms the launch.',
+        description: 'Prepare or execute a Four.meme token deployment on BNB Chain only. Use this for BSC/BNB Chain token launches, not for Base. Four.meme requires a token image and a user-chosen initial BNB launch amount. Prefer a dry-run first and only set confirmDeploy=true after the user explicitly confirms the launch.',
         parameters: {
             type: 'object',
             properties: {
                 name: { type: 'string', description: 'Human-readable token name.' },
                 symbol: { type: 'string', description: 'Token symbol / short name.' },
                 description: { type: 'string', description: 'Token description. If omitted, KiKo uses a minimal fallback description.' },
-                image: { type: 'string', description: 'Token image URL or IPFS URI. Required for Four.meme launches.' },
+                image: { type: 'string', description: 'Required token logo/art image URL or IPFS URI. If the current user turn includes a clear matching upload/social-post image, use that image; otherwise ask for an image URL/upload.' },
                 chainId: { type: 'number', description: 'Deployment chain ID. Must be 56 for BNB Chain / BSC.' },
-                bnbAmount: { type: 'number', description: 'BNB amount used for the initial Four.meme launch purchase / presale funding.' },
+                bnbAmount: { type: 'number', description: 'Required initial BNB paid from the user wallet in the launch transaction to buy/fund the token at creation time. This is separate from gas and must not be invented or defaulted.' },
                 launchTimeFromNow: { type: 'number', description: 'Launch delay in seconds from now. Omit or use 0 to launch immediately.' },
                 category: {
                     type: 'string',
