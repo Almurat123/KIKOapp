@@ -14,7 +14,7 @@ fi
 # 创建日志目录
 mkdir -p logs
 
-# 启动 Python 统一服务 (Grok + Moderation + RAG)
+# 启动 Python 统一服务 (Grok + Moderation)
 echo "🐍 启动 Python 统一服务 (端口 8000)..."
 cd kiko-python
 source ../.venv/bin/activate 2>/dev/null || source ../venv/bin/activate 2>/dev/null || {
@@ -73,7 +73,6 @@ echo "  - API:            http://localhost:3001"
 echo "  - Python 服务:    http://localhost:8000"
 echo "    - Grok:         http://localhost:8000/grok"
 echo "    - Moderation:   http://localhost:8000/moderation"
-echo "    - RAG:          http://localhost:8000/rag"
 echo ""
 echo "📝 查看日志："
 echo "  tail -f logs/python.log"

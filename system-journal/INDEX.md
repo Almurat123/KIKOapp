@@ -83,6 +83,7 @@ owner boundaries, and major fixes.
 - [Fix Log: 2026-04-22 Generated Image Aura Loading Themes](./fix-log/2026-04-22-generated-image-aura-loading-themes.md)
 - [Fix Log: 2026-04-24 Low Cost Generated Image Models](./fix-log/2026-04-24-low-cost-generated-image-models.md)
 - [Fix Log: 2026-04-24 Generated Image Env Boundary Cleanup](./fix-log/2026-04-24-generated-image-env-boundary-cleanup.md)
+- [Fix Log: 2026-04-24 RAG Service Removal](./fix-log/2026-04-24-rag-service-removal.md)
 - [Fix Log: 2026-04-24 Chat Composer Mobile Selector Spacing](./fix-log/2026-04-24-chat-composer-mobile-selector-spacing.md)
 - [Fix Log: 2026-04-19 Farcaster Generated Image Reply And Watermark Removal](./fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md)
 - [Fix Log: 2026-04-20 Farcaster Generated Image English Media Reply](./fix-log/2026-04-20-farcaster-generated-image-english-media-reply.md)

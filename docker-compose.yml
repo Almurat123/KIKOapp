@@ -64,23 +64,6 @@ services:
       retries: 3
     restart: unless-stopped
 
-  # RAG Service (Python FastAPI)
-  rag-service:
-    build:
-      context: ./rag-service
-      dockerfile: Dockerfile
-    container_name: kiko-rag
-    environment:
-      - PORT=8002
-    ports:
-      - "127.0.0.1:8002:8002"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    restart: unless-stopped
-
   # Main API (Node.js/TypeScript)
   api:
     build:
@@ -99,7 +82,6 @@ services:
       - REDIS_PORT=6379
       - GROK_SERVICE_URL=http://grok-service:8001
       - MODERATION_SERVICE_URL=http://moderation-service:8003
-      - RAG_SERVICE_URL=http://rag-service:8002
       # API keys are loaded from ./kiko-api/.env via env_file above.
     ports:
       - "127.0.0.1:3001:3001"
@@ -111,8 +93,6 @@ services:
       grok-service:
         condition: service_healthy
       moderation-service:
-        condition: service_healthy
-      rag-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/health"]

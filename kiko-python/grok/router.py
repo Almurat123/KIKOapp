@@ -76,7 +76,6 @@ from grok.tool_events import build_stream_chunk_id, build_tool_status_chunk, sum
 from grok.tool_policy import resolve_requested_tool_policy
 from grok.tool_scheduler import PlannedToolCall, execute_planned_custom_tools
 from grok.message_content import (
-    append_text_content,
     extract_image_urls,
     extract_text_content,
     messages_have_image_content,
@@ -84,13 +83,6 @@ from grok.message_content import (
 
 # Load environment variables
 load_dotenv()
-
-kb = None
-
-
-def rag_enabled() -> bool:
-    return os.getenv("ENABLE_RAG_SERVICE", "false").strip().lower() in {"1", "true", "yes", "on"}
-
 
 ALLOW_LEGACY_TOOL_FALLBACK = os.getenv("GROK_ALLOW_LEGACY_TOOL_FALLBACK", "false").strip().lower() in {"1", "true", "yes", "on"}
 ALLOW_PYTHON_CUSTOM_TOOLS_FALLBACK = os.getenv("GROK_ALLOW_PYTHON_CUSTOM_TOOLS_FALLBACK", "false").strip().lower() in {"1", "true", "yes", "on"}
@@ -163,27 +155,6 @@ def merge_citations_unique(collected: List[Any], incoming: List[Any]) -> List[An
         merged.append(cite)
     return merged
 
-
-def get_kb():
-    """
-    Lazy-load the RAG KnowledgeBase when RAG is explicitly enabled.
-    IMPORTANT: We must not import `rag.vectorstore` at module import time, otherwise the whole Grok service
-    fails to mount when optional RAG dependencies (e.g. `langchain_chroma`) are not installed.
-    """
-    if not rag_enabled():
-        return None
-    global kb
-    if kb is not None:
-        return kb
-    try:
-        from rag.vectorstore import KnowledgeBase  # type: ignore
-        kb = KnowledgeBase()
-        return kb
-    except Exception as e:
-        # Missing optional deps or missing OPENAI_API_KEY should not kill Grok chat.
-        print(f"[RAG] Disabled (KnowledgeBase init failed): {e}")
-        kb = None
-        return None
 
 app = FastAPI(title="Grok API Service", version="1.0.0")
 
@@ -1589,49 +1560,6 @@ async def health_check():
     return {"status": "healthy", "service": "grok-api"}
 
 
-async def fetch_rag_context(query: str) -> str:
-    """
-    Fetch context from the local rag-service using internal retrieval logic.
-    """
-    if not rag_enabled():
-        return ""
-    informational_regex = r"(how|what|why|explain|tell me|介绍|是什么|怎么|如何|原理)"
-    
-    import re
-    if not re.search(informational_regex, query, re.IGNORECASE):
-        return ""
-        
-    print(f"[RAG] 🔍 Informational query detected: '{query[:50]}...'")
-    try:
-        local_kb = get_kb()
-        if not local_kb:
-            return ""
-
-        # Direct internal call to KnowledgeBase
-        results = local_kb.query_with_score(query, k=4)
-        
-        if results:
-            # Format results into a single context string
-            context_parts = []
-            for doc, score in results:
-                # Normalize score (Chroma returns distance, smaller is better)
-                context_parts.append(doc.page_content)
-                
-            context = "\n\n".join(context_parts)
-            if context:
-                print(f"[RAG] ✅ Found {len(context)} chars of context")
-                return context
-            else:
-                print("[RAG] ℹ️ No relevant knowledge found")
-        else:
-            print("[RAG] ℹ️ No results from vector store")
-            
-    except Exception as e:
-        print(f"[RAG] ⚠️ Error retrieving from KnowledgeBase: {e}")
-    
-    return ""
-
-
 @app.post("/v1/chat/completions", dependencies=[Depends(require_auth)])
 async def chat_completions(
     request: ChatRequest, 
@@ -1656,25 +1584,6 @@ async def chat_completions(
 
         # Normalize model name to xai-sdk compatible format
         normalized_model = normalize_model_name(request.model)
-        
-        # Optional RAG integration: disabled unless ENABLE_RAG_SERVICE is turned on.
-        # Extract raw user query from the USER_QUERY block when available to avoid context pollution.
-        last_user_msg = next((message_text_content(m) for m in reversed(request.messages) if m.role == "user"), "")
-        raw_user_query = last_user_msg
-        match = re.search(r"USER_QUERY_START\\n([\\s\\S]*?)\\nUSER_QUERY_END", last_user_msg)
-        if match:
-            raw_user_query = match.group(1).strip()
-        if raw_user_query:
-            rag_context = await fetch_rag_context(raw_user_query)
-            if rag_context:
-                # Inject into the last user message content (consistent with Node.js approach)
-                for m in reversed(request.messages):
-                    if m.role == "user":
-                        m.content = append_text_content(
-                            m.content,
-                            f"\n\n[RELEVANT DOCUMENTATION CONTEXT]:\n{rag_context}\n\n(Use the above context to answer if relevant/needed)",
-                        )
-                        break
         
         # Add tools if enabled
         # By default, expose native xAI SDK tools in addition to Node-provided client tools.

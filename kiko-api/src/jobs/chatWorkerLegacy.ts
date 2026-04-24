@@ -2160,9 +2160,6 @@ Do NOT estimate or guess USD values.`;
             toolCount: toolDefinitions.length,
             messagePreview: lastUserMessage.slice(0, 50),
         });
-        logger.debug(LogCode.AI_API_CALL, 'RAG skipped (disabled in chat worker path)', {
-            taskId: task.id,
-        });
 
         // Declare toolCalls outside main loop so it can be accessed in finally/cleanup
         let toolCalls: any[] = [];

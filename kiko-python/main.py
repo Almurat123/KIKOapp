@@ -1,6 +1,6 @@
 """
 KiKo Python Services - Unified FastAPI Application
-Combines: grok-service and moderation-service.
+Combines: grok-service, generation, orchestration, tool runtime, and moderation-service.
 Optional sub-services are mounted only when explicitly enabled.
 """
 import os
@@ -41,10 +41,6 @@ app = FastAPI(
     description="Unified API for Grok AI and Content Moderation",
     version="1.0.0"
 )
-
-
-def _rag_enabled() -> bool:
-    return os.getenv("ENABLE_RAG_SERVICE", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 # CORS middleware
 app.add_middleware(
@@ -125,17 +121,6 @@ try:
     logger.info("✅ Moderation service mounted at /moderation")
 except Exception as e:
     logger.error(f"❌ Failed to mount Moderation service: {e}")
-
-# RAG Service (disabled by default)
-if _rag_enabled():
-    try:
-        from rag.router import app as rag_app
-        app.mount("/rag", rag_app)
-        logger.info("✅ RAG service mounted at /rag")
-    except Exception as e:
-        logger.error(f"❌ Failed to mount RAG service: {e}")
-else:
-    logger.info("ℹ️ RAG service disabled")
 
 # Root compatibility path, so /v2/chat/* also works on single-port deploy.
 if chat_v2_ensure_started and chat_v2_ensure_stopped:

@@ -10,18 +10,9 @@ httpx==0.28.1
 xai-sdk==1.5.0
 grpcio==1.76.0
 python-jose==3.5.0
-langchain-core==1.2.5
-langchain-community==0.4.1
 
 # Moderation Service (Lightweight - OpenAI API)
 openai==2.8.0
-
-# RAG Service (Lightweight - OpenAI Embeddings)
-langchain==1.2.0
-langchain-openai==1.1.6
-langchain-chroma==1.1.0
-beautifulsoup4==4.14.3
-tiktoken==0.12.0
 
 # Chat v2 stack
 sqlalchemy==2.0.45
