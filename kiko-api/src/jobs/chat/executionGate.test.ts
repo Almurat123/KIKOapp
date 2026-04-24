@@ -140,7 +140,7 @@ test('deploy_clanker_token dry run does not require execution confirmation', () 
     assert.equal(result.allow, true);
 });
 
-test('deploy_clanker_token real deploy requires an execution confirmation token', () => {
+test('deploy_clanker_token real deploy requires a confirmed execution phase', () => {
     const args = {
         name: 'Demo Token',
         symbol: 'DEMO',
@@ -164,13 +164,12 @@ test('deploy_clanker_token real deploy requires an execution confirmation token'
     assert.equal(result.responsePayload?.confirmation_payload?.action_class, 'TOKEN_DEPLOY_MUTATION');
 });
 
-test('deploy_clanker_token real deploy executes only with the matching confirmation token', () => {
+test('deploy_clanker_token real deploy executes in a model-confirmed execution phase', () => {
     const args = {
         name: 'Demo Token',
         symbol: 'DEMO',
         confirmDeploy: true,
     };
-    const confirmationToken = computeConfirmationToken('deploy_clanker_token', args, 'policy-1');
 
     const result = checkMutationExecutionGate({
         toolName: 'deploy_clanker_token',
@@ -182,7 +181,6 @@ test('deploy_clanker_token real deploy executes only with the matching confirmat
         } as any,
         gate: {
             phase: 'execute',
-            confirmationToken,
         },
     });
 

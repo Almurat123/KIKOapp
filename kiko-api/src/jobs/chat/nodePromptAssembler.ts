@@ -34,9 +34,9 @@
 //         review then moved post-execution hash/order/token URL replies to a
 //         runtime hook instead of spending prompt tokens on every tool answer.
 //         Clanker launch previews now also need to surface their prepared
-//         confirmation payload in WORKING_MEMORY so the model can help verify
-//         the exact deploy payload before the backend flips `confirmDeploy`
-//         during execution. Runtime log review on 2026-04-19 then showed chat
+//         confirmation payload in WORKING_MEMORY so the model can decide
+//         whether and how to carry the confirmed deploy call into the next turn.
+//         Runtime log review on 2026-04-19 then showed chat
 //         route placeholder assistant rows could leak into provider history as
 //         empty assistant messages, causing GPT-5.4-class requests to fail with
 //         HTTP 400 before any visible output streamed. OpenAI-aligned live eval
@@ -351,8 +351,8 @@ const WORKER_STATE_MACHINE_PROMPT = [
   "- For token_analysis: read token_context before claiming token facts; gather on-chain/search evidence only for the exact missing facts the question asks for.",
   "- For market_research: use current time and search evidence; do not answer 'latest', 'today', 'hot', or 'trending' from memory alone.",
   "- For swap_quote: read user_settings, user_context, wallet_state, token_context, then prepare a quote. The user-facing next step is quote confirmation, not execution.",
-  "- For trade_confirmation: read workflow_state; if next_action_state says execute_confirmed_action, execute only the stored bound action. Do not recalculate a different trade.",
-  "- For token_deploy or polymarket execution: reuse prepared selection/deploy state when present; if a deploy preview exists, restate the exact prepared launch payload and ask for explicit confirmation instead of rebuilding it.",
+  "- For trade_confirmation: read workflow_state, compare the user's reply with the pending quote/order, then decide whether to execute, ask one clarification, or report stale/missing context. The model owns the next tool call and its arguments.",
+  "- For token_deploy or polymarket execution: use prepared selection/deploy state as context, not as a backend-bound command. If the user has not explicitly confirmed the launch/order, restate the relevant payload and ask for confirmation.",
   "- For meta_debug: explain the observed failure layer from available runtime evidence. Do not fall back into a generic KiKo capability pitch.",
 ].join("\n");
 
@@ -566,12 +566,12 @@ const CHAT_V2_MODEL_TASK_MENU: Array<{
   {
     mode: "trade_confirmation",
     description:
-      "user confirms a pending quote/order; backend validates quote binding before execution",
+      "user confirms a pending quote/order; model carries the confirmed intent into the next tool call",
     enterWhen:
       "the user says yes/confirm/go ahead after a prepared quote/order",
     mustRead: "workflow_state",
     doneWhen:
-      "stored bound action is executed with receipt/status, or stale/missing binding is reported without recalculating a new trade",
+      "confirmed action is executed with receipt/status, or stale/missing/changed context is reported without pretending execution happened",
   },
   {
     mode: "token_deploy",

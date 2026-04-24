@@ -10,10 +10,9 @@
 //         derives mode progress and scope provenance explicitly. Agent-mode
 //         execution replies now also need durable receipt links for hashes,
 //         orders, deployed tokens, and Polymarket markets. Clanker launch
-//         previews also need to carry the exact prepared deploy payload into
-//         the confirm turn so the model can help confirm the same launch and
-//         the execution handoff can flip `confirmDeploy` only at execution
-//         time.
+//         previews also need to carry the prepared deploy payload into the
+//         confirm turn so the model can decide whether to call the deploy tool
+//         with `confirmDeploy=true`.
 // Goal: centralize worker-visible task, execution, evidence, and next-action
 //       state so prompt assembly and read_workflow_state consume the same object contract.
 // Owns: derived worker state contracts for model-owned orchestration.
@@ -28,7 +27,7 @@
 // - scope provenance is explicit; fresh_request/carry_forward/pending states must say why they were chosen
 // - latest_receipt must preserve concrete user-facing URLs returned by mutation tools
 // - Clanker deploy confirmation state must preserve the prepared launch payload
-//   and only flip `confirmDeploy` on the execute handoff
+//   as model-visible context, not as a backend-replayed command
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-18-chat-work-protocol-refactor.md
 // - Kind: repo doc
@@ -49,8 +48,7 @@
 //           mismatch in the current KiKo thread
 // - Kind: runtime observation
 // - Retrieved: 2026-04-19
-// - Applied To: replaying Clanker deploy previews as confirmable launch state
-//   and replaying them with `confirmDeploy=true` only on the execute handoff
+// - Applied To: surfacing Clanker deploy previews as confirmable launch state
 // - Verification: verified in code and targeted tests
 // See also:
 // - /Users/almurat/KiKo/system-journal/INDEX.md
@@ -596,16 +594,9 @@ function buildExecutionBinding(
 function normalizeOrderExecutionArgs(
   order: TradeConfirmationState["order"] | null | undefined,
 ): Record<string, any> {
-  const args = {
+  return {
     ...((order?.args && typeof order.args === "object") ? order.args : {}),
   };
-  if (isTokenDeployToolName(String(order?.toolName || ""))) {
-    return {
-      ...args,
-      confirmDeploy: true,
-    };
-  }
-  return args;
 }
 
 function resolveOrderConfirmationToken(
@@ -908,9 +899,9 @@ function buildNextActionState(
   }
   if (snapshot.confirmationState?.kind && actionState?.canExecute) {
     return {
-      kind: "execute_confirmed_action",
+      kind: "model_confirmed_execution",
       reason:
-        "The user is on a confirmation turn and the prepared action can be executed if the binding still matches.",
+        "The user is on a confirmation turn; the model should decide whether the pending context is confirmed and then call the appropriate mutation tool.",
       tool_name:
         snapshot.confirmationState.binding?.tool_name ||
         snapshot.confirmationState.order?.toolName ||

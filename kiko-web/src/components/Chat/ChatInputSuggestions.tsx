@@ -26,15 +26,18 @@ interface ChatInputSuggestionsProps {
     isVisible: boolean;
     onSelect: (item: SuggestionItem) => void;
     agentId?: string;
+    forceTheme?: 'light' | 'dark';
 }
 
 export const ChatInputSuggestions: React.FC<ChatInputSuggestionsProps> = ({
     suggestions,
     isVisible,
     onSelect,
-    agentId = 'chat.suggestions.list'
+    agentId = 'chat.suggestions.list',
+    forceTheme,
 }) => {
     const { resolvedTheme } = useThemeContext();
+    const theme = forceTheme || resolvedTheme;
     const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
     // Flatten items for hover highlighting
@@ -157,7 +160,7 @@ export const ChatInputSuggestions: React.FC<ChatInputSuggestionsProps> = ({
 
     return (
         <div
-            className={clsx(styles.suggestionBox, styles[resolvedTheme])}
+            className={clsx(styles.suggestionBox, styles[theme])}
             {...agentAttrs({ id: agentId, role: 'list', action: 'select', page: 'chat' })}
         >
             <div className={styles.suggestionList}>

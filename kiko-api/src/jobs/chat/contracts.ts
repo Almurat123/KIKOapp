@@ -295,7 +295,7 @@ export interface WorkerNextActionState {
     | "call_tool"
     | "wait_for_user_confirmation"
     | "ask_user_clarification"
-    | "execute_confirmed_action";
+    | "model_confirmed_execution";
   reason: string;
   tool_name?: string | null;
 }

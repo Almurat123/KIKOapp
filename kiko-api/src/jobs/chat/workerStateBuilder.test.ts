@@ -82,7 +82,7 @@ test('buildWorkerConversationState exposes execution, evidence, and next-action 
     assert.equal(state.execution_state.pending_confirmation, 'swap_confirmation');
     assert.equal(state.evidence_state.required.includes('onchain_token_evidence'), true);
     assert.equal(state.evidence_state.gathered.includes('onchain_token_evidence'), true);
-    assert.equal(state.next_action_state.kind, 'execute_confirmed_action');
+    assert.equal(state.next_action_state.kind, 'model_confirmed_execution');
     assert.equal(state.carry_forward_entities?.connected_wallet, '0xabc');
 });
 

@@ -3,8 +3,8 @@
 // Author: Renata
 // Reason: Clanker token deployment now has a dedicated mutation action class.
 //         The execution gate must distinguish harmless dry-runs from real
-//         `confirmDeploy=true` deploy attempts and require a confirmation token
-//         for the latter. Chat worker-state refactor also made quote freshness
+//         `confirmDeploy=true` deploy attempts and require an explicit
+//         model-confirmed execution phase for the latter. Chat worker-state refactor also made quote freshness
 //         explicit, so the gate must reject tool-marked or expiry-marked stale
 //         preflight quotes without treating old timestamps alone as stale.
 // Goal: keep all write actions centrally gated by deterministic confirmation
@@ -15,8 +15,10 @@
 // Design Language:
 // - dry-run payload preparation is not execution
 // - `deploy_clanker_token` becomes executable only when `confirmDeploy=true`
-// - real token deploy attempts require phase=execute and a matching confirmation token
-// - confirmation payload args bind exactly to the future execution args
+// - real token deploy attempts require phase=execute; the model owns carrying
+//   the confirmed launch payload into the next tool call
+// - confirmation payload args are user-visible context for the next model turn,
+//   not backend-replayed execution instructions
 // - quote freshness must come from explicit expiry/stale fields, not from timestamp age alone
 // Document Provenance:
 // - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-17-clanker-deploy-skill-route-and-payload-fix.md
@@ -144,7 +146,9 @@ export function checkMutationExecutionGate(params: {
         return { allow: true };
     }
 
-    // Order and token-deploy mutations use the same explicit confirmation token contract.
+    // Order and token-deploy mutations are model-confirmed in the next turn.
+    // The backend gate only verifies that the current turn is an execution turn;
+    // it must not rewrite or hash-match the model's selected tool arguments.
     if (gatePhase !== 'execute') {
         const error = createPolicyError(
             'CONFIRMATION_REQUIRED',
@@ -167,22 +171,6 @@ export function checkMutationExecutionGate(params: {
                         ? 'TOKEN_DEPLOY_MUTATION'
                         : policy.actionClass,
                 },
-            },
-        };
-    }
-    if (!gateToken || gateToken !== expectedToken) {
-        const error = createPolicyError(
-            'CONFIRMATION_STALE_OR_MISMATCH',
-            `Confirmation token mismatch for ${toolName}`,
-            policy,
-        );
-        return {
-            allow: false,
-            error,
-            responsePayload: {
-                error: error.message,
-                reason_code: error.code,
-                policy_decision_id: error.policyDecisionId,
             },
         };
     }

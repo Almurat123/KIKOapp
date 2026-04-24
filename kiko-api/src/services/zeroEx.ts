@@ -951,7 +951,8 @@ export async function getZeroExTokenMetadata(
   // Check cache first
   const cached = tokenMetadataCache.get(cacheKey);
   if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
-    return cached.data;
+    if (cached.data) return cached.data;
+    tokenMetadataCache.delete(cacheKey);
   }
 
   try {
@@ -989,11 +990,9 @@ export async function getZeroExTokenMetadata(
       return data;
     }
 
-    // Don't log 404 as warning - it's expected for many tokens
-    if (response.status === 404) {
-      // Cache 404 to prevent repeated requests
-      tokenMetadataCache.set(cacheKey, { data: null, timestamp: Date.now() });
-    } else {
+    // Don't log 404 as warning - it's expected for many tokens. Do not cache
+    // null here: the RPC fallback below may provide authoritative decimals.
+    if (response.status !== 404) {
       const errorText = await response.text();
       logger.warn(LogCode.API_FETCH_FAILED, '0x API Token metadata request failed', { status: response.status, error: errorText });
     }
@@ -1005,18 +1004,21 @@ export async function getZeroExTokenMetadata(
   const fallback = FALLBACK_TOKEN_METADATA[chainId]?.[normalized];
   if (fallback) {
     logger.info(LogCode.API_FETCH_SUCCESS, 'Using 0x API fallback token metadata', { symbol: fallback.symbol, chainId });
+    tokenMetadataCache.set(cacheKey, { data: fallback, timestamp: Date.now() });
     return fallback;
   }
 
   // If 0x API and fallback both fail, try fetching decimals from RPC
   logger.info(LogCode.API_FETCH_SUCCESS, 'No token metadata available, trying RPC fallback...', { tokenAddress, chainId });
   const decimals = await fetchTokenDecimalsFromRPC(tokenAddress, chainId);
-  return {
+  const rpcFallback = {
     symbol: 'UNKNOWN',
     name: 'Unknown Token',
     decimals,
     address: tokenAddress,
   };
+  tokenMetadataCache.set(cacheKey, { data: rpcFallback, timestamp: Date.now() });
+  return rpcFallback;
 }
 
 /**
@@ -1272,6 +1274,9 @@ export async function getTokenPriceUSD(
 
 export const __testOnly = {
   normalizeNativeTokenFor0x,
+  clearTokenMetadataCache: () => tokenMetadataCache.clear(),
+  getTokenMetadataCacheEntry: (chainId: number, tokenAddress: string) =>
+    tokenMetadataCache.get(`${chainId}:${tokenAddress.toLowerCase()}`) || null,
   shouldUsePermit2Endpoint: (sellToken: string, chainId: number, preferPermit2: boolean): boolean => {
     const normalizedSellToken = normalizeNativeTokenFor0x(sellToken, chainId);
     return preferPermit2 && normalizedSellToken.toLowerCase() !== NATIVE_TOKEN_PLACEHOLDER.toLowerCase();

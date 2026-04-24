@@ -286,7 +286,7 @@ test('execution turns expose only missing required read tools before wider local
     assert.equal(broker.getContent(), 'Ready to prepare the launch after reading the required context.');
 });
 
-test('token deploy confirm turns pass the prepared execution gate into tool execution', async () => {
+test('token deploy confirm turns let the model carry confirmed deploy arguments into tool execution', async () => {
     const snapshot = makeSnapshot('confirm', {
         model: 'gpt-5.4-mini-2026-03-17',
         taskRoute: makeTaskRoute('token_deploy', 'confirm'),
@@ -336,6 +336,7 @@ test('token deploy confirm turns pass the prepared execution gate into tool exec
     const broker = makeBroker();
     let generationRound = 0;
     let capturedGate: any = null;
+    let capturedCall: any = null;
 
     const generationClient = {
         async generate(params: any) {
@@ -352,8 +353,8 @@ test('token deploy confirm turns pass the prepared execution gate into tool exec
                         name: 'deploy_clanker_token',
                         arguments: {
                             name: 'testblack',
-                            symbol: 'TB',
-                            description: 'testing',
+                            symbol: 'TBX',
+                            description: 'confirmed payload selected by the model',
                             chainId: 8453,
                             confirmDeploy: true,
                         },
@@ -379,6 +380,7 @@ test('token deploy confirm turns pass the prepared execution gate into tool exec
                     };
                 }
                 capturedGate = toolContext?.__executionGate || null;
+                capturedCall = call;
                 return {
                     id: call.id,
                     name: call.name,
@@ -399,14 +401,18 @@ test('token deploy confirm turns pass the prepared execution gate into tool exec
     });
 
     assert.equal(generationRound, 1);
-    assert.deepEqual(capturedGate, {
-        phase: 'execute',
-        confirmationToken: 'confirm-token-123',
+    assert.equal(capturedGate?.phase, 'execute');
+    assert.deepEqual(capturedCall?.arguments, {
+        name: 'testblack',
+        symbol: 'TBX',
+        description: 'confirmed payload selected by the model',
+        chainId: 8453,
+        confirmDeploy: true,
     });
     assert.match(broker.getContent(), /clanker/i);
 });
 
-test('copy-trade confirm turns pass the prepared execution gate into tool execution', async () => {
+test('copy-trade confirm turns let the model carry confirmed copy-trade arguments into tool execution', async () => {
     const snapshot = makeSnapshot('confirm', {
         model: 'gpt-5.4-mini-2026-03-17',
         taskRoute: makeTaskRoute('copy_trade', 'confirm'),
@@ -438,6 +444,17 @@ test('copy-trade confirm turns pass the prepared execution gate into tool execut
                 chainId: 56,
                 mirrorSell: true,
             },
+            order: {
+                toolName: 'create_copy_trade_config',
+                args: {
+                    target_wallet: '0x9aef1e321ea673d0b2ba929de0760ac8a1238ba3',
+                    buy_amount_usd: 8,
+                    chain_id: 56,
+                    mirror_sell: true,
+                },
+                confirmationToken: 'copy-trade-confirm-token',
+                actionClass: 'ORDER_MUTATION',
+            },
         } as any,
         conversationActionState: {
             pendingAction: 'copy_trade',
@@ -450,6 +467,7 @@ test('copy-trade confirm turns pass the prepared execution gate into tool execut
     const broker = makeBroker();
     let generationRound = 0;
     let capturedGate: any = null;
+    let capturedCall: any = null;
 
     const generationClient = {
         async generate(params: any) {
@@ -466,9 +484,9 @@ test('copy-trade confirm turns pass the prepared execution gate into tool execut
                         name: 'create_copy_trade_config',
                         arguments: {
                             target_wallet: '0x9aef1e321ea673d0b2ba929de0760ac8a1238ba3',
-                            buy_amount_usd: 8,
+                            buy_amount_usd: 88,
                             chain_id: 56,
-                            mirror_sell: true,
+                            mirror_sell: false,
                         },
                     },
                 ],
@@ -492,6 +510,7 @@ test('copy-trade confirm turns pass the prepared execution gate into tool execut
                     };
                 }
                 capturedGate = toolContext?.__executionGate || null;
+                capturedCall = call;
                 return {
                     id: call.id,
                     name: call.name,
@@ -510,9 +529,12 @@ test('copy-trade confirm turns pass the prepared execution gate into tool execut
     });
 
     assert.equal(generationRound, 1);
-    assert.deepEqual(capturedGate, {
-        phase: 'execute',
-        confirmationToken: 'copy-trade-confirm-token',
+    assert.equal(capturedGate?.phase, 'execute');
+    assert.deepEqual(capturedCall?.arguments, {
+        target_wallet: '0x9aef1e321ea673d0b2ba929de0760ac8a1238ba3',
+        buy_amount_usd: 88,
+        chain_id: 56,
+        mirror_sell: false,
     });
     assert.match(broker.getContent(), /copy/i);
 });

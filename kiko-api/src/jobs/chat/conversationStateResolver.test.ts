@@ -755,6 +755,13 @@ test('resolveTradeConfirmationState preserves copy-trade wallet binding provenan
 
     assert.equal(state?.kind, 'copy_trade_confirmation');
     assert.deepEqual(state?.copyTrade?.walletBinding, walletBinding);
+    assert.equal(state?.order?.toolName, 'create_copy_trade_config');
+    assert.deepEqual(state?.order?.args, {
+        target_wallet: '0xbd708164137146ac234aceb75d3981cd3599e21a',
+        buy_amount_usd: 8,
+        chain_id: 56,
+    });
+    assert.equal(state?.order?.confirmationToken, 'copy123');
 });
 
 test('isConfirmationMessage stays strict for ordinary trade requests that contain polite language', () => {

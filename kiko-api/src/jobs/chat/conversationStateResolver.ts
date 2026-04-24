@@ -12,9 +12,8 @@
 //       stores prepared tool execution, and carry explicit source/binding
 //       metadata forward into the worker state.
 //         Clanker dry-run previews now also need to survive as reusable
-//         confirmation state so the model can confirm the exact prepared
-//         launch payload and the backend can replay it with `confirmDeploy`
-//         only at execution handoff.
+//         confirmation state so the model can inspect the prepared launch
+//         payload and decide the next confirmed tool call itself.
 //         TaskRoute now also owns the primary task/phase, so confirmation
 //         carry-forward must not trust stale canonical execute/confirm flags
 //         once the route owner has changed.
@@ -438,6 +437,7 @@ function resolveOrderConfirmationFromToolTrace(trace: RecentToolTrace | null): T
                     source_tool: String(call.tool || toolName),
                     captured_at: extractCallTimestamp(call),
                 },
+                order: orderPayload,
                 copyTrade: {
                     targetWallet: String(orderPayload.args.target_wallet || orderPayload.args.targetWallet || ''),
                     buyAmountUsd: Number(orderPayload.args.buy_amount_usd || orderPayload.args.bet_size_usd || 0),

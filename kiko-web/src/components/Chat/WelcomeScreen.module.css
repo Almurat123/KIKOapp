@@ -274,10 +274,6 @@
   }
 }
 
-.light .suggestionsLabel {
-  color: var(--text-secondary);
-}
-
 .shuffleButton {
   font-size: 0.625rem;
   color: #71717a;
@@ -1003,9 +999,14 @@
   z-index: 2;
 }
 
-.inputWrapper:focus-within {
+.inputWrapper:focus-within,
+.inputWrapper:has(.textarea:not(:placeholder-shown)) {
   border-color: transparent;
   background: rgba(35, 35, 40, 0.06);
+
+  /* Increase blur when focused or has text */
+  backdrop-filter: blur(4px) saturate(180%);
+  -webkit-backdrop-filter: blur(4px) saturate(180%);
 
   /* Enhanced outer shadow */
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.4);
@@ -1059,10 +1060,6 @@
   /* iOS Font */
 }
 
-.light .textarea {
-  color: #1f2937 !important;
-  /* Fixed visibility in light mode */
-}
 
 .textarea::-webkit-scrollbar {
   display: none;
@@ -1077,10 +1074,6 @@
   /* Reset opacity and use color alpha if needed, but here simple hex */
 }
 
-.light .textarea::placeholder {
-  color: #9ca3af;
-  /* Match Chat interface light mode */
-}
 
 .inputActions {
   display: flex;
@@ -1162,7 +1155,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
 }
 
@@ -1254,7 +1247,7 @@
   padding: 2px 0;
 }
 
-.modelDropdownSection + .modelDropdownSection {
+.modelDropdownSection+.modelDropdownSection {
   margin-top: 4px;
   padding-top: 6px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
@@ -1456,32 +1449,20 @@
   border-radius: 32px;
 }
 
-.light .inputWrapper:focus-within {
+.light .inputWrapper:focus-within,
+.light .inputWrapper:has(.textarea:not(:placeholder-shown)) {
   background: rgba(255, 255, 255, 0.18);
+  /* Increase blur when focused or has text */
+  backdrop-filter: blur(4px) saturate(180%);
+  -webkit-backdrop-filter: blur(4px) saturate(180%);
   box-shadow: 0 12px 40px -8px rgba(0, 0, 0, 0.12);
   border-color: transparent;
   transform: translateY(-1px) scale(1.002);
 }
 
 
-.light .modelButton {
-  background: transparent !important;
-  border: none !important;
-  color: #6b7280 !important;
-  height: 32px !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-  box-shadow: none !important;
-}
 
-.light .modelButton:hover {
-  background: rgba(0, 0, 0, 0.04) !important;
-  color: #111827 !important;
-}
 
-.light .modelName {
-  color: inherit !important;
-}
 
 .light .modelDropdown {
   background: rgba(255, 255, 255, 0.96) !important;
@@ -1493,7 +1474,7 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
 }
 
-.light .modelDropdownSection + .modelDropdownSection {
+.light .modelDropdownSection+.modelDropdownSection {
   border-top-color: rgba(0, 0, 0, 0.08) !important;
 }
 
@@ -1541,44 +1522,9 @@
   color: #4b5563 !important;
 }
 
-.light .uploadButton,
-.light .settingsButton {
-  border: none !important;
-  background: transparent !important;
-  color: #374151 !important;
-  height: 32px !important;
-  width: 32px !important;
-  appearance: none !important;
-  -webkit-appearance: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-  box-shadow: none !important;
-}
 
-.light .uploadButton:hover,
-.light .settingsButton:hover {
-  background: rgba(0, 0, 0, 0.05) !important;
-  color: #111827 !important;
-}
 
-.light .sendButton {
-  background: rgba(0, 0, 0, 0.05) !important;
-  border: none !important;
-  color: #71717a !important;
-  height: 36px !important;
-  width: 36px !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-  box-shadow: none !important;
-}
 
-.light .sendButtonActive {
-  background: rgba(0, 0, 0, 0.1) !important;
-  color: #111827 !important;
-  box-shadow: none !important;
-  border: none !important;
-  cursor: pointer;
-}
 
 .light .inputFooter p {
   color: #9ca3af;
@@ -1629,20 +1575,16 @@
 
   .modelSelectors {
     width: auto;
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     gap: 6px;
   }
 
   .modelSelector {
-    flex: 1 1 0;
-  }
-
-  .modelSelector:last-child {
-    flex: 0 0 82px;
+    flex: 0 1 auto;
   }
 
   .modelButton {
-    width: 100%;
+    width: auto;
     justify-content: flex-start;
     padding: 0 8px;
     height: 30px !important;
@@ -1650,11 +1592,11 @@
   }
 
   .modelNameFull {
-    display: none;
+    display: inline;
   }
 
   .modelNameCompact {
-    display: inline;
+    display: none;
   }
 
   .uploadButton,
@@ -1672,7 +1614,7 @@
   }
 
   .sendButton {
-    margin-left: 0;
+    margin-left: auto;
     width: 30px !important;
     height: 30px !important;
     min-width: 30px !important;

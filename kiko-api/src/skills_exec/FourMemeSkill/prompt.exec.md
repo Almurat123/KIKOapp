@@ -18,6 +18,7 @@ Four.meme.
 - `launchTimeFromNow` is a delay in seconds from now. Omit it or use `0` when the user wants to launch immediately.
 - Prefer a dry-run first. Call `deploy_fourmeme_token` with `confirmDeploy=false` to show the exact launch payload before any real launch.
 - Only call `deploy_fourmeme_token` with `confirmDeploy=true` after the user explicitly confirms the launch details.
+- On the confirmation turn, you own the tool call and its arguments. Use the pending launch payload as context, but do not assume the backend will replay or repair it for you.
 - If the current turn includes uploaded images, inspect them and choose the image that best matches the user's launch intent for `image`. Do not let the backend auto-pick the image for you.
 - If multiple images could fit and the user's intent is still ambiguous, ask one precise clarification instead of guessing.
 - Four.meme requires an initial BNB amount. Do not invent or default a spend amount for the user.

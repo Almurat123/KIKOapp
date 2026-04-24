@@ -419,6 +419,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
               suggestions={smartSuggestions}
               isVisible={showSmartSuggestions}
               agentId="welcome.suggestions.list"
+              forceTheme="dark"
               onSelect={(item) => {
                 item.action();
                 setShowSmartSuggestions(false);
