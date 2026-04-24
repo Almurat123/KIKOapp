@@ -120,6 +120,11 @@ export function buildClankerTokenUrl(tokenAddress: string | null | undefined): s
     return address ? `https://www.clanker.world/clanker/${address}` : undefined;
 }
 
+export function buildFourMemeTokenUrl(tokenAddress: string | null | undefined): string | undefined {
+    const address = nonEmpty(tokenAddress);
+    return address ? `https://four.meme/token/${address}` : undefined;
+}
+
 export function buildPolymarketMarketUrl(marketSlug: string | null | undefined): string | undefined {
     const slug = nonEmpty(marketSlug);
     return slug ? `https://polymarket.com/event/${encodeURIComponent(slug)}` : undefined;

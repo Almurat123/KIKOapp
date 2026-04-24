@@ -44,7 +44,7 @@ import { taskRouteNeedsOnchainEvidence } from './taskRoute.js';
 // - /Users/almurat/KiKo/system-journal/conflicts.md
 
 export interface ProviderInfo {
-    provider: 'openai' | 'grok';
+    provider: 'openai' | 'grok' | 'deepseek';
     model: string;
     supportsNativeSearch: boolean;
     supportsPreviousResponse: boolean;
@@ -95,6 +95,22 @@ export function normalizeOpenAIReasoningEffort(value: unknown): string | undefin
     return undefined;
 }
 
+function stripReasoningHintsFromToolContext(toolContext: Record<string, any> | null | undefined): Record<string, any> {
+    const raw = (toolContext && typeof toolContext === 'object') ? toolContext : {};
+    const {
+        reasoningEffort,
+        reasoning_effort,
+        reasoningLevel,
+        reasoning_level,
+        ...rest
+    } = raw;
+    void reasoningEffort;
+    void reasoning_effort;
+    void reasoningLevel;
+    void reasoning_level;
+    return rest;
+}
+
 export function resolveProviderInfo(model: string): ProviderInfo {
     const normalized = String(model || '').toLowerCase();
     if (normalized.includes('grok')) {
@@ -103,6 +119,14 @@ export function resolveProviderInfo(model: string): ProviderInfo {
             model,
             supportsNativeSearch: true,
             supportsPreviousResponse: true,
+        };
+    }
+    if (normalized === 'deepseek-v4-flash') {
+        return {
+            provider: 'deepseek',
+            model,
+            supportsNativeSearch: false,
+            supportsPreviousResponse: false,
         };
     }
     if (normalized.startsWith('gpt') || normalized.startsWith('o')) {
@@ -134,6 +158,18 @@ export function buildProviderOptions(
 ): ProviderOptions {
     const reasoningEffort = normalizeOpenAIReasoningEffort(snapshot.runtime.toolContext?.reasoningEffort);
     const previousResponseId = sanitizePreviousResponseId(phaseContext?.previousResponseId);
+    if (providerInfo.provider === 'deepseek') {
+        return {
+            metadata: {
+                session_id: String(snapshot.sessionId || ''),
+                task_id: String(snapshot.taskId || ''),
+            },
+            api_mode: 'chat_completions',
+            tool_context: stripReasoningHintsFromToolContext(snapshot.runtime.toolContext),
+            enable_search: false,
+        };
+    }
+
     if (providerInfo.provider !== 'grok') {
         return {
             metadata: {

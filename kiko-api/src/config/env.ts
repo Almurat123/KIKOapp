@@ -21,9 +21,7 @@
 //         optional shared free-model cap, the shared premium daily quota, and
 //         token-tier quota parsing that can bind both free and premium chat
 //         allowances for each holder tier. Generated-image free allowance now
-//         defaults to three daily output images so GPT Image Mini, the default
-//         image model, can consume the expected free runs before billing
-//         consent is required.
+//         lives in the credits runtime as one shared lifetime request pool.
 // Goal: keep startup validation as the single owner for deployment-time security
 //       and connectivity requirements around X auth, Farcaster agent ingress,
 //       and chat quota env parsing.
@@ -48,8 +46,9 @@
 // - GPT and Grok are premium-model traffic and share one daily free quota.
 // - Generated-image free allowance is backend-owned, env-driven, and must not
 //   be inferred from client-side counters or chat billing knobs.
-// - `GENERATED_IMAGE_DAILY_FREE_OUTPUTS` defaults to 3 unless deployment env
-//   explicitly overrides it.
+// - `CREDITS_LIFETIME_IMAGE_FREE_REQUESTS` controls the shared lifetime
+//   generated-image free request pool; unmetered Cloudflare image generation
+//   must not consume that pool.
 // - `USAGE_LIMITS_TIERS_JSON` may define `freeModelLimit` and `premiumLimit`;
 //   legacy `dailyLimit` must still map into the premium limit for backward compatibility.
 // - Quota env parsing must normalize model ids once and never depend on ad hoc caller string rewrites.
@@ -101,19 +100,9 @@
 // - Verification: verified in code
 // - Source: /Users/almurat/KiKo/system-journal/design-language/generated-image-billing.md
 // - Kind: repo doc
-// - Retrieved: 2026-04-20
-// - Applied To: env-driven generated-image daily free allowance parsing
+// - Retrieved: 2026-04-24
+// - Applied To: credits-owned generated-image free-request allowance parsing
 // - Verification: verified in code
-// - Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-20-generated-image-free-allowance-env-control.md
-// - Kind: repo doc
-// - Retrieved: 2026-04-20
-// - Applied To: the generated-image free-output env knob and default fallback
-// - Verification: verified in code
-// - Source: operator correction on 2026-04-21
-// - Kind: product doc
-// - Retrieved: 2026-04-21
-// - Applied To: default generated-image daily free output count of three
-// - Verification: verified in code and targeted tests
 // See also:
 // - system-journal/INDEX.md
 // - system-journal/design-language/chat-usage-quota-policy.md
@@ -289,9 +278,6 @@ export interface EnvConfig {
             pricingMode: 'stable_1_to_1' | 'market_price';
         }>;
     };
-    generatedImage: {
-        dailyFreeOutputs: number;
-    };
     usageLimits: {
         enabled: boolean;
         chainId: number;
@@ -395,7 +381,6 @@ function validateEnv(): EnvConfig {
     const billingMinLiquidityUsd = parseFloat(process.env.BILLING_DEXSCREENER_MIN_LIQUIDITY_USD || '5000');
     const billingDailyFreeModelLimit = parseInt(process.env.BILLING_DAILY_FREE_MODEL_LIMIT || '0', 10);
     const billingDailyFreePremium = parseInt(process.env.BILLING_DAILY_FREE_PREMIUM || '8', 10);
-    const generatedImageDailyFreeOutputs = parseInt(process.env.GENERATED_IMAGE_DAILY_FREE_OUTPUTS || '3', 10);
     const billingUsdMultiplier = parseFloat(process.env.BILLING_USD_MULTIPLIER || '3');
     const billingToolPricePerCall = parseFloat(process.env.BILLING_TOOL_PRICE_PER_CALL || '0.005');
     const billingTermsVersion = process.env.BILLING_TERMS_VERSION || 'billing-terms-v1';
@@ -559,11 +544,11 @@ function validateEnv(): EnvConfig {
         .split(',')
         .map(v => v.trim().toLowerCase())
         .filter(Boolean);
-    const defaultPremiumModels = 'gpt-5.4-mini-2026-03-17,grok-4-1-fast-reasoning,grok-4-1-fast-non-reasoning';
+    const defaultPremiumModels = 'gpt-5.4-mini-2026-03-17,deepseek-v4-flash,grok-4-1-fast-reasoning,grok-4-1-fast-non-reasoning';
     const premiumModels = (
         process.env.BILLING_PREMIUM_MODELS ||
         (process.env.BILLING_GROK_MODELS
-            ? `gpt-5.4-mini-2026-03-17,${process.env.BILLING_GROK_MODELS}`
+            ? `gpt-5.4-mini-2026-03-17,deepseek-v4-flash,${process.env.BILLING_GROK_MODELS}`
             : defaultPremiumModels)
     )
         .split(',')
@@ -572,6 +557,7 @@ function validateEnv(): EnvConfig {
     let modelPricing: Record<string, { promptUsdPer1M: number; completionUsdPer1M: number; cachedPromptUsdPer1M?: number }> = {
         'grok-4-1-fast-reasoning': { promptUsdPer1M: 0.20, completionUsdPer1M: 0.50 },
         'grok-4-1-fast-non-reasoning': { promptUsdPer1M: 0.20, completionUsdPer1M: 0.50 },
+        'deepseek-v4-flash': { promptUsdPer1M: 0.14, cachedPromptUsdPer1M: 0.028, completionUsdPer1M: 0.28 },
         'gpt-5.4-mini-2026-03-17': { promptUsdPer1M: 0.75, cachedPromptUsdPer1M: 0.075, completionUsdPer1M: 4.50 },
     };
     if (process.env.BILLING_MODEL_PRICING_JSON) {
@@ -600,6 +586,11 @@ function validateEnv(): EnvConfig {
             baseCreditsPerMessage: 0.05,
             inputCreditsPer1kTokens: 0.003,
             outputCreditsPer1kTokens: 0.0075,
+        },
+        'deepseek-v4-flash': {
+            baseCreditsPerMessage: 0.03,
+            inputCreditsPer1kTokens: 0.0021,
+            outputCreditsPer1kTokens: 0.0042,
         },
     };
     if (process.env.CREDITS_TEXT_PRICING_JSON) {
@@ -772,9 +763,6 @@ function validateEnv(): EnvConfig {
             textPricing: creditTextPricing,
             imagePricing: creditImagePricing,
             supportedAssets: creditSupportedAssets,
-        },
-        generatedImage: {
-            dailyFreeOutputs: Number.isFinite(generatedImageDailyFreeOutputs) ? Math.max(0, generatedImageDailyFreeOutputs) : 3,
         },
         usageLimits: {
             enabled: usageLimitsEnabled,

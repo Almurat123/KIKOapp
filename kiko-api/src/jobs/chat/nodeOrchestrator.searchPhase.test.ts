@@ -286,6 +286,237 @@ test('execution turns expose only missing required read tools before wider local
     assert.equal(broker.getContent(), 'Ready to prepare the launch after reading the required context.');
 });
 
+test('token deploy confirm turns pass the prepared execution gate into tool execution', async () => {
+    const snapshot = makeSnapshot('confirm', {
+        model: 'gpt-5.4-mini-2026-03-17',
+        taskRoute: makeTaskRoute('token_deploy', 'confirm'),
+        normalizedIntent: makeCanonicalIntent({
+            domain: 'token',
+            intent: 'clanker_deploy',
+            taskMode: 'confirm',
+            outputMode: 'confirmation_required',
+            searchMode: 'forbidden',
+            searchTarget: 'none',
+            requiresRealtime: false,
+            requiresOnchainEvidence: false,
+            evidenceRequirements: [],
+            executionCandidate: true,
+        }),
+        confirmationState: {
+            kind: 'order_confirmation',
+            sourceTool: 'deploy_clanker_token',
+            binding: {
+                binding_kind: 'prepared_confirmation',
+                binding_key: 'confirm-token-123',
+                tool_name: 'deploy_clanker_token',
+                action_class: 'TOKEN_DEPLOY_MUTATION',
+                source_tool: 'deploy_clanker_token',
+            },
+            order: {
+                toolName: 'deploy_clanker_token',
+                args: {
+                    name: 'testblack',
+                    symbol: 'TB',
+                    description: 'testing',
+                    chainId: 8453,
+                    confirmDeploy: true,
+                },
+                confirmationToken: 'confirm-token-123',
+                actionClass: 'TOKEN_DEPLOY_MUTATION',
+            },
+        } as any,
+        conversationActionState: {
+            pendingAction: 'order',
+            confirmationPayload: null,
+            canExecute: true,
+            needsClarification: false,
+            clarificationQuestion: null,
+        } as any,
+    });
+    const broker = makeBroker();
+    let generationRound = 0;
+    let capturedGate: any = null;
+
+    const generationClient = {
+        async generate(params: any) {
+            if (String(params?.taskId || '').endsWith(':plan') || isIntentStageTask(params?.taskId)) {
+                return { text: '', reasoning: '', toolCalls: [] };
+            }
+            generationRound += 1;
+            return {
+                text: '',
+                reasoning: '',
+                toolCalls: [
+                    {
+                        id: 'call-deploy-confirm',
+                        name: 'deploy_clanker_token',
+                        arguments: {
+                            name: 'testblack',
+                            symbol: 'TB',
+                            description: 'testing',
+                            chainId: 8453,
+                            confirmDeploy: true,
+                        },
+                    },
+                ],
+            };
+        },
+    };
+
+    await runNodeOrchestration({
+        snapshot,
+        generationClient: generationClient as any,
+        toolExecutionEngine: {
+            async execute(call: any, toolContext: any) {
+                if (String(call.name).startsWith('read_')) {
+                    return {
+                        id: call.id,
+                        name: call.name,
+                        arguments: call.arguments || {},
+                        ok: true,
+                        result: { available: true },
+                        metadata: { source: 'tool_runtime' },
+                    };
+                }
+                capturedGate = toolContext?.__executionGate || null;
+                return {
+                    id: call.id,
+                    name: call.name,
+                    arguments: call.arguments || {},
+                    ok: true,
+                    result: {
+                        success: true,
+                        tokenAddress: '0x1111111111111111111111111111111111111111',
+                        tokenUrl: 'https://www.clanker.world/clanker/0x1111111111111111111111111111111111111111',
+                        txHash: '0xabc123',
+                    },
+                    metadata: { source: 'tool_runtime' },
+                };
+            },
+        } as any,
+        broker: broker as any,
+        toolContext: {},
+    });
+
+    assert.equal(generationRound, 1);
+    assert.deepEqual(capturedGate, {
+        phase: 'execute',
+        confirmationToken: 'confirm-token-123',
+    });
+    assert.match(broker.getContent(), /clanker/i);
+});
+
+test('copy-trade confirm turns pass the prepared execution gate into tool execution', async () => {
+    const snapshot = makeSnapshot('confirm', {
+        model: 'gpt-5.4-mini-2026-03-17',
+        taskRoute: makeTaskRoute('copy_trade', 'confirm'),
+        normalizedIntent: makeCanonicalIntent({
+            domain: 'wallet',
+            intent: 'copy_trade',
+            taskMode: 'confirm',
+            outputMode: 'confirmation_required',
+            searchMode: 'forbidden',
+            searchTarget: 'none',
+            requiresRealtime: false,
+            requiresOnchainEvidence: false,
+            evidenceRequirements: [],
+            executionCandidate: true,
+        }),
+        confirmationState: {
+            kind: 'copy_trade_confirmation',
+            sourceTool: 'create_copy_trade_config',
+            binding: {
+                binding_kind: 'prepared_confirmation',
+                binding_key: 'copy-trade-confirm-token',
+                tool_name: 'create_copy_trade_config',
+                action_class: 'ORDER_MUTATION',
+                source_tool: 'create_copy_trade_config',
+            },
+            copyTrade: {
+                targetWallet: '0x9aef1e321ea673d0b2ba929de0760ac8a1238ba3',
+                buyAmountUsd: 8,
+                chainId: 56,
+                mirrorSell: true,
+            },
+        } as any,
+        conversationActionState: {
+            pendingAction: 'copy_trade',
+            confirmationPayload: null,
+            canExecute: true,
+            needsClarification: false,
+            clarificationQuestion: null,
+        } as any,
+    });
+    const broker = makeBroker();
+    let generationRound = 0;
+    let capturedGate: any = null;
+
+    const generationClient = {
+        async generate(params: any) {
+            if (String(params?.taskId || '').endsWith(':plan') || isIntentStageTask(params?.taskId)) {
+                return { text: '', reasoning: '', toolCalls: [] };
+            }
+            generationRound += 1;
+            return {
+                text: '',
+                reasoning: '',
+                toolCalls: [
+                    {
+                        id: 'call-copytrade-confirm',
+                        name: 'create_copy_trade_config',
+                        arguments: {
+                            target_wallet: '0x9aef1e321ea673d0b2ba929de0760ac8a1238ba3',
+                            buy_amount_usd: 8,
+                            chain_id: 56,
+                            mirror_sell: true,
+                        },
+                    },
+                ],
+            };
+        },
+    };
+
+    await runNodeOrchestration({
+        snapshot,
+        generationClient: generationClient as any,
+        toolExecutionEngine: {
+            async execute(call: any, toolContext: any) {
+                if (String(call.name).startsWith('read_')) {
+                    return {
+                        id: call.id,
+                        name: call.name,
+                        arguments: call.arguments || {},
+                        ok: true,
+                        result: { available: true },
+                        metadata: { source: 'tool_runtime' },
+                    };
+                }
+                capturedGate = toolContext?.__executionGate || null;
+                return {
+                    id: call.id,
+                    name: call.name,
+                    arguments: call.arguments || {},
+                    ok: true,
+                    result: {
+                        configId: 'cfg_copy_trade_123',
+                        status: 'active',
+                    },
+                    metadata: { source: 'tool_runtime' },
+                };
+            },
+        } as any,
+        broker: broker as any,
+        toolContext: {},
+    });
+
+    assert.equal(generationRound, 1);
+    assert.deepEqual(capturedGate, {
+        phase: 'execute',
+        confirmationToken: 'copy-trade-confirm-token',
+    });
+    assert.match(broker.getContent(), /copy/i);
+});
+
 test('openai image execution turns prefetch image-lane required context and use responses mode before the first model round', async () => {
     const snapshot = makeSnapshot('Generate a rock style poster using the attached mascot image.', {
         model: 'gpt-5.4-mini-2026-03-17',

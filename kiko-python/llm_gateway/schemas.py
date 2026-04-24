@@ -75,6 +75,6 @@ class GatewayEvent(BaseModel):
         "error",
         "latency_metrics",
     ]
-    provider: Literal["openai", "xai"]
+    provider: Literal["openai", "xai", "deepseek"]
     provider_request_id: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)

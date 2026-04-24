@@ -77,49 +77,18 @@ test('deployClankerToken dry run uses documented 0.5% to 5% defaults for generic
     });
 });
 
-test('deployClankerToken dry run preserves chain-neutral context and devBuy route overrides on a non-Base chain', async () => {
-    const result = await deployClankerToken({
-        name: 'Alt Token',
-        symbol: 'ALT',
-        chainId: 130,
-        tokenAdmin: '0x0000000000000000000000000000000000000001',
-        context: {
-            interface: 'KiKo Agent',
-            platform: 'KiKo',
-            messageId: 'msg-130',
-            id: 'alt-130',
-        },
-        devBuy: {
-            ethAmount: 0.5,
-            amountOutMin: 0.25,
-            recipient: '0x0000000000000000000000000000000000000002',
-            poolKey: {
-                currency0: '0x0000000000000000000000000000000000000003',
-                currency1: '0x0000000000000000000000000000000000000004',
-                fee: 3000,
-                tickSpacing: 60,
-                hooks: '0x0000000000000000000000000000000000000005',
-            },
-        },
-    }, {
-        confirmDeploy: false,
-    });
-
-    assert.equal(result.success, true);
-    assert.equal(result.dryRun, true);
-    const payload = requirePayload(result);
-    assert.equal(payload.chainId, 130);
-    assert.equal(payload.pool?.pairedToken, WETH_ADDRESSES[130]);
-    assert.equal(payload.context?.interface, 'KiKo Agent');
-    assert.equal(payload.context?.platform, 'KiKo');
-    assert.equal(payload.devBuy?.ethAmount, 0.5);
-    assert.equal(payload.devBuy?.amountOutMin, 0.25);
-    assert.equal(payload.devBuy?.recipient, '0x0000000000000000000000000000000000000002');
-    assert.equal(payload.devBuy?.poolKey?.currency0, '0x0000000000000000000000000000000000000003');
-    assert.equal(payload.devBuy?.poolKey?.currency1, '0x0000000000000000000000000000000000000004');
-    assert.equal(payload.devBuy?.poolKey?.fee, 3000);
-    assert.equal(payload.devBuy?.poolKey?.tickSpacing, 60);
-    assert.equal(payload.devBuy?.poolKey?.hooks, '0x0000000000000000000000000000000000000005');
+test('deployClankerToken rejects non-Base deploy chains in the current product path', async () => {
+    await assert.rejects(
+        () => deployClankerToken({
+            name: 'Alt Token',
+            symbol: 'ALT',
+            chainId: 130,
+            tokenAdmin: '0x0000000000000000000000000000000000000001',
+        }, {
+            confirmDeploy: false,
+        }),
+        /Unsupported Clanker deploy chainId: 130/,
+    );
 });
 
 test('deployClankerToken real deploy returns the Clanker token page URL from expectedAddress', async () => {

@@ -82,6 +82,8 @@ owner boundaries, and major fixes.
 - [Fix Log: 2026-04-19 Generated Image Client Preview Hydration](./fix-log/2026-04-19-generated-image-client-preview-hydration.md)
 - [Fix Log: 2026-04-22 Generated Image Aura Loading Themes](./fix-log/2026-04-22-generated-image-aura-loading-themes.md)
 - [Fix Log: 2026-04-24 Low Cost Generated Image Models](./fix-log/2026-04-24-low-cost-generated-image-models.md)
+- [Fix Log: 2026-04-24 Generated Image Env Boundary Cleanup](./fix-log/2026-04-24-generated-image-env-boundary-cleanup.md)
+- [Fix Log: 2026-04-24 Chat Composer Mobile Selector Spacing](./fix-log/2026-04-24-chat-composer-mobile-selector-spacing.md)
 - [Fix Log: 2026-04-19 Farcaster Generated Image Reply And Watermark Removal](./fix-log/2026-04-19-farcaster-generated-image-reply-and-watermark.md)
 - [Fix Log: 2026-04-20 Farcaster Generated Image English Media Reply](./fix-log/2026-04-20-farcaster-generated-image-english-media-reply.md)
 - [Fix Log: 2026-04-20 Generated Image Public Proxy And Task Hydration](./fix-log/2026-04-20-generated-image-public-proxy-and-task-hydration.md)

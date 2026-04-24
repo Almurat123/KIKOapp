@@ -1,14 +1,54 @@
 import unittest
 
 from llm_gateway.adapters.openai_like import (
+    _build_deepseek_request_body,
     _build_openai_request_body,
     _build_openai_responses_request_body,
     _summarize_openai_request_shape,
+    resolve_provider,
 )
 from llm_gateway.schemas import GenerateRequest
 
 
 class OpenAIRequestDiagnosticsTests(unittest.TestCase):
+    def test_routes_only_deepseek_v4_flash_to_deepseek_provider(self):
+        self.assertEqual(resolve_provider("deepseek-v4-flash"), "deepseek")
+        self.assertEqual(resolve_provider("deepseek-chat"), "openai")
+
+    def test_deepseek_v4_flash_request_is_non_thinking_and_strips_reasoning_history(self):
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "read_wallet_state",
+                    "description": "Read wallet state.",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+        req = GenerateRequest(
+            model="deepseek-v4-flash",
+            messages=[
+                {"role": "assistant", "content": "Visible answer.", "reasoning_content": "hidden"},
+                {"role": "user", "content": [{"type": "text", "text": "continue"}, {"type": "thinking", "text": "hidden"}]},
+            ],
+            tools=tools,
+            tool_context={"reasoningEffort": "high"},
+            previous_response_id="resp_should_not_pass",
+        )
+
+        body = _build_deepseek_request_body(req)
+
+        self.assertEqual(body["model"], "deepseek-v4-flash")
+        self.assertEqual(body["thinking"], {"type": "disabled"})
+        self.assertNotIn("reasoning_effort", body)
+        self.assertNotIn("previous_response_id", body)
+        self.assertEqual(body["tools"], tools)
+        self.assertEqual(body["tool_choice"], "auto")
+        serialized = str(body["messages"])
+        self.assertNotIn("reasoning_content", serialized)
+        self.assertNotIn("hidden", serialized)
+
     def test_omits_reasoning_effort_for_gpt54_chat_tools(self):
         tools = [
             {

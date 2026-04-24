@@ -656,6 +656,57 @@ test('resolveTradeConfirmationState treats a Clanker dry run as reusable deploy 
     assert.equal(state?.order?.actionClass, 'TOKEN_DEPLOY_MUTATION');
 });
 
+test('resolveTradeConfirmationState treats a Four.meme dry run as reusable deploy confirmation state', () => {
+    const state = resolveTradeConfirmationState([
+        {
+            role: 'assistant',
+            id: 'a-fourmeme-dry-run',
+            message_index: 1,
+            data: {
+                toolTrace: {
+                    toolCalls: [
+                        {
+                            tool: 'deploy_fourmeme_token',
+                            status: 'success',
+                            finishedAt: new Date().toISOString(),
+                            args: {
+                                name: 'BSC Launch',
+                                symbol: 'BSCL',
+                                image: 'https://example.com/token.png',
+                                bnbAmount: 0.2,
+                                confirmDeploy: false,
+                            },
+                            result: {
+                                success: true,
+                                dryRun: true,
+                                payload: {
+                                    name: 'BSC Launch',
+                                    symbol: 'BSCL',
+                                    image: 'https://example.com/token.png',
+                                    bnbAmount: 0.2,
+                                    chainId: 56,
+                                },
+                            },
+                        },
+                    ],
+                },
+            },
+        },
+    ], 'confirm', {
+        domain: 'token',
+        intent: 'clanker_deploy',
+        taskMode: 'confirm',
+    } as any);
+
+    assert.equal(state?.kind, 'order_confirmation');
+    assert.equal(state?.order?.toolName, 'deploy_fourmeme_token');
+    assert.equal(
+        state?.order?.confirmationToken,
+        computeConfirmationToken('deploy_fourmeme_token', state?.order?.args || {}),
+    );
+    assert.equal(state?.order?.actionClass, 'TOKEN_DEPLOY_MUTATION');
+});
+
 test('resolveTradeConfirmationState preserves copy-trade wallet binding provenance', () => {
     const walletBinding = {
         rawUserMessage: 'Copy Trade 0xbd708164137146ac234aceb75d3981cd3599e21a with $8',

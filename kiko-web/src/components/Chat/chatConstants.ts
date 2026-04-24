@@ -108,6 +108,7 @@ export type ChatModelControlKind = 'reasoning' | 'quality';
 
 export type ChatModelFamilyId =
   | 'gpt-5.4-mini'
+  | 'deepseek-v4-flash'
   | 'grok-4-1-fast'
   | 'gpt-image-2'
   | 'gpt-image-1-mini'
@@ -141,6 +142,10 @@ interface ChatModelFamilyControlOption {
 const BINARY_REASONING_OPTIONS: ChatModelFamilyControlOption[] = [
   { id: 'fast', label: 'Fast' },
   { id: 'thinking', label: 'Thinking' },
+];
+
+const SINGLE_FAST_REASONING_OPTIONS: ChatModelFamilyControlOption[] = [
+  { id: 'fast', label: 'Fast' },
 ];
 
 const GPT_54_MINI_REASONING_OPTIONS: ChatModelFamilyControlOption[] = [
@@ -193,6 +198,15 @@ export const MODEL_OPTIONS: ChatModelOption[] = [
     reasoningLevel: 'low',
     reasoningLabel: 'Low',
     reasoningEffort: 'low',
+  },
+  {
+    id: 'deepseek-v4-flash',
+    name: 'DeepSeek V4 Flash',
+    mode: 'fast',
+    kind: 'text',
+    familyId: 'deepseek-v4-flash',
+    reasoningLevel: 'fast',
+    reasoningLabel: 'Fast',
   },
   {
     id: 'grok-4-1-fast-non-reasoning',
@@ -274,7 +288,7 @@ export const MODEL_OPTIONS: ChatModelOption[] = [
   },
   {
     id: 'cloudflare-flux-2-klein-4b',
-    name: 'Cloudflare FLUX.2 Klein 4B',
+    name: 'FLUX.2 Klein 4B',
     mode: 'image',
     kind: 'image',
     familyId: 'cloudflare-flux-2-klein-4b',
@@ -284,7 +298,7 @@ export const MODEL_OPTIONS: ChatModelOption[] = [
   },
   {
     id: 'runware-flux-2-klein-9b-kv',
-    name: 'Runware FLUX.2 Klein 9B KV',
+    name: 'FLUX.2 Klein 9B KV',
     mode: 'image',
     kind: 'image',
     familyId: 'runware-flux-2-klein-9b-kv',
@@ -329,6 +343,7 @@ export function getDefaultChatModelOption(): ChatModelOption {
 
 const MODEL_FAMILY_ORDER: ChatModelFamilyId[] = [
   'gpt-5.4-mini',
+  'deepseek-v4-flash',
   'grok-4-1-fast',
   'gpt-image-2',
   'gpt-image-1-mini',
@@ -339,6 +354,7 @@ const MODEL_FAMILY_ORDER: ChatModelFamilyId[] = [
 
 const FAMILY_REASONING_OPTIONS: Record<ChatModelFamilyId, ChatModelFamilyControlOption[]> = {
   'gpt-5.4-mini': GPT_54_MINI_REASONING_OPTIONS,
+  'deepseek-v4-flash': SINGLE_FAST_REASONING_OPTIONS,
   'grok-4-1-fast': BINARY_REASONING_OPTIONS,
   'gpt-image-2': GPT_IMAGE_2_QUALITY_OPTIONS,
   'gpt-image-1-mini': GPT_IMAGE_1_MINI_QUALITY_OPTIONS,
@@ -349,6 +365,7 @@ const FAMILY_REASONING_OPTIONS: Record<ChatModelFamilyId, ChatModelFamilyControl
 
 const FAMILY_CONTROL_KIND: Record<ChatModelFamilyId, ChatModelControlKind> = {
   'gpt-5.4-mini': 'reasoning',
+  'deepseek-v4-flash': 'reasoning',
   'grok-4-1-fast': 'reasoning',
   'gpt-image-2': 'quality',
   'gpt-image-1-mini': 'quality',
@@ -372,6 +389,7 @@ function normalizeModelFamilyId(modelId?: string | null): ChatModelFamilyId | un
   }
   if (normalized.startsWith('grok-imagine-image-pro')) return 'grok-imagine-image';
   if (normalized.startsWith('grok-imagine-image')) return 'grok-imagine-image';
+  if (normalized === 'deepseek-v4-flash') return 'deepseek-v4-flash';
   if (normalized.startsWith('gpt-image-1-mini')) return 'gpt-image-1-mini';
   if (normalized.startsWith('gpt-image-2')) return 'gpt-image-2';
   if (normalized.startsWith('grok-4-1-fast')) return 'grok-4-1-fast';

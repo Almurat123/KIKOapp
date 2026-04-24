@@ -14,6 +14,7 @@
      Priority: **Target Wallet** → **Amount per trade**.
    - Use \`list_copy_trade_configs\` to show the user their active followings.
    - If the user provides multiple wallets or asks "which one should I follow", rank the candidates first with `analyze_wallet_pnl_batch` before creating any config.
+   - When ranking candidates, obey PnL tool `scope`, `coverage`, `warnings`, and `answerPolicy`. Batch Dune results are recent-window realized trading PnL only; never present them as complete wallet PnL or proof of all-time profitability.
 
 2. **Scope guardrail (critical)**:
    - COPY_TRADING here means EVM/Solana wallet copy trade configs.

@@ -17,6 +17,10 @@ test('getBillingCategory classifies OpenAI GPT variants as premium quota bucket'
     assert.equal(getBillingCategory('gpt-5.4-mini-2026-03-17'), 'premium');
 });
 
+test('getBillingCategory classifies DeepSeek variants as premium quota bucket', () => {
+    assert.equal(getBillingCategory('deepseek-v4-flash'), 'premium');
+});
+
 test('getBillingCategory classifies explicitly allowlisted free models as free quota bucket', () => {
     const original = [...env.billing.freeModels];
     env.billing.freeModels = ['free-model-example'];
@@ -71,6 +75,21 @@ test('computeUsdCost applies OpenAI cached input pricing and does not double-cou
     assert.equal(usdCost, 9.48);
 });
 
+test('computeUsdCost applies DeepSeek cache-hit and cache-miss pricing', () => {
+    const usdCost = computeUsdCost(
+        {
+            prompt_tokens: 1_000_000,
+            completion_tokens: 2_000_000,
+            prompt_cache_hit_tokens: 400_000,
+            prompt_cache_miss_tokens: 600_000,
+        },
+        'deepseek-v4-flash',
+        [],
+    );
+
+    assert.equal(usdCost, 0.6552);
+});
+
 test('computeTotalTokens only adds reasoning fallback for Grok', () => {
     const usage = {
         prompt_tokens: 100,
@@ -95,5 +114,6 @@ test('getDailyFreeQuotaForModel returns shared free and premium model quota knob
         env.billing.dailyFreeModelLimit = originalFreeLimit;
     }
     assert.equal(getDailyFreeQuotaForModel('gpt-5.4-mini-2026-03-17'), env.billing.dailyFreePremium);
+    assert.equal(getDailyFreeQuotaForModel('deepseek-v4-flash'), env.billing.dailyFreePremium);
     assert.equal(getDailyFreeQuotaForModel('grok-4-1-fast-reasoning'), env.billing.dailyFreePremium);
 });

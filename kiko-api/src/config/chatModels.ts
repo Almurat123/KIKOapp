@@ -67,6 +67,7 @@ const SUPPORTED_CHAT_REASONING_LEVELS = new Set<SupportedChatReasoningLevel>([
 
 export const SUPPORTED_CHAT_MODELS = new Set([
   'gpt-5.4-mini-2026-03-17',
+  'deepseek-v4-flash',
   'grok-4-1-fast-reasoning',
   'grok-4-1-fast-non-reasoning',
 ]);

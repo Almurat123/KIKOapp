@@ -162,6 +162,7 @@ import { env } from '../../config/env.js';
 import { hydrateGeneratedChatImageDataForClient, resolveGeneratedImagePublicUrl } from '../chatImageUploads.js';
 import type { SocialAgentInput } from '../socialAgentInput.js';
 import { logger } from '../../utils/logger.js';
+import { resolveNeynarFarcasterWallets, type NeynarFarcasterWalletResolution } from '../neynarService.js';
 
 function normalizeTaskModel(model?: string): string {
   return normalizeSupportedChatModel(model);
@@ -169,6 +170,55 @@ function normalizeTaskModel(model?: string): string {
 
 function buildUsageLimitMessage(usageDecision: any): string {
   return getUsageLimitMessage(usageDecision);
+}
+
+function summarizeFarcasterWalletEvidence(evidence: NeynarFarcasterWalletResolution | null) {
+  if (!evidence) {
+    return {
+      source: 'neynar_verified_addresses',
+      status: 'unavailable',
+      socialProfile: null,
+      accountStatus: null,
+      qualitySignals: null,
+      identityTags: [],
+      walletCandidates: [],
+      primaryVerifiedEvmAddress: null,
+      pnlEligibleEvmAddresses: [],
+      tradingWalletCandidateEvmAddresses: [],
+      confirmedTradingWalletAddresses: [],
+      warnings: ['Farcaster wallet evidence was not prefetched; use resolve_farcaster_wallets before wallet/PNL claims.'],
+    };
+  }
+
+  return {
+    source: evidence.walletSource,
+    status: evidence.success ? 'resolved' : 'unavailable',
+    identity: evidence.identity,
+    socialProfile: evidence.socialProfile,
+    accountStatus: evidence.accountStatus,
+    qualitySignals: evidence.qualitySignals,
+    identityTags: evidence.identityTags,
+    walletCandidates: evidence.walletCandidates.map((candidate) => ({
+      address: candidate.address,
+      network: candidate.network,
+      addressType: candidate.addressType,
+      walletRole: candidate.walletRole,
+      analysisRole: candidate.analysisRole,
+      source: candidate.source,
+      confidence: candidate.confidence,
+      isPrimary: candidate.isPrimary,
+      pnlEligible: candidate.pnlEligible,
+      canAssumeTradingWallet: candidate.canAssumeTradingWallet,
+    })),
+    primaryVerifiedEvmAddress: evidence.primaryVerifiedEvmAddress,
+    pnlEligibleEvmAddresses: evidence.pnlEligibleEvmAddresses,
+    tradingWalletCandidateEvmAddresses: evidence.tradingWalletCandidateEvmAddresses,
+    confirmedTradingWalletAddresses: evidence.confirmedTradingWalletAddresses,
+    answerPolicy: evidence.answerPolicy,
+    nextToolHint: evidence.nextToolHint,
+    warnings: evidence.warnings,
+    error: evidence.error || null,
+  };
 }
 
 export interface FarcasterAssistantReply {
@@ -466,10 +516,16 @@ export async function enqueueFarcasterAgentMessage(params: {
     status: 'streaming',
   });
 
-  const [evmWalletAddress, solanaWalletAddress] = await Promise.all([
+  const [evmWalletAddress, solanaWalletAddress, farcasterWalletEvidence] = await Promise.all([
     getEmbeddedWalletAddress(params.userId).catch(() => null),
     getSolanaEmbeddedWalletAddress(params.userId).catch(() => null),
+    resolveNeynarFarcasterWallets({
+      fid: params.farcasterFid,
+      username: params.farcasterUsername || null,
+      includeBalances: false,
+    }).catch(() => null),
   ]);
+  const farcasterWalletSummary = summarizeFarcasterWalletEvidence(farcasterWalletEvidence);
 
   const toolContext = {
     userId: params.userId,
@@ -495,6 +551,15 @@ export async function enqueueFarcasterAgentMessage(params: {
       profileUrl: buildFarcasterProfileUrl(params.farcasterUsername),
       kikoHandle: env.farcasterAgent.botUsername || 'kikoapp',
       followsKiko: null,
+      walletEvidence: farcasterWalletSummary,
+      socialProfile: farcasterWalletSummary.socialProfile,
+      qualitySignals: farcasterWalletSummary.qualitySignals,
+      walletCandidates: farcasterWalletSummary.walletCandidates,
+      walletSource: farcasterWalletSummary.source,
+      primaryVerifiedEvmAddress: farcasterWalletSummary.primaryVerifiedEvmAddress,
+      pnlEligibleEvmAddresses: farcasterWalletSummary.pnlEligibleEvmAddresses,
+      tradingWalletCandidateEvmAddresses: farcasterWalletSummary.tradingWalletCandidateEvmAddresses,
+      confirmedTradingWalletAddresses: farcasterWalletSummary.confirmedTradingWalletAddresses,
     },
     farcasterAgent: {
       sourceMessageId: params.sourceMessageId,

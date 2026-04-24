@@ -79,7 +79,7 @@ function makeProviderInfo(provider: ProviderInfo['provider'], model = 'gpt-5.4-m
         provider,
         model,
         supportsNativeSearch: provider === 'grok',
-        supportsPreviousResponse: true,
+        supportsPreviousResponse: provider !== 'deepseek',
     };
 }
 

@@ -253,7 +253,7 @@ function resolveConfirmationProgressMode(
 ): WorkerModeProgressState["mode"] {
   if (
     confirmation?.kind === "order_confirmation" &&
-    confirmation.order?.toolName === "deploy_clanker_token"
+    isTokenDeployToolName(confirmation.order?.toolName)
   ) {
     return "token_deploy";
   }
@@ -281,7 +281,7 @@ function buildModeProgressState(params: {
   if (latestReceipt) {
     return {
       mode:
-        latestReceipt.tool_name === "deploy_clanker_token"
+        isTokenDeployToolName(latestReceipt.tool_name)
           ? "token_deploy"
           : "trade_confirmation",
       internal_state: "executed",
@@ -599,7 +599,7 @@ function normalizeOrderExecutionArgs(
   const args = {
     ...((order?.args && typeof order.args === "object") ? order.args : {}),
   };
-  if (String(order?.toolName || "") === "deploy_clanker_token") {
+  if (isTokenDeployToolName(String(order?.toolName || ""))) {
     return {
       ...args,
       confirmDeploy: true,
@@ -772,6 +772,7 @@ function extractExecutionReceiptFromCall(
       "prepare_cross_chain_tx",
       "place_polymarket_order",
       "deploy_clanker_token",
+      "deploy_fourmeme_token",
     ].includes(toolName)
   ) {
     return null;
@@ -846,6 +847,11 @@ function extractExecutionReceiptFromCall(
     ),
     raw_status: rawStatus,
   }) as ExecutionReceiptState;
+}
+
+function isTokenDeployToolName(toolName: string | null | undefined): boolean {
+  const normalized = String(toolName || "").trim();
+  return normalized === "deploy_clanker_token" || normalized === "deploy_fourmeme_token";
 }
 
 function resolveQuoteStaleState(

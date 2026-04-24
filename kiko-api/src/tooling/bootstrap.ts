@@ -62,7 +62,7 @@ import { ExternalWebSearchTool, GetGasPriceTool, GetMarketOverviewTool, GetEcono
 import { PrepareSwapTransactionTool, SimulateSwapTool } from '../skills/SwapSkill/index.js';
 import { GetWalletInfoTool, SwitchChainTool, GetUserFavoritesTool, AnalyzeWalletPnlTool, AnalyzeWalletPnlAnalysisTool, AnalyzeWalletPnlBatchTool, GetTokenTopGainersTool } from '../skills/WalletSkill/index.js';
 import { CheckTokenRiskTool } from '../skills/RiskSkill/index.js';
-import { GetTrendingCastsTool, GetFarcasterUserTool, SearchFarcasterCastsTool } from '../skills/SocialSkill/index.js';
+import { GetTrendingCastsTool, GetFarcasterUserTool, SearchFarcasterCastsTool, ResolveFarcasterWalletsTool } from '../skills/SocialSkill/index.js';
 import { GetZoraTrendingTool, GetZoraProfileTool, SetZoraNotificationThresholdTool } from '../skills/ZoraSkill/index.js';
 import { CreateCopyTradeConfigTool, ListCopyTradeConfigsTool, DeleteCopyTradeConfigTool, PauseCopyTradeConfigTool } from '../skills/CopyTradeSkill/index.js';
 import {
@@ -100,6 +100,7 @@ import {
     GetClankerTokensDeployedByAddressTool,
     PrepareClankerClaimRewardsTool,
 } from '../skills/ClankerSkill/index.js';
+import { DeployFourMemeTokenTool } from '../skills/FourMemeSkill/index.js';
 import { CHAT_CONTEXT_READ_TOOLS } from '../jobs/chat/contextReadTools.js';
 
 let initialized = false;
@@ -124,6 +125,7 @@ const BUILT_IN_TOOLS = [
     GetTrendingCastsTool,
     GetFarcasterUserTool,
     SearchFarcasterCastsTool,
+    ResolveFarcasterWalletsTool,
     GetZoraTrendingTool,
     GetZoraProfileTool,
     SetZoraNotificationThresholdTool,
@@ -168,6 +170,7 @@ const BUILT_IN_TOOLS = [
     GetCrossChainQuoteTool,
     PrepareCrossChainTxTool,
     DeployClankerTokenTool,
+    DeployFourMemeTokenTool,
     GetClankerTokensByAdminTool,
     GetClankerTokensDeployedByAddressTool,
     GetClankerClaimedFeesTool,

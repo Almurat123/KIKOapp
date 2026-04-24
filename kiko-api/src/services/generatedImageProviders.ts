@@ -133,7 +133,6 @@ const PROVIDER_TIMEOUT_MS = resolveProviderTimeoutMs();
 const OPENAI_IMAGE_ENDPOINT = 'https://api.openai.com/v1/images/generations';
 const OPENAI_IMAGE_EDIT_ENDPOINT = 'https://api.openai.com/v1/images/edits';
 const OPENROUTER_IMAGE_ENDPOINT = String(process.env.OPENROUTER_API_URL || 'https://openrouter.ai/api/v1/chat/completions').trim();
-const OPENROUTER_GPT_IMAGE_1_MINI_MODEL = String(process.env.OPENROUTER_GPT_IMAGE_1_MINI_MODEL || 'openai/gpt-5-image-mini').trim();
 const OPENROUTER_GPT_IMAGE_2_MODEL = String(process.env.OPENROUTER_GPT_IMAGE_2_MODEL || 'openai/gpt-5.4-image-2').trim();
 const XAI_IMAGE_ENDPOINT = 'https://api.x.ai/v1/images/generations';
 const XAI_IMAGE_EDIT_ENDPOINT = 'https://api.x.ai/v1/images/edits';
@@ -312,12 +311,6 @@ function resolveOpenRouterHeaders(): Record<string, string> {
     return headers;
 }
 
-function resolveOpenRouterImageSize(quality: GeneratedImageProviderQuality): '1K' | '2K' | '4K' {
-    if (quality === 'low') return '1K';
-    if (quality === 'high') return '4K';
-    return '2K';
-}
-
 function resolveOpenRouterReasoningEffort(quality: GeneratedImageProviderQuality): 'low' | 'medium' | 'high' {
     if (quality === 'low') return 'low';
     if (quality === 'high') return 'high';
@@ -412,7 +405,7 @@ async function decodeGeneratedImageAsset(url: string): Promise<{ buffer: Buffer;
 }
 
 async function generateOpenRouterImage(
-    model: 'gpt-image-2' | 'gpt-image-1-mini',
+    model: 'gpt-image-2',
     prompt: string,
     quality: GeneratedImageProviderQuality,
     inputImages?: GeneratedImageProviderInputImage[] | null,
@@ -423,7 +416,7 @@ async function generateOpenRouterImage(
         throw new GeneratedImageProviderError('OpenRouter image generation is not configured on the server.', 'GENERATED_IMAGE_PROVIDER_NOT_CONFIGURED', 503);
     }
 
-    const routerModel = model === 'gpt-image-2' ? OPENROUTER_GPT_IMAGE_2_MODEL : OPENROUTER_GPT_IMAGE_1_MINI_MODEL;
+    const routerModel = OPENROUTER_GPT_IMAGE_2_MODEL;
     const normalizedInputImages = normalizeProviderInputImages(inputImages);
     const controller = createAbortController(PROVIDER_TIMEOUT_MS);
     const response = await fetch(OPENROUTER_IMAGE_ENDPOINT, {
@@ -443,17 +436,9 @@ async function generateOpenRouterImage(
             ],
             modalities: ['image', 'text'],
             stream: Boolean(onProgress),
-            ...(model === 'gpt-image-2' ? {} : {
-                image_config: {
-                    aspect_ratio: '1:1',
-                    image_size: resolveOpenRouterImageSize(quality),
-                },
-            }),
-            ...(model === 'gpt-image-2' ? {
-                reasoning: {
-                    effort: resolveOpenRouterReasoningEffort(quality),
-                },
-            } : {}),
+            reasoning: {
+                effort: resolveOpenRouterReasoningEffort(quality),
+            },
         }),
         signal: controller.signal,
     });
@@ -1084,9 +1069,7 @@ export async function generateImageWithProvider(params: GeneratedImageProviderRe
         logger.info(LogCode.AI_API_CALL, 'Generated image provider selected', {
             provider: useOpenRouter ? 'openrouter' : 'openai',
             model,
-            routerModel: useOpenRouter
-                ? (model === 'gpt-image-2' ? OPENROUTER_GPT_IMAGE_2_MODEL : OPENROUTER_GPT_IMAGE_1_MINI_MODEL)
-                : undefined,
+            routerModel: useOpenRouter ? OPENROUTER_GPT_IMAGE_2_MODEL : undefined,
             endpoint: useOpenRouter
                 ? OPENROUTER_IMAGE_ENDPOINT
                 : (inputImages.length > 0 ? OPENAI_IMAGE_EDIT_ENDPOINT : OPENAI_IMAGE_ENDPOINT),
@@ -1099,7 +1082,7 @@ export async function generateImageWithProvider(params: GeneratedImageProviderRe
         });
         if (useOpenRouter) {
             return generateOpenRouterImage(
-                model,
+                'gpt-image-2',
                 prompt,
                 quality,
                 inputImages,

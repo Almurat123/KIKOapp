@@ -173,7 +173,7 @@ export interface ClankerPaginationInput {
 
 const DEFAULT_CLANKER_API_BASE_URL = 'https://www.clanker.world';
 const CLANKER_TOKEN_PAGE_BASE_URL = 'https://www.clanker.world/clanker';
-const DEPLOY_SUPPORTED_CHAIN_IDS = new Set([8453, 130, 42161, 1, 84532, 10143, 143, 2741]);
+const DEPLOY_SUPPORTED_CHAIN_IDS = new Set([8453]);
 const CLAIMED_FEES_SUPPORTED_CHAIN_IDS = new Set([8453, 84532, 42161, 10143]);
 const WETH_ADDRESS_BY_CHAIN_ID = WETH_ADDRESSES as Record<number, string | undefined>;
 

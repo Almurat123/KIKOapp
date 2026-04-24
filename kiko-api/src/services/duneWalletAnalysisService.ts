@@ -12,6 +12,9 @@ export type WalletTokenPnlAnalysis = {
     profitPct: number | null;
     currentTokenBalance: null;
     unrealizedPnlUsd: null;
+    costBasisComplete: boolean | null;
+    remainingAmount: number | null;
+    remainingCostUsd: number | null;
     coverage: 'existing_wallet_breakdown_query';
 };
 
@@ -27,6 +30,9 @@ export type WalletPortfolioTokenBreakdownAnalysis = {
         totalSellUsd: number;
         realizedPnlUsd: number;
         profitPct: number | null;
+        costBasisComplete: boolean | null;
+        remainingAmount: number | null;
+        remainingCostUsd: number | null;
     }>;
     coverage: 'existing_wallet_breakdown_query';
 };
@@ -47,6 +53,9 @@ function mapTokenRow(token: DunePnlResult) {
         totalSellUsd: token.soldUsd,
         realizedPnlUsd: token.pnlUsd,
         profitPct: token.profitPct,
+        costBasisComplete: token.costBasisComplete ?? null,
+        remainingAmount: token.remainingAmount ?? null,
+        remainingCostUsd: token.remainingCostUsd ?? null,
     };
 }
 
@@ -113,6 +122,9 @@ export async function analyzeWalletTokenPnl(
         profitPct: token.profitPct,
         currentTokenBalance: null,
         unrealizedPnlUsd: null,
+        costBasisComplete: token.costBasisComplete ?? null,
+        remainingAmount: token.remainingAmount ?? null,
+        remainingCostUsd: token.remainingCostUsd ?? null,
         coverage: 'existing_wallet_breakdown_query',
     };
 }

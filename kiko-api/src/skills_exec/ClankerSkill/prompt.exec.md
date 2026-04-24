@@ -69,15 +69,15 @@ See also:
 
 # Deploy Token via Clanker
 
-Use this skill when the user wants to launch a token through Clanker, inspect
-Clanker deploy or reward history, or prepare claim rewards.
+Use this skill when the user wants to launch a token on Base through Clanker,
+inspect Clanker deploy or reward history, or prepare claim rewards.
 
 ## Launch flow
 
+- Clanker deploys in this product path are Base-only. If the user wants BNB Chain / BSC, use Four.meme instead.
 - Ask only for hard missing requirements: token name and symbol. Ask for token
   admin only when runtime cannot provide a tagged user wallet. Ask for chain
-  only when the user explicitly wants a non-default chain but the chain is
-  ambiguous.
+  only when the user explicitly mentions Base and the chain context is ambiguous.
 - Treat image, description, reward split, pool pair, fees, and creator buy as
   optional/defaultable. Do not block dry-run preparation on those fields; omit
   them or use the defaults below when the user does not specify them.

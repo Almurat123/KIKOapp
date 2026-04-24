@@ -202,6 +202,7 @@ const SKILL_INTENT_MAP: Record<string, NormalizedIntent[]> = {
     token_alert: ['TOKEN_ALERTS'],
     market_macro: ['MARKET_MACRO'],
     clanker_deploy_token: ['CLANKER_DEPLOY'],
+    fourmeme_deploy_token: ['CLANKER_DEPLOY'],
     image_generation: ['IMAGE_GENERATION'],
     image_prompting: ['IMAGE_PROMPTING'],
 };
@@ -225,7 +226,7 @@ const INTENT_SIGNAL_MAP: Record<NormalizedIntent, keyof QuerySignals> = {
     IMAGE_PROMPTING: 'imagePrompting',
 };
 
-const CLANKER_DEPLOY_QUERY_RE = /\bclanker\b|\b(?:deploy|launch|create|mint)\s+(?:a\s+)?(?:token|coin|memecoin)\b|\btoken\s+(?:deploy|launch|launchpad)\b|部署代币|上线代币|创建代币|发币|发行代币/i;
+const CLANKER_DEPLOY_QUERY_RE = /\bclanker\b|\bfour\.meme\b|\bfourmeme\b|\b(?:deploy|launch|create|mint)\s+(?:a\s+)?(?:token|coin|memecoin)\b|\btoken\s+(?:deploy|launch|launchpad)\b|部署代币|上线代币|创建代币|发币|发行代币/i;
 const IMAGE_GENERATION_QUERY_RE = /\b(?:generate|create|make|design|draw|render|illustrate)\b.{0,40}\b(?:image|picture|poster|cover|illustration|thumbnail|banner|hero|visual|artwork|ad|creative|mockup|photo)\b|\b(?:image|picture|poster|cover|illustration|thumbnail|banner|hero|visual|artwork|ad|creative|mockup|photo)\b.{0,40}\b(?:generate|create|make|design|draw|render)\b|(?:做|生成|画|设计)(?:一张|一个|个)?[^。！？\n]{0,40}(?:图|图片|海报|封面|插画|配图|宣传图|视觉稿)/i;
 const IMAGE_VISUAL_ACTION_RE = /\b(?:generate|create|make|design|draw|render|illustrate|edit|restyle|transform|photoshop|composite|remix|reimagine|replace|remove|erase|extend|inpaint|outpaint|place|put|turn)\b|(?:做|生成|画|设计|改|修|编辑|重绘|扩图|补图|抠掉|去掉|替换|换成|放到|放在|合成|变成|做成)/i;
 const IMAGE_VISUAL_NOUN_RE = /\b(?:image|picture|poster|cover|illustration|thumbnail|banner|hero|visual|artwork|ad|creative|mockup|photo|photograph|wallpaper|portrait|scene|shot)\b|(?:图|图片|海报|封面|插画|配图|宣传图|视觉稿|壁纸|头像|照片|场景图)/i;

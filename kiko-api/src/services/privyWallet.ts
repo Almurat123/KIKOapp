@@ -2069,6 +2069,56 @@ export async function signTypedData(
     }
 }
 
+export async function signMessage(
+    userId: string,
+    message: string,
+): Promise<string> {
+    const client = getPrivyClient();
+    const walletInfo = await getEmbeddedWalletInfo(userId, { chainType: 'ethereum' });
+    if (!walletInfo) {
+        throw new AppError(400, 'User has no EVM embedded wallet', 'NO_EVM_WALLET');
+    }
+
+    const normalizedMessage = String(message || '');
+    if (!normalizedMessage.trim()) {
+        throw new AppError(400, 'Message must not be empty', 'INVALID_SIGN_MESSAGE');
+    }
+
+    logger.debug(LogCode.SYS_INFO, 'Signing plaintext message via Privy', {
+        userId,
+        messageLength: normalizedMessage.length,
+    });
+
+    try {
+        const response = await (client.walletApi.ethereum as any).signMessage({
+            walletId: walletInfo.id,
+            message: normalizedMessage,
+        });
+
+        logger.info(LogCode.SYS_INFO, 'Plaintext signature obtained via Privy', { userId });
+        return response.signature;
+    } catch (error: any) {
+        logger.error(LogCode.SYS_ERROR, 'Plaintext signing failed via Privy', {
+            error: error.message,
+            userId,
+        });
+
+        if (error.message?.includes('not delegated')) {
+            throw new AppError(
+                403,
+                'User has not enabled server-side signing. Please enable delegation in wallet settings.',
+                'DELEGATION_REQUIRED'
+            );
+        }
+
+        throw new AppError(
+            500,
+            `Failed to sign message: ${error.message || 'Unknown error'}`,
+            'SIGNING_FAILED'
+        );
+    }
+}
+
 /**
  * Check if Privy server-side signing is configured
  */

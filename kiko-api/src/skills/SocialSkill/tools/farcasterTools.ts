@@ -1,6 +1,7 @@
 import { Tool } from '../../../tooling/registry.js';
 import { getTrendingCasts, searchCasts, hybridSearchCasts } from '../../../repositories/socialRepository.js';
 import { getUserDataByFid, getCastsByFid, farcasterToUnixTimestamp } from '../../../services/snapchainService.js';
+import { resolveNeynarFarcasterWallets } from '../../../services/neynarService.js';
 // Removed axios dependency to use native fetch
 
 // SNAPCHAIN_HUB_URL will be fetched inside handlers to ensure env vars are loaded
@@ -128,6 +129,38 @@ export const GetFarcasterUserTool: Tool = {
     },
     handler: async ({ fid, include_casts = true }) => {
         return await getFarcasterUser(fid, include_casts);
+    }
+};
+
+export const ResolveFarcasterWalletsTool: Tool = {
+    definition: {
+        name: 'resolve_farcaster_wallets',
+        description: 'Resolve a Farcaster FID or username to Neynar identity, account status, quality score/signals, identity tags, social-profile, verified accounts, and wallet evidence. Use this before wallet balance/PNL tools when the user asks about a Farcaster user, handle, FID, account status, score, labels/tags, verified accounts, or linked wallets. It separates the user\'s Farcaster wallet from verified wallets; verified EVM wallets are only trading-analysis candidates until wallet activity/PNL tools confirm trading evidence. It can return optional Base balances, and its policy says this tool itself cannot answer PNL.',
+        parameters: {
+            type: 'object',
+            properties: {
+                fid: {
+                    type: 'integer',
+                    description: 'Farcaster user ID (FID). Preferred when available.'
+                },
+                username: {
+                    type: 'string',
+                    description: 'Farcaster username or handle, with or without @.'
+                },
+                include_balances: {
+                    type: 'boolean',
+                    description: 'Whether to include Neynar Base token balances for the resolved FID. Defaults to false. Neynar balances are current holdings only and do not answer PNL.'
+                }
+            },
+            required: []
+        }
+    },
+    handler: async ({ fid, username, include_balances = false }) => {
+        return await resolveNeynarFarcasterWallets({
+            fid: Number(fid || 0) || null,
+            username: typeof username === 'string' ? username : null,
+            includeBalances: Boolean(include_balances),
+        });
     }
 };
 

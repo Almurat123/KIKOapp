@@ -82,7 +82,7 @@ function toolError(error: unknown) {
 export const DeployClankerTokenTool: Tool = {
     definition: {
         name: 'deploy_clanker_token',
-        description: 'Prepare or execute a Clanker v4 token deployment. Defaults are: token admin from the tagged user wallet when available, one reward recipient that receives 100%, standard pool with the chain native wrapped asset address, initial market cap 10, fixed fees at 1% / 1%, and simple creator buy support via devBuy. Treat phrases like "buy me 0.1 ETH/BNB" as devBuy.ethAmount = 0.1. Only ask for poolKey, amountOutMin, and recipient when the user explicitly wants a non-ETH route, slippage control, or custom settlement. Successful deploys should return the Clanker token page URL when the API provides a token address. Only set confirmDeploy=true after the user explicitly confirms the launch.',
+        description: 'Prepare or execute a Clanker v4 token deployment on Base only. Defaults are: token admin from the tagged user wallet when available, one reward recipient that receives 100%, standard pool with the chain native wrapped asset address, initial market cap 10, fixed fees at 1% / 1%, and simple creator buy support via devBuy. Treat phrases like "buy me 0.1 ETH" as devBuy.ethAmount = 0.1. Only ask for poolKey, amountOutMin, and recipient when the user explicitly wants a non-ETH route, slippage control, or custom settlement. Successful deploys should return the Clanker token page URL when the API provides a token address. Only set confirmDeploy=true after the user explicitly confirms the launch.',
         parameters: {
             type: 'object',
             properties: {
@@ -91,7 +91,7 @@ export const DeployClankerTokenTool: Tool = {
                 image: { type: 'string', description: 'Token image URL or IPFS URI.' },
                 description: { type: 'string', description: 'Creator-facing token description.' },
                 tokenAdmin: { type: 'string', description: 'EVM address that can update token metadata and administer token controls. If omitted, KiKo will try to use the tagged user wallet.' },
-                chainId: { type: 'number', description: 'Deployment chain ID. Defaults to Base mainnet 8453.' },
+                chainId: { type: 'number', description: 'Deployment chain ID. Must be Base mainnet 8453.' },
                 requestKey: { type: 'string', description: 'Optional 32-character idempotency key. Generated if omitted.' },
                 rewards: {
                     type: 'array',

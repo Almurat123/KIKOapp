@@ -76,6 +76,58 @@ const CHAIN_ID_BY_SLUG: Record<string, number> = {
     op: 10,
 };
 
+function formatTimeRange(days: number): string {
+    return days === 1 ? '24H' : `${days}D`;
+}
+
+function buildBatchPnlScope(chain: string, days: number, profile: BatchQueryProfile, tokenAddress: string | null) {
+    return {
+        chain,
+        period: formatTimeRange(days),
+        providerPeriod: formatTimeRange(days),
+        exactDays: true,
+        assetCoverage: tokenAddress ? 'single_token_dex_trades_only' : 'dex_trades_only',
+        pnlType: 'recent_window_realized_trading_pnl_ranking',
+        costBasisMethod: profile === 'wallet_token_pnl_analysis'
+            ? 'dune_sql_or_manual_transfer_cost_basis'
+            : 'dune_sql_token_breakdown_aggregate',
+        includesUnrealized: false,
+        includesNativeBalance: false,
+        includesTransfers: profile === 'wallet_token_pnl_analysis',
+        includesDeFi: false,
+        includesDexTrades: true,
+        queryProfile: profile,
+        tokenAddress,
+    };
+}
+
+function buildBatchPnlAnswerPolicy(extraLimitations: string[] = []) {
+    return {
+        canAnswerWalletTotalPnl: false,
+        canAnswerWalletRealizedPnl: false,
+        canAnswerWalletUnrealizedPnl: false,
+        canAnswerRealizedTradingPnl: true,
+        canRankWalletsByTradingPnl: true,
+        mustMentionScope: true,
+        mustMentionProvider: true,
+        mustMentionLimitations: [
+            'Batch PNL is recent-window realized trading PNL only, not full wallet PNL.',
+            'Unrealized PNL, current balances, bridges, DeFi positions, NFT activity, and native balance changes are not included.',
+            'Wallets marked no_coverage or partial_cost_basis must not be treated as proven profitable or unprofitable.',
+            ...extraLimitations,
+        ],
+    };
+}
+
+function buildBatchPnlWarnings(wallets: BatchWalletPnlResult[]) {
+    const noCoverage = wallets.filter((wallet) => wallet.coverage === 'batch_wallet_list_sql_no_coverage').length;
+    const partial = wallets.filter((wallet) => wallet.coverage === 'batch_wallet_list_sql_partial_cost_basis').length;
+    const warnings: string[] = [];
+    if (noCoverage > 0) warnings.push(`${noCoverage} wallet(s) had no matching DEX PNL coverage in the requested window.`);
+    if (partial > 0) warnings.push(`${partial} wallet(s) had partial cost basis and must not be ranked as proven profit/loss.`);
+    return warnings;
+}
+
 function normalizeNullableFiniteNumber(value: unknown): number | null {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
@@ -536,13 +588,24 @@ export const AnalyzeWalletPnlBatchTool: Tool = {
                 success: true,
                 chain,
                 days,
-                timeRange: days === 1 ? '24H' : `${days}D`,
+                timeRange: formatTimeRange(days),
                 profile,
                 requestedTokenAddress: tokenAddress,
                 requestedCount,
                 analyzedCount: validAddresses.length,
                 returnedCount: wallets.length,
                 invalidAddresses,
+                scope: buildBatchPnlScope(chain, days, profile, tokenAddress),
+                coverage: {
+                    provider: 'dune',
+                    coverage: 'batch_wallet_list_sql',
+                    supportedAnswer: profile === 'wallet_token_pnl_analysis'
+                        ? 'single_token_recent_window_realized_trading_pnl_ranking'
+                        : 'portfolio_recent_window_realized_dex_trading_pnl_ranking',
+                    unsupportedAnswers: ['wallet_total_pnl', 'unrealized_pnl', 'native_balance_pnl', 'bridge_or_defi_pnl'],
+                },
+                warnings: buildBatchPnlWarnings(wallets),
+                answerPolicy: buildBatchPnlAnswerPolicy(buildBatchPnlWarnings(wallets)),
                 meta: {
                     source: 'dune_analysis',
                     sortBy,

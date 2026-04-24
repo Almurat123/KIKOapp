@@ -135,7 +135,7 @@ test('routes Clanker deploy queries to the dedicated Clanker skill first', () =>
     assert.equal(resolution.selectedSkills[0], 'clanker_deploy_token');
     assert.ok(resolution.allowedTools.includes('deploy_clanker_token'));
     assert.ok(resolution.preferredTools.includes('deploy_clanker_token'));
-    assert.ok(resolution.strategyNotes.some((note) => note.includes('Clanker launch')));
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('Base uses Clanker')));
     assert.equal(resolution.intentEnvelope.primary_intent, 'token_deploy');
     assert.equal(resolution.intentEnvelope.execution_risk, 'mutation');
 });
@@ -163,6 +163,52 @@ test('canonical Clanker deploy intent routes to token deploy mutation envelope',
     assert.equal(resolution.intentEnvelope.task_mode, 'execute');
     assert.equal(resolution.intentEnvelope.domain, 'token');
     assert.equal(resolution.intentEnvelope.execution_risk, 'mutation');
+});
+
+test('canonical token deploy intent routes BSC launches to the Four.meme skill', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'token',
+        intent: 'clanker_deploy',
+        taskMode: 'execute',
+        outputMode: 'execution_ready',
+        requestedChain: {
+            chainId: 56,
+            chainName: 'BNB Chain',
+            source: 'llm',
+        },
+        executionCandidate: true,
+    });
+    const resolution = resolveNodeSkills(makeSnapshot('Deploy a token on BSC named testblack symbol TB', {
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
+
+    assert.equal(resolution.selectedSkills[0], 'fourmeme_deploy_token');
+    assert.ok(resolution.allowedTools.includes('deploy_fourmeme_token'));
+    assert.ok(!resolution.allowedTools.includes('deploy_clanker_token'));
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('Four.meme')));
+    assert.equal(resolution.intentEnvelope.primary_intent, 'token_deploy');
+});
+
+test('explicit unsupported token deploy chains do not expose a deploy tool', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'token',
+        intent: 'clanker_deploy',
+        taskMode: 'execute',
+        outputMode: 'execution_ready',
+        requestedChain: {
+            chainId: 1,
+            chainName: 'Ethereum',
+            source: 'llm',
+        },
+        executionCandidate: true,
+    });
+    const resolution = resolveNodeSkills(makeSnapshot('Deploy a token on Ethereum', {
+        normalizedIntent: canonicalIntent,
+    }), null, canonicalIntent);
+
+    assert.ok(!resolution.allowedTools.includes('deploy_clanker_token'));
+    assert.ok(!resolution.allowedTools.includes('deploy_fourmeme_token'));
+    assert.ok(resolution.strategyNotes.some((note) => note.includes('unsupported')));
 });
 
 test('routes Zora trend queries to Zora skill first', () => {
@@ -643,6 +689,25 @@ const PROFESSIONAL_TOOL_ROUTING_CASES: ProfessionalToolRoutingCase[] = [
         expectedPreferredTools: ['deploy_clanker_token'],
     },
     {
+        name: 'Four.meme deploy',
+        message: 'Deploy a token on BSC named Kiko BNB.',
+        canonicalIntent: makeCanonicalIntent({
+            domain: 'token',
+            intent: 'clanker_deploy',
+            taskMode: 'execute',
+            outputMode: 'execution_ready',
+            requestedChain: {
+                chainId: 56,
+                chainName: 'BNB Chain',
+                source: 'llm',
+            },
+            executionCandidate: true,
+        }),
+        expectedSkills: ['fourmeme_deploy_token'],
+        expectedAllowedTools: ['deploy_fourmeme_token', 'read_user_settings'],
+        expectedPreferredTools: ['deploy_fourmeme_token'],
+    },
+    {
         name: 'Polymarket discovery',
         message: 'What are the best active Polymarket opportunities right now?',
         canonicalIntent: makeCanonicalIntent({
@@ -741,7 +806,7 @@ const PROFESSIONAL_TOOL_ROUTING_CASES: ProfessionalToolRoutingCase[] = [
             requiresRealtime: true,
         }),
         expectedSkills: ['social_farcaster'],
-        expectedAllowedTools: ['get_trending_casts', 'search_farcaster_casts', 'get_farcaster_user', 'read_workflow_state'],
+        expectedAllowedTools: ['get_trending_casts', 'search_farcaster_casts', 'get_farcaster_user', 'resolve_farcaster_wallets', 'read_workflow_state'],
         expectedPreferredTools: ['read_workflow_state'],
     },
 ];
@@ -1507,6 +1572,40 @@ test('non-Grok Farcaster discovery stays in local analysis phase', () => {
     assert.equal(resolution.intentEnvelope.domain, 'farcaster');
     assert.equal(resolution.toolPhasePolicy.initialPhase, 'local_analysis');
     assert.ok(resolution.allowedTools.includes('get_trending_casts'));
+});
+
+test('Farcaster wallet PNL turns prefer Neynar wallet resolution before PNL tools', () => {
+    const canonicalIntent = makeCanonicalIntent({
+        domain: 'farcaster',
+        intent: 'wallet_pnl',
+        taskMode: 'analyze',
+        requiresOnchainEvidence: true,
+    });
+    const resolution = resolveNodeSkills(makeSnapshot('Farcaster inbound mention context:\nCurrent @alice: what is my Base PNL?', {
+        model: 'gpt-5-mini',
+        normalizedIntent: canonicalIntent,
+        runtime: {
+            currentPage: 'farcaster',
+            pageContext: 'farcaster_agent',
+            socialInput: {
+                platform: 'farcaster',
+                currentText: 'what is my Base PNL?',
+                images: [],
+            },
+        },
+    }), null, canonicalIntent);
+
+    assert.ok(resolution.selectedSkills.includes('social_farcaster'));
+    assert.ok(resolution.selectedSkills.includes('wallet_portfolio'));
+    assert.ok(resolution.allowedTools.includes('resolve_farcaster_wallets'));
+    assert.ok(resolution.allowedTools.includes('analyze_wallet_pnl_batch'));
+    assert.ok(resolution.preferredTools.includes('resolve_farcaster_wallets'));
+    assert.ok(resolution.preferredTools.includes('analyze_wallet_pnl_batch'));
+    assert.ok(
+        resolution.preferredTools.indexOf('resolve_farcaster_wallets')
+        < resolution.preferredTools.indexOf('analyze_wallet_pnl_batch'),
+    );
+    assert.ok(resolution.strategyNotes.some((note) => /Neynar wallet-role evidence/i.test(note)));
 });
 
 test('Grok social discovery on Farcaster uses native search only and blocks local Farcaster cache tools', () => {

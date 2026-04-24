@@ -68,6 +68,12 @@ const CHAT_MODEL_CHOICES: ChatModelChoice[] = [
     reasoningLevel: 'medium',
   },
   {
+    label: 'DeepSeek V4 Flash / fast',
+    command: '/model deepseek flash',
+    model: 'deepseek-v4-flash',
+    reasoningLevel: 'fast',
+  },
+  {
     label: 'Grok 4.1 Fast / fast',
     command: '/model grok fast',
     model: 'grok-4-1-fast-non-reasoning',
@@ -123,6 +129,12 @@ const IMAGE_MODEL_CHOICES: ImageModelChoice[] = [
     command: '/image grok normal',
     model: 'grok-imagine-image',
     quality: 'normal',
+  },
+  {
+    label: 'Grok Imagine Pro / pro',
+    command: '/image grok pro',
+    model: 'grok-imagine-image-pro',
+    quality: 'pro',
   },
 ];
 
@@ -180,6 +192,8 @@ function matchChatModelChoice(command: string): ChatModelChoice | null {
   const inferredModel =
     compact.includes('gpt-5.4-mini') || compact.includes('gpt-54-mini') || compact.includes('gpt5.4-mini')
       ? 'gpt-5.4-mini-2026-03-17'
+      : compact.includes('deepseek')
+        ? 'deepseek-v4-flash'
       : compact.includes('grok') && (reasoningLevel === 'thinking' || compact.includes('reason'))
         ? 'grok-4-1-fast-reasoning'
         : compact.includes('grok')
@@ -217,6 +231,8 @@ function matchImageModelChoice(command: string): ImageModelChoice | null {
     ? 'cloudflare-flux-2-klein-4b'
     : compact.includes('runware') || compact.includes('flux-2-klein-9b-kv') || compact.includes('flux.2-klein-9b-kv')
       ? 'runware-flux-2-klein-9b-kv'
+      : compact.includes('grok-imagine-image-pro') || compact.includes('grok-pro') || compact.includes('grokpro')
+        ? 'grok-imagine-image-pro'
       : compact.includes('grok')
     ? 'grok-imagine-image'
     : compact.includes('gpt-image-2')

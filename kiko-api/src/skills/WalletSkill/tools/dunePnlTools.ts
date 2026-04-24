@@ -12,6 +12,89 @@ function formatTimeRange(days: number): string {
 
 const DUNE_SUPPORTED_EVM_CHAINS = ['eth', 'base', 'bsc', 'polygon', 'arbitrum', 'optimism', 'avalanche'] as const;
 
+function buildZerionScope(chain: string, days: number, providerPeriod?: string, exactDays?: boolean) {
+    return {
+        chain,
+        period: formatTimeRange(days),
+        providerPeriod: providerPeriod || null,
+        exactDays: !!exactDays,
+        assetCoverage: 'zerion_wallet_supported_assets',
+        pnlType: 'wallet_level_realized_unrealized_total',
+        costBasisMethod: 'provider_fifo',
+        includesUnrealized: true,
+        includesNativeBalance: true,
+        includesTransfers: true,
+        includesDeFi: true,
+        includesDexTrades: true,
+    };
+}
+
+function buildZerionAnswerPolicy(exactDays: boolean) {
+    const mustMentionLimitations = [
+        'Token-level trade attribution and win rate are not provided by this summary.',
+    ];
+    if (!exactDays) {
+        mustMentionLimitations.unshift('Requested days are mapped to a Zerion provider period bucket.');
+    }
+
+    return {
+        canAnswerWalletTotalPnl: true,
+        canAnswerWalletRealizedPnl: true,
+        canAnswerWalletUnrealizedPnl: true,
+        canAnswerRealizedTradingPnl: false,
+        canRankWalletsByTradingPnl: false,
+        mustMentionScope: true,
+        mustMentionProvider: true,
+        mustMentionLimitations,
+    };
+}
+
+function buildDuneScope(chain: string, days: number, profile: string, tokenAddress?: string | null) {
+    return {
+        chain,
+        period: formatTimeRange(days),
+        providerPeriod: formatTimeRange(days),
+        exactDays: true,
+        assetCoverage: tokenAddress ? 'single_token_dex_trades_only' : 'dex_trades_only',
+        pnlType: 'realized_trading_pnl_only',
+        costBasisMethod: 'fifo_from_dex_trade_events',
+        includesUnrealized: false,
+        includesNativeBalance: false,
+        includesTransfers: false,
+        includesDeFi: false,
+        includesDexTrades: true,
+        queryProfile: profile,
+        tokenAddress: tokenAddress || null,
+    };
+}
+
+function buildDuneAnswerPolicy(extraLimitations: string[] = []) {
+    return {
+        canAnswerWalletTotalPnl: false,
+        canAnswerWalletRealizedPnl: false,
+        canAnswerWalletUnrealizedPnl: false,
+        canAnswerRealizedTradingPnl: true,
+        canRankWalletsByTradingPnl: true,
+        mustMentionScope: true,
+        mustMentionProvider: true,
+        mustMentionLimitations: [
+            'Dune result is DEX realized trading PNL only, not full wallet PNL.',
+            'Unrealized PNL, current balances, transfers, bridges, DeFi positions, NFT activity, and native balance changes are not included.',
+            'Tokens with incomplete cost basis must not be treated as profit or loss.',
+            ...extraLimitations,
+        ],
+    };
+}
+
+function buildDuneWarningsFromTokens(tokens: Array<{ costBasisComplete?: boolean | null; tokenSymbol?: string | null; tokenAddress?: string | null }>) {
+    const incomplete = tokens.filter((token) => token.costBasisComplete === false);
+    if (incomplete.length === 0) return [];
+    return [
+        `Incomplete cost basis for ${incomplete.length} token(s); those rows must not be counted as realized profit/loss.`,
+        `Incomplete examples: ${incomplete.slice(0, 5).map((token) => token.tokenSymbol || token.tokenAddress || 'unknown').join(', ')}.`,
+    ];
+}
+
 function isEvmChain(chain: string): boolean {
     return chain !== 'solana';
 }
@@ -122,9 +205,9 @@ export const AnalyzeWalletPnlTool: Tool = {
             logger.info(LogCode.AI_TOOL_USED, 'Analyzing wallet PNL summary with Zerion', { address, chain, days });
             if (!chainSupport.zerion.configured) {
                 return {
-                    meta: {
-                        source: 'zerion_summary',
-                        requestedDays: days,
+	                meta: {
+	                    source: 'zerion_summary',
+	                    requestedDays: days,
                         chainSupport,
                     },
                     error: 'Zerion API key is not configured for wallet summary PnL.',
@@ -169,11 +252,22 @@ export const AnalyzeWalletPnlTool: Tool = {
                         providerPeriod: zerionResult.appliedPeriod,
                         exactDays: zerionResult.periodIsExactDays,
                     },
-                    chainSupport,
-                    providerLatencyMs: zerionResult.queryExecutionTimeMs,
-                },
-                summary: {
-                    totalRealizedPnlUsd: zerionResult.realizedGainUsd,
+	                    chainSupport,
+	                    providerLatencyMs: zerionResult.queryExecutionTimeMs,
+	                },
+	                scope: buildZerionScope(chain, days, zerionResult.appliedPeriod, zerionResult.periodIsExactDays),
+	                coverage: {
+	                    provider: 'zerion',
+	                    coverage: 'wallet_level_summary_only',
+	                    supportedAnswer: 'wallet_level_pnl_summary',
+	                    unsupportedAnswers: ['token_level_trade_breakdown', 'trading_win_rate', 'dex_only_realized_pnl'],
+	                },
+	                warnings: zerionResult.periodIsExactDays
+	                    ? []
+	                    : ['Zerion period is provider-bucketed; do not describe it as an exact day slice.'],
+	                answerPolicy: buildZerionAnswerPolicy(zerionResult.periodIsExactDays),
+	                summary: {
+	                    totalRealizedPnlUsd: zerionResult.realizedGainUsd,
                     totalRealizedProfitUsd: zerionResult.realizedGainUsd > 0 ? zerionResult.realizedGainUsd : 0,
                     totalRealizedLossUsd: zerionResult.realizedGainUsd < 0 ? zerionResult.realizedGainUsd : 0,
                     tradingPnlUsd: zerionResult.realizedGainUsd,
@@ -289,19 +383,29 @@ export const AnalyzeWalletPnlAnalysisTool: Tool = {
                         tokenAddress,
                         queryProfile,
                     },
-                    meta: {
-                        source: 'dune_analysis',
-                        requestedDays: days,
-                        chainSupport,
-                        expectedProvider: 'dune',
-                        coverage: 'existing_wallet_breakdown_query',
-                    },
-                };
-            }
+	                    meta: {
+	                        source: 'dune_analysis',
+	                        requestedDays: days,
+	                        chainSupport,
+	                        expectedProvider: 'dune',
+	                        coverage: 'existing_wallet_breakdown_query',
+	                    },
+	                    scope: buildDuneScope(chain, days, 'wallet_token_pnl_analysis', tokenAddress),
+	                    coverage: {
+	                        provider: 'dune',
+	                        coverage: 'no_data',
+	                        supportedAnswer: 'single_token_realized_dex_trading_pnl',
+	                        unsupportedAnswers: ['wallet_total_pnl', 'unrealized_pnl', 'native_balance_pnl', 'transfer_or_bridge_pnl', 'defi_pnl'],
+	                    },
+	                    warnings: ['No Dune rows were returned for the requested token/time range.'],
+	                    answerPolicy: buildDuneAnswerPolicy(['No Dune rows were returned for the requested token/time range.']),
+	                };
+	            }
 
-            return {
-                status: 'ok',
-                address,
+	            const warnings = buildDuneWarningsFromTokens([tokenResult]);
+	            return {
+	                status: 'ok',
+	                address,
                 chain,
                 timeRange: formatTimeRange(days),
                 requested: {
@@ -313,12 +417,21 @@ export const AnalyzeWalletPnlAnalysisTool: Tool = {
                     requestedDays: days,
                     chainSupport,
                     expectedProvider: 'dune',
-                    coverage: tokenResult.coverage,
-                    note: 'Current execution uses the existing wallet breakdown Dune query and filters the target token locally. Dedicated custom query is still recommended for efficiency.',
-                },
-                tokenAnalysis: tokenResult,
-            };
-        }
+	                    coverage: tokenResult.coverage,
+	                    note: 'Current execution uses the existing wallet breakdown Dune query and filters the target token locally. Dedicated custom query is still recommended for efficiency.',
+	                },
+	                scope: buildDuneScope(chain, days, queryProfile, tokenAddress),
+	                coverage: {
+	                    provider: 'dune',
+	                    coverage: tokenResult.coverage,
+	                    supportedAnswer: 'single_token_realized_dex_trading_pnl',
+	                    unsupportedAnswers: ['wallet_total_pnl', 'unrealized_pnl', 'native_balance_pnl', 'transfer_or_bridge_pnl', 'defi_pnl'],
+	                },
+	                warnings,
+	                answerPolicy: buildDuneAnswerPolicy(warnings),
+	                tokenAnalysis: tokenResult,
+	            };
+	        }
 
         if (queryProfile === 'wallet_portfolio_token_breakdown') {
             const limit = Math.max(1, Math.min(Number(args.limit) || 20, 100));
@@ -334,18 +447,28 @@ export const AnalyzeWalletPnlAnalysisTool: Tool = {
                         tokenAddress: tokenAddress || null,
                         queryProfile,
                     },
-                    meta: {
-                        source: 'dune_analysis',
-                        requestedDays: days,
-                        chainSupport,
-                        expectedProvider: 'dune',
-                    },
-                };
-            }
+	                    meta: {
+	                        source: 'dune_analysis',
+	                        requestedDays: days,
+	                        chainSupport,
+	                        expectedProvider: 'dune',
+	                    },
+	                    scope: buildDuneScope(chain, days, 'wallet_portfolio_token_breakdown', null),
+	                    coverage: {
+	                        provider: 'dune',
+	                        coverage: 'no_data',
+	                        supportedAnswer: 'portfolio_realized_dex_trading_pnl_breakdown',
+	                        unsupportedAnswers: ['wallet_total_pnl', 'unrealized_pnl', 'native_balance_pnl', 'transfer_or_bridge_pnl', 'defi_pnl'],
+	                    },
+	                    warnings: ['No Dune rows were returned for the requested wallet/time range.'],
+	                    answerPolicy: buildDuneAnswerPolicy(['No Dune rows were returned for the requested wallet/time range.']),
+	                };
+	            }
 
-            return {
-                status: 'ok',
-                address,
+	            const warnings = buildDuneWarningsFromTokens(portfolio.tokens);
+	            return {
+	                status: 'ok',
+	                address,
                 chain,
                 timeRange: formatTimeRange(days),
                 requested: {
@@ -357,12 +480,21 @@ export const AnalyzeWalletPnlAnalysisTool: Tool = {
                     requestedDays: days,
                     chainSupport,
                     expectedProvider: 'dune',
-                    coverage: portfolio.coverage,
-                    note: 'Current execution uses the existing wallet breakdown Dune query. Dedicated custom query ids can later replace this path for better efficiency and richer fields.',
-                },
-                portfolioAnalysis: portfolio,
-            };
-        }
+	                    coverage: portfolio.coverage,
+	                    note: 'Current execution uses the existing wallet breakdown Dune query. Dedicated custom query ids can later replace this path for better efficiency and richer fields.',
+	                },
+	                scope: buildDuneScope(chain, days, queryProfile, null),
+	                coverage: {
+	                    provider: 'dune',
+	                    coverage: portfolio.coverage,
+	                    supportedAnswer: 'portfolio_realized_dex_trading_pnl_breakdown',
+	                    unsupportedAnswers: ['wallet_total_pnl', 'unrealized_pnl', 'native_balance_pnl', 'transfer_or_bridge_pnl', 'defi_pnl'],
+	                },
+	                warnings,
+	                answerPolicy: buildDuneAnswerPolicy(warnings),
+	                portfolioAnalysis: portfolio,
+	            };
+	        }
 
         return {
             status: 'unsupported_query_profile',
@@ -387,4 +519,12 @@ export const AnalyzeWalletPnlAnalysisTool: Tool = {
             recommendation: 'Use wallet_token_pnl_analysis for single-token analysis or wallet_portfolio_token_breakdown for portfolio token analysis.'
         };
     }
+};
+
+export const __testOnlyDunePnlTools = {
+    buildZerionScope,
+    buildZerionAnswerPolicy,
+    buildDuneScope,
+    buildDuneAnswerPolicy,
+    buildDuneWarningsFromTokens,
 };

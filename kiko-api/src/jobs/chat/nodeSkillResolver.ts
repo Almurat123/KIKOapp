@@ -479,6 +479,37 @@ function mapTaskRouteToSkillIds(snapshot: ChatContextSnapshot, querySignals: Que
     return selected;
 }
 
+const TOKEN_DEPLOY_SKILL_IDS = new Set(['clanker_deploy_token', 'fourmeme_deploy_token']);
+
+function resolveTokenDeploySkillId(requestedChain?: { chainId: number; source?: string } | null): string | null {
+    const chainId = Number(requestedChain?.chainId || 0) || null;
+    const source = String(requestedChain?.source || '').trim();
+    if (chainId === 56) return 'fourmeme_deploy_token';
+    if (chainId === 8453) return 'clanker_deploy_token';
+    if (!chainId || source === 'wallet_context') {
+        return chainId === 56 ? 'fourmeme_deploy_token' : 'clanker_deploy_token';
+    }
+    return null;
+}
+
+function retargetTokenDeploySkills(selected: string[], requestedChain?: { chainId: number; source?: string } | null): {
+    selected: string[];
+    targetSkillId: string | null;
+} {
+    const targetSkillId = resolveTokenDeploySkillId(requestedChain);
+    const withoutTokenDeploySkills = selected.filter((skillId) => !TOKEN_DEPLOY_SKILL_IDS.has(skillId));
+    if (!targetSkillId) {
+        return {
+            selected: withoutTokenDeploySkills,
+            targetSkillId: null,
+        };
+    }
+    return {
+        selected: [targetSkillId, ...withoutTokenDeploySkills],
+        targetSkillId,
+    };
+}
+
 export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: TradingIntent | null, canonicalIntent?: CanonicalIntent | null): SkillResolution {
     const isGrok = String(snapshot.model || '').toLowerCase().includes('grok');
     const rawQuery = String(snapshot.lastUserMessage || '');
@@ -564,6 +595,9 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const asksWalletPnl = querySignals.pnl;
     const hasRequestedToken = querySignals.hasRequestedToken;
     const requiresSocialChainEvidence = querySignals.socialChainEvidence;
+    const isFarcasterContext = normalizedIntent?.domain === 'farcaster'
+        || detectRouteSocialDomain(snapshot) === 'farcaster';
+    const needsFarcasterWalletEvidence = isFarcasterContext && (querySignals.wallet || asksWalletPnl);
     const routeImageGeneration = Boolean(taskRoute && taskRoute.owner === 'image');
     const routeImagePrompting = Boolean(taskRoute && taskRoute.owner === 'image' && hasTaskRouteFacet(taskRoute, 'prompt_only'));
     const routeClankerDeploy = Boolean(taskRoute && taskRoute.owner === 'token_deploy');
@@ -573,7 +607,7 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
     const imagePromptingTurn = taskRoute
         ? routeImagePrompting
         : normalizedIntent?.intent === 'image_prompting';
-    const clankerDeployTurn = taskRoute
+    const tokenDeployTurn = taskRoute
         ? routeClankerDeploy
         : normalizedIntent?.intent === 'clanker_deploy';
     if (imageGenerationTurn) {
@@ -592,8 +626,8 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
             strategyNotes.push('Do not volunteer Midjourney, Stable Diffusion, or other non-OpenAI prompt variants unless the user explicitly asks for another model.');
         }
     }
-    if (clankerDeployTurn) {
-        strategyNotes.push('This is a Clanker launch or Clanker history request. Follow the Clanker launch safety template: collect only hard-missing launch inputs, keep optional defaults implicit, prepare a dry-run preview first, and wait for explicit user confirmation before any real deploy. Do not restate this internal checklist to the user.');
+    if (tokenDeployTurn) {
+        strategyNotes.push('This is a token launch request. Route by chain: Base uses Clanker, BNB Chain / BSC uses Four.meme, and other explicit chains are unsupported for deploy in this runtime. Keep the launch flow dry-run first, then wait for explicit user confirmation before any real deploy.');
     }
     const requestedChain = resolveCanonicalChainRef({
         taskRoute,
@@ -708,8 +742,26 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
         }
     }
 
+    if (needsFarcasterWalletEvidence) {
+        ensureSupportingSkill(selected, 'social_farcaster');
+        ensureSupportingSkill(selected, 'wallet_portfolio');
+        strategyNotes.push('For Farcaster wallet or PnL requests, resolve Neynar wallet-role evidence before wallet/PnL tools. Keep the Farcaster wallet separate from verified wallets, and do not call a verified-wallet candidate the trading wallet until activity/PNL evidence confirms it.');
+    }
+
     if (requestedChain?.chainId && snapshot.runtime.chainId && requestedChain.chainId !== Number(snapshot.runtime.chainId)) {
         strategyNotes.push(`The user explicitly requested ${requestedChain.chainName}. Treat the connected chain only as wallet context; requested chain overrides it for this turn.`);
+    }
+
+    if (tokenDeployTurn) {
+        const tokenDeployRetarget = retargetTokenDeploySkills(selected, requestedChain);
+        selected = tokenDeployRetarget.selected;
+        if (tokenDeployRetarget.targetSkillId === 'fourmeme_deploy_token') {
+            strategyNotes.push('BNB Chain / BSC deploys must use Four.meme. Do not call deploy_clanker_token for chainId 56.');
+        } else if (tokenDeployRetarget.targetSkillId === 'clanker_deploy_token') {
+            strategyNotes.push('Base deploys should use Clanker. Do not route Base token launches into Four.meme.');
+        } else if (requestedChain?.chainId) {
+            strategyNotes.push(`Token deploy is only supported on Base via Clanker or on BNB Chain via Four.meme. The requested chain ${requestedChain.chainName} (${requestedChain.chainId}) is unsupported, so do not call a deploy tool for it.`);
+        }
     }
 
     if (preferXNativeSearch && !isGrok && requiresSocialChainEvidence) {
@@ -816,6 +868,9 @@ export function resolveNodeSkills(snapshot: ChatContextSnapshot, tradingIntent: 
 
     if (hasRequestedToken) {
         pushPreferred(preferredTools, 'get_token_info');
+    }
+    if (needsFarcasterWalletEvidence) {
+        pushPreferred(preferredTools, 'resolve_farcaster_wallets');
     }
     if (requiresSocialChainEvidence && !isGrok) {
         pushPreferred(preferredTools, 'external_web_search');

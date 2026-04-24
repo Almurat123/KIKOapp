@@ -35,7 +35,12 @@ test('inferSupportedChatReasoningLevel preserves Grok reasoning mode', () => {
   assert.equal(inferSupportedChatReasoningLevel('grok-4-1-fast-reasoning'), 'thinking');
 });
 
+test('inferSupportedChatReasoningLevel treats DeepSeek V4 Flash as fast non-reasoning', () => {
+  assert.equal(inferSupportedChatReasoningLevel('deepseek-v4-flash'), 'fast');
+});
+
 test('normalizeSupportedChatModel keeps only active allowlisted models', () => {
   assert.equal(normalizeSupportedChatModel('grok-4-1-fast-reasoning'), 'grok-4-1-fast-reasoning');
+  assert.equal(normalizeSupportedChatModel('deepseek-v4-flash'), 'deepseek-v4-flash');
   assert.equal(normalizeSupportedChatModel('not-a-real-model'), 'gpt-5.4-mini-2026-03-17');
 });

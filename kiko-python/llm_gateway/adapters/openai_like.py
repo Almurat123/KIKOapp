@@ -37,11 +37,13 @@ OPENAI_API_URL = os.getenv("OPENAI_API_URL", "https://api.openai.com/v1/chat/com
 OPENAI_RESPONSES_API_URL = os.getenv("OPENAI_RESPONSES_API_URL", "https://api.openai.com/v1/responses")
 GROK_SERVICE_URL = os.getenv("GROK_SERVICE_URL", "http://localhost:8000/grok")
 XAI_API_URL = os.getenv("XAI_API_URL", "https://api.x.ai/v1/chat/completions")
+DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com/v1/chat/completions")
 GROK_PREFER_SDK_GATEWAY = os.getenv("GROK_PREFER_SDK_GATEWAY", "true").lower() not in {"0", "false", "no"}
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 INTERNAL_SERVICE_KEY = os.getenv("INTERNAL_SERVICE_KEY", "")
 XAI_API_KEY = os.getenv("XAI_API_KEY", "")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 
 
 def _normalized_model(model: str) -> str:
@@ -108,6 +110,60 @@ def _build_openai_request_body(req: GenerateRequest) -> tuple[dict[str, Any], st
         body["tools"] = tools
         body["tool_choice"] = req.tool_choice or "auto"
     return body, reasoning_effort if omit_reasoning_effort else None
+
+
+def _strip_reasoning_fields(value: Any) -> Any:
+    if isinstance(value, list):
+        return [
+            stripped for stripped in (_strip_reasoning_fields(item) for item in value)
+            if stripped is not None
+        ]
+    if isinstance(value, dict):
+        part_type = str(value.get("type") or "").strip().lower()
+        if part_type in {"reasoning", "reasoning_content", "reasoning_text", "thinking"}:
+            return None
+        return {
+            key: _strip_reasoning_fields(item)
+            for key, item in value.items()
+            if str(key).lower() not in {"reasoning_content", "reasoning", "reasoning_text", "thinking"}
+        }
+    return value
+
+
+def _sanitize_deepseek_message(message: Any) -> dict[str, Any]:
+    if hasattr(message, "model_dump"):
+        raw = message.model_dump(exclude_none=True)
+    elif isinstance(message, dict):
+        raw = {key: value for key, value in message.items() if value is not None}
+    else:
+        return {}
+    sanitized = _strip_reasoning_fields(raw)
+    return sanitized if isinstance(sanitized, dict) else {}
+
+
+def _strip_deepseek_visible_think_markers(text: str) -> str:
+    if not text:
+        return ""
+    return text.replace("<think>", "").replace("</think>", "")
+
+
+def _build_deepseek_request_body(req: GenerateRequest) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "model": req.model,
+        "messages": [
+            message for message in (_sanitize_deepseek_message(m) for m in req.messages)
+            if message.get("role")
+        ],
+        "stream": True,
+        "stream_options": {"include_usage": True},
+        # DeepSeek V4 defaults to thinking mode. Keep this provider boundary
+        # non-thinking without introducing a user-facing reasoning selector.
+        "thinking": {"type": "disabled"},
+    }
+    if req.tools:
+        body["tools"] = req.tools
+        body["tool_choice"] = req.tool_choice or "auto"
+    return body
 
 
 def _coerce_responses_input_text(value: Any) -> str:
@@ -555,6 +611,8 @@ def resolve_provider(model: str) -> str:
     m = _normalized_model(model)
     if "grok" in m:
         return "xai"
+    if m == "deepseek-v4-flash":
+        return "deepseek"
     if m.startswith("gpt") or m.startswith("o"):
         return "openai"
     return "openai"
@@ -575,6 +633,9 @@ async def stream_generate(req: GenerateRequest) -> AsyncGenerator[GatewayEvent, 
     provider = resolve_provider(req.model)
     if provider == "openai":
         async for ev in _stream_openai(req, provider):
+            yield ev
+    elif provider == "deepseek":
+        async for ev in _stream_deepseek(req, provider):
             yield ev
     else:
         async for ev in _stream_xai(req, provider):
@@ -891,6 +952,23 @@ async def _stream_xai(req: GenerateRequest, provider: str):
         yield ev
 
 
+async def _stream_deepseek(req: GenerateRequest, provider: str):
+    if not DEEPSEEK_API_KEY:
+        yield GatewayEvent(event_type="error", provider="deepseek", payload={"message": "DEEPSEEK_API_KEY missing"})
+        return
+
+    body = _build_deepseek_request_body(req)
+    request_shape = _summarize_openai_request_shape(body)
+    logger.info("llm_gateway.deepseek_request_shape %s", {**request_shape, "api_mode": "chat_completions"})
+    async for ev in _stream_sse(
+        provider=provider,
+        url=DEEPSEEK_API_URL,
+        headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
+        body=body,
+    ):
+        yield ev
+
+
 async def _stream_sse(provider: str, url: str, headers: dict[str, str], body: dict[str, Any]):
     started_at = time.time()
     first_token_at = None
@@ -991,12 +1069,16 @@ async def _stream_sse(provider: str, url: str, headers: dict[str, str], body: di
 
                         txt = _extract_text_delta(data, choice, delta)
                         if txt:
+                            if provider == "deepseek":
+                                txt = _strip_deepseek_visible_think_markers(str(txt))
+                            if not txt:
+                                continue
                             if first_token_at is None:
                                 first_token_at = int((time.time() - started_at) * 1000)
                             yield GatewayEvent(event_type="delta_text", provider=provider, provider_request_id=provider_request_id, payload={"text": str(txt)})
 
                         rc = _extract_reasoning_delta(data, choice, delta)
-                        if rc:
+                        if rc and provider != "deepseek":
                             if first_token_at is None:
                                 first_token_at = int((time.time() - started_at) * 1000)
                             yield GatewayEvent(event_type="delta_reasoning", provider=provider, provider_request_id=provider_request_id, payload={"text": str(rc)})

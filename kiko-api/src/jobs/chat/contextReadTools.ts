@@ -375,7 +375,7 @@ export const ReadTokenContextTool: Tool = {
 export const ReadLaunchpadContextTool: Tool = {
     definition: buildDefinition(
         'read_launchpad_context',
-        'Use for token deploy/launchpad/Clanker/fair-launch tasks. Returns cached launch metadata and token snapshot context.',
+        'Use for token deploy/launchpad/Clanker/Four.meme/fair-launch tasks. Returns cached launch metadata and token snapshot context.',
     ),
     handler: async (_args, context) => buildLaunchpadContextResult(context),
 };

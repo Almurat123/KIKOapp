@@ -1,0 +1,25 @@
+{
+    "id": "fourmeme_deploy_token",
+    "name": "Deploy Token via Four.meme",
+    "description": "Deploy BNB Chain meme tokens through Four.meme with image upload, category metadata, and explicit confirmation before the real launch.",
+    "intents": [
+        "TRADING"
+    ],
+    "tools": [
+        "deploy_fourmeme_token"
+    ],
+    "examples": {
+        "en": [
+            "Launch a token on BSC via Four.meme",
+            "Deploy a Four.meme token on BNB Chain",
+            "Create a meme coin on BSC with Four.meme",
+            "Launch this token on Four.meme with 0.1 BNB"
+        ],
+        "zh": [
+            "在 BSC 上通过 Four.meme 发一个代币",
+            "用 Four.meme 在 BNB Chain 上部署代币",
+            "在 BSC 上创建一个 meme 币",
+            "用 0.1 BNB 在 Four.meme 上发这个代币"
+        ]
+    }
+}

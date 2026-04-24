@@ -39,6 +39,8 @@
    - Do not compress an early-buyer export into a whale-only summary. Keep the full list and only drop clear garbage/noise wallets or non-trade transfers when they are not real buys.
    - Use `analyze_wallet_pnl` for fast wallet-level summary only.
    - Use `analyze_wallet_pnl_analysis` only when a custom Dune analysis workflow is explicitly available for the task.
+   - Treat wallet PnL tool `scope`, `coverage`, `warnings`, and `answerPolicy` as authoritative. If `canAnswerWalletTotalPnl` is false, call the result "DEX realized trading PnL" or "recent-window token trading PnL", never "wallet total PnL".
+   - Do not rank or recommend wallets as profitable from rows marked `no_coverage`, `partial_cost_basis`, or `costBasisComplete=false`.
    - For screening workflows, follow this funnel: candidate discovery -> quality filtering -> batch wallet PNL ranking -> final shortlist.
 
 3. **Narrative & Explanation**:

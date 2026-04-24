@@ -77,6 +77,7 @@ const EXECUTION_RECEIPT_TOOLS = new Set([
   "execute_swap",
   "prepare_cross_chain_tx",
   "deploy_clanker_token",
+  "deploy_fourmeme_token",
   "place_polymarket_order",
   "withdraw_polymarket_position",
   "cancel_polymarket_order",
@@ -141,6 +142,9 @@ export function buildExecutionReceiptDecision(
       break;
     case "deploy_clanker_token":
       answer = buildClankerDeployAnswer(result, locale);
+      break;
+    case "deploy_fourmeme_token":
+      answer = buildFourMemeDeployAnswer(result, locale);
       break;
     case "place_polymarket_order":
     case "withdraw_polymarket_position":
@@ -257,6 +261,24 @@ function buildClankerDeployAnswer(
   ]);
 }
 
+function buildFourMemeDeployAnswer(
+  result: Record<string, any>,
+  locale: Locale,
+): string | null {
+  const tokenAddress = pick(result, ["tokenAddress", "token_address"]);
+  const tokenUrl = pick(result, ["tokenUrl", "token_url"]);
+  const txHash = pick(result, ["txHash", "transactionHash", "hash"]);
+  const explorerUrl = pick(result, ["explorerUrl", "txUrl", "tx_url"]);
+  if (!tokenAddress && !tokenUrl && !txHash && !explorerUrl) return null;
+  return compactLines([
+    locale === "zh" ? "Four.meme 代币部署已提交。" : "Four.meme token deploy submitted.",
+    formatLine(locale, "代币地址", "Token address", tokenAddress),
+    formatMarkdownLinkLine(locale, "Four.meme 页面", "Four.meme page", tokenUrl),
+    formatLine(locale, "部署交易", "Deployment transaction", txHash),
+    formatLine(locale, "交易浏览器", "Transaction explorer", explorerUrl),
+  ]);
+}
+
 function buildPolymarketOrderAnswer(
   toolName: string,
   result: Record<string, any>,
@@ -369,6 +391,13 @@ function buildFailureDetailLines(
         formatOptionalLine(locale, "部署交易", "Deployment transaction", pick(result, ["txHash", "transactionHash", "hash"])),
         formatOptionalLine(locale, "交易浏览器", "Transaction explorer", pick(result, ["explorerUrl", "txUrl", "tx_url"])),
       ];
+    case "deploy_fourmeme_token":
+      return [
+        formatOptionalLine(locale, "代币地址", "Token address", pick(result, ["tokenAddress", "token_address"])),
+        formatOptionalLine(locale, "Four.meme 页面", "Four.meme page", pick(result, ["tokenUrl", "token_url"])),
+        formatOptionalLine(locale, "部署交易", "Deployment transaction", pick(result, ["txHash", "transactionHash", "hash"])),
+        formatOptionalLine(locale, "交易浏览器", "Transaction explorer", pick(result, ["explorerUrl", "txUrl", "tx_url"])),
+      ];
     case "place_polymarket_order":
     case "withdraw_polymarket_position":
     case "cancel_polymarket_order":
@@ -430,6 +459,8 @@ function failureTitle(toolName: string, locale: Locale): string {
       return zh ? "跨链交易执行失败。" : "Cross-chain transaction failed.";
     case "deploy_clanker_token":
       return zh ? "Clanker 代币部署失败。" : "Clanker token deployment failed.";
+    case "deploy_fourmeme_token":
+      return zh ? "Four.meme 代币部署失败。" : "Four.meme token deployment failed.";
     case "place_polymarket_order":
       return zh ? "Polymarket 订单提交失败。" : "Polymarket order failed.";
     case "withdraw_polymarket_position":

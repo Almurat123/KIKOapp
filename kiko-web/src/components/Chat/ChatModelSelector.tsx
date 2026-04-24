@@ -13,7 +13,7 @@ import {
 import { getStoredChatModelControlLevelForFamily } from './chatModelSelectionPersistence';
 
 // CONTEXT MEMORY
-// Updated: 2026-04-20
+// Updated: 2026-04-24
 // Author: Rowan
 // Reason: The chat composer and welcome shell now present two borderless
 //         selectors in the input row: one for the model family and, when a
@@ -46,6 +46,9 @@ import { getStoredChatModelControlLevelForFamily } from './chatModelSelectionPer
 //   need compact labels without changing the persisted model id
 // - on mobile, the label and chevron stay packed together; do not stretch the
 //   arrow away from the name inside the selector button
+// - mobile compact labels must be as short as possible while still identifiable;
+//   prefer dropping version suffixes (e.g. 'Grok' not 'Grok-4.1') and
+//   abbreviating long words (e.g. 'GPT-1 Img' not 'GPT Mini Img')
 // - do not introduce a second persistence path for the same selected model
 // - do not guess per-family defaults when the actual model list already defines
 //   the available variants
@@ -122,12 +125,18 @@ function getCompactFamilyLabel(
     switch (familyId) {
         case 'gpt-5.4-mini':
             return 'GPT-5.4';
+        case 'deepseek-v4-flash':
+            return 'DeepSeek';
         case 'grok-4-1-fast':
-            return 'Grok-4.1';
+            return 'Grok';
         case 'gpt-image-2':
             return 'GPT Img';
         case 'gpt-image-1-mini':
-            return 'GPT Mini Img';
+            return 'GPT-1 Img';
+        case 'cloudflare-flux-2-klein-4b':
+            return 'FLUX 4B';
+        case 'runware-flux-2-klein-9b-kv':
+            return 'FLUX 9B';
         case 'grok-imagine-image':
             return 'Grok Img';
         default:

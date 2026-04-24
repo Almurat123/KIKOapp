@@ -103,7 +103,7 @@ type GeneratedImageClientImage = {
 };
 
 type GeneratedImagePayload = {
-  provider?: 'openai' | 'xai' | null;
+  provider?: 'openai' | 'xai' | 'cloudflare' | 'runware' | null;
   providerModel?: string | null;
   quality?: string | null;
   status?: string | null;
@@ -264,6 +264,8 @@ function resolveGeneratedImageModelLabel(payload: GeneratedImagePayload): string
   if (providerModel === 'gpt-image-2') return 'GPT Image 2';
   if (providerModel === 'grok-imagine-image-pro') return 'Grok Imagine Pro';
   if (providerModel === 'grok-imagine-image') return 'Grok Imagine';
+  if (providerModel === 'cloudflare-flux-2-klein-4b') return 'FLUX.2 Klein 4B';
+  if (providerModel === 'runware-flux-2-klein-9b-kv') return 'FLUX.2 Klein 9B KV';
   if (providerModel) {
     return providerModel
       .split(/[-_\s]+/)
@@ -275,6 +277,8 @@ function resolveGeneratedImageModelLabel(payload: GeneratedImagePayload): string
   const provider = String(payload.provider || '').trim().toLowerCase();
   if (provider === 'openai') return 'GPT Image';
   if (provider === 'xai') return 'Grok Imagine';
+  if (provider === 'cloudflare') return 'FLUX.2 Klein 4B';
+  if (provider === 'runware') return 'FLUX.2 Klein 9B KV';
   return 'Generating image';
 }
 

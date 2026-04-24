@@ -195,7 +195,8 @@ async def stream_generation(body: GenerationRequest):
                 elif event_type == "done":
                     raw_finish_reason = payload.get("finish_reason")
                     finish_reason = str(raw_finish_reason) if raw_finish_reason not in (None, "") else None
-                    if provider_request_id:
+                    supports_previous_response = not str(body.model or "").strip().lower().startswith("deepseek-")
+                    if provider_request_id and supports_previous_response:
                         yield encode_event(
                             "provider_state",
                             {

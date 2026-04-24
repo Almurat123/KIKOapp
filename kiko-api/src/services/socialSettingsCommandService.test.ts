@@ -16,6 +16,14 @@ test('social model command menu includes low and medium GPT choices', () => {
   assert.match(menu, /just the number/i);
   assert.match(menu, /\/model gpt-5\.4-mini low/);
   assert.match(menu, /\/model gpt-5\.4-mini medium/);
+  assert.match(menu, /\/model deepseek flash/);
+});
+
+test('social model command matches DeepSeek V4 Flash', () => {
+  const choice = __socialSettingsCommandTest.matchChatModelChoice('/model deepseek flash');
+
+  assert.equal(choice?.model, 'deepseek-v4-flash');
+  assert.equal(choice?.reasoningLevel, 'fast');
 });
 
 test('social model command matches Grok fast model', () => {
@@ -37,6 +45,21 @@ test('social image command matches Grok normal preference', () => {
 
   assert.equal(choice?.model, 'grok-imagine-image');
   assert.equal(choice?.quality, 'normal');
+});
+
+test('social image command menu and aliases include Grok pro image preference', () => {
+  const menu = __socialSettingsCommandTest.buildImageMenu();
+  const explicit = __socialSettingsCommandTest.matchImageModelChoice('/image grok pro');
+  const providerModel = __socialSettingsCommandTest.matchImageModelChoice('/image grok-imagine-image-pro');
+  const compactAlias = __socialSettingsCommandTest.matchImageModelChoice('/image grokpro');
+
+  assert.match(menu, /\/image grok pro/);
+  assert.equal(explicit?.model, 'grok-imagine-image-pro');
+  assert.equal(explicit?.quality, 'pro');
+  assert.equal(providerModel?.model, 'grok-imagine-image-pro');
+  assert.equal(providerModel?.quality, 'pro');
+  assert.equal(compactAlias?.model, 'grok-imagine-image-pro');
+  assert.equal(compactAlias?.quality, 'pro');
 });
 
 test('social image command matches Cloudflare and Runware low-cost image preferences', () => {
@@ -197,6 +220,74 @@ test('social settings command resolves bare image number from pending menu conte
       userId: 'did:test',
       model: 'gpt-image-1-mini',
       quality: 'medium',
+    },
+  ]);
+  assert.equal(pendingMenus.size, 0);
+});
+
+test('social settings command resolves Grok pro image from menu number', async () => {
+  const pendingMenus = new Map<string, unknown>();
+  const savedChoices: Array<{ userId: string; model: string; quality: string | null }> = [];
+  const menu = __socialSettingsCommandTest.buildImageMenu();
+  const grokProNumber = menu.match(/^(\d+)\. \/image grok pro$/m)?.[1];
+
+  assert.ok(grokProNumber);
+
+  await __socialSettingsCommandTest.handleSocialSettingsCommand({
+    userId: 'did:test',
+    text: '/image',
+    replyContextKey: 'farcaster:thread-grok-pro',
+    deps: {
+      async getPendingMenu(key) {
+        return (pendingMenus.get(key) as any) || null;
+      },
+      async setPendingMenu(key, pending) {
+        pendingMenus.set(key, pending);
+      },
+      async clearPendingMenu(key) {
+        pendingMenus.delete(key);
+      },
+      async persistChatModelChoice() {
+        throw new Error('unexpected chat persist');
+      },
+      async persistImageModelChoice(userId, choice) {
+        savedChoices.push({ userId, model: choice.model, quality: choice.quality });
+      },
+    },
+  });
+
+  const saved = await __socialSettingsCommandTest.handleSocialSettingsCommand({
+    userId: 'did:test',
+    text: grokProNumber,
+    replyContextKey: 'farcaster:thread-grok-pro',
+    deps: {
+      async getPendingMenu(key) {
+        return (pendingMenus.get(key) as any) || null;
+      },
+      async setPendingMenu(key, pending) {
+        pendingMenus.set(key, pending);
+      },
+      async clearPendingMenu(key) {
+        pendingMenus.delete(key);
+      },
+      async persistChatModelChoice() {
+        throw new Error('unexpected chat persist');
+      },
+      async persistImageModelChoice(userId, choice) {
+        savedChoices.push({ userId, model: choice.model, quality: choice.quality });
+      },
+    },
+  });
+
+  assert.deepEqual(saved, {
+    handled: true,
+    replyText: 'Saved image model: Grok Imagine Pro / pro',
+  });
+  assert.deepEqual(savedChoices, [
+    {
+      userId: 'did:test',
+      model: 'grok-imagine-image-pro',
+      quality: 'pro',
     },
   ]);
   assert.equal(pendingMenus.size, 0);

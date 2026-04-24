@@ -136,3 +136,32 @@ test("buildExecutionReceiptAnswer embeds the Clanker page as a clickable link", 
 
   assert.match(answer || "", /Clanker 页面: \[打开链接\]\(https:\/\/clanker\.world\/clanker\/0xabc\)/);
 });
+
+test("buildExecutionReceiptAnswer formats Four.meme deploy receipts", () => {
+  const answer = buildExecutionReceiptAnswer(
+    {
+      id: "call-7",
+      name: "deploy_fourmeme_token",
+      arguments: {},
+      ok: true,
+      result: {
+        tokenAddress: "0xabc",
+        tokenUrl: "https://four.meme/token/0xabc",
+        txHash: "0xdef",
+        txUrl: "https://bscscan.com/tx/0xdef",
+      },
+    },
+    "zh",
+  );
+
+  assert.equal(
+    answer,
+    [
+      "Four.meme 代币部署已提交。",
+      "代币地址: 0xabc",
+      "Four.meme 页面: [打开链接](https://four.meme/token/0xabc)",
+      "部署交易: 0xdef",
+      "交易浏览器: https://bscscan.com/tx/0xdef",
+    ].join("\n"),
+  );
+});

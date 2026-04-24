@@ -8,7 +8,8 @@
     "tools": [
         "get_trending_casts",
         "get_farcaster_user",
-        "search_farcaster_casts"
+        "search_farcaster_casts",
+        "resolve_farcaster_wallets"
     ],
     "examples": {
         "en": [

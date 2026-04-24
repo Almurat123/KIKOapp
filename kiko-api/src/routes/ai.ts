@@ -119,11 +119,41 @@ interface ChatRequest {
 }
 
 const OPENAI_API_URL = process.env.OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions';
+const DEEPSEEK_API_URL = process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions';
 
 function normalizeModel(model?: string): string {
     const normalized = (model || '').toLowerCase().trim();
     if (!normalized) return DEFAULT_CHAT_MODEL;
     return normalized;
+}
+
+function isDeepSeekChatModel(model: string): boolean {
+    return model.toLowerCase().trim() === 'deepseek-v4-flash';
+}
+
+function stripDeepSeekVisibleThinkMarkers(text: string): string {
+    if (!text) return '';
+    return text.replace(/<\/?think>/g, '');
+}
+
+function stripProviderReasoningFields(value: any): any {
+    if (Array.isArray(value)) {
+        return value
+            .map((item) => stripProviderReasoningFields(item))
+            .filter((item) => item !== undefined);
+    }
+    if (value && typeof value === 'object') {
+        const partType = String(value.type || '').trim().toLowerCase();
+        if (['reasoning_content', 'reasoning', 'reasoning_text', 'thinking'].includes(partType)) {
+            return undefined;
+        }
+        return Object.fromEntries(
+            Object.entries(value)
+                .filter(([key]) => !['reasoning_content', 'reasoning', 'reasoning_text', 'thinking'].includes(key.toLowerCase()))
+                .map(([key, item]) => [key, stripProviderReasoningFields(item)]),
+        );
+    }
+    return value;
 }
 
 function coerceTextContent(value: any): string {
@@ -186,10 +216,10 @@ function extractReasoningDelta(choice: any, data: any): string {
 }
 
 // Helper to get the OpenAI API key for the direct route.
-function getApiKey(): string {
-    const key = process.env.OPENAI_API_KEY;
+function getApiKey(model?: string): string {
+    const key = isDeepSeekChatModel(model || '') ? process.env.DEEPSEEK_API_KEY : process.env.OPENAI_API_KEY;
     if (!key) {
-        throw new Error('OPENAI_API_KEY is not set in environment variables');
+        throw new Error(`${isDeepSeekChatModel(model || '') ? 'DEEPSEEK_API_KEY' : 'OPENAI_API_KEY'} is not set in environment variables`);
     }
     return key;
 }
@@ -298,7 +328,8 @@ async function executeToolCalls(toolCalls: any[]): Promise<{ toolMessages: ChatM
 async function processStreamResponse(
     response: Response,
     reply: any,
-    shouldForward: boolean = true
+    shouldForward: boolean = true,
+    options: { suppressReasoning?: boolean; stripThinkMarkers?: boolean } = {},
 ): Promise<{ hasToolCalls: boolean; toolCalls: any[]; assistantContent: string; reasoningContent: string; usage?: any }> {
     const reader = response.body!.getReader();
     const decoder = new TextDecoder();
@@ -342,7 +373,10 @@ async function processStreamResponse(
                         }
 
                         if (choice?.delta?.content) {
-                            const visibleContent = pseudoToolSuppressor.push(contentSuppressor.push(choice.delta.content));
+                            const rawVisibleContent = options.stripThinkMarkers
+                                ? stripDeepSeekVisibleThinkMarkers(choice.delta.content)
+                                : choice.delta.content;
+                            const visibleContent = pseudoToolSuppressor.push(contentSuppressor.push(rawVisibleContent));
                             assistantContent += visibleContent;
                             if (visibleContent) {
                                 choice.delta.content = visibleContent;
@@ -354,7 +388,7 @@ async function processStreamResponse(
                             lineToForward = `data: ${JSON.stringify(data)}`;
                         }
                         const reasoningDelta = extractReasoningDelta(choice, data);
-                        if (reasoningDelta) {
+                        if (reasoningDelta && !options.suppressReasoning) {
                             reasoningContent += reasoningDelta;
                         }
                         if (choice?.delta?.tool_calls) {
@@ -850,8 +884,8 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     });
                 }
 
-                const apiKey = getApiKey();
-                const targetUrl = OPENAI_API_URL;
+                const apiKey = getApiKey(normalizedModel);
+                const targetUrl = isDeepSeekChatModel(normalizedModel) ? DEEPSEEK_API_URL : OPENAI_API_URL;
                 const origin = request.headers.origin || 'http://localhost:5173';
                 let conversationMessages = [...messages];
 
@@ -920,11 +954,16 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     const resolvedTemperature = requestedTemperature ?? 0.8;
                     const requestBody: any = {
                         model: upstreamModel.model,
-                        messages: conversationMessages,
+                        messages: isDeepSeekChatModel(normalizedModel)
+                            ? stripProviderReasoningFields(conversationMessages)
+                            : conversationMessages,
                         temperature: resolvedTemperature,
                         max_tokens,
                         stream: true, // Always use streaming for real-time output
                     };
+                    if (isDeepSeekChatModel(normalizedModel)) {
+                        requestBody.thinking = { type: 'disabled' };
+                    }
                     // OpenAI streaming requires include_usage to emit token usage chunks.
                     requestBody.stream_options = { include_usage: true };
 
@@ -998,7 +1037,15 @@ export async function aiRoutes(fastify: FastifyInstance) {
                             logger.debug(LogCode.AI_API_CALL, `[AI Routes] DeepSeek response received`, { iteration, attempt: attempt + 1 });
 
                             // Process stream and detect tool calls (forwards to client in real-time)
-                            streamResult = await processStreamResponse(response, stream ? reply : null);
+                            streamResult = await processStreamResponse(
+                                response,
+                                stream ? reply : null,
+                                true,
+                                {
+                                    suppressReasoning: isDeepSeekChatModel(normalizedModel),
+                                    stripThinkMarkers: isDeepSeekChatModel(normalizedModel),
+                                },
+                            );
 
                             // If we get here, stream processing succeeded
                             break;

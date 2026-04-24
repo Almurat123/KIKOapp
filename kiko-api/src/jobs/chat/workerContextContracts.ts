@@ -263,11 +263,181 @@ function summarizeAddressClassifications(classifications: ChatContextSnapshot['r
 
 function summarizeFarcaster(farcaster: Record<string, any> | null | undefined) {
     if (!farcaster || typeof farcaster !== 'object') return undefined;
+    const walletEvidence = farcaster.walletEvidence && typeof farcaster.walletEvidence === 'object'
+        ? farcaster.walletEvidence as Record<string, any>
+        : {};
+    const socialProfile = farcaster.socialProfile && typeof farcaster.socialProfile === 'object'
+        ? farcaster.socialProfile as Record<string, any>
+        : walletEvidence.socialProfile && typeof walletEvidence.socialProfile === 'object'
+            ? walletEvidence.socialProfile as Record<string, any>
+            : {};
+    const accountStatus = farcaster.accountStatus && typeof farcaster.accountStatus === 'object'
+        ? farcaster.accountStatus as Record<string, any>
+        : walletEvidence.accountStatus && typeof walletEvidence.accountStatus === 'object'
+            ? walletEvidence.accountStatus as Record<string, any>
+            : {};
+    const qualitySignals = farcaster.qualitySignals && typeof farcaster.qualitySignals === 'object'
+        ? farcaster.qualitySignals as Record<string, any>
+        : walletEvidence.qualitySignals && typeof walletEvidence.qualitySignals === 'object'
+            ? walletEvidence.qualitySignals as Record<string, any>
+            : {};
     return stripEmptyEntries({
         handle: normalizePrimitive(farcaster.handle || farcaster.username || farcaster.kikoHandle),
         display_name: normalizePrimitive(farcaster.displayName),
         fid: normalizePrimitive(farcaster.fid),
+        social_profile: summarizeFarcasterSocialProfile(socialProfile),
+        account_status: summarizeFarcasterAccountStatus(accountStatus),
+        quality_signals: summarizeFarcasterQualitySignals(qualitySignals),
+        identity_tags: limitArray(
+            Array.isArray(farcaster.identityTags)
+                ? farcaster.identityTags
+                : Array.isArray(walletEvidence.identityTags)
+                    ? walletEvidence.identityTags
+                    : undefined,
+            16,
+        ),
+        wallet_source: normalizePrimitive(farcaster.walletSource || walletEvidence.source),
+        primary_verified_evm_address: normalizePrimitive(farcaster.primaryVerifiedEvmAddress || walletEvidence.primaryVerifiedEvmAddress),
+        pnl_eligible_evm_addresses: limitArray(
+            Array.isArray(farcaster.pnlEligibleEvmAddresses)
+                ? farcaster.pnlEligibleEvmAddresses
+                : Array.isArray(walletEvidence.pnlEligibleEvmAddresses)
+                    ? walletEvidence.pnlEligibleEvmAddresses
+                    : undefined,
+            5,
+        ),
+        trading_wallet_candidate_evm_addresses: limitArray(
+            Array.isArray(farcaster.tradingWalletCandidateEvmAddresses)
+                ? farcaster.tradingWalletCandidateEvmAddresses
+                : Array.isArray(walletEvidence.tradingWalletCandidateEvmAddresses)
+                    ? walletEvidence.tradingWalletCandidateEvmAddresses
+                    : undefined,
+            5,
+        ),
+        confirmed_trading_wallet_addresses: limitArray(
+            Array.isArray(farcaster.confirmedTradingWalletAddresses)
+                ? farcaster.confirmedTradingWalletAddresses
+                : Array.isArray(walletEvidence.confirmedTradingWalletAddresses)
+                    ? walletEvidence.confirmedTradingWalletAddresses
+                    : undefined,
+            5,
+        ),
+        wallet_candidates: summarizeFarcasterWalletCandidates(
+            Array.isArray(farcaster.walletCandidates)
+                ? farcaster.walletCandidates
+                : Array.isArray(walletEvidence.walletCandidates)
+                    ? walletEvidence.walletCandidates
+                    : undefined,
+        ),
+        wallet_evidence_policy: walletEvidence.answerPolicy && typeof walletEvidence.answerPolicy === 'object'
+            ? stripEmptyEntries({
+                can_use_for_pnl_input: normalizePrimitive(walletEvidence.answerPolicy.canUseForPnlInput),
+                can_answer_pnl: normalizePrimitive(walletEvidence.answerPolicy.canAnswerPnl),
+                trading_wallet_rule: truncateText(walletEvidence.answerPolicy.tradingWalletRule, 280),
+                custody_address_rule: truncateText(walletEvidence.answerPolicy.custodyAddressRule, 240),
+            })
+            : undefined,
     });
+}
+
+function summarizeFarcasterAccountStatus(status: Record<string, any>) {
+    const viewer = status.viewerContext && typeof status.viewerContext === 'object'
+        ? status.viewerContext as Record<string, any>
+        : {};
+    return stripEmptyEntries({
+        source: normalizePrimitive(status.source),
+        fid_registered: normalizePrimitive(status.fidRegistered ?? status.fid_registered),
+        username_present: normalizePrimitive(status.usernamePresent ?? status.username_present),
+        custody_address_present: normalizePrimitive(status.custodyAddressPresent ?? status.custody_address_present),
+        has_verified_evm_wallet: normalizePrimitive(status.hasVerifiedEvmWallet ?? status.has_verified_evm_wallet),
+        has_verified_sol_wallet: normalizePrimitive(status.hasVerifiedSolWallet ?? status.has_verified_sol_wallet),
+        has_verified_external_accounts: normalizePrimitive(status.hasVerifiedExternalAccounts ?? status.has_verified_external_accounts),
+        auth_address_count: normalizePrimitive(status.authAddressCount ?? status.auth_address_count),
+        farcaster_pro_status: normalizePrimitive(status.farcasterProStatus ?? status.farcaster_pro_status),
+        power_badge: normalizePrimitive(status.powerBadge ?? status.power_badge),
+        viewer_context: stripEmptyEntries({
+            following: normalizePrimitive(viewer.following),
+            followed_by: normalizePrimitive(viewer.followedBy ?? viewer.followed_by),
+            blocking: normalizePrimitive(viewer.blocking),
+            blocked_by: normalizePrimitive(viewer.blockedBy ?? viewer.blocked_by),
+        }),
+        status_tags: limitArray(
+            Array.isArray(status.statusTags)
+                ? status.statusTags
+                : Array.isArray(status.status_tags)
+                    ? status.status_tags
+                    : undefined,
+            16,
+        ),
+        interpretation: truncateText(status.interpretation, 220),
+    });
+}
+
+function summarizeFarcasterSocialProfile(profile: Record<string, any>) {
+    const verifiedAccounts = Array.isArray(profile.verifiedAccounts)
+        ? profile.verifiedAccounts
+        : Array.isArray(profile.verified_accounts)
+            ? profile.verified_accounts
+            : [];
+    const mentions = profile.profileMentions && typeof profile.profileMentions === 'object'
+        ? profile.profileMentions as Record<string, any>
+        : {};
+    const mentionedProfiles = Array.isArray(mentions.profiles) ? mentions.profiles : [];
+    const mentionedChannels = Array.isArray(mentions.channels) ? mentions.channels : [];
+
+    return stripEmptyEntries({
+        bio: truncateText(profile.bio, 500),
+        pfp_url: normalizePrimitive(profile.pfpUrl || profile.pfp_url),
+        follower_count: normalizePrimitive(profile.followerCount ?? profile.follower_count),
+        following_count: normalizePrimitive(profile.followingCount ?? profile.following_count),
+        verified_accounts: verifiedAccounts.slice(0, 8).map((account: any) => stripEmptyEntries({
+            platform: normalizePrimitive(account?.platform),
+            username: normalizePrimitive(account?.username),
+        })).filter((item: Record<string, any>) => Object.keys(item).length > 0),
+        mentioned_profiles: mentionedProfiles.slice(0, 6).map((profileItem: any) => stripEmptyEntries({
+            fid: normalizePrimitive(profileItem?.fid),
+            username: normalizePrimitive(profileItem?.username),
+            display_name: normalizePrimitive(profileItem?.displayName || profileItem?.display_name),
+        })).filter((item: Record<string, any>) => Object.keys(item).length > 0),
+        mentioned_channels: mentionedChannels.slice(0, 6).map((channel: any) => stripEmptyEntries({
+            id: normalizePrimitive(channel?.id),
+            name: normalizePrimitive(channel?.name),
+        })).filter((item: Record<string, any>) => Object.keys(item).length > 0),
+    });
+}
+
+function summarizeFarcasterQualitySignals(signals: Record<string, any>) {
+    return stripEmptyEntries({
+        neynar_user_score: normalizePrimitive(signals.neynarUserScore ?? signals.neynar_user_score),
+        score: normalizePrimitive(signals.score),
+        score_source: normalizePrimitive(signals.scoreSource || signals.score_source),
+        quality_tier: normalizePrimitive(signals.qualityTier || signals.quality_tier),
+        quality_threshold: normalizePrimitive(signals.qualityThreshold ?? signals.quality_threshold),
+        score_interpretation: truncateText(signals.scoreInterpretation || signals.score_interpretation, 220),
+        pro_status: normalizePrimitive(signals.proStatus || signals.pro_status),
+        power_badge: normalizePrimitive(signals.powerBadge ?? signals.power_badge),
+        labels: limitArray(Array.isArray(signals.labels) ? signals.labels : undefined, 12),
+    });
+}
+
+function summarizeFarcasterWalletCandidates(candidates: unknown) {
+    if (!Array.isArray(candidates) || candidates.length === 0) return undefined;
+    const compact = candidates.slice(0, 8).map((candidate) => {
+        const item = candidate && typeof candidate === 'object' ? candidate as Record<string, any> : {};
+        return stripEmptyEntries({
+            address: normalizePrimitive(item.address),
+            network: normalizePrimitive(item.network),
+            address_type: normalizePrimitive(item.addressType || item.address_type),
+            wallet_role: normalizePrimitive(item.walletRole || item.wallet_role),
+            analysis_role: normalizePrimitive(item.analysisRole || item.analysis_role),
+            source: normalizePrimitive(item.source),
+            confidence: normalizePrimitive(item.confidence),
+            is_primary: normalizePrimitive(item.isPrimary ?? item.is_primary),
+            pnl_eligible: normalizePrimitive(item.pnlEligible ?? item.pnl_eligible),
+            can_assume_trading_wallet: normalizePrimitive(item.canAssumeTradingWallet ?? item.can_assume_trading_wallet),
+        });
+    }).filter((item) => Object.keys(item).length > 0);
+    return compact.length > 0 ? compact : undefined;
 }
 
 function normalizePrimitive(value: unknown): string | number | boolean | undefined {

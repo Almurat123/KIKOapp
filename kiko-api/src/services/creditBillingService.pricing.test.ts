@@ -30,6 +30,16 @@ test('premium text pricing uses the recommended default credits table for grok f
     assert.equal(credits, 0.0635);
 });
 
+test('premium text pricing uses the recommended default credits table for DeepSeek V4 Flash', () => {
+    const credits = computePremiumTextCreditsCharge({
+        model: 'deepseek-v4-flash',
+        promptTokens: 2000,
+        completionTokens: 1000,
+    });
+
+    assert.equal(credits, 0.0384);
+});
+
 test('generated image pricing uses the credits image table', () => {
     const defaultImagePricing = buildDefaultCreditImagePricing(10);
 

@@ -187,6 +187,7 @@ import { selectTaskRoute } from './taskRouteSelector.js';
 import { ChatAiTraceLogger } from './chatAiTraceLogger.js';
 import { isModelLedToolOrchestrationEnabled } from './modelLedToolOrchestration.js';
 import { buildExecutionReceiptDecision } from './executionReceiptAnswer.js';
+import type { ExecutionGateContext } from './executionGate.js';
 
 const CHAIN_EVIDENCE_TOOLS = new Set([
     'get_token_info',
@@ -1505,11 +1506,33 @@ function updateChatContextRuntime(
     toolContext.__controlPolicy = runtime.executionPolicy === undefined
         ? runtime.snapshot.policySnapshot || null
         : runtime.executionPolicy;
+    toolContext.__executionGate = resolveExecutionGateContext(runtime.snapshot);
     toolContext.__chatContextRuntime = {
         executionPlan: runtime.executionPlan || null,
         skillPrompts: Array.isArray(runtime.skillPrompts) ? runtime.skillPrompts : [],
         providerNativeEvidence: Array.isArray(runtime.providerNativeEvidence) ? runtime.providerNativeEvidence : [],
     };
+}
+
+function resolveExecutionGateContext(
+    snapshot: ChatContextSnapshot | null | undefined,
+): ExecutionGateContext | null {
+    const confirmation = snapshot?.confirmationState || null;
+    if (!confirmation?.kind) return null;
+
+    const conversationActionState = snapshot?.conversationActionState || null;
+    const phase: ExecutionGateContext['phase'] = conversationActionState?.canExecute
+        ? 'execute'
+        : 'confirm';
+    const confirmationToken = String(
+        confirmation.binding?.binding_key
+        || confirmation.order?.confirmationToken
+        || '',
+    ).trim();
+
+    return confirmationToken
+        ? { phase, confirmationToken }
+        : { phase };
 }
 
 function buildRoundToolExecutionPolicy(

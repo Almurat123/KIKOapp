@@ -329,6 +329,8 @@ const MODEL_LED_TOOL_ORCHESTRATION_PROMPT = [
   "- You are the decision-maker for the current turn. Read the latest user message, visible media/thread context, and available tools, then decide whether to answer in text, read context, generate/edit an image, provide prompt advice, execute a tool, or ask one clarification.",
   "- Visible tools belong to the current model-selected tool package. Backend policy, quota, safety, and confirmation gates still decide whether side effects can execute.",
   "- Use tools when the user asks for live/current facts, private wallet/runtime state, execution preparation, image generation/editing, or another action that cannot be honestly completed from conversation alone.",
+  "- For Farcaster handle/FID/cast-author wallet or PnL requests, resolve Neynar wallet evidence before wallet tools. Keep the user's Farcaster wallet separate from verified wallets; do not call a verified-wallet candidate the trading wallet until activity/PNL evidence confirms it.",
+  "- For Farcaster account status, score, labels/tags, verified accounts, or credibility questions, use Neynar accountStatus, qualitySignals, identityTags, and profile fields as evidence. Treat score as account-quality signal, not proof of humanity and not wallet/PnL evidence.",
   "- Do not call tools for ordinary explanation, brainstorming, prompt-writing advice, translation, or casual chat unless the user explicitly asks for runtime evidence or an action.",
   "- For image creation or editing requests, call generate_image_from_intent directly when the visual request is clear enough. The image tool owns prompt optimization and generated-image task execution.",
   "- Reference-image, edit, restyle, redraw, replace, put/place, and remix wording is still an image-generation request when the user wants an output image. If source-image context is available, use it through the image tool; if exact pixel editing is unavailable, use the reference/edit direction as generation context instead of returning prompt-only text.",
@@ -345,6 +347,7 @@ const WORKER_STATE_MACHINE_PROMPT = [
   "- For lean_chat: answer from the user question and ordinary conversation history. Do not read wallet/token/workflow context just because it exists.",
   "- For follow-up phrases such as 'this one', 'continue', 'yes', 'confirm', 'sell it', or 'what about them': treat WORKING_MEMORY as the starting state and read workflow_state before rediscovering.",
   "- For wallet_read: read user_context and wallet_state before claiming balances, holdings, PnL, connected wallet, or active chain.",
+  "- For wallet_read from Farcaster social context: use Neynar wallet-role evidence when available; if missing, call the Farcaster wallet resolver before PnL tools or ask for a wallet address. Distinguish Farcaster wallet from verified wallets, and distinguish verified-wallet candidates from confirmed trading wallets in the final answer.",
   "- For token_analysis: read token_context before claiming token facts; gather on-chain/search evidence only for the exact missing facts the question asks for.",
   "- For market_research: use current time and search evidence; do not answer 'latest', 'today', 'hot', or 'trending' from memory alone.",
   "- For swap_quote: read user_settings, user_context, wallet_state, token_context, then prepare a quote. The user-facing next step is quote confirmation, not execution.",
@@ -361,7 +364,7 @@ const CONTEXT_TRIGGER_POLICY_PROMPT = [
   "- read_workflow_state: carry-forward tasks, pending confirmations, selected token/market, recent tool state, next action.",
   "- read_wallet_state: balances, holdings, portfolio, PnL prerequisites, or execution affordability.",
   "- read_token_context: token identity, contract/symbol resolution, token snapshot, launch/token facts.",
-  "- read_launchpad_context: token deployment, launchpad metadata, Clanker/fair-launch state.",
+  "- read_launchpad_context: token deployment, launchpad metadata, Clanker/Four.meme/fair-launch state.",
   "- read_social_thread_context: X/Farcaster replies where surrounding posts change the answer.",
   "- read_social_images: uploaded/inbound image references when the image itself affects the answer.",
   "- read_provider_native_evidence: already gathered search citations/results before making realtime claims.",
@@ -1509,13 +1512,120 @@ function summarizeFarcaster(
   farcaster: Record<string, any> | null | undefined,
 ): Record<string, any> | undefined {
   if (!farcaster || typeof farcaster !== "object") return undefined;
+  const walletEvidence =
+    farcaster.walletEvidence && typeof farcaster.walletEvidence === "object"
+      ? (farcaster.walletEvidence as Record<string, any>)
+      : {};
+  const accountStatus =
+    farcaster.accountStatus && typeof farcaster.accountStatus === "object"
+      ? (farcaster.accountStatus as Record<string, any>)
+      : walletEvidence.accountStatus &&
+          typeof walletEvidence.accountStatus === "object"
+        ? (walletEvidence.accountStatus as Record<string, any>)
+        : {};
+  const qualitySignals =
+    farcaster.qualitySignals && typeof farcaster.qualitySignals === "object"
+      ? (farcaster.qualitySignals as Record<string, any>)
+      : walletEvidence.qualitySignals &&
+          typeof walletEvidence.qualitySignals === "object"
+        ? (walletEvidence.qualitySignals as Record<string, any>)
+        : {};
   return stripEmptyEntries({
     handle: normalizePrimitive(
       farcaster.handle || farcaster.username || farcaster.kikoHandle,
     ),
     display_name: normalizePrimitive(farcaster.displayName),
     fid: normalizePrimitive(farcaster.fid),
+    account_status: summarizeInlineFarcasterAccountStatus(accountStatus),
+    quality_signals: summarizeInlineFarcasterQualitySignals(qualitySignals),
+    identity_tags: limitArray(
+      Array.isArray(farcaster.identityTags)
+        ? farcaster.identityTags
+        : Array.isArray(walletEvidence.identityTags)
+          ? walletEvidence.identityTags
+          : undefined,
+      12,
+    ),
+    wallet_roles: summarizeInlineFarcasterWalletRoles(
+      Array.isArray(farcaster.walletCandidates)
+        ? farcaster.walletCandidates
+        : Array.isArray(walletEvidence.walletCandidates)
+          ? walletEvidence.walletCandidates
+          : undefined,
+    ),
   });
+}
+
+function summarizeInlineFarcasterAccountStatus(
+  status: Record<string, any>,
+): Record<string, any> | undefined {
+  const compact = stripEmptyEntries({
+    fid_registered: normalizePrimitive(
+      status.fidRegistered ?? status.fid_registered,
+    ),
+    username_present: normalizePrimitive(
+      status.usernamePresent ?? status.username_present,
+    ),
+    has_farcaster_wallet: normalizePrimitive(
+      status.custodyAddressPresent ?? status.custody_address_present,
+    ),
+    has_verified_evm_wallet: normalizePrimitive(
+      status.hasVerifiedEvmWallet ?? status.has_verified_evm_wallet,
+    ),
+    has_verified_external_accounts: normalizePrimitive(
+      status.hasVerifiedExternalAccounts ??
+        status.has_verified_external_accounts,
+    ),
+    pro_status: normalizePrimitive(
+      status.farcasterProStatus ?? status.farcaster_pro_status,
+    ),
+    power_badge: normalizePrimitive(status.powerBadge ?? status.power_badge),
+    status_tags: limitArray(
+      Array.isArray(status.statusTags)
+        ? status.statusTags
+        : Array.isArray(status.status_tags)
+          ? status.status_tags
+          : undefined,
+      10,
+    ),
+  });
+  return Object.keys(compact).length > 0 ? compact : undefined;
+}
+
+function summarizeInlineFarcasterQualitySignals(
+  signals: Record<string, any>,
+): Record<string, any> | undefined {
+  const compact = stripEmptyEntries({
+    neynar_user_score: normalizePrimitive(
+      signals.neynarUserScore ?? signals.neynar_user_score,
+    ),
+    score: normalizePrimitive(signals.score),
+    score_source: normalizePrimitive(signals.scoreSource || signals.score_source),
+    quality_tier: normalizePrimitive(
+      signals.qualityTier || signals.quality_tier,
+    ),
+    labels: limitArray(Array.isArray(signals.labels) ? signals.labels : undefined, 10),
+  });
+  return Object.keys(compact).length > 0 ? compact : undefined;
+}
+
+function summarizeInlineFarcasterWalletRoles(
+  candidates: unknown,
+): string[] | undefined {
+  if (!Array.isArray(candidates) || candidates.length === 0) return undefined;
+  const compact = candidates.slice(0, 5).map((candidate) => {
+    const item = candidate && typeof candidate === "object"
+      ? (candidate as Record<string, any>)
+      : {};
+    const parts = [
+      normalizePrimitive(item.address),
+      `role=${normalizePrimitive(item.walletRole || item.wallet_role) || "unknown"}`,
+      `analysis=${normalizePrimitive(item.analysisRole || item.analysis_role) || "unknown"}`,
+      `pnl_eligible=${normalizePrimitive(item.pnlEligible ?? item.pnl_eligible) === true ? "true" : "false"}`,
+    ];
+    return parts.filter(Boolean).join(" | ");
+  }).filter(Boolean);
+  return compact.length > 0 ? compact : undefined;
 }
 
 function summarizeTokenSnapshot(

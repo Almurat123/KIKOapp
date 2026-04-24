@@ -42,7 +42,7 @@ def resolve_provider(model: str) -> dict[str, str | bool]:
             "supportsPreviousResponse": True,
             "searchFlavor": "generic",
         }
-    if "deepseek" in normalized:
+    if normalized == "deepseek-v4-flash":
         return {
             "provider": "deepseek",
             "model": model,

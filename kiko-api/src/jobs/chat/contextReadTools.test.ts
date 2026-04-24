@@ -78,6 +78,120 @@ test('read_user_context returns connected chain, requested chain, and address cl
     assert.equal(result.context?.request_entities?.address_classifications?.[0]?.kind, 'token_contract');
 });
 
+test('read_user_context exposes Farcaster Neynar wallet evidence for wallet/PNL turns', async () => {
+    const snapshot = makeSnapshot('Farcaster inbound mention context:\nCurrent @alice: what is my Base PNL?', {
+        runtime: {
+            currentPage: 'farcaster',
+            pageContext: 'farcaster_agent',
+            farcaster: {
+                fid: 123,
+                username: 'alice',
+                walletSource: 'neynar_verified_addresses',
+                primaryVerifiedEvmAddress: '0x1111111111111111111111111111111111111111',
+                pnlEligibleEvmAddresses: ['0x1111111111111111111111111111111111111111'],
+                tradingWalletCandidateEvmAddresses: ['0x1111111111111111111111111111111111111111'],
+                confirmedTradingWalletAddresses: [],
+                walletEvidence: {
+                    source: 'neynar_verified_addresses',
+                    accountStatus: {
+                        source: 'neynar_user_object',
+                        fidRegistered: true,
+                        usernamePresent: true,
+                        custodyAddressPresent: true,
+                        hasVerifiedEvmWallet: true,
+                        hasVerifiedSolWallet: false,
+                        hasVerifiedExternalAccounts: true,
+                        authAddressCount: 1,
+                        farcasterProStatus: 'subscribed',
+                        powerBadge: true,
+                        viewerContext: {
+                            following: true,
+                            followedBy: false,
+                            blocking: false,
+                            blockedBy: false,
+                        },
+                        statusTags: ['farcaster_fid_registered', 'has_verified_evm_wallet', 'farcaster_pro'],
+                        interpretation: 'Neynar account status describes Farcaster identity/linking state. It is not wallet activity, PNL, or proof of humanity.',
+                    },
+                    qualitySignals: {
+                        neynarUserScore: 0.81,
+                        score: null,
+                        scoreSource: 'experimental.neynar_user_score',
+                        qualityTier: 'high',
+                        qualityThreshold: 0.55,
+                        scoreInterpretation: 'Neynar user score is an account quality signal from 0 to 1. It is not proof of humanity and should not be treated as a wallet/PnL signal.',
+                        proStatus: 'subscribed',
+                        powerBadge: true,
+                        labels: ['neynar_score_high', 'has_verified_evm_wallet'],
+                    },
+                    identityTags: ['farcaster_fid_registered', 'neynar_score_high', 'has_verified_evm_wallet'],
+                    tradingWalletCandidateEvmAddresses: ['0x1111111111111111111111111111111111111111'],
+                    confirmedTradingWalletAddresses: [],
+                    answerPolicy: {
+                        canUseForPnlInput: true,
+                        canAnswerPnl: false,
+                        tradingWalletRule: 'Verified addresses are trading-wallet candidates until transaction evidence confirms them.',
+                        custodyAddressRule: 'Custody address is not automatic PNL evidence.',
+                    },
+                },
+                walletCandidates: [
+                    {
+                        address: '0x1111111111111111111111111111111111111111',
+                        network: 'ethereum',
+                        addressType: 'verified_address',
+                        walletRole: 'verified_wallet',
+                        analysisRole: 'trading_wallet_candidate',
+                        source: 'neynar_verified_addresses',
+                        confidence: 'high',
+                        isPrimary: true,
+                        pnlEligible: true,
+                        canAssumeTradingWallet: false,
+                    },
+                    {
+                        address: '0x2222222222222222222222222222222222222222',
+                        network: 'ethereum',
+                        addressType: 'custody_address',
+                        walletRole: 'farcaster_wallet',
+                        analysisRole: 'account_wallet_only',
+                        source: 'neynar_custody_address',
+                        confidence: 'low',
+                        isPrimary: false,
+                        pnlEligible: false,
+                        canAssumeTradingWallet: false,
+                    },
+                ],
+            },
+        },
+    });
+
+    const result = await ReadUserContextTool.handler({}, { __snapshot: snapshot });
+    const profile = result.context?.surface?.farcaster_profile;
+    assert.equal(profile?.wallet_source, 'neynar_verified_addresses');
+    assert.equal(profile?.account_status?.fid_registered, true);
+    assert.equal(profile?.account_status?.has_verified_evm_wallet, true);
+    assert.equal(profile?.account_status?.farcaster_pro_status, 'subscribed');
+    assert.equal(profile?.account_status?.viewer_context?.following, true);
+    assert.deepEqual(profile?.account_status?.status_tags, ['farcaster_fid_registered', 'has_verified_evm_wallet', 'farcaster_pro']);
+    assert.equal(profile?.quality_signals?.neynar_user_score, 0.81);
+    assert.equal(profile?.quality_signals?.quality_tier, 'high');
+    assert.deepEqual(profile?.identity_tags, ['farcaster_fid_registered', 'neynar_score_high', 'has_verified_evm_wallet']);
+    assert.equal(profile?.primary_verified_evm_address, '0x1111111111111111111111111111111111111111');
+    assert.deepEqual(profile?.pnl_eligible_evm_addresses, ['0x1111111111111111111111111111111111111111']);
+    assert.deepEqual(profile?.trading_wallet_candidate_evm_addresses, ['0x1111111111111111111111111111111111111111']);
+    assert.equal(profile?.confirmed_trading_wallet_addresses, undefined);
+    assert.equal(profile?.wallet_candidates?.[0]?.address_type, 'verified_address');
+    assert.equal(profile?.wallet_candidates?.[0]?.wallet_role, 'verified_wallet');
+    assert.equal(profile?.wallet_candidates?.[0]?.analysis_role, 'trading_wallet_candidate');
+    assert.equal(profile?.wallet_candidates?.[0]?.pnl_eligible, true);
+    assert.equal(profile?.wallet_candidates?.[0]?.can_assume_trading_wallet, false);
+    assert.equal(profile?.wallet_candidates?.[1]?.address_type, 'custody_address');
+    assert.equal(profile?.wallet_candidates?.[1]?.wallet_role, 'farcaster_wallet');
+    assert.equal(profile?.wallet_candidates?.[1]?.analysis_role, 'account_wallet_only');
+    assert.equal(profile?.wallet_candidates?.[1]?.pnl_eligible, false);
+    assert.equal(profile?.wallet_evidence_policy?.can_answer_pnl, false);
+    assert.match(profile?.wallet_evidence_policy?.trading_wallet_rule || '', /candidates/i);
+});
+
 test('read_user_settings returns one normalized execution-preference contract', async () => {
     const snapshot = makeSnapshot('Swap ETH for USDC', {
         runtime: {

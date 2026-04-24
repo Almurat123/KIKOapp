@@ -122,6 +122,7 @@ const ORDER_MUTATION_TOOLS = [
 
 const TOKEN_DEPLOY_MUTATION_TOOLS = [
     'deploy_clanker_token',
+    'deploy_fourmeme_token',
 ];
 
 const POLICY_COUNTERS = new Map<string, number>();

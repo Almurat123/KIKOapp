@@ -54,6 +54,7 @@ export function getBillingCategory(model: string): BillingCategory {
     if (env.billing.freeModels.includes(normalized)) return 'free';
     if (env.billing.premiumModels.includes(normalized)) return 'premium';
     if (normalized.includes('grok')) return 'premium';
+    if (normalized.includes('deepseek')) return 'premium';
     if (normalized.startsWith('gpt') || normalized.startsWith('o1') || normalized.startsWith('o3') || normalized.startsWith('o4')) return 'premium';
     return 'other';
 }

@@ -403,10 +403,10 @@ function resolveOrderConfirmationFromToolTrace(trace: RecentToolTrace | null): T
         const call = calls[idx];
         if (!isReusablePreparedConfirmationCall(call, PREPARED_CONFIRMATION_REPLAY_WINDOW_MS)) continue;
         const result = (call?.result && typeof call.result === 'object') ? call.result : {};
-        if (String(call?.tool || '').trim() === 'deploy_clanker_token') {
-            const clankerConfirmation = resolveClankerDeployConfirmationFromToolTrace(call, result);
-            if (clankerConfirmation) return clankerConfirmation;
-            if (isClankerDeployExecutionReceipt(result)) return null;
+        if (isTokenDeployToolName(String(call?.tool || '').trim())) {
+            const tokenDeployConfirmation = resolveTokenDeployConfirmationFromToolTrace(call, result);
+            if (tokenDeployConfirmation) return tokenDeployConfirmation;
+            if (isTokenDeployExecutionReceipt(result)) return null;
         }
         const payload = (result?.confirmation_payload && typeof result.confirmation_payload === 'object')
             ? result.confirmation_payload
@@ -477,29 +477,35 @@ function normalizeConfirmationActionClass(actionClass: ActionClass): ActionClass
     return 'ORDER_MUTATION';
 }
 
-function resolveClankerDeployConfirmationFromToolTrace(
+function isTokenDeployToolName(toolName: string): boolean {
+    return toolName === 'deploy_clanker_token' || toolName === 'deploy_fourmeme_token';
+}
+
+function resolveTokenDeployConfirmationFromToolTrace(
     call: any,
     result: Record<string, any>,
 ): TradeConfirmationState | null {
     if (result?.requires_confirmation !== true && result?.dryRun !== true) return null;
-    const launchArgs = extractClankerDeployLaunchArgs(call, result);
+    const toolName = String(call?.tool || '').trim();
+    if (!isTokenDeployToolName(toolName)) return null;
+    const launchArgs = extractTokenDeployLaunchArgs(toolName, call, result);
     if (!launchArgs) return null;
-    const executionArgs = buildClankerDeployExecutionArgs(launchArgs);
-    const confirmationToken = computeConfirmationToken('deploy_clanker_token', executionArgs);
+    const executionArgs = buildTokenDeployExecutionArgs(launchArgs);
+    const confirmationToken = computeConfirmationToken(toolName, executionArgs);
     return {
         kind: 'order_confirmation',
-        sourceTool: String(call?.tool || 'deploy_clanker_token'),
+        sourceTool: String(call?.tool || toolName),
         capturedAt: extractCallTimestamp(call),
         binding: {
             binding_kind: 'prepared_confirmation',
             binding_key: confirmationToken,
-            tool_name: 'deploy_clanker_token',
+            tool_name: toolName,
             action_class: 'TOKEN_DEPLOY_MUTATION',
-            source_tool: String(call?.tool || 'deploy_clanker_token'),
+            source_tool: String(call?.tool || toolName),
             captured_at: extractCallTimestamp(call),
         },
         order: {
-            toolName: 'deploy_clanker_token',
+            toolName,
             args: executionArgs,
             confirmationToken,
             actionClass: 'TOKEN_DEPLOY_MUTATION',
@@ -507,7 +513,7 @@ function resolveClankerDeployConfirmationFromToolTrace(
     };
 }
 
-function extractClankerDeployLaunchArgs(call: any, result: Record<string, any>): Record<string, any> | null {
+function extractTokenDeployLaunchArgs(toolName: string, call: any, result: Record<string, any>): Record<string, any> | null {
     const confirmationPayload = (result?.confirmation_payload && typeof result.confirmation_payload === 'object')
         ? result.confirmation_payload as Record<string, any>
         : null;
@@ -521,7 +527,9 @@ function extractClankerDeployLaunchArgs(call: any, result: Record<string, any>):
         ? result.payload as Record<string, any>
         : null;
     const normalizedDryRunArgs = dryRunPayload
-        ? convertClankerDryRunPayloadToToolArgs(dryRunPayload)
+        ? toolName === 'deploy_clanker_token'
+            ? convertClankerDryRunPayloadToToolArgs(dryRunPayload)
+            : dryRunPayload
         : null;
     if (normalizedDryRunArgs && callArgs) {
         return {
@@ -536,7 +544,7 @@ function extractClankerDeployLaunchArgs(call: any, result: Record<string, any>):
     return null;
 }
 
-function buildClankerDeployExecutionArgs(args: Record<string, any>): Record<string, any> {
+function buildTokenDeployExecutionArgs(args: Record<string, any>): Record<string, any> {
     return {
         ...(args || {}),
         confirmDeploy: true,
@@ -585,7 +593,7 @@ function convertClankerDryRunPayloadToToolArgs(payload: Record<string, any>): Re
     return Object.keys(args).length > 0 ? args : null;
 }
 
-function isClankerDeployExecutionReceipt(result: Record<string, any>): boolean {
+function isTokenDeployExecutionReceipt(result: Record<string, any>): boolean {
     if (!result || result.dryRun === true) return false;
     return Boolean(
         result.success === true

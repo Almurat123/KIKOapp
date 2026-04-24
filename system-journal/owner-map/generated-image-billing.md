@@ -1,6 +1,6 @@
 # Owner Map: Generated Image Billing
 
-Updated: 2026-04-20
+Updated: 2026-04-24
 
 ## Owned Layers
 
@@ -16,7 +16,7 @@ Updated: 2026-04-20
 
 Owns: model normalization, free-vs-paid image reservation decisions, billing
 consent checks, reservation locking, reservation status transitions, and
-consuming the env-configured daily free-output allowance.
+consuming the env-configured shared lifetime free-request allowance.
 
 Does not own: provider HTTP calls, prompt orchestration, moderation, or
 frontend picker chrome, or env parsing itself.
@@ -50,8 +50,8 @@ provider outcome is known.
   - Verification: verified in code
 - Source: /Users/almurat/KiKo/kiko-api/src/config/env.ts
   - Kind: repo doc
-  - Retrieved: 2026-04-20
-  - Applied To: env-side parsing of `GENERATED_IMAGE_DAILY_FREE_OUTPUTS`
+  - Retrieved: 2026-04-24
+  - Applied To: env-side parsing of `CREDITS_LIFETIME_IMAGE_FREE_REQUESTS`
   - Verification: verified in code
 - Source: operator requirement on 2026-04-18
   - Kind: product doc

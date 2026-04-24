@@ -1,6 +1,6 @@
 # Generated Image Billing
 
-Updated: 2026-04-20
+Updated: 2026-04-24
 
 ## Purpose
 
@@ -15,42 +15,40 @@ server-owned context and billing consent.
 1. Generated-image usage must be stored in a dedicated ledger, not
    `billing_usage_ledger`.
 2. Free generated-image allowance is counted on the backend per authenticated
-   user and UTC day, and the free-output count is env-configurable with a
-   default of 2.
-3. Reservation rows in `reserved` or `completed` state count against free-image
-   allowance so concurrent requests cannot oversubscribe the quota.
-4. Paid generated-image runs require active billing consent before the provider
-   call starts.
-5. Only completed paid generated-image rows may enter daily billing
-   aggregation.
-6. GPT image variants may stay visible in the UI while disabled in backend
-   policy.
-7. Grok Pro may stay visible in the UI while disabled in backend policy.
+   user as a shared lifetime request pool, controlled by
+   `CREDITS_LIFETIME_IMAGE_FREE_REQUESTS`.
+3. Reservation rows in `reserved` or `completed` state count against the shared
+   free-request allowance so concurrent requests cannot oversubscribe the pool.
+4. Paid generated-image runs reserve credits before the provider call starts.
+5. Only completed paid generated-image rows may capture reserved credits.
+6. Unmetered image models must not consume the shared free-request pool.
 
 ## Forbidden Local Patch Patterns
 
 - Do not reuse chat `assistant_message_id` billing ids for generated images.
 - Do not trust frontend local state or localStorage for image free counts.
-- Do not allow a paid generated-image call to proceed before consent exists.
-- Do not aggregate reserved or failed image rows into daily paid billing.
-- Do not silently treat disabled image models as selectable just because the UI
-  can render them.
+- Do not allow a paid generated-image call to proceed before credits are
+  reserved.
+- Do not capture credits for reserved, failed, or cancelled image rows.
+- Do not spend the shared free-request pool on unmetered provider paths.
 
 ## Current Product Policy
 
-- `gpt-image-1.5`: visible, disabled, no free allowance, no generation route
-  enabled yet.
-- `grok-imagine-image`: enabled, first `GENERATED_IMAGE_DAILY_FREE_OUTPUTS`
-  output images per user per UTC day are free. Default: 2.
-- `grok-imagine-image-pro`: visible, disabled.
+- `cloudflare-flux-2-klein-4b`: enabled, unmetered, does not consume the
+  shared generated-image free-request pool and does not reserve credits.
+- `gpt-image-1-mini`: enabled through OpenAI, participates in the shared
+  lifetime free-request pool.
+- `gpt-image-2`: enabled through OpenRouter when configured, participates in
+  the shared lifetime free-request pool.
+- `grok-imagine-image`: enabled through xAI, participates in the shared
+  lifetime free-request pool.
+- `grok-imagine-image-pro`: enabled through xAI, participates in the shared
+  lifetime free-request pool.
+- `runware-flux-2-klein-9b-kv`: enabled through Runware, participates in the
+  shared lifetime free-request pool and then charges the low-cost image price.
 
 ## Document Provenance
 
-- Source: OpenAI GPT Image 1.5 model page
-  - Kind: official API doc
-  - Retrieved: 2026-04-18
-  - Applied To: recognizing `gpt-image-1.5` as the future OpenAI image model id
-  - Verification: verified in docs
 - Source: xAI Grok Imagine Image model page
   - Kind: official API doc
   - Retrieved: 2026-04-18
@@ -61,21 +59,22 @@ server-owned context and billing consent.
   - Retrieved: 2026-04-18
   - Applied To: pro-mode model id and price field `$n700000000`
   - Verification: verified in docs
-- Source: operator requirement on 2026-04-18
-  - Kind: product doc
-  - Retrieved: 2026-04-18
-  - Applied To: GPT disabled, Grok normal free allowance, Grok Pro disabled,
-    and consent-required paid fallback
-  - Verification: verified in code
 - Source: /Users/almurat/KiKo/kiko-api/src/config/env.ts
   - Kind: repo doc
-  - Retrieved: 2026-04-20
-  - Applied To: `GENERATED_IMAGE_DAILY_FREE_OUTPUTS` parsing and default fallback
+  - Retrieved: 2026-04-24
+  - Applied To: `CREDITS_LIFETIME_IMAGE_FREE_REQUESTS` parsing and default
+    fallback
   - Verification: verified in code
 - Source: /Users/almurat/KiKo/kiko-api/src/services/generatedImageBilling.ts
   - Kind: repo doc
-  - Retrieved: 2026-04-20
-  - Applied To: the backend free-output limit consumed by generated-image billing
+  - Retrieved: 2026-04-24
+  - Applied To: the backend free-request pool consumed by generated-image
+    billing
+  - Verification: verified in code
+- Source: /Users/almurat/KiKo/system-journal/fix-log/2026-04-24-low-cost-generated-image-models.md
+  - Kind: repo doc
+  - Retrieved: 2026-04-24
+  - Applied To: Cloudflare unmetered behavior and Runware shared-pool billing
   - Verification: verified in code
 
 ## See Also

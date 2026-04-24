@@ -1707,6 +1707,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         : currentSessionModel;
     if (!found) return;
     setSelectedModel((current) => {
+      if (found.kind === 'text' && current.kind === 'image') {
+        return current;
+      }
       if (current.id === found.id) return current;
       logger.debug('Syncing model from current conversation:', found.id);
       return found;
@@ -3168,14 +3171,17 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
       // Use the live UI selection as the send source of truth.
       const modelToUse = selectedModel;
+      const sessionControlModel = modelToUse.kind === 'image'
+        ? getDefaultChatModelOption()
+        : modelToUse;
 
       // Uploads already completed during image selection; sending only
       // creates the session/task and passes prepared upload ids.
       if (!currentConvId) {
         const newId = await createConversation(
           trimmedText || 'Image upload',
-          modelToUse.id,
-          modelToUse.reasoningLevel
+          sessionControlModel.id,
+          sessionControlModel.reasoningLevel
         );
         if (newId) {
           currentConvId = newId;

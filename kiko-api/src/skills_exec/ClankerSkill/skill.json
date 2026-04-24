@@ -1,7 +1,7 @@
 {
     "id": "clanker_deploy_token",
     "name": "Deploy Token via Clanker",
-    "description": "Deploy Clanker v4 tokens on supported chains with simple creator buy support, inspect deploy/deployer history, inspect reward recipients, and prepare claim transactions.",
+    "description": "Deploy Clanker v4 tokens on Base with simple creator buy support, inspect deploy/deployer history, inspect reward recipients, and prepare claim transactions.",
     "intents": [
         "TRADING"
     ],
@@ -19,7 +19,6 @@
             "deploy token test buy me 0.1 ETH",
             "Launch a new token on Base with Clanker",
             "Deploy a token via Clanker with a creator buy",
-            "Deploy a token on Unichain via Clanker",
             "Show Clanker deploy history for this admin",
             "Prepare a Clanker reward claim transaction"
         ],
@@ -28,7 +27,6 @@
             "部署代币 test，买入 0.1 ETH",
             "用 Clanker 在 Base 上发一个新代币",
             "通过 Clanker 部署一个带 dev buy 的代币",
-            "通过 Clanker 在 Unichain 上部署一个代币",
             "查看这个管理员的 Clanker 部署历史",
             "准备一个 Clanker 奖励领取交易"
         ]
