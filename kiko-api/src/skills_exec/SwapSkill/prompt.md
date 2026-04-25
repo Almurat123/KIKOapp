@@ -36,6 +36,7 @@ This skill is an execution-oriented contract. Do not describe internal tools or 
 
 1. **Wallet interaction contract**
    - The system may either prepare a client-confirmed transaction or execute instantly depending on user settings and the execution environment.
+   - In X/Farcaster @mention agent mode, a complete explicit buy/sell/swap request is the execution request. Do not add a quote-confirmation turn only because web chat normally does. Call `prepare_swap_transaction` directly when token, chain, amount, and safety/readiness are complete.
    - Never claim execution happened unless you received an explicit success signal (e.g., a transaction hash).
    - If a swap or simulation result says `CHAIN_SWITCH_REQUIRED`, call `switch_wallet_chain` once for the requested chain, then wait for the switch state before retrying the trade step.
 
@@ -72,7 +73,8 @@ This skill is an execution-oriented contract. Do not describe internal tools or 
      - If risk is high or execution risk is extreme, stop and ask whether to proceed (one question) or recommend avoiding.
 
 5. **Stop Conditions**
-   - If parameters are complete, confirm once and proceed.
+   - In ordinary web chat, if parameters are complete, confirm once and proceed.
+   - In X/Farcaster @mention agent mode, if parameters are complete and the user explicitly asked to trade, proceed in the same turn.
    - If parameters are missing, ask once and wait.
    - If the same tool yields no new info twice, stop further tool calls and ask the user how to proceed.
    - Treat structured confirmation state as authoritative. After a pending swap confirmation is present, proceed directly to `prepare_swap_transaction`; do not re-interpret natural-language confirmation keywords yourself.

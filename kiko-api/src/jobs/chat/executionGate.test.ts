@@ -121,6 +121,45 @@ test('prepare_swap_transaction rejects explicitly expired quote precheck evidenc
     assert.equal(result.error?.code, 'PRECHECK_REQUIRED');
 });
 
+test('social agent execute gate does not require a prior trade confirmation precheck', () => {
+    const result = checkMutationExecutionGate({
+        toolName: 'prepare_cross_chain_tx',
+        args: {
+            fromChain: 'base',
+            toChain: 'arbitrum',
+            fromToken: 'USDC',
+            toToken: 'USDC',
+            fromAmount: '10',
+        },
+        policy: {
+            enforcementLevel: 'hard',
+            actionClass: 'TRADE_MUTATION',
+            policyDecisionId: 'policy-1',
+        } as any,
+        gate: {
+            phase: 'execute',
+        },
+        snapshot: {
+            sessionId: 'session-social',
+            taskId: 'task-social',
+            model: 'gpt-5.4',
+            history: [],
+            lastUserMessage: '@kiko bridge 10 USDC from Base to Arbitrum',
+            requestedTokenAddresses: [],
+            requestedTokenSymbols: [],
+            runtime: {
+                currentPage: 'x',
+                pageContext: 'x_agent',
+                socialInput: { platform: 'x' },
+            },
+            toolDefinitions: [],
+            recentToolTrace: { toolCalls: [] },
+        } as any,
+    });
+
+    assert.equal(result.allow, true);
+});
+
 test('deploy_clanker_token dry run does not require execution confirmation', () => {
     const result = checkMutationExecutionGate({
         toolName: 'deploy_clanker_token',

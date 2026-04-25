@@ -342,9 +342,6 @@ export async function deployFourMemeToken(
     if (!userId) {
         throw new AppError(401, 'User authentication required for Four.meme deploy', 'AUTH_REQUIRED');
     }
-    if (!accessToken) {
-        throw new AppError(401, 'Privy access token required for Four.meme deploy', 'ACCESS_TOKEN_REQUIRED');
-    }
 
     const walletInfo = await getEmbeddedWalletInfo(userId, { chainType: 'ethereum' });
     const walletAddress = String(walletInfo?.address || '').trim();

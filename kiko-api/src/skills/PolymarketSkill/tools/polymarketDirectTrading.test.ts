@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { __directTradingTestables } from './polymarketDirectTrading.js';
+import { __polymarketTradeToolsTest } from './polymarketTradeTools.js';
 
 test('buildPolymarketReadinessGate blocks orders when conversion is required', () => {
   const result = __directTradingTestables.buildPolymarketReadinessGate({
@@ -99,4 +100,79 @@ test('buildPolymarketBlockedOrderResponse exposes a conversion confirmation when
   assert.equal(result?.requires_confirmation, true);
   assert.equal(result?.confirmation_payload?.tool_name, 'prepare_swap_transaction');
   assert.equal(result?.confirmation_payload?.action_class, 'TRADE_MUTATION');
+});
+
+test('Polymarket bet prep recognizes social agent execute context', () => {
+  assert.equal(__polymarketTradeToolsTest.isSocialAgentExecutionContext({
+    pageContext: 'x_agent',
+    socialInput: { platform: 'x' },
+    __executionGate: { phase: 'execute' },
+  }), true);
+  assert.equal(__polymarketTradeToolsTest.isSocialAgentExecutionContext({
+    pageContext: 'x_agent',
+    socialInput: { platform: 'x' },
+    __executionGate: { phase: 'preflight' },
+  }), false);
+  assert.equal(__polymarketTradeToolsTest.isSocialAgentExecutionContext({
+    pageContext: 'wallet',
+    __executionGate: { phase: 'execute' },
+  }), false);
+});
+
+test('Polymarket confirmation contract keeps web confirmation but removes social-agent user checkpoint', () => {
+  const orderArgs = {
+    token_id: '123',
+    question: 'Will it happen?',
+    outcome: 'Yes',
+    amount_usd: 1,
+    side: 'BUY',
+  };
+
+  const web = __polymarketTradeToolsTest.buildPolymarketConfirmationContract({
+    orderArgs,
+    swapFundingConfirmation: null,
+    agentSingleTurnExecution: false,
+  });
+  assert.equal(web.requiresConfirmation, true);
+  assert.equal(web.confirmationPayload?.tool_name, 'place_polymarket_order');
+  assert.equal(web.confirmationPayload?.action_class, 'ORDER_MUTATION');
+
+  const social = __polymarketTradeToolsTest.buildPolymarketConfirmationContract({
+    orderArgs,
+    swapFundingConfirmation: null,
+    agentSingleTurnExecution: true,
+  });
+  assert.equal(social.requiresConfirmation, false);
+  assert.equal(social.confirmationPayload?.tool_name, 'place_polymarket_order');
+  assert.deepEqual(social.confirmationPayload?.args, orderArgs);
+});
+
+test('Polymarket confirmation contract preserves funding payload without social-agent confirm checkpoint', () => {
+  const fundingPayload = {
+    tool_name: 'prepare_swap_transaction',
+    args: {
+      token_in: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
+      token_out: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
+      amount_in: '3',
+      chain_id: 137,
+    },
+    confirmation_token: 'funding-token',
+    action_class: 'TRADE_MUTATION',
+  };
+
+  const social = __polymarketTradeToolsTest.buildPolymarketConfirmationContract({
+    orderArgs: null,
+    swapFundingConfirmation: fundingPayload,
+    agentSingleTurnExecution: true,
+  });
+  assert.equal(social.requiresConfirmation, false);
+  assert.deepEqual(social.confirmationPayload, fundingPayload);
+
+  const web = __polymarketTradeToolsTest.buildPolymarketConfirmationContract({
+    orderArgs: null,
+    swapFundingConfirmation: fundingPayload,
+    agentSingleTurnExecution: false,
+  });
+  assert.equal(web.requiresConfirmation, true);
+  assert.equal(web.confirmationPayload?.tool_name, 'prepare_swap_transaction');
 });

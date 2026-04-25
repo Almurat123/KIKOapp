@@ -136,6 +136,24 @@ function hasCompleteClankerDeployContext(input: any): boolean {
     );
 }
 
+function isSocialAgentExecutionContext(context?: ToolContext): boolean {
+    const pageContext = String(context?.pageContext || '').trim().toLowerCase();
+    const currentPage = String(context?.currentPage || '').trim().toLowerCase();
+    const socialPlatform = String((context as any)?.socialInput?.platform || '').trim().toLowerCase();
+    const gatePhase = String((context as any)?.__executionGate?.phase || '').trim().toLowerCase();
+    if (gatePhase !== 'execute') return false;
+    return pageContext === 'x_agent'
+        || pageContext === 'farcaster_agent'
+        || currentPage === 'x'
+        || currentPage === 'farcaster'
+        || socialPlatform === 'x'
+        || socialPlatform === 'farcaster';
+}
+
+function resolveEffectiveConfirmDeploy(confirmDeploy: unknown, context?: ToolContext): boolean {
+    return confirmDeploy === true || isSocialAgentExecutionContext(context);
+}
+
 export const DeployClankerTokenTool: Tool = {
     definition: {
         name: 'deploy_clanker_token',
@@ -252,13 +270,17 @@ export const DeployClankerTokenTool: Tool = {
             const deployInput = socialContext
                 ? { ...input, context: socialContext }
                 : input;
-            return deployClankerToken(deployInput, { confirmDeploy: confirmDeploy === true }, {
+            return deployClankerToken(deployInput, { confirmDeploy: resolveEffectiveConfirmDeploy(confirmDeploy, context) }, {
                 fallbackTokenAdmin: context?.userAddress,
             });
         } catch (error) {
             return toolError(error);
         }
     },
+};
+
+export const __clankerToolsTest = {
+    resolveEffectiveConfirmDeploy,
 };
 
 export const GetClankerTokensByAdminTool: Tool = {

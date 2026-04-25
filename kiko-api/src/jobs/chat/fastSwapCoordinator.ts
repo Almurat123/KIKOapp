@@ -14,6 +14,7 @@ import { ChatStreamBroker } from './streamBroker.js';
 import { resolveTokenDisplayMetadata } from '../../services/tokens.js';
 import { resolveTradeSemantics } from '../../services/ai/tradeSemantics.js';
 import { resolveDisplayedAmountOut } from '../../services/swapCardAmount.js';
+import { inferSwapCardType } from '../../services/swap/swapCardType.js';
 
 const CHAIN_ID_MAP: Record<number, string> = {
     1: 'eth',
@@ -171,7 +172,13 @@ export async function maybeExecuteFastSwap(params: {
             type: 'transaction-status-card',
             data: {
                 status: 'sending',
-                swapType: inferFastSwapType(prepared.tokenIn, prepared.tokenOut, prepared.chainId),
+                swapType: inferSwapCardType({
+                    tokenIn: prepared.tokenIn,
+                    tokenOut: prepared.tokenOut,
+                    tokenInSymbol: tokenInDisplay.symbol,
+                    tokenOutSymbol: tokenOutDisplay.symbol,
+                    chainId: prepared.chainId,
+                }),
                 tokenIn: prepared.tokenIn,
                 tokenOut: prepared.tokenOut,
                 tokenInSymbol: tokenInDisplay.symbol,
@@ -391,16 +398,6 @@ function inferChainIdFromAsset(asset: string): number | undefined {
     if (upper === 'POL' || upper === 'MATIC') return 137;
     if (upper === 'SOL') return 900;
     return undefined;
-}
-
-function inferFastSwapType(tokenIn: string, tokenOut: string, chainId: number): 'buy' | 'sell' {
-    const native = nativeSymbolForChain(chainId).toUpperCase();
-    const tokenInUpper = String(tokenIn || '').toUpperCase();
-    const tokenOutUpper = String(tokenOut || '').toUpperCase();
-    const tokenInIsNative = tokenInUpper === native;
-    const tokenOutIsNative = tokenOutUpper === native;
-    if (!tokenInIsNative && tokenOutIsNative) return 'sell';
-    return 'buy';
 }
 
 export function findSnapshotBalanceForToken(snapshot: ChatContextSnapshot, tokenIn: string, chainName: string, isNative: boolean): number | null {

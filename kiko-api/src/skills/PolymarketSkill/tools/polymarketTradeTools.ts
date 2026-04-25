@@ -31,6 +31,42 @@ import { resolvePolymarketSelectionMatch } from '../../../jobs/chat/polymarketSe
 import { computeConfirmationToken } from '../../../jobs/chat/executionGate.js';
 import { buildPolymarketMarketUrl } from '../../../utils/executionLinks.js';
 
+function isSocialAgentExecutionContext(context: any): boolean {
+    const pageContext = String(context?.pageContext || context?.toolContext?.pageContext || '').toLowerCase();
+    const currentPage = String(context?.currentPage || context?.toolContext?.currentPage || '').toLowerCase();
+    const socialPlatform = String(context?.socialInput?.platform || '').toLowerCase();
+    const gatePhase = String(context?.__executionGate?.phase || '').toLowerCase();
+    if (gatePhase !== 'execute') return false;
+    return pageContext === 'x_agent'
+        || pageContext === 'farcaster_agent'
+        || currentPage === 'x'
+        || currentPage === 'farcaster'
+        || socialPlatform === 'x'
+        || socialPlatform === 'farcaster';
+}
+
+function buildPolymarketConfirmationContract(params: {
+    orderArgs: Record<string, any> | null;
+    swapFundingConfirmation: Record<string, any> | null;
+    agentSingleTurnExecution: boolean;
+}): {
+    requiresConfirmation: boolean;
+    confirmationPayload: Record<string, any> | null;
+} {
+    const confirmationPayload = params.orderArgs
+        ? {
+            tool_name: 'place_polymarket_order',
+            args: params.orderArgs,
+            confirmation_token: computeConfirmationToken('place_polymarket_order', params.orderArgs),
+            action_class: 'ORDER_MUTATION',
+        }
+        : params.swapFundingConfirmation;
+    return {
+        requiresConfirmation: Boolean(confirmationPayload) && !params.agentSingleTurnExecution,
+        confirmationPayload,
+    };
+}
+
 /**
  * Get Market Activity Tool
  * Fetches recent trades for a specific market (question) to analyze buy/sell pressure.
@@ -403,12 +439,20 @@ export const PreparePolymarketBetTool: Tool = {
                 action_class: 'TRADE_MUTATION' as const,
             }
             : null;
+        const agentSingleTurnExecution = isSocialAgentExecutionContext(context);
+        const confirmationContract = buildPolymarketConfirmationContract({
+            orderArgs: safeOrderArgs,
+            swapFundingConfirmation,
+            agentSingleTurnExecution,
+        });
         const nextStep = !selectionIsValid
             ? 'Refresh the exact selected market and outcome first. The selection did not re-resolve cleanly against the authoritative Polymarket market record.'
             : readiness == null
                 ? 'If you want to place this bet next, check readiness or place the order directly if the account is already prepared.'
                 : fundingPlan?.ready_for_requested_order
-                    ? 'Account looks ready. Reply "confirm" to place the prepared order, or change the amount/outcome first.'
+                    ? agentSingleTurnExecution
+                        ? 'Account looks ready. Continue to the executable order payload in this same agent turn.'
+                        : 'Account looks ready. Reply "confirm" to place the prepared order, or change the amount/outcome first.'
                     : fundingPlan?.preferred_action?.reason
                         || readiness.missingSteps[0]
                         || 'Complete readiness setup before placing the order.';
@@ -508,17 +552,15 @@ export const PreparePolymarketBetTool: Tool = {
                 market_url: effectiveMarketUrl ?? buildPolymarketMarketUrl(selectionValidation.marketSlug) ?? null,
                 selection_state_match: selectionMatch,
             },
-            requires_confirmation: Boolean(safeOrderArgs || swapFundingConfirmation),
-            confirmation_payload: safeOrderArgs
-                ? {
-                    tool_name: 'place_polymarket_order',
-                    args: safeOrderArgs,
-                    confirmation_token: computeConfirmationToken('place_polymarket_order', safeOrderArgs),
-                    action_class: 'ORDER_MUTATION',
-                }
-                : swapFundingConfirmation,
+            requires_confirmation: confirmationContract.requiresConfirmation,
+            confirmation_payload: confirmationContract.confirmationPayload,
             note: 'Use this tool after market selection to move from discovery into a concrete bet-preparation bundle. Do not stop at only listing markets if the user has already chosen one.',
         };
     },
     permissions: 'public'
+};
+
+export const __polymarketTradeToolsTest = {
+    buildPolymarketConfirmationContract,
+    isSocialAgentExecutionContext,
 };

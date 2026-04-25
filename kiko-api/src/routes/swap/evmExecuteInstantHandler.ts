@@ -613,11 +613,17 @@ async function executeEvmInstantWithDeps(
     };
 }
 
+export async function executeEvmInstantInternal(
+    params: EvmExecuteInstantParams
+): Promise<{ txHash: string; tradeId: string; status: 'SUCCESS' | 'PENDING' | 'FAILED'; amountOut: string | null }> {
+    return executeEvmInstantWithDeps(params, defaultDeps);
+}
+
 export async function handleEvmExecuteInstant(
     params: EvmExecuteInstantParams,
     reply: { send: (payload: unknown) => unknown }
 ) {
-    const result = await executeEvmInstantWithDeps(params, defaultDeps);
+    const result = await executeEvmInstantInternal(params);
     return reply.send({
         success: true,
         data: result,
@@ -626,6 +632,7 @@ export async function handleEvmExecuteInstant(
 
 export const __evmExecuteInstantTest = {
     executeEvmInstantWithDeps,
+    executeEvmInstantInternal,
     NATIVE_TOKEN_PLACEHOLDER,
     resolveInstantExecutionOutcome,
 };

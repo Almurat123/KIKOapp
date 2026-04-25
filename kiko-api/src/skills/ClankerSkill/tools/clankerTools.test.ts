@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { DeployClankerTokenTool } from './clankerTools.js';
+import { DeployClankerTokenTool, __clankerToolsTest } from './clankerTools.js';
 
 function requirePayload(result: any): Record<string, any> {
     assert.equal(result?.success, true);
@@ -88,4 +88,25 @@ test('deploy_clanker_token does not inject social context for ordinary web chat'
 
     const payload = requirePayload(result);
     assert.equal('context' in payload, false);
+});
+
+test('deploy_clanker_token treats social agent execute gate as deploy authorization', () => {
+    assert.equal(__clankerToolsTest.resolveEffectiveConfirmDeploy(false, {
+        currentPage: 'x',
+        pageContext: 'x_agent',
+        __executionGate: { phase: 'execute' },
+        socialInput: { platform: 'x' },
+    } as any), true);
+
+    assert.equal(__clankerToolsTest.resolveEffectiveConfirmDeploy(false, {
+        currentPage: 'x',
+        pageContext: 'x_agent',
+        socialInput: { platform: 'x' },
+    } as any), false);
+
+    assert.equal(__clankerToolsTest.resolveEffectiveConfirmDeploy(false, {
+        currentPage: 'wallet',
+        pageContext: 'web_chat',
+        __executionGate: { phase: 'execute' },
+    } as any), false);
 });

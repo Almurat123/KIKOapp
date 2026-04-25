@@ -179,6 +179,9 @@ function resolveFastSwapDirectives(input: {
     toolContext: Record<string, any>;
 }): RuntimeDirective[] {
     const toolConfig = input.toolContext?.toolConfig || {};
+    if (isSocialAgentContext(input.toolContext)) {
+        return [];
+    }
     if (toolConfig.fastSwapMode !== true) {
         if (toolConfig.showQuoteBeforeSwap !== false) {
             return [{

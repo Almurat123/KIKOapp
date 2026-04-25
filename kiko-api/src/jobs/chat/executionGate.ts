@@ -89,7 +89,7 @@ export function checkMutationExecutionGate(params: {
     const gateToken = String(gate?.confirmationToken || '');
 
     if (isTradeMutation) {
-        if (!hasTradePrecheckEvidence(snapshot, toolName, args)) {
+        if (!isSocialAgentExecuteGate(snapshot, gate) && !hasTradePrecheckEvidence(snapshot, toolName, args)) {
             const error = createPolicyError(
                 'PRECHECK_REQUIRED',
                 `Preflight evidence is required before executing ${toolName}`,
@@ -177,6 +177,23 @@ export function checkMutationExecutionGate(params: {
         };
     }
     return { allow: true };
+}
+
+function isSocialAgentExecuteGate(
+    snapshot: ChatContextSnapshot | null | undefined,
+    gate: ExecutionGateContext | null | undefined,
+): boolean {
+    if (gate?.phase !== 'execute') return false;
+    const runtime = snapshot?.runtime || {};
+    const pageContext = String(runtime.pageContext || runtime.toolContext?.pageContext || '').toLowerCase();
+    const currentPage = String(runtime.currentPage || runtime.toolContext?.currentPage || '').toLowerCase();
+    const socialPlatform = String(runtime.socialInput?.platform || '').toLowerCase();
+    return pageContext === 'farcaster_agent'
+        || pageContext === 'x_agent'
+        || currentPage === 'farcaster'
+        || currentPage === 'x'
+        || socialPlatform === 'farcaster'
+        || socialPlatform === 'x';
 }
 
 function isTradeExecutionAttempt(toolName: string, args: Record<string, any>): boolean {

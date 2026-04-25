@@ -23,6 +23,24 @@ function resolveXSourceTweetUrl(context?: ToolContext): string | undefined {
     return `https://x.com/i/web/status/${encodeURIComponent(tweetId)}`;
 }
 
+function isSocialAgentExecutionContext(context?: ToolContext): boolean {
+    const pageContext = String(context?.pageContext || '').trim().toLowerCase();
+    const currentPage = String(context?.currentPage || '').trim().toLowerCase();
+    const socialPlatform = String((context as any)?.socialInput?.platform || '').trim().toLowerCase();
+    const gatePhase = String((context as any)?.__executionGate?.phase || '').trim().toLowerCase();
+    if (gatePhase !== 'execute') return false;
+    return pageContext === 'x_agent'
+        || pageContext === 'farcaster_agent'
+        || currentPage === 'x'
+        || currentPage === 'farcaster'
+        || socialPlatform === 'x'
+        || socialPlatform === 'farcaster';
+}
+
+function resolveEffectiveConfirmDeploy(confirmDeploy: unknown, context?: ToolContext): boolean {
+    return confirmDeploy === true || isSocialAgentExecutionContext(context);
+}
+
 export const DeployFourMemeTokenTool: Tool = {
     definition: {
         name: 'deploy_fourmeme_token',
@@ -62,7 +80,7 @@ export const DeployFourMemeTokenTool: Tool = {
                 ? { ...input, twitterUrl: xSourceTweetUrl }
                 : input;
             return deployFourMemeToken(deployInput, {
-                confirmDeploy: confirmDeploy === true,
+                confirmDeploy: resolveEffectiveConfirmDeploy(confirmDeploy, context),
                 userId: context?.userId,
                 accessToken: context?.accessToken,
             });
@@ -70,4 +88,8 @@ export const DeployFourMemeTokenTool: Tool = {
             return toolError(error);
         }
     },
+};
+
+export const __fourMemeToolsTest = {
+    resolveEffectiveConfirmDeploy,
 };

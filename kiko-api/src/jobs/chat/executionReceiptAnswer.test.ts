@@ -89,6 +89,29 @@ test("buildExecutionReceiptAnswer formats nested config receipts", () => {
   assert.match(answer || "", /Polymarket 钱包: https:\/\/polymarket.com\/profile\/0x111/);
 });
 
+test("buildExecutionReceiptDecision skips client-signature copytrade actions", () => {
+  const decision = buildExecutionReceiptDecision(
+    {
+      id: "call-signature",
+      name: "pause_copy_trade_config",
+      arguments: {},
+      ok: true,
+      result: {
+        requires_user_signature: true,
+        targetWallet: "0x1111111111111111111111111111111111111111",
+        __client_action: {
+          type: "open_trade_page_for_signed_copytrade",
+          data: { action: "pause" },
+        },
+      },
+    },
+    "en",
+  );
+
+  assert.equal(decision.reason, "handled_response");
+  assert.equal(decision.answer, null);
+});
+
 test("buildExecutionReceiptDecision formats failed deploy receipts without another model round", () => {
   const decision = buildExecutionReceiptDecision(
     {

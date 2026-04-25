@@ -36,6 +36,7 @@ import { processClaimedTasks } from './chat/taskClaimRunner.js';
 import { buildBalanceContextBlock } from './chat/balanceContextBuilder.js';
 import { buildLaunchpadContextBlock, buildTokenContextBlock } from './chat/contextBlockBuilder.js';
 import { getFastSwapDecision, prepareFastSwapExecution } from './chat/fastSwapExecutor.js';
+import { inferSwapCardType } from '../services/swap/swapCardType.js';
 import cacheClient from '../cache/cacheClient.js';
 
 // Constants
@@ -2428,7 +2429,13 @@ Do NOT estimate or guess USD values.`;
                             type: 'transaction-status-card',
                             data: {
                                 status: 'pending',
-                                swapType: 'buy',
+                                swapType: inferSwapCardType({
+                                    tokenIn,
+                                    tokenOut,
+                                    tokenInSymbol,
+                                    tokenOutSymbol,
+                                    chainId,
+                                }),
                                 tokenIn,
                                 tokenOut,
                                 tokenInSymbol,

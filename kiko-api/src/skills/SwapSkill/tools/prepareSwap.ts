@@ -35,6 +35,8 @@ import { validateSwapExecutionChain } from './chainExecutionGuard.js';
 import type { NativeBalanceEvidence } from '../../../services/swap/nativeBalanceEvidence.js';
 import type { RecentToolTrace } from '../../../jobs/chat/contracts.js';
 import { buildTransactionExplorerUrl } from '../../../utils/executionLinks.js';
+import { executeEvmInstantInternal } from '../../../routes/swap/evmExecuteInstantHandler.js';
+import { inferSwapCardType } from '../../../services/swap/swapCardType.js';
 import { ethers } from 'ethers';
 // Note: swapAggregator import removed - using internal API call instead
 
@@ -376,6 +378,46 @@ function hasQuoteModeExecutionAuthorization(context: ToolContext | undefined, ar
     return sameTokenIn && sameTokenOut;
 }
 
+function isSocialAgentExecutionContext(context: ToolContext | undefined): boolean {
+    const pageContext = String(context?.pageContext || context?.toolContext?.pageContext || '').toLowerCase();
+    const currentPage = String(context?.currentPage || context?.toolContext?.currentPage || '').toLowerCase();
+    const socialPlatform = String(context?.socialInput?.platform || '').toLowerCase();
+    const gatePhase = String(context?.__executionGate?.phase || '').toLowerCase();
+    if (gatePhase !== 'execute') return false;
+    return pageContext === 'x_agent'
+        || pageContext === 'farcaster_agent'
+        || currentPage === 'x'
+        || currentPage === 'farcaster'
+        || socialPlatform === 'x'
+        || socialPlatform === 'farcaster';
+}
+
+function resolveSwapExecutionDecision(params: {
+    args: SwapArgs;
+    context: ToolContext | undefined;
+    fastSwapMode: boolean;
+    showQuoteBeforeSwap?: boolean;
+    hasExplicitExecutionAuthorization: boolean;
+}) {
+    const agentSingleTurnExecution = isSocialAgentExecutionContext(params.context);
+    const quoteBeforeSwapEnabled = !agentSingleTurnExecution
+        && !params.fastSwapMode
+        && params.showQuoteBeforeSwap !== false;
+    const executionRequested =
+        agentSingleTurnExecution
+        || params.args.execute === true
+        || params.context?.allowanceMode === 'instant'
+        || params.fastSwapMode;
+
+    return {
+        agentSingleTurnExecution,
+        quoteBeforeSwapEnabled,
+        requireSimulationBeforeExecute: quoteBeforeSwapEnabled,
+        executionRequested,
+        shouldExecute: executionRequested && (!quoteBeforeSwapEnabled || params.hasExplicitExecutionAuthorization),
+    };
+}
+
 function shouldAttachTradeDebug(context: ToolContext | undefined): boolean {
     return (context?.toolConfig as any)?.tradeDebugMode === true;
 }
@@ -395,6 +437,18 @@ type SocketRecoveryTradeRecord = {
     tokenOutAmount?: string | null;
     tokenInSymbol?: string | null;
     tokenOutSymbol?: string | null;
+};
+
+type SwapExecutionResult = {
+    success?: boolean;
+    error?: string;
+    message?: string;
+    data?: {
+        txHash?: string;
+        amountOut?: string | null;
+        tradeId?: string;
+        status?: 'PENDING' | 'SUCCESS' | 'FAILED';
+    };
 };
 
 function resolveSocketRecoverySearchStartMs(params: {
@@ -820,24 +874,32 @@ When show-quote-before-swap is enabled (default), execution must follow:
             const config = context?.toolConfig as any;
             const swapMethod = 'allowance_trade'; // FORCED: Always use allowance_trade
             const fastSwapMode = config?.fastSwapMode === true;
-            const quoteBeforeSwapEnabled = !fastSwapMode && config?.showQuoteBeforeSwap !== false;
-            const requireSimulationBeforeExecute = quoteBeforeSwapEnabled;
             const hasExplicitExecutionAuthorization = hasQuoteModeExecutionAuthorization(context, args);
+            const executionDecision = resolveSwapExecutionDecision({
+                args,
+                context,
+                fastSwapMode,
+                showQuoteBeforeSwap: config?.showQuoteBeforeSwap,
+                hasExplicitExecutionAuthorization,
+            });
 
             // Execute instantly ONLY if:
             // 1. args.execute is explicitly true (AI decision), OR
             // 2. fastSwapMode is enabled (for Zora fast swap)
             // CRITICAL: Respect args.execute=false for simulation/quote mode
-            const executionRequested =
-                args.execute === true ||
-                context?.allowanceMode === 'instant' ||
-                fastSwapMode;
-            const shouldExecute = executionRequested && (!quoteBeforeSwapEnabled || hasExplicitExecutionAuthorization);
+            const {
+                agentSingleTurnExecution,
+                quoteBeforeSwapEnabled,
+                requireSimulationBeforeExecute,
+                executionRequested,
+                shouldExecute,
+            } = executionDecision;
 
             console.log('[PrepareSwapTransaction] Execution Decision:', {
                 argsExecute: args.execute,
                 swapMethod,
                 fastSwapMode,
+                agentSingleTurnExecution,
                 quoteBeforeSwapEnabled,
                 requireSimulationBeforeExecute,
                 executionRequested,
@@ -846,6 +908,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
             });
             const executionDebug = buildTradeDebug(context, {
                 mode: fastSwapMode ? 'fast_swap' : 'quote_confirm',
+                agentSingleTurnExecution,
                 executionRequested,
                 finalDecision: shouldExecute,
                 quoteBeforeSwapEnabled,
@@ -883,7 +946,22 @@ When show-quote-before-swap is enabled (default), execution must follow:
                 const accessToken = context?.accessToken;
                 const sessionId = context?.sessionId;
 
-                if (!userId || !accessToken || !sessionId) {
+                if (agentSingleTurnExecution && (!userId || !sessionId || !userWalletAddress)) {
+                    console.warn('[PrepareSwapTransaction] Social agent execution missing server-side context', {
+                        hasUserId: Boolean(userId),
+                        hasSessionId: Boolean(sessionId),
+                        hasWalletAddress: Boolean(userWalletAddress),
+                    });
+                    return {
+                        error: 'SOCIAL_AGENT_EXECUTION_CONTEXT_MISSING',
+                        code: 'SOCIAL_AGENT_EXECUTION_CONTEXT_MISSING',
+                        mode: 'error',
+                        _final: true,
+                        _user_message: 'Swap was not submitted. KIKO could not resolve the server-side user, chat session, or embedded wallet needed to sign this social-agent transaction.',
+                    };
+                }
+
+                if (!agentSingleTurnExecution && (!userId || !accessToken || !sessionId)) {
                     console.warn('[PrepareSwapTransaction] Missing userId/accessToken/sessionId, falling back to client action');
                     const [tokenInDisplay, tokenOutDisplay] = await Promise.all([
                         resolveTokenDisplayMetadata(args.token_in, args.chain_id),
@@ -906,6 +984,9 @@ When show-quote-before-swap is enabled (default), execution must follow:
                         summary: `Executing instant swap: ${args.amount_in} ${tokenInDisplay.symbol} → ${tokenOutDisplay.symbol} on chain ${args.chain_id}. Transaction will be submitted automatically.`
                     };
                 }
+                const executionUserId = userId as string;
+                const executionSessionId = sessionId as string;
+                const executionAccessToken = accessToken || '';
 
                 // ⚡ STEP 1: Create persistent transaction card message IMMEDIATELY
                 const { createMessage, updateMessage } = await import('../../../repositories/chatRepository.js');
@@ -914,16 +995,23 @@ When show-quote-before-swap is enabled (default), execution must follow:
                     resolveTokenDisplayMetadata(args.token_in, args.chain_id),
                     resolveTokenDisplayMetadata(args.token_out, args.chain_id),
                 ]);
+                const swapType = inferSwapCardType({
+                    tokenIn: args.token_in,
+                    tokenOut: args.token_out,
+                    tokenInSymbol: tokenInDisplay.symbol,
+                    tokenOutSymbol: tokenOutDisplay.symbol,
+                    chainId: args.chain_id,
+                });
 
                 const transactionMessage = await createMessage(
-                    sessionId,
+                    executionSessionId,
                     'assistant',
                     '',
                     {
                         type: 'transaction-status-card',
                         data: {
                             status: 'sending',
-                            swapType: 'buy',
+                            swapType,
                             tokenIn: args.token_in,
                             tokenOut: args.token_out,
                             tokenInSymbol: tokenInDisplay.symbol,
@@ -946,9 +1034,9 @@ When show-quote-before-swap is enabled (default), execution must follow:
                 console.log(`[PrepareSwapTransaction] Created transaction message: ${transactionMessage.id}`);
 
                 // Push pending card to frontend via WebSocket
-                chatWS.broadcast(userId, {
+                chatWS.broadcast(executionUserId, {
                     type: 'client_action',
-                    sessionId,
+                    sessionId: executionSessionId,
                     data: {
                         targetMessageId: transactionMessage.id,
                         action: {
@@ -973,9 +1061,9 @@ When show-quote-before-swap is enabled (default), execution must follow:
                         await updateMessage(transactionMessage.id, {
                             data: updatedData
                         });
-                        chatWS.broadcast(userId, {
+                        chatWS.broadcast(executionUserId, {
                             type: 'client_action',
-                            sessionId,
+                            sessionId: executionSessionId,
                             data: {
                                 targetMessageId: transactionMessage.id,
                                 action: {
@@ -1004,9 +1092,9 @@ When show-quote-before-swap is enabled (default), execution must follow:
                         await updateMessage(transactionMessage.id, {
                             data: updatedData
                         });
-                        chatWS.broadcast(userId, {
+                        chatWS.broadcast(executionUserId, {
                             type: 'client_action',
-                            sessionId,
+                            sessionId: executionSessionId,
                             data: {
                                 targetMessageId: transactionMessage.id,
                                 action: {
@@ -1029,9 +1117,9 @@ When show-quote-before-swap is enabled (default), execution must follow:
                 ) => {
                     latestCardData = data;
                     await updateMessage(transactionMessage.id, { data, status });
-                    chatWS.broadcast(userId, {
+                    chatWS.broadcast(executionUserId, {
                         type: 'client_action',
-                        sessionId,
+                        sessionId: executionSessionId,
                         data: {
                             targetMessageId: transactionMessage.id,
                             action: {
@@ -1063,44 +1151,53 @@ When show-quote-before-swap is enabled (default), execution must follow:
                     const timeoutId = setTimeout(() => controller.abort(), 150000);
 
                     try {
-                        const response = await fetch(`${API_BASE}/api/swap/execute-instant`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${accessToken}`,
-                                ...(appKey ? { 'X-App-Key': appKey } : {}),
-                                ...buildSignedHeaders('POST', '/api/swap/execute-instant', JSON.stringify({
-                                    tokenIn: args.token_in,
-                                tokenOut: args.token_out,
-                                amountIn: args.amount_in,
-                                chainId: args.chain_id,
-                                slippageBps: Math.round((args.slippage || 10) * 100),
-                                messageId: transactionMessage.id,
-                                nativeBalanceEvidence,
-                            })),
-                                'X-Transaction-Message-Id': transactionMessage.id
-                            },
-                            body: JSON.stringify({
-                                tokenIn: args.token_in,
-                                tokenOut: args.token_out,
-                                amountIn: args.amount_in,
-                                chainId: args.chain_id,
-                                slippageBps: Math.round((args.slippage || 10) * 100),
-                                messageId: transactionMessage.id,
-                                nativeBalanceEvidence,
-                            }),
-                            signal: controller.signal
-                        });
-
-                        const result = await response.json() as {
-                            success?: boolean;
-                            error?: string;
-                            message?: string;
-                            data?: { txHash?: string; amountOut?: string; tradeId?: string; status?: 'PENDING' | 'SUCCESS' | 'FAILED' };
+                        const requestBody = {
+                            tokenIn: args.token_in,
+                            tokenOut: args.token_out,
+                            amountIn: args.amount_in,
+                            chainId: args.chain_id,
+                            slippageBps: Math.round((args.slippage || 10) * 100),
+                            messageId: transactionMessage.id,
+                            nativeBalanceEvidence,
                         };
-
+                        const result: SwapExecutionResult = agentSingleTurnExecution
+                            ? await (async () => {
+                                const data = await executeEvmInstantInternal({
+                                    userId: executionUserId,
+                                    walletAddress: userWalletAddress!,
+                                    accessToken: executionAccessToken,
+                                    tokenIn: requestBody.tokenIn,
+                                    tokenOut: requestBody.tokenOut,
+                                    amountIn: requestBody.amountIn,
+                                    chainId: requestBody.chainId,
+                                    slippageBps: requestBody.slippageBps,
+                                    transactionMessageId: transactionMessage.id,
+                                    executionSource: 'chat',
+                                    routePolicy: 'external_only',
+                                    nativeBalanceEvidence,
+                                });
+                                return { success: true, data };
+                            })()
+                            : await (async () => {
+                                const response = await fetch(`${API_BASE}/api/swap/execute-instant`, {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'Authorization': `Bearer ${executionAccessToken}`,
+                                        ...(appKey ? { 'X-App-Key': appKey } : {}),
+                                        ...buildSignedHeaders('POST', '/api/swap/execute-instant', JSON.stringify(requestBody)),
+                                        'X-Transaction-Message-Id': transactionMessage.id
+                                    },
+                                    body: JSON.stringify(requestBody),
+                                    signal: controller.signal
+                                });
+                                const body = await response.json() as SwapExecutionResult;
+                                return response.ok
+                                    ? body
+                                    : { ...body, success: false };
+                            })();
                         let swapRecord: any = null;
-                        if (response.ok && result.success && (result.data?.tradeId || result.data?.txHash)) {
+                        if (result.success && (result.data?.tradeId || result.data?.txHash)) {
                             try {
                                 const { prisma } = await import('../../../db/prisma.js');
                                 swapRecord = await prisma.swapHistory.findFirst({
@@ -1116,7 +1213,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
 
                         const backendStatus = String(result.data?.status || '').toUpperCase();
                         const txUrl = buildTransactionExplorerUrl(args.chain_id, result.data?.txHash);
-                        const finalStatus = !response.ok || !result.success
+                        const finalStatus = !result.success
                             ? 'failed'
                             : backendStatus === 'PENDING'
                                 ? 'pending'
@@ -1168,7 +1265,7 @@ When show-quote-before-swap is enabled (default), execution must follow:
                         }
                         await persistCardUpdate(completionData, 'complete');
 
-                        if (!response.ok || !result.success) {
+                        if (!result.success) {
                             const errorMsg = result.error || result.message || 'Swap execution failed';
                             console.error('[PrepareSwapTransaction] Backend swap failed:', errorMsg);
                             return {
@@ -1445,7 +1542,10 @@ export const __prepareSwapTest = {
     buildSocketRecoveryResult,
     raceExecutionWithPendingHandoff,
     hasQuoteModeExecutionAuthorization,
+    isSocialAgentExecutionContext,
+    resolveSwapExecutionDecision,
     repairTruncatedEvmAddressFromMessages,
     findRecentSwapPrecheckFromTrace,
     repairSwapArgsFromMessages,
+    inferSwapCardType,
 };

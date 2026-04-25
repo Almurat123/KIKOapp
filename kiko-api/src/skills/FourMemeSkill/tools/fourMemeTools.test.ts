@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { DeployFourMemeTokenTool } from './fourMemeTools.js';
+import { DeployFourMemeTokenTool, __fourMemeToolsTest } from './fourMemeTools.js';
 
 function requirePayload(result: any): Record<string, any> {
     assert.equal(result?.success, true);
@@ -104,4 +104,25 @@ test('deploy_fourmeme_token does not inject social links for ordinary web chat',
     const payload = requirePayload(result);
     assert.equal('twitterUrl' in payload, false);
     assert.equal('websiteUrl' in payload, false);
+});
+
+test('deploy_fourmeme_token treats social agent execute gate as deploy authorization', () => {
+    assert.equal(__fourMemeToolsTest.resolveEffectiveConfirmDeploy(false, {
+        currentPage: 'farcaster',
+        pageContext: 'farcaster_agent',
+        __executionGate: { phase: 'execute' },
+        socialInput: { platform: 'farcaster' },
+    } as any), true);
+
+    assert.equal(__fourMemeToolsTest.resolveEffectiveConfirmDeploy(false, {
+        currentPage: 'farcaster',
+        pageContext: 'farcaster_agent',
+        socialInput: { platform: 'farcaster' },
+    } as any), false);
+
+    assert.equal(__fourMemeToolsTest.resolveEffectiveConfirmDeploy(false, {
+        currentPage: 'wallet',
+        pageContext: 'web_chat',
+        __executionGate: { phase: 'execute' },
+    } as any), false);
 });

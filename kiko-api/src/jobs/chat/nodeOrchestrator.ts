@@ -186,7 +186,7 @@ import { applyConversationActionState } from './conversationStateResolver.js';
 import { selectTaskRoute } from './taskRouteSelector.js';
 import { ChatAiTraceLogger } from './chatAiTraceLogger.js';
 import { isModelLedToolOrchestrationEnabled } from './modelLedToolOrchestration.js';
-import { buildExecutionReceiptDecision } from './executionReceiptAnswer.js';
+import { buildExecutionReceiptDecision, isExecutionReceiptToolName } from './executionReceiptAnswer.js';
 import type { ExecutionGateContext } from './executionGate.js';
 
 const CHAIN_EVIDENCE_TOOLS = new Set([
@@ -1357,12 +1357,90 @@ export async function runNodeOrchestration(params: {
                 chatAiTrace.emit({ finalRound: round, finalReason: 'tool_receipt_answer_hook' });
                 return { terminal: false };
             }
-            const confirmationAnswer = buildConfirmationCheckpointAnswer(result, planning.locale);
+            const socialConfirmationCall = buildSocialExecutableConfirmationCall(result, params.snapshot, call.id, round);
+            if (socialConfirmationCall) {
+                await params.onToolStatus?.(socialConfirmationCall.name);
+                const socialPlannedStep = resolvePlanStepForTool(
+                    socialConfirmationCall.name,
+                    planning,
+                    skillResolution,
+                    params.snapshot.lastUserMessage,
+                );
+                await params.broker.markPlanStepStarted(socialConfirmationCall, socialPlannedStep || undefined);
+                const executionResult = await params.toolExecutionEngine.execute(
+                    socialConfirmationCall,
+                    buildSocialConfirmationToolContext(params.toolContext, params.snapshot),
+                );
+                executedToolResults.set(buildToolCallKey(socialConfirmationCall.name, socialConfirmationCall.arguments || {}), {
+                    name: socialConfirmationCall.name,
+                    arguments: socialConfirmationCall.arguments || {},
+                    ok: executionResult.ok,
+                    result: executionResult.result,
+                    error: executionResult.error,
+                    metadata: executionResult.metadata,
+                    continuation: executionResult.continuation,
+                });
+                chatAiTrace.recordToolResult(round, executionResult);
+                await params.broker.recordToolResult(executionResult);
+                const socialReceiptDecision = buildExecutionReceiptDecision(executionResult, planning.locale);
+                logger.info(LogCode.AI_ORCHESTRATOR, 'NodeOrchestrator: social confirmation payload executed', {
+                    sessionId: params.snapshot.sessionId,
+                    taskId: params.snapshot.taskId,
+                    round,
+                    ...summarizeToolResultForLog(executionResult),
+                    receiptDecision: {
+                        reason: socialReceiptDecision.reason,
+                        answerBuilt: Boolean(socialReceiptDecision.answer),
+                        resultKeys: socialReceiptDecision.resultKeys,
+                    },
+                });
+                if (socialReceiptDecision.answer) {
+                    await params.broker.setRuntimeState?.(undefined);
+                    await params.broker.markAnswerStarted(buildSummaryPlanStep(params.snapshot.lastUserMessage));
+                    await params.broker.pushText(socialReceiptDecision.answer);
+                    chatAiTrace.emit({ finalRound: round, finalReason: 'social_confirmation_payload_receipt_hook' });
+                    return { terminal: false };
+                }
+                const socialClientActionAnswer = buildClientActionCheckpointAnswer(executionResult, planning.locale, params.snapshot);
+                if (socialClientActionAnswer) {
+                    await params.broker.setRuntimeState?.(undefined);
+                    await params.broker.markAnswerStarted(buildSummaryPlanStep(params.snapshot.lastUserMessage));
+                    await params.broker.pushText(socialClientActionAnswer);
+                    chatAiTrace.emit({ finalRound: round, finalReason: 'social_confirmation_payload_client_action_hook' });
+                    return { terminal: false };
+                }
+                const socialConfirmationAnswer = buildConfirmationCheckpointAnswer(executionResult, planning.locale, params.snapshot);
+                if (socialConfirmationAnswer) {
+                    await params.broker.setRuntimeState?.(undefined);
+                    await params.broker.markAnswerStarted(buildSummaryPlanStep(params.snapshot.lastUserMessage));
+                    await params.broker.pushText(socialConfirmationAnswer);
+                    chatAiTrace.emit({ finalRound: round, finalReason: 'social_confirmation_payload_checkpoint_hook' });
+                    return { terminal: false };
+                }
+                await params.broker.setRuntimeState?.(undefined);
+                await params.broker.markAnswerStarted(buildSummaryPlanStep(params.snapshot.lastUserMessage));
+                await params.broker.pushText(
+                    executionResult.ok
+                        ? 'Action submitted.'
+                        : `Action was not submitted. ${executionResult.error || 'The execution tool did not return a completion receipt.'}`,
+                );
+                chatAiTrace.emit({ finalRound: round, finalReason: 'social_confirmation_payload_fallback_hook' });
+                return { terminal: false };
+            }
+            const confirmationAnswer = buildConfirmationCheckpointAnswer(result, planning.locale, params.snapshot);
             if (confirmationAnswer) {
                 await params.broker.setRuntimeState?.(undefined);
                 await params.broker.markAnswerStarted(buildSummaryPlanStep(params.snapshot.lastUserMessage));
                 await params.broker.pushText(confirmationAnswer);
                 chatAiTrace.emit({ finalRound: round, finalReason: 'tool_confirmation_answer_hook' });
+                return { terminal: false };
+            }
+            const clientActionAnswer = buildClientActionCheckpointAnswer(result, planning.locale, params.snapshot);
+            if (clientActionAnswer) {
+                await params.broker.setRuntimeState?.(undefined);
+                await params.broker.markAnswerStarted(buildSummaryPlanStep(params.snapshot.lastUserMessage));
+                await params.broker.pushText(clientActionAnswer);
+                chatAiTrace.emit({ finalRound: round, finalReason: 'tool_client_action_answer_hook' });
                 return { terminal: false };
             }
             if (result.continuation?.next_action === 'complete_with_side_effect') {
@@ -1467,6 +1545,30 @@ function buildToolCallKey(name: string, args: Record<string, any>): string {
     return `${name}:${stableStringify(args || {})}`;
 }
 
+function buildSocialExecutableConfirmationCall(
+    toolResult: OrchestratorToolResult,
+    snapshot: ChatContextSnapshot,
+    sourceToolCallId: string,
+    round: number,
+): { id: string; name: string; arguments: Record<string, any> } | null {
+    if (!isSocialAgentSurface(snapshot)) return null;
+    const result = toolResult.result && typeof toolResult.result === 'object'
+        ? toolResult.result as Record<string, any>
+        : null;
+    if (!hasExecutableConfirmationPayload(result)) return null;
+    const payload = result!.confirmation_payload as Record<string, any>;
+    const toolName = String(payload.tool_name || '').trim();
+    const args = payload.args && typeof payload.args === 'object' && !Array.isArray(payload.args)
+        ? payload.args as Record<string, any>
+        : null;
+    if (!toolName || !args) return null;
+    return {
+        id: `${sourceToolCallId}:social-confirmation:${round}`,
+        name: toolName,
+        arguments: args,
+    };
+}
+
 function summarizeContinuationForIntentHistory(continuation: any) {
     if (!continuation || typeof continuation !== 'object') return null;
     const missingEvidence = Array.isArray(continuation.missing_evidence)
@@ -1568,6 +1670,23 @@ function isSocialAgentSurface(snapshot: ChatContextSnapshot): boolean {
         || currentPage === 'x'
         || socialPlatform === 'farcaster'
         || socialPlatform === 'x';
+}
+
+function buildSocialConfirmationToolContext(
+    toolContext: Record<string, any>,
+    snapshot: ChatContextSnapshot,
+): Record<string, any> {
+    const runtimeToolContext = snapshot.runtime?.toolContext && typeof snapshot.runtime.toolContext === 'object'
+        ? snapshot.runtime.toolContext as Record<string, any>
+        : {};
+    return {
+        ...runtimeToolContext,
+        ...(toolContext || {}),
+        __executionGate: (toolContext || {}).__executionGate
+            || runtimeToolContext.__executionGate
+            || resolveExecutionGateContext(snapshot)
+            || { phase: 'execute' },
+    };
 }
 
 function isMutationTaskRouteOwner(owner: string | undefined): boolean {
@@ -2369,6 +2488,7 @@ function buildConfirmationCheckpointAnswer(
         continuation?: any;
     },
     locale: 'en' | 'zh',
+    snapshot?: ChatContextSnapshot | null,
 ): string | null {
     const result = toolResult.result && typeof toolResult.result === 'object'
         ? toolResult.result as Record<string, any>
@@ -2379,6 +2499,14 @@ function buildConfirmationCheckpointAnswer(
         || toolResult.metadata?.confirmationRequired === true
         || toolResult.continuation?.next_action === 'ask_user_confirmation';
     if (!needsConfirmation) return null;
+
+    if (snapshot && isSocialAgentSurface(snapshot) && hasExecutableConfirmationPayload(result)) {
+        return null;
+    }
+
+    if (snapshot && isSocialAgentSurface(snapshot)) {
+        return buildSocialExecutionNotSubmittedAnswer(toolResult, result);
+    }
 
     const summary = cleanConfirmationSummary(result.summary || result._user_message);
     if (summary) return appendConfirmationPrompt(summary, locale);
@@ -2416,6 +2544,77 @@ function buildConfirmationCheckpointAnswer(
     return locale === 'zh'
         ? '操作已准备好，需要你确认后才会执行。回复 confirm 或 execute 后我再执行。'
         : 'Action prepared. It has not been executed yet. Reply confirm or execute and I will execute it.';
+}
+
+function buildClientActionCheckpointAnswer(
+    toolResult: {
+        name?: string;
+        ok?: boolean;
+        result?: any;
+    },
+    locale: 'en' | 'zh',
+    snapshot?: ChatContextSnapshot | null,
+): string | null {
+    const result = toolResult.result && typeof toolResult.result === 'object'
+        ? toolResult.result as Record<string, any>
+        : null;
+    if (!toolResult.ok || !result) return null;
+    const hasClientAction =
+        Boolean(result.__client_action)
+        || result.type === 'client_action'
+        || result.requires_user_confirmation === true;
+    if (!hasClientAction) return null;
+    if (!isExecutionReceiptToolName(String(toolResult.name || ''))) return null;
+
+    if (snapshot && isSocialAgentSurface(snapshot)) {
+        return buildSocialExecutionNotSubmittedAnswer(toolResult, result);
+    }
+    return locale === 'zh'
+        ? '这个操作需要钱包或客户端确认。交易还没有提交，请在 KIKO 里完成。'
+        : 'This action needs a wallet or client confirmation. No transaction has been submitted yet; complete it in KIKO.';
+}
+
+function buildSocialExecutionNotSubmittedAnswer(
+    toolResult: { name?: string; result?: any },
+    result: Record<string, any> | null,
+): string {
+    const toolName = String(toolResult.name || '');
+    const isSwap = toolName === 'prepare_swap_transaction' || toolName === 'execute_swap';
+    const hasClientAction =
+        Boolean(result?.__client_action)
+        || result?.type === 'client_action'
+        || result?.requires_user_confirmation === true;
+    const cleanedSummary = hasClientAction
+        ? null
+        : cleanSocialConfirmationSummary(result?.summary || result?._user_message);
+    return compactShortLines([
+        isSwap ? 'Swap was not submitted.' : 'Action was not submitted.',
+        cleanedSummary,
+        'This social reply cannot complete the wallet/client action. Open KIKO to execute it.',
+    ]);
+}
+
+function hasExecutableConfirmationPayload(result: Record<string, any> | null): boolean {
+    const payload = result?.confirmation_payload;
+    if (!payload || typeof payload !== 'object') return false;
+    const toolName = String(payload.tool_name || '').trim();
+    const actionClass = String(payload.action_class || '').trim();
+    return Boolean(toolName && actionClass && payload.args && typeof payload.args === 'object');
+}
+
+function cleanSocialConfirmationSummary(value: unknown): string | null {
+    const text = normalizeConfirmationField(value);
+    if (!text) return null;
+    return text
+        .replace(/\bPlease reply ["']?(confirm|execute)["']?[^.。]*[.。]?/gi, '')
+        .replace(/\bReply (confirm|execute)[^.。]*[.。]?/gi, '')
+        .replace(/回复\s*(confirm|execute|确认|执行)[^.。]*[.。]?/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim() || null;
+}
+
+function compactShortLines(lines: Array<string | null | undefined>): string {
+    return lines.filter((line): line is string => Boolean(String(line || '').trim())).join('\n');
 }
 
 function cleanConfirmationSummary(value: unknown): string | null {

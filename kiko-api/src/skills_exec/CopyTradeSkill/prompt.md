@@ -6,6 +6,7 @@
    - Before creation succeeds on EVM copy trade, the user must already enable **Auto-Trading Authorization -> EVM** in **Wallet -> Settings**.
    - If the tool returns \`AUTO_TRADING_AUTH_REQUIRED\`, do NOT claim the config was created. Tell the user exactly: open **Wallet -> Settings -> Auto-Trading Authorization -> EVM**, authorize it, then come back and retry.
    - If required params are present, create immediately. Do NOT block creation for optional risk filters.
+   - In X/Farcaster @mention agent mode, a complete explicit "copy/follow this wallet/trader" request is the execution request. If `target_wallet` and `buy_amount_usd` are present and auto-trading authorization is already enabled, create the config in the first reply without asking for a second confirm.
    - Optional pre-flight check: if user asks for safety/quality check (or asks "worth following?"), run `analyze_wallet_pnl` first before creating config.
   - If user has not explicitly requested immediate execution, you may ask one optional question: "Do you want a 30-day PnL check before creating it?" If user declines, create immediately.
    - Optional params (\`min_market_cap_usd\`, \`min_liquidity_usd\`, \`min_target_value_usd\`) should use tool defaults when omitted.
@@ -23,6 +24,7 @@
 3. **Control Actions**:
    - For temporary stops, use \`pause_copy_trade_config\`. High-impact during market volatility.
    - For permanent removal, use \`delete_copy_trade_config\`.
+   - If a control action returns `requires_user_signature` or a client action, do not claim it completed. Tell the user that the signed action must be completed in KIKO; this is a capability blocker, not a confirmation loop.
 
 4. **Risk Disclosure**:
    - Remind users that copy trading carries risks, especially following "snipers" or high-frequency wallets.

@@ -200,6 +200,64 @@ test('hasQuoteModeExecutionAuthorization requires explicit execute gate or match
   }), false);
 });
 
+test('social agent execute gate requests execution without quote confirmation', () => {
+  const context = {
+    pageContext: 'x_agent',
+    currentPage: 'x',
+    allowanceMode: 'confirm',
+    __executionGate: { phase: 'execute' },
+  } as any;
+  const args = {
+    token_in: 'USDC',
+    token_out: 'ETH',
+    amount_in: '2',
+    chain_id: 8453,
+    execute: false,
+  };
+
+  assert.equal(__prepareSwapTest.isSocialAgentExecutionContext(context), true);
+  assert.deepEqual(__prepareSwapTest.resolveSwapExecutionDecision({
+    args,
+    context,
+    fastSwapMode: false,
+    showQuoteBeforeSwap: true,
+    hasExplicitExecutionAuthorization: true,
+  }), {
+    agentSingleTurnExecution: true,
+    quoteBeforeSwapEnabled: false,
+    requireSimulationBeforeExecute: false,
+    executionRequested: true,
+    shouldExecute: true,
+  });
+});
+
+test('web execute=false still returns quote confirmation path', () => {
+  const context = {
+    currentPage: 'wallet',
+    allowanceMode: 'confirm',
+  } as any;
+
+  assert.deepEqual(__prepareSwapTest.resolveSwapExecutionDecision({
+    args: {
+      token_in: 'USDC',
+      token_out: 'ETH',
+      amount_in: '2',
+      chain_id: 8453,
+      execute: false,
+    },
+    context,
+    fastSwapMode: false,
+    showQuoteBeforeSwap: true,
+    hasExplicitExecutionAuthorization: false,
+  }), {
+    agentSingleTurnExecution: false,
+    quoteBeforeSwapEnabled: true,
+    requireSimulationBeforeExecute: true,
+    executionRequested: false,
+    shouldExecute: false,
+  });
+});
+
 test('repairTruncatedEvmAddressFromMessages restores a uniquely matching full address from session content', () => {
   const repaired = __prepareSwapTest.repairTruncatedEvmAddressFromMessages(
     '0x0bc61768132aa1484e2b09301284b7def78a444',

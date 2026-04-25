@@ -118,6 +118,7 @@ export function buildExecutionReceiptDecision(
   if (!isExecutionReceiptToolName(toolName)) return base("unsupported_tool");
   const result = asRecord(toolResult.result);
   if (result?.handled_response === true) return base("handled_response");
+  if (toolResult?.ok && result?.requires_user_signature === true) return base("handled_response");
   if (toolResult?.ok && result?.requires_confirmation === true) return base("confirmation_required");
   if (toolResult?.ok && result?.dryRun === true) return base("dry_run");
   if (!toolResult?.ok) {
